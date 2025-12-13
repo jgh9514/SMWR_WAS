@@ -1,0 +1,40 @@
+# Git
+.git
+.gitignore
+
+# Maven
+target/
+.mvn/
+mvnw
+mvnw.cmd
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+.classpath
+.project
+.settings/
+
+# Logs
+log/
+*.log
+*.gz
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+*.war
+*.jar
+!target/*.jar
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*~
+

@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  # PostgreSQL 데이터베이스
+  postgres:
+    image: postgres:13-alpine
+    container_name: smw-postgres
+    environment:
+      POSTGRES_DB: smw_db
+      POSTGRES_USER: smw_user
+      POSTGRES_PASSWORD: smw_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U smw_user"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - smw-network
+
+  # Spring Boot 애플리케이션
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: smw-app
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_DATASOURCE_URL: jdbc:log4jdbc:postgresql://postgres:5432/smw_db
+      SPRING_DATASOURCE_USERNAME: smw_user
+      SPRING_DATASOURCE_PASSWORD: smw_password
+      SPRING_DATASOURCE_HIKARI_USERNAME: smw_user
+      SPRING_DATASOURCE_HIKARI_PASSWORD: smw_password
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - smw-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+
+networks:
+  smw-network:
+    driver: bridge
+
