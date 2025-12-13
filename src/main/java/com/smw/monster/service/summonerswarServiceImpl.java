@@ -5,11 +5,13 @@ import java.util.List;
 import java.util.Map;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
 
 import com.smw.monster.mapper.summonerswarMapper;
 
 @Service
+@Primary
 public class summonerswarServiceImpl implements summonerswarService {
 	
 	@Autowired

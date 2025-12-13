@@ -36,24 +36,62 @@
     
     <Loggers>
         <!-- Root Logger -->
-        <Root level="debug">
+        <Root level="INFO">
             <AppenderRef ref="Console"/>
             <AppenderRef ref="FileAppender"/>
         </Root>
         
-        <!-- Application Loggers -->
-        <Logger name="com.smw" level="debug" additivity="false">
+        <!-- Spring Framework Loggers -->
+        <Logger name="org.springframework" level="WARN" additivity="false">
+            <AppenderRef ref="Console"/>
+            <AppenderRef ref="FileAppender"/>
+        </Logger>
+        <Logger name="org.springframework.web" level="WARN" additivity="false">
+            <AppenderRef ref="Console"/>
+            <AppenderRef ref="FileAppender"/>
+        </Logger>
+        <Logger name="org.springframework.orm" level="WARN" additivity="false">
+            <AppenderRef ref="Console"/>
+            <AppenderRef ref="FileAppender"/>
+        </Logger>
+        <Logger name="org.springframework.transaction" level="WARN" additivity="false">
+            <AppenderRef ref="Console"/>
+            <AppenderRef ref="FileAppender"/>
+        </Logger>
+        <Logger name="org.springframework.security" level="WARN" additivity="false">
             <AppenderRef ref="Console"/>
             <AppenderRef ref="FileAppender"/>
         </Logger>
         
-        <!-- SQL Loggers - 완전한 쿼리문 출력 -->
-        <Logger name="jdbc.sqlonly" level="debug" additivity="false">
+        <!-- Application Loggers -->
+        <Logger name="com.smw" level="INFO" additivity="false">
             <AppenderRef ref="Console"/>
+            <AppenderRef ref="FileAppender"/>
+        </Logger>
+        <Logger name="com.cf" level="INFO" additivity="false">
+            <AppenderRef ref="Console"/>
+            <AppenderRef ref="FileAppender"/>
+        </Logger>
+        <Logger name="com.admin" level="INFO" additivity="false">
+            <AppenderRef ref="Console"/>
+            <AppenderRef ref="FileAppender"/>
+        </Logger>
+        <Logger name="com.sysconf" level="INFO" additivity="false">
+            <AppenderRef ref="Console"/>
+            <AppenderRef ref="FileAppender"/>
+        </Logger>
+        
+        <!-- Interceptor Loggers - DEBUG 제거 -->
+        <Logger name="com.sysconf.interceptor" level="INFO" additivity="false">
+            <AppenderRef ref="Console"/>
+            <AppenderRef ref="FileAppender"/>
+        </Logger>
+        
+        <!-- SQL Loggers - WARN으로 변경하여 불필요한 로그 제거 -->
+        <Logger name="jdbc.sqlonly" level="WARN" additivity="false">
             <AppenderRef ref="SqlAppender"/>
         </Logger>
-        <Logger name="jdbc.sqltiming" level="debug" additivity="false">
-            <AppenderRef ref="Console"/>
+        <Logger name="jdbc.sqltiming" level="WARN" additivity="false">
             <AppenderRef ref="SqlAppender"/>
         </Logger>
         <Logger name="jdbc.audit" level="warn" additivity="false">
@@ -69,11 +107,15 @@
             <AppenderRef ref="SqlAppender"/>
         </Logger>
         
-        <!-- Hibernate Loggers - 완성된 쿼리만 표시 -->
-        <Logger name="org.hibernate.SQL" level="DEBUG" additivity="false">
+        <!-- Hibernate Loggers - WARN으로 변경하여 불필요한 로그 제거 -->
+        <Logger name="org.hibernate" level="WARN" additivity="false">
+            <AppenderRef ref="Console"/>
+            <AppenderRef ref="FileAppender"/>
+        </Logger>
+        <Logger name="org.hibernate.SQL" level="WARN" additivity="false">
             <AppenderRef ref="Console"/>
         </Logger>
-        <Logger name="org.hibernate.type.descriptor.sql.BasicBinder" level="TRACE" additivity="false">
+        <Logger name="org.hibernate.type.descriptor.sql.BasicBinder" level="WARN" additivity="false">
             <AppenderRef ref="Console"/>
         </Logger>
     </Loggers>

@@ -65,7 +65,7 @@ mybatis:
   type-aliases-package: com.summonerswar
   # mapper location - 바라 볼 xml 파일을 지정합니다.
   config-location: classpath:mybatis/mybatis-config.xml 
-  mapper-locations: classpath*:com/**/mapper/*.xml
+  mapper-locations: classpath*:com/**/mapper/xml/*.xml
   # column name to camel case - 반환 받는 컬럼명을 CamelCase로 받는 설정을 합니다.
   
 server:
@@ -86,12 +86,19 @@ logging:
     org.springframework.boot.autoconfigure: WARN
     org.springframework.boot.autoconfigure.condition: WARN
     org.springframework.boot: WARN
-    # log4jdbc가 완전한 쿼리를 출력하므로 Hibernate 파라미터 바인딩 로깅 비활성화
-    org.hibernate.SQL: DEBUG
+    org.springframework.web: WARN
+    org.springframework.orm: WARN
+    org.springframework.transaction: WARN
+    org.springframework.security: WARN
+    # Hibernate 로깅 비활성화
+    org.hibernate: WARN
+    org.hibernate.SQL: WARN
     org.hibernate.type.descriptor.sql.BasicBinder: WARN
-    # log4jdbc 로거 활성화
-    jdbc.sqlonly: DEBUG
-    jdbc.sqltiming: DEBUG
+    # log4jdbc 로거 - 필요시에만 활성화
+    jdbc.sqlonly: WARN
+    jdbc.sqltiming: WARN
+    # 인터셉터 로깅
+    com.sysconf.interceptor: INFO
 
 smw:
   service-domain: localhost, localhost:3000, jgh9514.github.io

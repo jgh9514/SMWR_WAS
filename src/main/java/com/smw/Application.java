@@ -9,13 +9,15 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.boot.web.servlet.support.SpringBootServletInitializer;
+import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.context.annotation.Bean;
 
 import com.sysconf.config.SessionListener;
 
-@SpringBootApplication(scanBasePackages = "com.smw")
+@SpringBootApplication(scanBasePackages = {"com.smw", "com.sysconf", "com.admin", "com.cf"})
 @EnableCaching
+@MapperScan({"com.smw", "com.admin", "com.cf", "com.sysconf"})
 public class Application extends SpringBootServletInitializer {
 
 	private static final Logger logger = LogManager.getLogger(Application.class);

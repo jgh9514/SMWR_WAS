@@ -14,7 +14,7 @@
 	<properties>
 		<java.version>1.8</java.version>
 		<meven.test.skip>true</meven.test.skip>
-		<spring-boot.repackage.skip>true</spring-boot.repackage.skip>
+		<!-- spring-boot.repackage.skip 제거: 실행 가능한 JAR/WAR 생성을 위해 필요 -->
 	</properties>
 	
 	<dependencies>
@@ -212,6 +212,9 @@
 			<plugin>
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>
+				<configuration>
+					<mainClass>com.smw.Application</mainClass>
+				</configuration>
 			</plugin>
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>

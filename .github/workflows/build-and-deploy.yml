@@ -1,0 +1,87 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:  # 수동 실행도 가능하도록
+
+env:
+  DOCKER_IMAGE: gilhwanjeon/smw-app
+  DOCKER_TAG: ${{ github.sha }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Set up JDK 8
+      uses: actions/setup-java@v3
+      with:
+        java-version: '8'
+        distribution: 'temurin'
+
+    - name: Cache Maven dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.m2
+        key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+        restore-keys: ${{ runner.os }}-m2
+
+    - name: Build with Maven
+      run: mvn clean package -DskipTests
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+
+    - name: Log in to Docker Hub
+      uses: docker/login-action@v2
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+    - name: Extract metadata (tags, labels) for Docker
+      id: meta
+      uses: docker/metadata-action@v4
+      with:
+        images: ${{ env.DOCKER_IMAGE }}
+        tags: |
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
+          type=raw,value=${{ github.run_number }}
+
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v4
+      with:
+        context: .
+        file: ./Dockerfile
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=registry,ref=${{ env.DOCKER_IMAGE }}:latest
+        cache-to: type=inline
+
+    - name: Update Kubernetes deployment YAML
+      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+      run: |
+        # 이미지 태그 추출 (latest 또는 run_number 사용)
+        IMAGE_TAG="v${{ github.run_number }}"
+        # deployment.yaml의 image 태그 업데이트
+        sed -i "s|image: ${{ env.DOCKER_IMAGE }}:.*|image: ${{ env.DOCKER_IMAGE }}:${IMAGE_TAG}|g" k8s/deployment.yaml
+        
+        # 변경사항 확인
+        echo "Updated k8s/deployment.yaml with image tag: ${IMAGE_TAG}"
+        echo "Image: ${{ env.DOCKER_IMAGE }}:${IMAGE_TAG}"
+        
+        # 변경사항이 있는 경우 커밋 (선택사항)
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git diff k8s/deployment.yaml || exit 0
+        git add k8s/deployment.yaml
+        git commit -m "Update deployment image to ${IMAGE_TAG}" || exit 0
+        git push || echo "No changes to commit or push failed"
+
