@@ -78,13 +78,22 @@ jobs:
     - name: Configure SSH
       run: |
         mkdir -p ~/.ssh
-        echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/ec2_key
+        # SSH 키를 파일로 저장 (멀티라인 처리)
+        cat > ~/.ssh/ec2_key << 'KEYEOF'
+        ${{ secrets.EC2_SSH_KEY }}
+        KEYEOF
         chmod 600 ~/.ssh/ec2_key
-        ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+        # EC2 호스트 키 추가
+        ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || true
+        # SSH 키 형식 확인
+        head -1 ~/.ssh/ec2_key
 
     - name: Deploy to Kubernetes via SSH
       run: |
-        ssh -i ~/.ssh/ec2_key -o StrictHostKeyChecking=no ubuntu@${{ secrets.EC2_HOST }} << 'EOF'
+        ssh -i ~/.ssh/ec2_key \
+          -o StrictHostKeyChecking=no \
+          -o UserKnownHostsFile=~/.ssh/known_hosts \
+          ubuntu@${{ secrets.EC2_HOST }} << 'EOF'
           set -e
           cd ~/SMWR_WAS
           
