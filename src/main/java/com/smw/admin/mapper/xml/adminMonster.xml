@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smw.admin.mapper.AdminMonsterMapper">
+
+	<!-- 몬스터 목록 조회 (관리자용) -->
+	<select id="selectMonsterList" parameterType="java.util.HashMap" resultType="java.util.HashMap">
+		SELECT 
+			monster_id,
+			monster_elemental,
+			kr_name,
+			un_name,
+			star_type,
+			star,
+			arousal_type,
+			image_url,
+			leader_id,
+			crt_user_id,
+			crt_date,
+			upt_user_id,
+			upt_date
+		FROM monster
+		WHERE 1=1
+		<if test="monster_id != null and monster_id != ''">
+			AND monster_id LIKE '%' || #{monster_id} || '%'
+		</if>
+		<if test="kr_name != null and kr_name != ''">
+			AND kr_name LIKE '%' || #{kr_name} || '%'
+		</if>
+		<if test="un_name != null and un_name != ''">
+			AND un_name LIKE '%' || #{un_name} || '%'
+		</if>
+		<if test="monster_elemental != null and monster_elemental != ''">
+			AND monster_elemental = #{monster_elemental}
+		</if>
+		<if test="star != null and star != ''">
+			AND star = #{star}
+		</if>
+		<if test="arousal_type != null and arousal_type != ''">
+			AND arousal_type = #{arousal_type}
+		</if>
+		ORDER BY 
+			<choose>
+				<when test="orderBy != null and orderBy != ''">
+					<if test="orderBy == 'monster_id'">monster_id</if>
+					<if test="orderBy == 'kr_name'">kr_name</if>
+					<if test="orderBy == 'star'">star</if>
+					<if test="orderBy == 'crt_date'">crt_date</if>
+				</when>
+				<otherwise>
+					CAST(monster_id AS INTEGER) ASC
+				</otherwise>
+			</choose>
+		<if test="orderDir != null and orderDir != ''">
+			<if test="orderDir == 'desc'">DESC</if>
+			<if test="orderDir == 'asc'">ASC</if>
+		</if>
+		<if test="limit != null and limit != ''">
+			LIMIT #{limit}
+		</if>
+		<if test="offset != null and offset != ''">
+			OFFSET #{offset}
+		</if>
+	</select>
+
+	<!-- 몬스터 총 개수 조회 -->
+	<select id="selectMonsterCount" parameterType="java.util.HashMap" resultType="int">
+		SELECT COUNT(*)
+		FROM monster
+		WHERE 1=1
+		<if test="monster_id != null and monster_id != ''">
+			AND monster_id LIKE '%' || #{monster_id} || '%'
+		</if>
+		<if test="kr_name != null and kr_name != ''">
+			AND kr_name LIKE '%' || #{kr_name} || '%'
+		</if>
+		<if test="un_name != null and un_name != ''">
+			AND un_name LIKE '%' || #{un_name} || '%'
+		</if>
+		<if test="monster_elemental != null and monster_elemental != ''">
+			AND monster_elemental = #{monster_elemental}
+		</if>
+		<if test="star != null and star != ''">
+			AND star = #{star}
+		</if>
+		<if test="arousal_type != null and arousal_type != ''">
+			AND arousal_type = #{arousal_type}
+		</if>
+	</select>
+
+	<!-- 몬스터 상세 정보 조회 -->
+	<select id="selectMonsterDetail" parameterType="string" resultType="java.util.HashMap">
+		SELECT 
+			monster_id,
+			monster_elemental,
+			kr_name,
+			un_name,
+			star_type,
+			star,
+			arousal_type,
+			image_url,
+			leader_id,
+			crt_user_id,
+			crt_date,
+			upt_user_id,
+			upt_date
+		FROM monster
+		WHERE monster_id = #{monster_id}
+	</select>
+
+	<!-- 몬스터 정보 수정 -->
+	<update id="updateMonster" parameterType="java.util.HashMap">
+		UPDATE monster
+		SET 
+			<if test="monster_elemental != null">
+				monster_elemental = #{monster_elemental},
+			</if>
+			<if test="kr_name != null">
+				kr_name = #{kr_name},
+			</if>
+			<if test="un_name != null">
+				un_name = #{un_name},
+			</if>
+			<if test="star_type != null">
+				star_type = #{star_type},
+			</if>
+			<if test="star != null">
+				star = #{star},
+			</if>
+			<if test="arousal_type != null">
+				arousal_type = #{arousal_type},
+			</if>
+			<if test="image_url != null">
+				image_url = #{image_url},
+			</if>
+			<if test="leader_id != null">
+				leader_id = #{leader_id},
+			</if>
+			upt_user_id = #{upt_user_id},
+			upt_date = CURRENT_TIMESTAMP
+		WHERE monster_id = #{monster_id}
+	</update>
+
+</mapper>
+

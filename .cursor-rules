@@ -1,0 +1,81 @@
+# [CURSOR PROJECT RULES]
+
+# --------------------------------------
+# 주요 백엔드 소스 코드
+#
+# 패키지 구조 설명:
+# - com.cf.* (Common Function) - 공통 기능 (comm: 공통 API, login: 로그인, community: 커뮤니티, notification: 알림)
+# - com.admin.* - 시스템 관리 기능 (api, batch, code, log, menu, multilang, page, role, user)
+# - com.smw.* (Summoners War) - 게임 관련 도메인 (admin: 게임 관리자, auth: 인증, guild: 길드, monster: 몬스터, rta: RTA)
+# - com.sysconf.* (System Configuration) - 시스템 환경설정 (cache, config, constants, filter, interceptor, security, servlet, util, mapper)
+#
+# 각 도메인별 package (com/cf, com/admin, com/smw, com/sysconf 등) 하위에
+# - rest/          : 컨트롤러(API 진입점, 요청·응답 처리) - 기본 사용
+# - service/       : 서비스(비즈니스 로직)
+# - mapper/        : MyBatis Mapper 인터페이스(DB 쿼리 연결)
+# - mapper/xml/    : MyBatis Mapper XML(SQL문 정의)
+# - repository/    : JPA/Hibernate Repository(DB 접근)
+# - dto/           : 데이터 전달 객체
+#   - dto/request/ : 요청 DTO
+#   - dto/response/: 응답 DTO
+# - entity/        : Entity(DB 테이블 매핑)
+# - batch/         : 배치 작업 관련 (entity, mapper, repository, rest 포함)
+# 기타 필요에 따라 util, constants, interceptor 등 존재
+# --------------------------------------
+/src/main/java/com/**/rest/
+/src/main/java/com/**/service/
+/src/main/java/com/**/mapper/
+/src/main/java/com/**/mapper/xml/
+/src/main/java/com/**/repository/
+/src/main/java/com/**/dto/
+/src/main/java/com/**/dto/request/
+/src/main/java/com/**/dto/response/
+/src/main/java/com/**/entity/
+/src/main/java/com/**/batch/
+/src/main/java/com/sysconf/**
+
+# 2. 리소스
+# - application.yml: SpringBoot 설정 파일
+# - db/migration/ : DB 마이그레이션 SQL 스크립트
+# - mybatis/      : MyBatis 설정(XML)
+# - static/       : 정적 파일(이미지 등)
+# - META-INF/     : 메타데이터, Spring 추가 설정
+/src/main/resources/
+/src/main/resources/application.yml
+/src/main/resources/db/migration/*.sql
+/src/main/resources/log4j2.xml
+/src/main/resources/log4jdbc.log4j2.properties
+/src/main/resources/mybatis/*.xml
+/src/main/resources/static/**
+/src/main/resources/META-INF/**
+
+# 3. 뷰 및 웹
+# - views/ : 웹 뷰 파일(HTML, JSP 등)
+# - lib/   : 웹 관련 추가 라이브러리
+/src/main/webapp/WEB-INF/views/*.html
+/src/main/webapp/WEB-INF/lib/
+
+# 4. 테스트 및 빌드
+# - test/   : 테스트 코드
+# - target/ : 빌드 산출물
+/src/test/**
+/target/**
+
+# 5. 스크립트 및 문서
+# - alter_*, db_schema_* .sql : DB 스크립트
+# - API_*.md, SWARFARM_*.md : API 문서 및 운영 가이드
+/alter_*.sql
+/db_schema_*.sql
+/API_*.md
+/SWARFARM_*.md
+
+# 6. Maven
+/pom.xml
+/mvnw
+/mvnw.cmd
+
+# 7. 애플리케이션 진입점
+# - com/Application.java : 메인 애플리케이션 (scanBasePackages = "com")
+# - com/smw/Application.java : SMW 애플리케이션 (scanBasePackages = "com.smw")
+/src/main/java/com/Application.java
+/src/main/java/com/smw/Application.java

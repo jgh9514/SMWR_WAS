@@ -1,0 +1,105 @@
+
+---
+# local development server
+spring:
+  application:
+    name: smw
+  profiles:
+    active: dev
+  batch:
+    job:
+      enabled: true
+  datasource:
+    driver-class-name: net.sf.log4jdbc.sql.jdbcapi.DriverSpy
+    url: jdbc:log4jdbc:postgresql://pg1101.gabiadb.com:5432/jgh9514
+    hikari:
+      username: jgh9514
+      password: jgh1596123
+      maximum-pool-size: 5 # 최대 연결 개수
+      minimum-idle: 2      # 최소 유휴 연결 개수
+      idle-timeout: 30000   # 유휴 연결 유지 시간 (밀리초)
+      max-lifetime: 1800000 # 연결 최대 수명 (밀리초)
+      connection-timeout: 30000 # 연결 대기 시간 (밀리초)
+  servlet:
+    multipart.max-file-size: 20MB
+    max-request-size: 25MB
+  mail:
+    enabled: true
+    host: smtp.gmail.com
+    port: 587
+    username: jgh9514@gmail.com
+    password: 'dkpgthimeykzielq'  # Gmail 앱 비밀번호
+    from: jgh9514@gmail.com
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+            required: true
+          connectiontimeout: 10000
+          timeout: 10000
+          writetimeout: 10000
+          ssl:
+            trust: "*"
+          # Gmail 보안 설정
+          enable: true
+        debug: true  # 메일 발송 디버그 로그 활성화
+  jpa:
+    properties:
+      hibernate:
+        show_sql: true
+        format_sql: true
+        use_sql_comments: true
+        # 완성된 쿼리만 표시
+        type: trace
+        # PostgreSQL Dialect 사용
+        dialect: org.hibernate.dialect.PostgreSQL95Dialect
+        # SQL 파라미터 바인딩 로깅 비활성화 (log4jdbc가 처리)
+        log:
+          use_sql_comments: true
+
+
+mybatis:
+  # default Package location - resultType의 Alias를 지정합니다.
+  type-aliases-package: com.summonerswar
+  # mapper location - 바라 볼 xml 파일을 지정합니다.
+  config-location: classpath:mybatis/mybatis-config.xml 
+  mapper-locations: classpath*:com/**/mapper/*.xml
+  # column name to camel case - 반환 받는 컬럼명을 CamelCase로 받는 설정을 합니다.
+  
+server:
+  port: 8080
+  tomcat:
+    min-spare-threads: 40
+  servlet:
+    session:
+      timeout: 3600
+      cookie:
+        http-only: true
+      
+# Log4j2 설정은 log4j2.xml 파일에서 관리됩니다.
+# logging 설정은 제거하고 log4j2.xml에서 관리하도록 변경
+
+logging:
+  level:
+    org.springframework.boot.autoconfigure: WARN
+    org.springframework.boot.autoconfigure.condition: WARN
+    org.springframework.boot: WARN
+    # log4jdbc가 완전한 쿼리를 출력하므로 Hibernate 파라미터 바인딩 로깅 비활성화
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql.BasicBinder: WARN
+    # log4jdbc 로거 활성화
+    jdbc.sqlonly: DEBUG
+    jdbc.sqltiming: DEBUG
+
+smw:
+  service-domain: localhost, localhost:3000, jgh9514.github.io
+  globalDblinkNm: SMW_DBLINK
+  front-url: http://localhost:3000
+  server-url: http://localhost:8080
+  cookie-live-time: 600 # 쿠키 유효시간 10분
+  cookie-domain: jgh9514.github.io
+  rate-limit:
+    max-requests: 100 # 1분당 최대 요청 수
+    window-seconds: 60 # 시간 윈도우 (초)

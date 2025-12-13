@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Configuration status="WARN">
+    <Properties>
+        <Property name="LOG_PATTERN">%d{yyyy-MM-dd HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg%n</Property>
+        <Property name="LOG_FILE_PATH">${sys:user.dir}/log/test.log</Property>
+    </Properties>
+    
+    <Appenders>
+        <!-- Console Appender -->
+        <Console name="Console" target="SYSTEM_OUT">
+            <PatternLayout pattern="${LOG_PATTERN}"/>
+        </Console>
+        
+        <!-- File Appender -->
+        <RollingFile name="FileAppender" fileName="${LOG_FILE_PATH}"
+                     filePattern="${LOG_FILE_PATH}.%d{yyyy-MM-dd}-%i.gz">
+            <PatternLayout pattern="${LOG_PATTERN}"/>
+            <Policies>
+                <TimeBasedTriggeringPolicy/>
+                <SizeBasedTriggeringPolicy size="10MB"/>
+            </Policies>
+            <DefaultRolloverStrategy max="7"/>
+        </RollingFile>
+        
+        <!-- SQL Logging Appender -->
+        <RollingFile name="SqlAppender" fileName="${sys:user.dir}/log/sql.log"
+                     filePattern="${sys:user.dir}/log/sql.log.%d{yyyy-MM-dd}-%i.gz">
+            <PatternLayout pattern="${LOG_PATTERN}"/>
+            <Policies>
+                <TimeBasedTriggeringPolicy/>
+                <SizeBasedTriggeringPolicy size="10MB"/>
+            </Policies>
+            <DefaultRolloverStrategy max="7"/>
+        </RollingFile>
+    </Appenders>
+    
+    <Loggers>
+        <!-- Root Logger -->
+        <Root level="debug">
+            <AppenderRef ref="Console"/>
+            <AppenderRef ref="FileAppender"/>
+        </Root>
+        
+        <!-- Application Loggers -->
+        <Logger name="com.smw" level="debug" additivity="false">
+            <AppenderRef ref="Console"/>
+            <AppenderRef ref="FileAppender"/>
+        </Logger>
+        
+        <!-- SQL Loggers - 완전한 쿼리문 출력 -->
+        <Logger name="jdbc.sqlonly" level="debug" additivity="false">
+            <AppenderRef ref="Console"/>
+            <AppenderRef ref="SqlAppender"/>
+        </Logger>
+        <Logger name="jdbc.sqltiming" level="debug" additivity="false">
+            <AppenderRef ref="Console"/>
+            <AppenderRef ref="SqlAppender"/>
+        </Logger>
+        <Logger name="jdbc.audit" level="warn" additivity="false">
+            <AppenderRef ref="SqlAppender"/>
+        </Logger>
+        <Logger name="jdbc.resultset" level="warn" additivity="false">
+            <AppenderRef ref="SqlAppender"/>
+        </Logger>
+        <Logger name="jdbc.resultsettable" level="warn" additivity="false">
+            <AppenderRef ref="SqlAppender"/>
+        </Logger>
+        <Logger name="jdbc.connection" level="warn" additivity="false">
+            <AppenderRef ref="SqlAppender"/>
+        </Logger>
+        
+        <!-- Hibernate Loggers - 완성된 쿼리만 표시 -->
+        <Logger name="org.hibernate.SQL" level="DEBUG" additivity="false">
+            <AppenderRef ref="Console"/>
+        </Logger>
+        <Logger name="org.hibernate.type.descriptor.sql.BasicBinder" level="TRACE" additivity="false">
+            <AppenderRef ref="Console"/>
+        </Logger>
+    </Loggers>
+</Configuration> 

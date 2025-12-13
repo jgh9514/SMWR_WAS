@@ -1,0 +1,361 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.admin.role.mapper.RoleMapper">
+
+	<select id="selectRoleList" parameterType="sqlMap" resultType="sqlMap">
+		/* selectRoleList */
+		select tcr.role_id
+			  ,tcr.sort_sn
+			  ,tcr.role_nm
+			  ,tcr.usg_yn
+			  ,tcr.del_yn
+			  ,tcr.crt_user_id
+			  ,tcr.crt_date
+			  ,tcr.upt_user_id
+			  ,(select tu.user_nm
+			  	  from SYS_USER tu
+			  	 where tu.user_id = tcr.upt_user_id) as user_nm
+			  ,fn_get_time(tcr.upt_date, #{tzon_cd},'DA', '-') as upt_date
+			  ,fn_get_time(tcr.upt_date, #{tzon_cd},'TS', ':') as upt_tm
+			  ,(select count(1)
+		          from SYS_USER_ROLE tur
+	             where tur.role_id = tcr.role_id) as usr_cnt
+			  ,(select distinct tcm.mlang_id
+			  	  from sys_mlang tcm
+			  	 where tcm.role_id = tcr.role_id
+			  	   and tcm.lang_cd = #{sess_lang_cd}
+			  	   and tcm.del_yn = 'N') as mlang_id
+		  from SYS_ROLE tcr
+		 where tcr.del_yn = 'N'
+		<if test='role_nm != null and role_nm != ""'>
+		   and tcr.role_nm like concat('%', trim(#{role_nm}), '%')
+		</if>
+		<if test='usg_yn != null and usg_yn != ""'>
+		   and tcr.usg_yn = #{usg_yn}
+		</if>
+		 order by tcr.sort_sn asc
+	</select>
+	
+	<select id="selectRolekey" parameterType="sqlMap" resultType="string">
+		/* selectRolekey */
+		select concat('R',coalesce(fn_lpad((max(substr(role_id, 2, 5)) + 1), 4, '0'),'0001')) as "key"
+		  from SYS_ROLE 
+		 where role_id != 'RZZZZ'
+	</select>
+	
+	<insert id="insertRoleList" parameterType="sqlMap">
+		/* insertRoleList */
+		insert into SYS_ROLE (
+			role_id, 
+			sort_sn, 
+			role_nm,
+			usg_yn,
+			del_yn, 
+			crt_user_id,
+			crt_date,
+			upt_user_id, 
+			upt_date
+		) values(
+			#{role_id}, 
+			CAST (#{sort_sn} AS BIGINT),
+			#{role_nm},
+			#{usg_yn},
+			'N', 
+			#{sess_user_id}, 
+			CURRENT_TIMESTAMP,
+			#{sess_user_id}, 
+			CURRENT_TIMESTAMP
+		)
+	</insert>
+	
+	<update id="updateRoleList" parameterType="sqlMap">
+        /* updateRoleList */
+        update SYS_ROLE set
+        	 sort_sn = CAST (#{sort_sn} AS BIGINT)
+        	,role_nm = #{role_nm}
+        	,usg_yn = #{usg_yn}
+        	,upt_user_id = #{sess_user_id}
+        	,upt_date = CURRENT_TIMESTAMP
+        where role_id = #{role_id}
+    </update>
+    
+    <update id="deleteRoleList" parameterType="sqlMap">
+        /* deleteRoleList */
+        update SYS_ROLE set
+        	 del_yn = 'Y'
+        	,usg_yn = 'N'
+        	,upt_user_id = #{sess_user_id}
+        	,upt_date = CURRENT_TIMESTAMP
+        where role_id = #{role_id}
+    </update>
+    
+	<select id="selectUserRoleList" parameterType="sqlMap" resultType="sqlMap">
+		/* selectUserRoleList */
+		select 
+			 tur.user_id
+			,tur.role_id
+			,tcr.role_nm
+			,tu.user_nm
+			,case when  tur.usg_yn  = 'Y' and tcr.usg_yn  = 'Y' and tu.usg_yn  = 'Y' then 'Y'
+				  else 'N'
+			 end as usg_yn
+			,tur.crt_user_id
+			,tur.crt_date
+			,tur.upt_user_id
+			,tur.upt_date
+			,'N' as row_status
+		from SYS_USER_ROLE tur
+		left outer join SYS_ROLE tcr on tur.role_id  = tcr.role_id 
+		left outer join SYS_USER tu on tur.user_id  = tu.user_id
+		where tur.del_yn  = 'N'
+			and tcr.del_yn  = 'N'
+			and tu.del_yn  = 'N'
+		<if test='usr_id != null and usr_id != ""'>
+			and tur.user_id = #{usr_id}
+		</if>
+		<if test='user_nm != null and user_nm != ""'>
+			and tu.user_nm like concat('%', trim(#{user_nm}), '%')
+		</if>
+		<if test='role_nm != null and role_nm != ""'>
+			and tcr.role_nm like concat('%', trim(#{role_nm}), '%')
+		</if>
+		order by tcr.sort_sn asc, tur.user_id asc
+	</select>
+	
+	<update id="updateUserRoleList" parameterType="sqlMap">
+		merge 
+		 into SYS_USER_ROLE as tur
+		using (select 1 as dual) as b
+		   on (		tur.user_id 	= #{sess_user_id} 
+		   		and tur.role_id = #{role_id} )
+		 when matched then     
+   update set usg_yn 		= #{usg_yn}
+     		 ,del_yn 		= #{del_yn} 
+			 ,upt_user_id 	= #{sess_user_id}
+			 ,upt_date 		= to_char(sysdate, 'YYYYMMDDHH24MISS') /* YYYY-MM-DD HH:MI:SS:nnn */
+		 when not matched then	    
+       insert (
+        	  user_id 
+        	 ,role_id 
+        	 ,usg_yn 
+        	 ,del_yn 
+        	 ,crt_user_id 
+        	 ,crt_date
+        	 ,upt_user_id 
+        	 ,upt_date
+			  ) 
+	   values (
+			  #{sess_user_id}
+			 ,#{role_id}
+			 ,#{usg_yn}
+			 ,#{del_yn}
+			 ,#{sess_user_id}
+			 ,to_char(sysdate, 'YYYYMMDDHH24MISS') /* YYYY-MM-DD HH:MI:SS:nnn */
+			 ,#{sess_user_id}
+			 ,to_char(sysdate, 'YYYYMMDDHH24MISS') /* YYYY-MM-DD HH:MI:SS:nnn */
+		      ); 
+	</update>
+	
+	<select id="selectRoleListMeunRole" parameterType="sqlMap" resultType="sqlMap">
+		/* selectRoleListMeunRole */
+		select 
+			tcr.role_id
+			,tcr.sort_sn
+			,tcr.role_nm
+			,tcr.usg_yn
+			,tcr.del_yn
+		from SYS_ROLE tcr
+		where tcr.del_yn = 'N'
+		  and tcr.usg_yn = 'Y'
+		order by tcr.sort_sn asc
+	</select>
+	
+	<select id="selectMenuListMeunRole" parameterType="sqlMap" resultType="sqlMap">
+		/* selectMenuListMeunRole */
+		select aa.menu_id,
+		       aa.up_menu_id,
+		       aa.mlang_txt as menu_nm,
+		       to_char(level) as menu_lv,
+		       case when ab.menu_id is not null then 1 else 0 end as rolechk
+		  from (select tcm.menu_id,
+		               tcm.up_menu_id,
+		               tcm2.mlang_txt,
+		               tcm2.mlang_abbr_txt,
+		               tcm.page_id,
+		               tcm.usg_yn,
+		               tcm.srt_sn
+		          from SYS_MENU tcm
+		          join sys_mlang tcm2 on tcm.menu_id = tcm2.mlang_id
+		                               and tcm2.mlang_tp_cd = 'MN'
+		                               and tcm2.lang_cd = 'KO'
+		         where tcm.usg_yn = 'Y'
+		           and tcm.cmpy_cd = '1000'
+		       ) aa
+		  left join SYS_MENU_ROLE ab on aa.menu_id = ab.menu_id
+		                              and ab.usg_yn = 'Y'
+		                              and ab.del_yn = 'N'
+		                              and ab.role_id = #{role_id}
+		 start with aa.up_menu_id is null
+		 connect by prior aa.menu_id = aa.up_menu_id
+		 order siblings by aa.srt_sn
+	</select>
+	
+    <insert id="updateMeunRoleList" parameterType="sqlMap">
+     	/* updateMeunRoleList */
+		merge into SYS_MENU_ROLE as a
+		using (select 1 as dual) as b
+		on ( a.menu_id = #{menu_id} and a.role_id = #{role_id})
+		when matched then     
+     	update set usg_yn = #{usg_yn}
+     		   ,del_yn = #{del_yn} 
+			   ,upt_user_id = #{sess_user_id}
+			   ,upt_date = CURRENT_TIMESTAMP
+		when not matched then	    
+       insert (
+        	 menu_id 
+        	,role_id 
+        	,usg_yn 
+        	,del_yn 
+        	,crt_user_id 
+        	,crt_date
+        	,upt_user_id 
+        	,upt_date
+		) values (
+			 #{menu_id}
+			,#{role_id}
+			,#{usg_yn}
+			,#{del_yn}
+			,#{sess_user_id}
+			,CURRENT_TIMESTAMP
+			,#{sess_user_id}
+			,CURRENT_TIMESTAMP
+		); 
+    </insert>
+    
+    <update id="deleteMeunRoleList" parameterType="sqlMap">
+        /* deleteMeunRoleList */
+        update SYS_MENU_ROLE set
+  			 del_yn = 'Y'
+        	,usg_yn = 'N'
+        	,upt_user_id = #{sess_user_id}
+        	,upt_date = to_char(sysdate, 'YYYYMMDDHH24MISS') /* YYYY-MM-DD HH:MI:SS:nnn */
+        where role_id = #{role_id}
+    </update>
+    
+    <select id="selectApiListApiRole" parameterType="sqlMap" resultType="sqlMap">
+		/* selectApiListApiRole */
+		select
+			tca.api_id 
+			,tca.bsns_cd 
+			,tca.dtl_bsns_cd 
+			,fn_get_cd('CO00000001',tca.bsns_cd,'NM',#{sess_lang_cd}) as bsns_cd_nm
+			,fn_get_cd('CO00000008',tca.dtl_bsns_cd,'NM',#{sess_lang_cd}) as dtl_bsns_cd_nm
+			,tca.api_txt
+			,tca.api_url 
+		from
+			SYS_API tca 
+			left outer join SYS_API_ROLE tcb on tca.api_id = tcb.api_id and tcb.role_id = #{role_id} and tcb.usg_yn = 'Y'
+			left outer join SYS_CD cd1 on tca.bsns_cd = cd1.cd and cd1.cd_grp_no = 'CO00000001'
+			left outer join SYS_CD cd2 on tca.dtl_bsns_cd = cd2.cd and cd2.cd_grp_no = 'CO00000008'
+		where 1=1
+			<if test='bsns_cd != null and bsns_cd != ""'>
+				and tca.bsns_cd  = #{bsns_cd}
+			</if>
+			<if test='dtl_bsns_cd != null and dtl_bsns_cd != ""'>
+				and tca.dtl_bsns_cd = #{dtl_bsns_cd}
+			</if>
+			<if test='api_txt != null and api_txt != ""'>
+				and tca.api_txt like concat('%', trim(#{api_txt}), '%')
+			</if>
+			<if test='api_url != null and api_url != ""'>
+				and tca.api_url like concat('%', trim(#{api_url}), '%')
+			</if>
+		order by cd1.srt_sn, cd2.srt_sn, tca.api_id asc 
+	</select>
+	
+	<insert id="insertApiRoleList" parameterType="sqlMap">
+		/* insertApiRoleList */
+		merge into SYS_API_ROLE as a
+		using (select 1 as dual) as b
+		   on (a.api_id = #{api_id} and a.role_id = #{role_id})
+		 when matched then
+		update set usg_yn = 'Y'
+			   ,upt_user_id = #{sess_user_id}
+			   ,upt_date = CURRENT_TIMESTAMP
+		when not matched then			    		 		
+        insert (
+        	 api_id
+        	,role_id 
+        	,usg_yn
+        	,crt_user_id 
+        	,crt_date
+        	,upt_user_id 
+        	,upt_date
+		) values (
+			 #{api_id}
+			,#{role_id}
+			,'Y'
+			,#{sess_user_id}
+			,CURRENT_TIMESTAMP
+			,#{sess_user_id}
+			,CURRENT_TIMESTAMP
+		);
+    </insert>
+    
+    <insert id="insertUserRole" parameterType="sqlMap">
+		/* insertUserRole */
+		insert into SYS_USER_ROLE (
+			   user_id
+			  ,role_id
+			  ,usg_yn
+			  ,del_yn
+			  ,crt_date
+			  ,upt_date
+			  ,crt_user_id
+			  ,upt_user_id
+		) values (
+			   #{sess_user_id}
+			  ,#{role_id}
+			  ,'Y'
+			  ,'N'
+			  ,to_char(sysdate, 'YYYYMMDDHH24MISS') /* YYYY-MM-DD HH:MI:SS:nnn */
+			  ,to_char(sysdate, 'YYYYMMDDHH24MISS') /* YYYY-MM-DD HH:MI:SS:nnn */
+			  ,#{sess_user_id}
+			  ,#{sess_user_id}
+		)
+	</insert>
+    
+    
+	 <!-- 메뉴 권한 -->
+	
+	<insert id="upsertMenuRole" parameterType="sqlMap">
+		/* upsertMenuRole - 메뉴 권한 추가/갱신 */
+		MERGE INTO SYS_MENU_ROLE t
+			USING (SELECT #{menu_id} as menu_id
+			            , #{role_id} as role_id
+			            , #{usg_yn} as usg_yn
+			         FROM dual
+			      ) s
+               ON (t.menu_id = s.menu_id AND t.role_id = s.role_id)
+             WHEN MATCHED THEN
+           UPDATE
+              SET t.usg_yn 		= s.usg_yn
+                , t.del_yn 		= 'N'
+                , t.upt_user_id	= #{sess_user_id}
+                , t.upt_date 		= CURRENT_TIMESTAMP
+             WHEN NOT MATCHED THEN
+           INSERT (
+                  menu_id
+                , role_id
+                , usg_yn
+                , crt_user_id
+                , upt_user_id
+           ) VALUES (
+                  s.menu_id
+                , s.role_id
+                , s.usg_yn
+				, #{sess_user_id}
+				, #{sess_user_id}
+           )
+    </insert>
+</mapper>
