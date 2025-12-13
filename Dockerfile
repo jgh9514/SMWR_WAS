@@ -1,6 +1,6 @@
 # 멀티 스테이지 빌드
 # Stage 1: Maven 빌드
-FROM maven:3.8-openjdk-8-slim AS build
+FROM maven:3.8-eclipse-temurin-8 AS build
 
 WORKDIR /app
 
@@ -27,7 +27,7 @@ RUN cd /app/target && \
     fi
 
 # Stage 2: 실행 환경
-FROM eclipse-temurin:8-jre-alpine
+FROM eclipse-temurin:8-jre
 
 WORKDIR /app
 
