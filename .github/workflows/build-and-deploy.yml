@@ -108,26 +108,41 @@ jobs:
           # 최신 코드 가져오기
           git pull origin main || git fetch origin && git reset --hard origin/main
           
+          # kubeconfig 설정 확인
+          if [ ! -f ~/.kube/config ]; then
+            mkdir -p ~/.kube
+            sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config || sudo cp /root/.kube/config ~/.kube/config
+            sudo chown ubuntu:ubuntu ~/.kube/config
+            sed -i 's/127.0.0.1/localhost/g' ~/.kube/config || true
+          fi
+          
+          # KUBECONFIG 환경 변수 설정
+          export KUBECONFIG=~/.kube/config
+          
+          # kubectl이 작동하는지 확인
+          kubectl cluster-info || echo "kubectl cluster-info failed, trying with sudo"
+          sudo kubectl cluster-info || echo "kubectl not available"
+          
           # 최신 이미지로 업데이트
           sed -i 's|image: gilhwanjeon/smw-app:.*|image: gilhwanjeon/smw-app:latest|g' k8s/deployment.yaml
           
           # PostgreSQL 배포
-          kubectl apply -f k8s/postgres.yaml
+          kubectl apply -f k8s/postgres.yaml || sudo kubectl apply -f k8s/postgres.yaml
           
           # 백엔드 배포
-          kubectl apply -f k8s/deployment.yaml
+          kubectl apply -f k8s/deployment.yaml || sudo kubectl apply -f k8s/deployment.yaml
           
           # Pod 재시작
-          kubectl rollout restart deployment/smw-app 2>/dev/null || kubectl delete pod -l app=smw-app
+          kubectl rollout restart deployment/smw-app 2>/dev/null || kubectl delete pod -l app=smw-app || sudo kubectl delete pod -l app=smw-app
           
           # 배포 상태 확인
           echo "=== 배포 상태 ==="
-          kubectl get pods
-          kubectl get services
+          kubectl get pods || sudo kubectl get pods
+          kubectl get services || sudo kubectl get services
           
           # 배포 완료 대기
           sleep 10
-          kubectl get pods
+          kubectl get pods || sudo kubectl get pods
         EOF
 
 
