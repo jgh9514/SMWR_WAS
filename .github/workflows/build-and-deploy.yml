@@ -66,24 +66,59 @@ jobs:
         cache-from: type=registry,ref=${{ env.DOCKER_IMAGE }}:latest
         cache-to: type=inline
 
-    - name: Update Kubernetes deployment YAML
-      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+  deploy-to-k8s:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Configure SSH
       run: |
-        # 이미지 태그 추출 (latest 또는 run_number 사용)
-        IMAGE_TAG="v${{ github.run_number }}"
-        # deployment.yaml의 image 태그 업데이트
-        sed -i "s|image: ${{ env.DOCKER_IMAGE }}:.*|image: ${{ env.DOCKER_IMAGE }}:${IMAGE_TAG}|g" k8s/deployment.yaml
-        
-        # 변경사항 확인
-        echo "Updated k8s/deployment.yaml with image tag: ${IMAGE_TAG}"
-        echo "Image: ${{ env.DOCKER_IMAGE }}:${IMAGE_TAG}"
-        
-        # 변경사항이 있는 경우 커밋 (선택사항)
-        git config --local user.email "action@github.com"
-        git config --local user.name "GitHub Action"
-        git diff k8s/deployment.yaml || exit 0
-        git add k8s/deployment.yaml
-        git commit -m "Update deployment image to ${IMAGE_TAG}" || exit 0
-        git push || echo "No changes to commit or push failed"
+        mkdir -p ~/.ssh
+        echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/ec2_key
+        chmod 600 ~/.ssh/ec2_key
+        ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+
+    - name: Deploy to Kubernetes via SSH
+      run: |
+        ssh -i ~/.ssh/ec2_key -o StrictHostKeyChecking=no ubuntu@${{ secrets.EC2_HOST }} << 'EOF'
+          set -e
+          cd ~/SMWR_WAS
+          
+          # Git 저장소 설정 (없는 경우)
+          if [ ! -d .git ]; then
+            git init
+            git remote add origin https://github.com/jgh9514/SMWR_WAS.git || true
+            git fetch origin
+            git checkout -b main origin/main || git reset --hard origin/main
+          fi
+          
+          # 최신 코드 가져오기
+          git pull origin main || git fetch origin && git reset --hard origin/main
+          
+          # 최신 이미지로 업데이트
+          sed -i 's|image: gilhwanjeon/smw-app:.*|image: gilhwanjeon/smw-app:latest|g' k8s/deployment.yaml
+          
+          # PostgreSQL 배포
+          kubectl apply -f k8s/postgres.yaml
+          
+          # 백엔드 배포
+          kubectl apply -f k8s/deployment.yaml
+          
+          # Pod 재시작
+          kubectl rollout restart deployment/smw-app 2>/dev/null || kubectl delete pod -l app=smw-app
+          
+          # 배포 상태 확인
+          echo "=== 배포 상태 ==="
+          kubectl get pods
+          kubectl get services
+          
+          # 배포 완료 대기
+          sleep 10
+          kubectl get pods
+        EOF
 
 
