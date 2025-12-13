@@ -7,11 +7,13 @@ import java.util.Map;
 import javax.servlet.http.HttpSession;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
 
 import com.cf.notification.mapper.NotificationMapper;
 
 @Service
+@Primary
 public class NotificationServiceImpl implements NotificationService {
 
 	@Autowired

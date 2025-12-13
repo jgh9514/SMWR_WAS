@@ -2,6 +2,7 @@ package com.smw.rta.service;
 
 import com.smw.rta.mapper.RtaMapper;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -9,6 +10,7 @@ import java.util.Map;
 import java.util.HashMap;
 
 @Service
+@Primary
 public class RtaServiceImpl implements RtaService {
 
     @Autowired

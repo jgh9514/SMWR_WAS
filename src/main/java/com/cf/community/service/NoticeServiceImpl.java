@@ -5,12 +5,14 @@ import java.util.List;
 import java.util.Map;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.cf.community.mapper.NoticeMapper;
 
 @Service
+@Primary
 public class NoticeServiceImpl implements NoticeService {
 
 	@Autowired

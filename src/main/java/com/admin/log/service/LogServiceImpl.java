@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
 
 import com.admin.batch.mapper.BatchMapper;
@@ -12,6 +13,7 @@ import com.admin.log.mapper.LogMapper;
 import com.sysconf.util.DateUtil;
 
 @Service
+@Primary
 public class LogServiceImpl implements LogService {
 
 	@Autowired

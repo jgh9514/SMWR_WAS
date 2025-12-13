@@ -4,6 +4,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
@@ -15,6 +16,7 @@ import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 @Service
+@Primary
 public class SwarfarmLeaderSkillServiceImpl implements SwarfarmLeaderSkillService {
     
     private static final String SWARFARM_API_BASE_URL = "https://swarfarm.com/api/v2/leader-skills/";

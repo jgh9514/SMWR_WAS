@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -16,6 +17,7 @@ import com.sysconf.util.DateUtil;
 import com.sysconf.util.StringUtil;
 
 @Service
+@Primary
 public class MultiLangServiceImpl implements MultiLangService {
 
     @Autowired

@@ -85,3 +85,42 @@ jobs:
         git commit -m "Update deployment image to ${IMAGE_TAG}" || exit 0
         git push || echo "No changes to commit or push failed"
 
+  deploy-to-k8s:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Set up kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'latest'
+
+    - name: Configure kubectl for k3s
+      run: |
+        mkdir -p ~/.kube
+        echo "${{ secrets.KUBECONFIG }}" > ~/.kube/config
+        chmod 600 ~/.kube/config
+
+    - name: Deploy to Kubernetes
+      run: |
+        # 이미지 태그 설정
+        IMAGE_TAG="v${{ github.run_number }}"
+        
+        # deployment.yaml의 image 태그 업데이트
+        sed -i "s|image: ${{ env.DOCKER_IMAGE }}:.*|image: ${{ env.DOCKER_IMAGE }}:${IMAGE_TAG}|g" k8s/deployment.yaml
+        
+        # PostgreSQL 배포 (이미 배포되어 있으면 스킵)
+        kubectl apply -f k8s/postgres.yaml || echo "PostgreSQL already deployed"
+        
+        # 백엔드 배포
+        kubectl apply -f k8s/deployment.yaml
+        
+        # 배포 상태 확인
+        kubectl rollout status deployment/smw-app --timeout=300s || true
+        kubectl get pods
+        kubectl get services
+

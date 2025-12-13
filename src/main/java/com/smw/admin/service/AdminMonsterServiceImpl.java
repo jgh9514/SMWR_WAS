@@ -4,11 +4,13 @@ import java.util.List;
 import java.util.Map;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
 
 import com.smw.admin.mapper.AdminMonsterMapper;
 
 @Service
+@Primary
 public class AdminMonsterServiceImpl implements AdminMonsterService {
 
 	@Autowired

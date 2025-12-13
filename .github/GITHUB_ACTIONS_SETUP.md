@@ -11,9 +11,18 @@ GitHub 저장소에서 다음 Secrets를 설정해야 합니다:
 
 - **DOCKER_USERNAME**: Docker Hub 사용자명 (예: `gilhwanjeon`)
 - **DOCKER_PASSWORD**: Docker Hub 비밀번호 또는 Access Token
+- **KUBECONFIG**: Kubernetes 클러스터 설정 파일 내용
 
 > **참고**: Docker Hub Access Token 사용을 권장합니다.
 > - Docker Hub > Account Settings > Security > New Access Token
+
+> **KUBECONFIG 설정 방법**:
+> 1. EC2 인스턴스에 SSH 접속
+> 2. 다음 명령어 실행:
+>    ```bash
+>    cat ~/.kube/config
+>    ```
+> 3. 출력된 전체 내용을 복사하여 GitHub Secrets의 `KUBECONFIG`에 저장
 
 ## 2. GitHub Actions 권한 설정
 
@@ -39,6 +48,9 @@ GitHub 저장소에서 다음 Secrets를 설정해야 합니다:
 6. ✅ Docker Hub에 푸시
    - 태그: `{branch}-{sha}`, `latest`, `{run_number}`
 7. ✅ Kubernetes deployment.yaml 자동 업데이트 및 커밋
+8. ✅ **Kubernetes에 자동 배포** (새로 추가됨)
+   - PostgreSQL 배포 (없는 경우)
+   - 백엔드 애플리케이션 배포
 
 ### 이미지 태그 형식
 - `gilhwanjeon/smw-app:main-abc1234` (브랜치-SHA)
@@ -47,21 +59,23 @@ GitHub 저장소에서 다음 Secrets를 설정해야 합니다:
 
 ## 4. Kubernetes 배포
 
-### 자동 배포 (권장)
-워크플로우가 자동으로 `k8s/deployment.yaml`을 업데이트하고 커밋합니다.
-이후 수동으로 Kubernetes에 적용:
+### 자동 배포 (권장) ✅
+워크플로우가 자동으로:
+1. `k8s/deployment.yaml`을 업데이트하고 커밋
+2. **Kubernetes 클러스터에 자동 배포**
+   - PostgreSQL 배포 (없는 경우)
+   - 백엔드 애플리케이션 배포
 
-```bash
-kubectl apply -f k8s/deployment.yaml
-```
+**수동 작업 불필요!** 코드를 푸시하면 자동으로 배포됩니다.
 
-### 수동 배포
-자동 커밋이 실패하거나 수동으로 배포하려면:
+### 수동 배포 (필요시)
+자동 배포가 실패하거나 수동으로 배포하려면:
 
 ```bash
 # 1. 최신 이미지 태그 확인 (GitHub Actions 로그에서)
 # 2. k8s/deployment.yaml의 image 태그 수정
 # 3. Kubernetes에 적용
+kubectl apply -f k8s/postgres.yaml
 kubectl apply -f k8s/deployment.yaml
 ```
 

@@ -1,0 +1,22 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: smwr-front-ingress
+  annotations:
+    # Minikube Ingress 컨트롤러에 필요한 어노테이션
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  rules:
+  - host: "smwr.local"  # 사용할 도메인 이름 (원하는대로 변경 가능)
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            # 웹서버 서비스 이름 (smwr-front-service)
+            name: smwr-front-service 
+            # 웹서버 서비스 포트 (80)
+            port:
+              number: 80
+

@@ -1,0 +1,22 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: smwr-backend-ingress
+  annotations:
+    # Minikube Ingress 컨트롤러에 필요한 어노테이션
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  rules:
+  - host: "api.smwr.local"  # 백엔드 API 도메인
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            # 백엔드 서비스 이름 (smw-app-service)
+            name: smw-app-service 
+            # 백엔드 서비스 포트 (8080)
+            port:
+              number: 8080
+

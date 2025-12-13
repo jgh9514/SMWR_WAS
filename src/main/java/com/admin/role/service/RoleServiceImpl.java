@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -14,6 +15,7 @@ import com.sysconf.constants.Constant;
 import com.sysconf.util.DateUtil;
 
 @Service
+@Primary
 public class RoleServiceImpl implements RoleService {
 
 	@Autowired

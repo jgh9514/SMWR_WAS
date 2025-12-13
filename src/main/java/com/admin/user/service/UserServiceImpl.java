@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
 
 import com.admin.role.mapper.RoleMapper;
@@ -13,6 +14,7 @@ import com.admin.user.mapper.UserMapper;
 import com.sysconf.util.DateUtil;
 
 @Service
+@Primary
 public class UserServiceImpl implements UserService {
 
 	@Autowired 
