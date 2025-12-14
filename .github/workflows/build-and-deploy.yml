@@ -108,38 +108,85 @@ jobs:
           # 최신 코드 가져오기
           git pull origin main || git fetch origin && git reset --hard origin/main
           
-          # kubeconfig 설정 확인
-          if [ ! -f ~/.kube/config ]; then
-            mkdir -p ~/.kube
-            sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config || sudo cp /root/.kube/config ~/.kube/config
+          # kubeconfig 설정 확인 및 수정
+          mkdir -p ~/.kube
+          
+          # K3s kubeconfig 파일 찾기 및 복사
+          if [ -f /etc/rancher/k3s/k3s.yaml ]; then
+            sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config
             sudo chown ubuntu:ubuntu ~/.kube/config
-            sed -i 's/127.0.0.1/localhost/g' ~/.kube/config || true
+            # server 주소를 EC2 인스턴스의 내부 IP로 변경
+            SERVER_IP=$(hostname -I | awk '{print $1}')
+            sed -i "s|server: https://127.0.0.1:6443|server: https://${SERVER_IP}:6443|g" ~/.kube/config || \
+            sed -i "s|server: https://localhost:6443|server: https://${SERVER_IP}:6443|g" ~/.kube/config
+          elif [ -f /root/.kube/config ]; then
+            sudo cp /root/.kube/config ~/.kube/config
+            sudo chown ubuntu:ubuntu ~/.kube/config
+            SERVER_IP=$(hostname -I | awk '{print $1}')
+            sed -i "s|server: https://127.0.0.1:6443|server: https://${SERVER_IP}:6443|g" ~/.kube/config || \
+            sed -i "s|server: https://localhost:6443|server: https://${SERVER_IP}:6443|g" ~/.kube/config
+          else
+            echo "ERROR: kubeconfig 파일을 찾을 수 없습니다."
+            echo "K3s 클러스터가 설치되어 있는지 확인하세요."
+            exit 1
           fi
           
           # KUBECONFIG 환경 변수 설정
           export KUBECONFIG=~/.kube/config
           
+          # K3s 클러스터 상태 확인
+          echo "=== K3s 클러스터 상태 확인 ==="
+          sudo systemctl status k3s --no-pager || echo "K3s 서비스 상태 확인 실패"
+          
           # kubectl이 작동하는지 확인
-          kubectl cluster-info || echo "kubectl cluster-info failed, trying with sudo"
-          sudo kubectl cluster-info || echo "kubectl not available"
+          echo "=== kubectl 클러스터 정보 확인 ==="
+          kubectl cluster-info --request-timeout=10s || {
+            echo "kubectl cluster-info 실패, kubeconfig 확인 중..."
+            cat ~/.kube/config | grep -A 2 "server:" || echo "kubeconfig 파일 내용 확인 실패"
+            exit 1
+          }
+          
+          # kubectl 버전 및 노드 확인
+          kubectl version --client --request-timeout=10s || echo "kubectl version 확인 실패"
+          kubectl get nodes --request-timeout=10s || {
+            echo "노드 확인 실패"
+            exit 1
+          }
           
           # 최신 이미지로 업데이트
           sed -i 's|image: gilhwanjeon/smw-app:.*|image: gilhwanjeon/smw-app:latest|g' k8s/deployment.yaml
           
           # 백엔드 배포
-          kubectl apply -f k8s/deployment.yaml || sudo kubectl apply -f k8s/deployment.yaml
+          echo "=== 배포 시작 ==="
+          kubectl apply -f k8s/deployment.yaml --request-timeout=30s || {
+            echo "배포 실패, 재시도 중..."
+            kubectl apply -f k8s/deployment.yaml --request-timeout=30s || exit 1
+          }
           
-          # Pod 재시작
-          kubectl rollout restart deployment/smw-app 2>/dev/null || kubectl delete pod -l app=smw-app || sudo kubectl delete pod -l app=smw-app
+          # Pod 재시작 (배포가 이미 존재하는 경우)
+          echo "=== Pod 재시작 ==="
+          kubectl rollout restart deployment/smw-app --request-timeout=30s 2>/dev/null || \
+          kubectl delete pod -l app=smw-app --request-timeout=30s 2>/dev/null || \
+          echo "Pod 재시작 스킵 (새 배포일 수 있음)"
           
           # 배포 상태 확인
-          echo "=== 배포 상태 ==="
-          kubectl get pods || sudo kubectl get pods
-          kubectl get services || sudo kubectl get services
+          echo "=== 배포 상태 확인 ==="
+          kubectl get pods --request-timeout=10s || exit 1
+          kubectl get services --request-timeout=10s || exit 1
           
-          # 배포 완료 대기
-          sleep 10
-          kubectl get pods || sudo kubectl get pods
+          # 배포 완료 대기 및 상태 재확인
+          echo "=== 배포 완료 대기 (30초) ==="
+          sleep 30
+          kubectl get pods --request-timeout=10s || exit 1
+          
+          # Pod 로그 확인 (최근 20줄)
+          echo "=== Pod 로그 확인 ==="
+          POD_NAME=$(kubectl get pods -l app=smw-app -o jsonpath='{.items[0].metadata.name}' --request-timeout=10s)
+          if [ -n "$POD_NAME" ]; then
+            kubectl logs --tail=20 $POD_NAME --request-timeout=10s || echo "로그 확인 실패"
+          else
+            echo "Pod를 찾을 수 없습니다."
+          fi
         EOF
 
 
