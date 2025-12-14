@@ -39,6 +39,10 @@ Thumbs.db
 application-local.yml
 application-dev.yml
 
+# Kubernetes Secrets (민감한 정보 포함)
+k8s/secret.yaml
+k8s/*-secret.yaml
+
 # Temporary files
 *.tmp
 *.bak
