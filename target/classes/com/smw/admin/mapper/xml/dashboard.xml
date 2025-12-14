@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smw.admin.mapper.DashboardMapper">
+
+	<!-- 대시보드 통계 조회 -->
+	<select id="selectDashboardStats" resultType="java.util.HashMap">
+		SELECT 
+			-- 오늘 가입한 사람 수
+			(SELECT COUNT(*) 
+			 FROM SYS_USER 
+			 WHERE crt_date::date = CURRENT_DATE
+			   AND del_yn = 'N') AS todaySignups,
+			
+			-- 전체 사용자 수
+			(SELECT COUNT(*) 
+			 FROM SYS_USER 
+			 WHERE del_yn = 'N') AS totalUsers,
+			
+			-- 오늘 로그인 사용자 수 (중복 제거)
+			(SELECT COUNT(DISTINCT user_id) 
+			 FROM sys_user_login_log 
+			 WHERE TO_DATE(SUBSTRING(login_date, 1, 8), 'YYYYMMDD') = CURRENT_DATE) AS todayLogins,
+			
+			-- 오늘 게시글 수 (공지사항 + 문의)
+			(SELECT COUNT(*) 
+			 FROM NOTICE 
+			 WHERE crt_date::date = CURRENT_DATE
+			   AND del_yn = 'N'
+			) + 
+			(SELECT COUNT(*) 
+			 FROM INQUIRY 
+			 WHERE crt_date::date = CURRENT_DATE
+			   AND del_yn = 'N'
+			) AS todayPosts,
+			
+			-- 오늘 길드 신청건
+			(SELECT COUNT(*) 
+			 FROM GUILD_APPLICATION 
+			 WHERE crt_date::date = CURRENT_DATE) AS todayGuildApplications
+	</select>
+
+	<!-- 일별 통계 데이터 조회 (최근 7일) -->
+	<select id="selectDailyStats" resultType="java.util.HashMap">
+		SELECT 
+			TO_CHAR(date_range.date, 'YYYY-MM-DD') AS date,
+			COALESCE(user_stats.signups, 0) AS signups,
+			COALESCE(login_stats.logins, 0) AS logins,
+			COALESCE(post_stats.posts, 0) AS posts,
+			COALESCE(guild_stats.guildApplications, 0) AS guildApplications
+		FROM (
+			SELECT (CURRENT_DATE - INTERVAL '1 day' * seq.seq) AS date
+			FROM (
+				SELECT 0 AS seq UNION SELECT 1 UNION SELECT 2 UNION SELECT 3 
+				UNION SELECT 4 UNION SELECT 5 UNION SELECT 6
+			) seq
+		) date_range
+		LEFT JOIN (
+			SELECT 
+				crt_date::date AS date,
+				COUNT(*) AS signups
+			FROM SYS_USER
+			WHERE crt_date >= CURRENT_DATE - INTERVAL '7 days'
+			  AND del_yn = 'N'
+			GROUP BY crt_date::date
+		) user_stats ON date_range.date = user_stats.date
+		LEFT JOIN (
+			SELECT 
+				TO_DATE(SUBSTRING(login_date, 1, 8), 'YYYYMMDD') AS date,
+				COUNT(DISTINCT user_id) AS logins
+			FROM sys_user_login_log
+			WHERE TO_DATE(SUBSTRING(login_date, 1, 8), 'YYYYMMDD') >= CURRENT_DATE - INTERVAL '7 days'
+			GROUP BY TO_DATE(SUBSTRING(login_date, 1, 8), 'YYYYMMDD')
+		) login_stats ON date_range.date = login_stats.date
+		LEFT JOIN (
+			SELECT 
+				crt_date::date AS date,
+				COUNT(*) AS posts
+			FROM (
+				SELECT crt_date FROM NOTICE
+				WHERE crt_date >= CURRENT_DATE - INTERVAL '7 days'
+				  AND del_yn = 'N'
+				UNION ALL
+				SELECT crt_date FROM INQUIRY
+				WHERE crt_date >= CURRENT_DATE - INTERVAL '7 days'
+				  AND del_yn = 'N'
+			) combined_posts
+			GROUP BY crt_date::date
+		) post_stats ON date_range.date = post_stats.date
+		LEFT JOIN (
+			SELECT 
+				crt_date::date AS date,
+				COUNT(*) AS guildApplications
+			FROM GUILD_APPLICATION
+			WHERE crt_date >= CURRENT_DATE - INTERVAL '7 days'
+			GROUP BY crt_date::date
+		) guild_stats ON date_range.date = guild_stats.date
+		ORDER BY date_range.date DESC
+	</select>
+
+</mapper>
+

@@ -1,0 +1,193 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.admin.user.mapper.UserMapper">
+
+	<!-- 사용자 등록 -->
+	<insert id="insertUserDtl" parameterType="sqlMap">
+		/* insertUserDtl */
+		insert into SYS_USER (
+			user_id
+			,user_nm
+			,user_pw
+			,usg_yn
+			,del_yn
+			,lang_cd
+			,siege_view_scope
+			,crt_user_id
+			,crt_date
+			,upt_user_id
+			,upt_date
+		) values(
+			#{user_id}
+			,#{user_name}
+			,#{user_pw}
+			,COALESCE(#{usg_yn}, 'Y')
+			,COALESCE(#{del_yn}, 'N')
+			,#{lang_cd}
+			,COALESCE(#{siege_view_scope}, 'C')
+			,#{user_id}
+			,CURRENT_TIMESTAMP
+			,#{user_id}
+			,CURRENT_TIMESTAMP
+		)
+	</insert>
+
+	<!-- 점령전 조회 범위 업데이트 -->
+	<update id="updateSiegeViewScope" parameterType="sqlMap">
+		/* updateSiegeViewScope */
+		UPDATE SYS_USER
+		SET siege_view_scope = #{siege_view_scope}
+		   ,upt_user_id = #{sess_user_id}
+		   ,upt_date = CURRENT_TIMESTAMP
+		WHERE user_id = #{sess_user_id}
+	</update>
+
+	<!-- 사용자 정보 조회 -->
+	<select id="selectUserInfo" parameterType="sqlMap" resultType="sqlMap">
+		/* selectUserInfo */
+		SELECT 
+			user_id,
+			user_pw,
+			user_nm,
+			usg_yn,
+			del_yn,
+			lang_cd,
+			siege_view_scope
+		FROM SYS_USER
+		WHERE user_id = #{user_id}
+		  AND del_yn = 'N'
+	</select>
+
+	<!-- 사용자 목록 조회 -->
+	<select id="selectUserList" parameterType="sqlMap" resultType="sqlMap">
+		/* selectUserList */
+		SELECT 
+			user_id,
+			user_nm,
+			usg_yn,
+			del_yn,
+			lang_cd
+		FROM SYS_USER
+		WHERE 1=1
+		<if test="user_id != null and user_id != ''">
+			AND user_id LIKE '%' || #{user_id} || '%'
+		</if>
+		<if test="user_nm != null and user_nm != ''">
+			AND user_nm LIKE '%' || #{user_nm} || '%'
+		</if>
+		<if test="usg_yn != null and usg_yn != ''">
+			AND usg_yn = #{usg_yn}
+		</if>
+		<if test="del_yn != null and del_yn != ''">
+			AND del_yn = #{del_yn}
+		</if>
+		ORDER BY user_id ASC
+	</select>
+
+	<!-- 사용자 상세 조회 -->
+	<select id="selectUserDtl" parameterType="sqlMap" resultType="sqlMap">
+		/* selectUserDtl */
+		SELECT 
+			user_id,
+			user_nm,
+			user_pw,
+			usg_yn,
+			del_yn,
+			lang_cd,
+			dvc_id,
+			siege_view_scope,
+			crt_user_id,
+			crt_date,
+			upt_user_id,
+			upt_date
+		FROM SYS_USER
+		WHERE user_id = #{sess_user_id}
+	</select>
+
+	<!-- 사용자 수정 -->
+	<update id="updateUserDtl" parameterType="sqlMap">
+		/* updateUserDtl */
+		UPDATE SYS_USER
+		SET user_nm = #{user_nm}
+		   ,usg_yn = #{usg_yn}
+		   ,del_yn = #{del_yn}
+		   ,lang_cd = #{lang_cd}
+		   ,upt_user_id = #{sess_user_id}
+		   ,upt_date = CURRENT_TIMESTAMP
+		WHERE user_id = #{user_id}
+	</update>
+
+	<!-- 사용자 목록 수정 (사용/삭제 여부) -->
+	<update id="updateUserList" parameterType="sqlMap">
+		/* updateUserList */
+		UPDATE SYS_USER
+		SET usg_yn = #{usg_yn}
+		   ,del_yn = #{del_yn}
+		   ,upt_user_id = #{sess_user_id}
+		   ,upt_date = CURRENT_TIMESTAMP
+		WHERE user_id = #{user_id}
+	</update>
+
+	<!-- 비밀번호 재설정 -->
+	<update id="saveResetPassword" parameterType="sqlMap">
+		/* saveResetPassword */
+		UPDATE SYS_USER
+		SET user_pw = #{enc_pwd}
+		   ,upt_user_id = #{sess_user_id}
+		   ,upt_date = CURRENT_TIMESTAMP
+		WHERE user_id = #{user_id}
+	</update>
+
+	<!-- 디바이스 ID 업데이트 -->
+	<update id="updateDvcId" parameterType="sqlMap">
+		/* updateDvcId */
+		UPDATE SYS_USER
+		SET dvc_id = #{dvc_id}
+		   ,upt_user_id = #{sess_user_id}
+		   ,upt_date = CURRENT_TIMESTAMP
+		WHERE user_id = #{user_id}
+	</update>
+
+	<!-- 로그인 로그 등록 -->
+	<insert id="insertUserLoginLog" parameterType="sqlMap">
+		/* insertUserLoginLog */
+		INSERT INTO SYS_USER_LOGIN_LOG (
+			user_id,
+			login_date,
+			ip_addr,
+			lang_cd
+		) VALUES (
+			#{user_id},
+			#{login_date},
+			#{ip_addr},
+			#{lang_cd}
+		)
+	</insert>
+
+	<!-- 마지막 로그인 이력 조회 -->
+	<select id="selectLastLoginHst" parameterType="sqlMap" resultType="sqlMap">
+		/* selectLastLoginHst */
+		SELECT 
+			user_log_sn,
+			user_id,
+			login_date,
+			ip_addr,
+			lang_cd
+		FROM SYS_USER_LOGIN_LOG
+		WHERE user_id = #{user_id}
+		ORDER BY login_date DESC
+		LIMIT 1
+	</select>
+
+	<!-- 언어 코드 업데이트 -->
+	<update id="updateLangCd" parameterType="sqlMap">
+		/* updateLangCd */
+		UPDATE SYS_USER
+		SET lang_cd = #{lang_cd}
+		   ,upt_user_id = #{sess_user_id}
+		   ,upt_date = CURRENT_TIMESTAMP
+		WHERE user_id = #{sess_user_id}
+	</update>
+
+</mapper>
+

@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smw.monster.mapper.SwarfarmDungeonMapper">
+
+    <!-- 던전 정보 저장 또는 업데이트 -->
+    <insert id="upsertDungeon" parameterType="sqlMap">
+        INSERT INTO public.dungeon_master (
+            dungeon_id,
+            enabled,
+            name,
+            slug,
+            category,
+            icon,
+            icon_path,
+            swarfarm_url,
+            last_sync_date,
+            crt_user_id,
+            crt_date,
+            upt_user_id,
+            upt_date
+        ) VALUES (
+            #{dungeon_id},
+            COALESCE(#{enabled}, true),
+            #{name},
+            #{slug},
+            #{category},
+            #{icon},
+            #{icon_path},
+            #{swarfarm_url},
+            CURRENT_TIMESTAMP,
+            COALESCE(#{crt_user_id}, 'SYSTEM'),
+            CURRENT_TIMESTAMP,
+            COALESCE(#{upt_user_id}, 'SYSTEM'),
+            CURRENT_TIMESTAMP
+        )
+        ON CONFLICT (dungeon_id) 
+        DO UPDATE SET
+            enabled = EXCLUDED.enabled,
+            name = EXCLUDED.name,
+            slug = EXCLUDED.slug,
+            category = EXCLUDED.category,
+            icon = EXCLUDED.icon,
+            icon_path = EXCLUDED.icon_path,
+            swarfarm_url = EXCLUDED.swarfarm_url,
+            last_sync_date = CURRENT_TIMESTAMP,
+            upt_user_id = COALESCE(EXCLUDED.upt_user_id, 'SYSTEM'),
+            upt_date = CURRENT_TIMESTAMP
+    </insert>
+
+    <!-- Dungeon ID로 던전 존재 여부 확인 -->
+    <select id="countByDungeonId" parameterType="Integer" resultType="Integer">
+        SELECT COUNT(*)
+        FROM public.dungeon_master
+        WHERE dungeon_id = #{dungeon_id}
+    </select>
+
+    <!-- 던전 레벨 삭제 -->
+    <delete id="deleteDungeonLevels" parameterType="Integer">
+        DELETE FROM public.dungeon_levels
+        WHERE dungeon_id = #{dungeon_id}
+    </delete>
+
+    <!-- 던전 레벨 저장 -->
+    <insert id="insertDungeonLevel" parameterType="sqlMap">
+        INSERT INTO public.dungeon_levels (
+            dungeon_id,
+            level_id,
+            crt_date
+        ) VALUES (
+            #{dungeon_id},
+            #{level_id},
+            CURRENT_TIMESTAMP
+        )
+        ON CONFLICT (dungeon_id, level_id) DO NOTHING
+    </insert>
+
+</mapper>
+

@@ -1,0 +1,225 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smw.monster.mapper.SwarfarmMonsterMapper">
+
+    <!-- 몬스터 정보 저장 또는 업데이트 -->
+    <insert id="upsertMonster" parameterType="sqlMap">
+        INSERT INTO public.monster (
+            monster_id,
+            swarfarm_id,
+            com2us_id,
+            family_id,
+            skill_group_id,
+            bestiary_slug,
+            monster_elemental,
+            kr_name,
+            un_name,
+            star_type,
+            star,
+            arousal_type,
+            image_url,
+            image_filename,
+            archetype,
+            base_stars,
+            natural_stars,
+            obtainable,
+            can_awaken,
+            awaken_level,
+            awaken_bonus,
+            skill_ups_to_max,
+            fusion_food,
+            homunculus,
+            base_hp,
+            base_attack,
+            base_defense,
+            speed,
+            crit_rate,
+            crit_damage,
+            resistance,
+            accuracy,
+            raw_hp,
+            raw_attack,
+            raw_defense,
+            max_lvl_hp,
+            max_lvl_attack,
+            max_lvl_defense,
+            awakens_from_id,
+            awakens_to_id,
+            transforms_to_id,
+            swarfarm_url,
+            last_sync_date,
+            crt_user_id,
+            crt_date,
+            upt_user_id,
+            upt_date
+        ) VALUES (
+            #{monster_id},
+            #{swarfarm_id},
+            #{com2us_id},
+            #{family_id},
+            #{skill_group_id},
+            #{bestiary_slug},
+            #{monster_elemental},
+            #{kr_name},
+            #{un_name},
+            COALESCE(#{star_type}, 'Normal'),
+            #{star},
+            COALESCE(#{arousal_type}, 'Normal'),
+            #{image_url},
+            #{image_filename},
+            #{archetype},
+            #{base_stars},
+            #{natural_stars},
+            COALESCE(#{obtainable}, true),
+            COALESCE(#{can_awaken}, false),
+            COALESCE(#{awaken_level}, 0),
+            #{awaken_bonus},
+            #{skill_ups_to_max},
+            COALESCE(#{fusion_food}, false),
+            COALESCE(#{homunculus}, false),
+            #{base_hp},
+            #{base_attack},
+            #{base_defense},
+            #{speed},
+            #{crit_rate},
+            #{crit_damage},
+            #{resistance},
+            #{accuracy},
+            #{raw_hp},
+            #{raw_attack},
+            #{raw_defense},
+            #{max_lvl_hp},
+            #{max_lvl_attack},
+            #{max_lvl_defense},
+            #{awakens_from_id},
+            #{awakens_to_id},
+            #{transforms_to_id},
+            #{swarfarm_url},
+            CURRENT_TIMESTAMP,
+            COALESCE(#{crt_user_id}, 'SYSTEM'),
+            CURRENT_TIMESTAMP,
+            COALESCE(#{upt_user_id}, 'SYSTEM'),
+            CURRENT_TIMESTAMP
+        )
+        ON CONFLICT (monster_id) 
+        DO UPDATE SET
+            swarfarm_id = EXCLUDED.swarfarm_id,
+            com2us_id = EXCLUDED.com2us_id,
+            family_id = EXCLUDED.family_id,
+            skill_group_id = EXCLUDED.skill_group_id,
+            bestiary_slug = EXCLUDED.bestiary_slug,
+            monster_elemental = EXCLUDED.monster_elemental,
+            kr_name = EXCLUDED.kr_name,
+            un_name = EXCLUDED.un_name,
+            star_type = EXCLUDED.star_type,
+            star = EXCLUDED.star,
+            arousal_type = EXCLUDED.arousal_type,
+            image_url = EXCLUDED.image_url,
+            image_filename = EXCLUDED.image_filename,
+            archetype = EXCLUDED.archetype,
+            base_stars = EXCLUDED.base_stars,
+            natural_stars = EXCLUDED.natural_stars,
+            obtainable = EXCLUDED.obtainable,
+            can_awaken = EXCLUDED.can_awaken,
+            awaken_level = EXCLUDED.awaken_level,
+            awaken_bonus = EXCLUDED.awaken_bonus,
+            skill_ups_to_max = EXCLUDED.skill_ups_to_max,
+            fusion_food = EXCLUDED.fusion_food,
+            homunculus = EXCLUDED.homunculus,
+            base_hp = EXCLUDED.base_hp,
+            base_attack = EXCLUDED.base_attack,
+            base_defense = EXCLUDED.base_defense,
+            speed = EXCLUDED.speed,
+            crit_rate = EXCLUDED.crit_rate,
+            crit_damage = EXCLUDED.crit_damage,
+            resistance = EXCLUDED.resistance,
+            accuracy = EXCLUDED.accuracy,
+            raw_hp = EXCLUDED.raw_hp,
+            raw_attack = EXCLUDED.raw_attack,
+            raw_defense = EXCLUDED.raw_defense,
+            max_lvl_hp = EXCLUDED.max_lvl_hp,
+            max_lvl_attack = EXCLUDED.max_lvl_attack,
+            max_lvl_defense = EXCLUDED.max_lvl_defense,
+            awakens_from_id = EXCLUDED.awakens_from_id,
+            awakens_to_id = EXCLUDED.awakens_to_id,
+            transforms_to_id = EXCLUDED.transforms_to_id,
+            swarfarm_url = EXCLUDED.swarfarm_url,
+            last_sync_date = CURRENT_TIMESTAMP,
+            upt_user_id = COALESCE(EXCLUDED.upt_user_id, 'SYSTEM'),
+            upt_date = CURRENT_TIMESTAMP
+    </insert>
+
+    <!-- Swarfarm ID로 몬스터 존재 여부 확인 -->
+    <select id="countBySwarfarmId" parameterType="Integer" resultType="Integer">
+        SELECT COUNT(*)
+        FROM public.monster
+        WHERE swarfarm_id = #{swarfarm_id}
+    </select>
+    
+    <!-- Swarfarm ID로 monster_id 찾기 -->
+    <select id="findMonsterIdBySwarfarmId" parameterType="Integer" resultType="String">
+        SELECT monster_id
+        FROM public.monster
+        WHERE swarfarm_id = #{swarfarm_id}
+        LIMIT 1
+    </select>
+    
+    <!-- 모든 Swarfarm ID 목록 조회 (성능 최적화용) -->
+    <select id="selectAllSwarfarmIds" resultType="Integer">
+        SELECT swarfarm_id
+        FROM public.monster
+        WHERE swarfarm_id IS NOT NULL
+    </select>
+
+    <!-- 몬스터 스킬 삭제 (monster_id로) -->
+    <delete id="deleteMonsterSkillsByMonsterId" parameterType="String">
+        DELETE FROM public.monster_skills
+        WHERE monster_id = #{monster_id}
+    </delete>
+
+    <!-- 몬스터 스킬 저장 -->
+    <insert id="insertMonsterSkill" parameterType="sqlMap">
+        INSERT INTO public.monster_skills (
+            monster_id,
+            skill_id,
+            skill_order,
+            crt_date
+        ) VALUES (
+            #{monster_id},
+            #{skill_id},
+            #{skill_order},
+            CURRENT_TIMESTAMP
+        )
+        ON CONFLICT (monster_id, skill_id, skill_order) DO NOTHING
+    </insert>
+
+    <!-- 몬스터 획득 경로 삭제 (monster_id로) -->
+    <delete id="deleteMonsterSourcesByMonsterId" parameterType="String">
+        DELETE FROM public.monster_sources
+        WHERE monster_id = #{monster_id}
+    </delete>
+
+    <!-- 몬스터 획득 경로 저장 -->
+    <insert id="insertMonsterSource" parameterType="sqlMap">
+        INSERT INTO public.monster_sources (
+            monster_id,
+            source_id,
+            source_name,
+            source_description,
+            farmable_source,
+            source_order,
+            crt_date
+        ) VALUES (
+            #{monster_id},
+            #{source_id},
+            #{source_name},
+            #{source_description},
+            COALESCE(#{farmable_source}, false),
+            #{source_order},
+            CURRENT_TIMESTAMP
+        )
+        ON CONFLICT (monster_id, source_id, source_order) DO NOTHING
+    </insert>
+
+</mapper>
+

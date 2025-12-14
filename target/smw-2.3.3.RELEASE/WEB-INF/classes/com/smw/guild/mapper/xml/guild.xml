@@ -1,0 +1,566 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smw.guild.mapper.GuildMapper">
+
+	<!-- 길드 목록 조회 -->
+	<select id="selectGuildList" parameterType="sqlMap" resultType="sqlMap">
+		/* selectGuildList */
+		select g.guild_id
+			  ,g.guild_name
+			  ,g.guild_description
+			  ,g.guild_leader_id
+			  ,(select tu.user_nm
+			  	  from SYS_USER tu
+			  	 where tu.user_id = g.guild_leader_id) as leader_name
+			  ,g.max_members
+			  ,g.current_members
+			  ,g.join_type
+			  ,g.usg_yn
+			  ,g.del_yn
+			  ,g.crt_user_id
+			  ,g.crt_date
+			  ,g.upt_user_id
+			  ,g.upt_date
+		  from GUILD g
+		 where g.del_yn = 'N'
+		<if test='guild_name != null and guild_name != ""'>
+		   and g.guild_name like concat('%', trim(#{guild_name}), '%')
+		</if>
+		<if test='usg_yn != null and usg_yn != ""'>
+		   and g.usg_yn = #{usg_yn}
+		</if>
+		<if test='join_type != null and join_type != ""'>
+		   and g.join_type = #{join_type}
+		</if>
+		 order by g.guild_name asc
+	</select>
+	
+	<!-- 길드 검색 (회원가입용) -->
+	<select id="searchGuildList" parameterType="sqlMap" resultType="sqlMap">
+		/* searchGuildList */
+		select g.guild_id
+			  ,g.guild_name
+			  ,g.guild_description
+			  ,g.max_members
+			  ,g.current_members
+			  ,g.join_type
+			  ,g.invite_key
+			  ,case when g.current_members >= g.max_members then 'FULL'
+			        else 'AVAILABLE'
+			   end as status
+		  from GUILD g
+		 where g.del_yn = 'N'
+		   and g.usg_yn = 'Y'
+		<if test='guild_name != null and guild_name != ""'>
+		   and g.guild_name like concat('%', trim(#{guild_name}), '%')
+		</if>
+		<if test='invite_key != null and invite_key != ""'>
+		   and g.invite_key = #{invite_key}
+		</if>
+		 order by g.guild_name asc
+		 limit 50
+	</select>
+	
+	<!-- 길드 상세 조회 -->
+	<select id="selectGuildDtl" parameterType="sqlMap" resultType="sqlMap">
+		/* selectGuildDtl */
+		select g.guild_id
+			  ,g.guild_name
+			  ,g.guild_description
+			  ,g.guild_leader_id
+			  ,(select tu.user_nm
+			  	  from SYS_USER tu
+			  	 where tu.user_id = g.guild_leader_id) as leader_name
+			  ,g.max_members
+			  ,g.current_members
+			  ,g.join_type
+			  ,g.invite_key
+			  ,g.usg_yn
+			  ,g.del_yn
+			  ,g.crt_user_id
+			  ,g.crt_date
+			  ,g.upt_user_id
+			  ,g.upt_date
+		  from GUILD g
+		 where g.guild_id = #{guild_id}
+		   and g.del_yn = 'N'
+	</select>
+	
+	<!-- 초대 키로 길드 조회 -->
+	<select id="selectGuildByInviteKey" parameterType="sqlMap" resultType="sqlMap">
+		/* selectGuildByInviteKey */
+		select g.guild_id
+			  ,g.guild_name
+			  ,g.guild_description
+			  ,g.guild_leader_id
+			  ,(select tu.user_nm
+			  	  from SYS_USER tu
+			  	 where tu.user_id = g.guild_leader_id) as leader_name
+			  ,g.max_members
+			  ,g.current_members
+			  ,g.join_type
+			  ,g.invite_key
+			  ,g.usg_yn
+			  ,g.del_yn
+		  from GUILD g
+		 where g.invite_key = #{invite_key}
+		   and g.del_yn = 'N'
+		   and g.usg_yn = 'Y'
+	</select>
+	
+	<!-- 초대 키 중복 체크 -->
+	<select id="checkInviteKeyExists" parameterType="sqlMap" resultType="int">
+		/* checkInviteKeyExists */
+		select count(1)
+		  from GUILD
+		 where invite_key = #{invite_key}
+		   and del_yn = 'N'
+	</select>
+	
+	<!-- 길드 초대 키만 업데이트 -->
+	<update id="updateGuildInviteKey" parameterType="sqlMap">
+		/* updateGuildInviteKey */
+		update GUILD set
+			invite_key = #{invite_key}
+			,upt_user_id = #{upt_user_id}
+			,upt_date = CURRENT_TIMESTAMP
+		where guild_id = #{guild_id}
+	</update>
+	
+	<!-- 사용자의 현재 길드 ID 업데이트 -->
+	<update id="updateUserCurrentGuildId" parameterType="sqlMap">
+		/* updateUserCurrentGuildId */
+		update SYS_USER set
+			current_guild_id = 
+			<choose>
+				<when test='guild_id != null and guild_id != ""'>
+					CAST(#{guild_id} AS BIGINT)
+				</when>
+				<otherwise>
+					NULL
+				</otherwise>
+			</choose>
+			,upt_user_id = #{sess_user_id}
+			,upt_date = CURRENT_TIMESTAMP
+		where user_id = #{user_id}
+	</update>
+	
+	<!-- 길드 등록 -->
+	<insert id="insertGuild" parameterType="sqlMap">
+		/* insertGuild */
+		<selectKey keyProperty="guild_id" resultType="long" order="AFTER">
+			SELECT currval('guild_seq')
+		</selectKey>
+		insert into GUILD (
+			guild_name
+			,guild_description
+			,guild_leader_id
+			,max_members
+			,current_members
+			,join_type
+			,invite_key
+			,usg_yn
+			,del_yn
+			,crt_user_id
+			,crt_date
+			,upt_user_id
+			,upt_date
+		) values(
+			#{guild_name}
+			,#{guild_description}
+			,#{guild_leader_id}
+			,CAST(#{max_members} AS INTEGER)
+			,CAST(#{current_members} AS INTEGER)
+			,#{join_type}
+			,#{invite_key}
+			,#{usg_yn}
+			,'N'
+			,#{sess_user_id}
+			,CURRENT_TIMESTAMP
+			,#{sess_user_id}
+			,CURRENT_TIMESTAMP
+		)
+	</insert>
+	
+	<!-- 길드 수정 -->
+	<update id="updateGuild" parameterType="sqlMap">
+		/* updateGuild */
+		update GUILD set
+			guild_name = #{guild_name}
+			,guild_description = #{guild_description}
+			<if test='guild_leader_id != null and guild_leader_id != ""'>
+			,guild_leader_id = #{guild_leader_id}
+			</if>
+			<if test='max_members != null and max_members != ""'>
+			,max_members = CAST(#{max_members} AS INTEGER)
+			</if>
+			<if test='join_type != null and join_type != ""'>
+			,join_type = #{join_type}
+			</if>
+			<if test='invite_key != null and invite_key != ""'>
+			,invite_key = #{invite_key}
+			</if>
+			<if test='usg_yn != null and usg_yn != ""'>
+			,usg_yn = #{usg_yn}
+			</if>
+			,upt_user_id = #{sess_user_id}
+			,upt_date = CURRENT_TIMESTAMP
+		where guild_id = #{guild_id}
+	</update>
+	
+	<!-- 길드 삭제 (soft delete) -->
+	<update id="deleteGuild" parameterType="sqlMap">
+		/* deleteGuild */
+		update GUILD set
+			del_yn = 'Y'
+			,usg_yn = 'N'
+			,upt_user_id = #{sess_user_id}
+			,upt_date = CURRENT_TIMESTAMP
+		where guild_id = #{guild_id}
+	</update>
+	
+	<!-- 길드 인원수 업데이트 -->
+	<update id="updateGuildMemberCount" parameterType="sqlMap">
+		/* updateGuildMemberCount */
+		update GUILD set
+			current_members = current_members + CAST(#{increment} AS INTEGER)
+			,upt_user_id = #{sess_user_id}
+			,upt_date = CURRENT_TIMESTAMP
+		where guild_id = #{guild_id}
+	</update>
+	
+	<!-- 유저의 현재 길드 조회 (user_guild_history에서 leave_date IS NULL인 것 조회) -->
+	<select id="selectUserGuild" parameterType="sqlMap" resultType="sqlMap">
+		/* selectUserGuild */
+		select ugh.user_id
+			  ,ugh.guild_id
+			  ,g.guild_name
+			  ,ugh.join_date
+			  ,ugh.role
+		  from USER_GUILD_HISTORY ugh
+		  left outer join GUILD g on ugh.guild_id = g.guild_id
+		 where ugh.user_id = #{user_id}
+		   and ugh.leave_date is null
+		 order by ugh.join_date desc
+		 limit 1
+	</select>
+	
+	<!-- 유저 길드 이력 등록 -->
+	<insert id="insertUserGuildHistory" parameterType="sqlMap">
+		/* insertUserGuildHistory */
+		insert into USER_GUILD_HISTORY (
+			user_id
+			,guild_id
+			,join_date
+			,leave_date
+			,role
+			,leave_reason
+			,join_by_invite
+			,crt_user_id
+			,crt_date
+			,upt_user_id
+			,upt_date
+		) values(
+			#{user_id}
+			,#{guild_id}
+			,CURRENT_TIMESTAMP
+			,null
+			,#{role}
+			,null
+			,COALESCE(#{join_by_invite}, 'N')
+			,#{sess_user_id}
+			,CURRENT_TIMESTAMP
+			,#{sess_user_id}
+			,CURRENT_TIMESTAMP
+		)
+	</insert>
+	
+	<!-- 유저 길드 이력 조회 -->
+	<select id="selectUserGuildHistory" parameterType="sqlMap" resultType="sqlMap">
+		/* selectUserGuildHistory */
+		select ugh.history_id
+			  ,ugh.user_id
+			  ,ugh.guild_id
+			  ,g.guild_name
+			  ,ugh.join_date
+			  ,ugh.leave_date
+			  ,ugh.role
+			  ,ugh.leave_reason
+			  ,ugh.join_by_invite
+			  ,ugh.crt_date
+		  from USER_GUILD_HISTORY ugh
+		  left outer join GUILD g on ugh.guild_id = g.guild_id
+		 where ugh.user_id = #{user_id}
+		<if test='guild_id != null and guild_id != ""'>
+		   and ugh.guild_id = #{guild_id}
+		</if>
+		 order by ugh.join_date desc
+	</select>
+	
+	<!-- 유저 길드 이력 업데이트 (탈퇴일 추가) -->
+	<update id="updateUserGuildHistory" parameterType="sqlMap">
+		/* updateUserGuildHistory */
+		update USER_GUILD_HISTORY set
+			leave_date = COALESCE(#{leave_date}, CURRENT_TIMESTAMP)
+			<if test='leave_reason != null and leave_reason != ""'>
+			,leave_reason = #{leave_reason}
+			</if>
+			,upt_user_id = #{upt_user_id}
+			,upt_date = CURRENT_TIMESTAMP
+		where user_id = #{user_id}
+		  and guild_id = #{guild_id}
+		  and leave_date is null
+	</update>
+	
+	<!-- 길드 신청 목록 조회 -->
+	<select id="selectGuildApplicationList" parameterType="sqlMap" resultType="sqlMap">
+		/* selectGuildApplicationList */
+		select ga.application_id
+			  ,ga.crt_user_id as user_id
+			  ,tu.user_nm
+			  ,ga.guild_name
+			  ,ga.crt_date as application_date
+			  ,ga.status
+			  ,ga.message
+			  ,ga.file_id
+			  ,ga.process_date
+			  ,ga.process_user_id
+			  ,(select tu2.user_nm
+			  	  from SYS_USER tu2
+			  	 where tu2.user_id = ga.process_user_id) as process_user_name
+			  ,ga.reject_reason
+			  ,ga.crt_date
+		  from GUILD_APPLICATION ga
+		  left outer join SYS_USER tu on ga.crt_user_id = tu.user_id
+		 where 1=1
+		<if test='guild_name != null and guild_name != ""'>
+		   and ga.guild_name = #{guild_name}
+		</if>
+		<if test='user_id != null and user_id != ""'>
+		   and ga.crt_user_id = #{user_id}
+		</if>
+		<if test='status != null and status != ""'>
+		   and ga.status = #{status}
+		</if>
+		 order by ga.crt_date desc
+	</select>
+	
+	<!-- 길드 신청 상세 조회 -->
+	<select id="selectGuildApplicationDtl" parameterType="sqlMap" resultType="sqlMap">
+		/* selectGuildApplicationDtl */
+		select ga.application_id
+			  ,ga.crt_user_id as user_id
+			  ,tu.user_nm
+			  ,ga.guild_name
+			  ,ga.crt_date as application_date
+			  ,ga.status
+			  ,ga.message
+			  ,ga.file_id
+			  ,ga.process_date
+			  ,ga.process_user_id
+			  ,ga.reject_reason
+			  ,ga.crt_date
+			  ,ga.upt_date
+		  from GUILD_APPLICATION ga
+		  left outer join SYS_USER tu on ga.crt_user_id = tu.user_id
+		 where ga.application_id = #{application_id}
+	</select>
+	
+	<!-- 사용자의 현재 대기 중인 길드 신청 조회 -->
+	<select id="selectUserPendingApplication" parameterType="sqlMap" resultType="sqlMap">
+		/* selectUserPendingApplication */
+		select ga.application_id
+			  ,ga.crt_user_id as user_id
+			  ,tu.user_nm
+			  ,ga.guild_name
+			  ,ga.crt_date as application_date
+			  ,ga.status
+			  ,ga.message
+			  ,ga.file_id
+			  ,ga.process_date
+			  ,ga.process_user_id
+			  ,ga.reject_reason
+			  ,ga.crt_date
+			  ,ga.upt_date
+		  from GUILD_APPLICATION ga
+		  left outer join SYS_USER tu on ga.crt_user_id = tu.user_id
+		 where ga.crt_user_id = #{sess_user_id}
+		   and ga.status = 'PENDING'
+		 order by ga.crt_date desc
+		 limit 1
+	</select>
+	
+	<!-- 길드 신청 등록 -->
+	<insert id="insertGuildApplication" parameterType="sqlMap">
+		/* insertGuildApplication */
+		insert into GUILD_APPLICATION (
+			guild_name
+			,status
+			,message
+			,file_id
+			,process_date
+			,process_user_id
+			,reject_reason
+			,crt_user_id
+			,crt_date
+			,upt_user_id
+			,upt_date
+		) values(
+			#{guild_name}
+			,#{status}
+			,#{message}
+			,#{file_id}
+			,null
+			,null
+			,null
+			,#{sess_user_id}
+			,CURRENT_TIMESTAMP
+			,#{sess_user_id}
+			,CURRENT_TIMESTAMP
+		)
+	</insert>
+	
+	<!-- 길드 신청 수정 (승인/거절 처리) -->
+	<update id="updateGuildApplication" parameterType="sqlMap">
+		/* updateGuildApplication */
+		update GUILD_APPLICATION set
+			status = #{status}
+			,process_date = CURRENT_TIMESTAMP
+			,process_user_id = #{process_user_id}
+			<if test='reject_reason != null and reject_reason != ""'>
+			,reject_reason = #{reject_reason}
+			</if>
+			,upt_user_id = #{upt_user_id}
+			,upt_date = CURRENT_TIMESTAMP
+		where application_id = #{application_id}
+	</update>
+	
+	<!-- 길드 멤버 목록 조회 (user_guild_history에서 leave_date IS NULL인 것만 조회) -->
+	<select id="selectGuildMemberList" parameterType="sqlMap" resultType="sqlMap">
+		/* selectGuildMemberList */
+		select ugh.user_id
+			  ,tu.user_nm as user_name
+			  ,ugh.guild_id
+			  ,ugh.join_date
+			  ,ugh.role as guild_role
+			  ,ugh.crt_date
+		  from USER_GUILD_HISTORY ugh
+		  left outer join SYS_USER tu on ugh.user_id = tu.user_id
+		 where ugh.guild_id = #{guild_id}
+		   and ugh.leave_date is null
+		 order by 
+		   case ugh.role
+		     when 'LEADER' then 1
+		     when 'MANAGER' then 2
+		     when 'MEMBER' then 3
+		     else 4
+		   end
+		   ,ugh.join_date asc
+	</select>
+	
+	<!-- 첨부파일 목록 조회 -->
+	<select id="selectFileAttachmentList" parameterType="sqlMap" resultType="sqlMap">
+		/* selectFileAttachmentList */
+		select fa.file_id
+			  ,fa.file_seq
+			  ,fa.file_path
+			  ,fa.file_name
+			  ,fa.file_type
+			  ,fa.file_size
+			  ,fa.reference_type
+			  ,fa.reference_id
+			  ,fa.usg_yn
+			  ,fa.del_yn
+			  ,fa.crt_date
+		  from SYS_FILE_ATTACHMENT fa
+		 where fa.del_yn = 'N'
+		   and fa.usg_yn = 'Y'
+		<if test='file_id != null and file_id != ""'>
+		   and fa.file_id = CAST(#{file_id} AS BIGINT)
+		</if>
+		<if test='reference_type != null and reference_type != ""'>
+		   and fa.reference_type = #{reference_type}
+		</if>
+		<if test='reference_id != null and reference_id != ""'>
+		   and fa.reference_id = #{reference_id}
+		</if>
+		 order by fa.file_id asc, fa.file_seq asc
+	</select>
+	
+	<!-- 첨부파일 등록 -->
+	<insert id="insertFileAttachment" parameterType="sqlMap">
+		/* insertFileAttachment */
+		insert into SYS_FILE_ATTACHMENT (
+			file_id
+			,file_seq
+			,file_path
+			,file_name
+			,file_type
+			,file_size
+			,reference_type
+			,reference_id
+			,usg_yn
+			,del_yn
+			,crt_user_id
+			,crt_date
+			,upt_user_id
+			,upt_date
+		) values(
+			CAST(#{file_id} AS BIGINT)
+			,CAST(#{file_seq} AS INTEGER)
+			,#{file_path}
+			,#{file_name}
+			,#{file_type}
+			,CAST(#{file_size} AS BIGINT)
+			,#{reference_type}
+			,#{reference_id}
+			,'Y'
+			,'N'
+			,#{sess_user_id}
+			,CURRENT_TIMESTAMP
+			,#{sess_user_id}
+			,CURRENT_TIMESTAMP
+		)
+	</insert>
+	
+	<!-- 첨부파일 삭제 (soft delete) -->
+	<update id="deleteFileAttachment" parameterType="sqlMap">
+		/* deleteFileAttachment */
+		update SYS_FILE_ATTACHMENT set
+			del_yn = 'Y'
+			,usg_yn = 'N'
+			,upt_user_id = #{upt_user_id}
+			,upt_date = CURRENT_TIMESTAMP
+		where file_id = CAST(#{file_id} AS BIGINT)
+		<if test='file_seq != null and file_seq != ""'>
+		   and file_seq = CAST(#{file_seq} AS INTEGER)
+		</if>
+	</update>
+	
+	<!-- 첨부파일 그룹 번호 생성 -->
+	<select id="selectFileId" parameterType="sqlMap" resultType="sqlMap">
+		/* selectFileId */
+		select nextval('file_attachment_seq'::regclass) as "key"
+	</select>
+
+	<!-- 역할별 사용자 목록 조회 (관리자 조회용) -->
+	<select id="selectUsersByRole" parameterType="sqlMap" resultType="java.util.HashMap">
+		/* selectUsersByRole */
+		SELECT DISTINCT
+			u.user_id,
+			u.user_nm,
+			u.email
+		FROM SYS_USER u
+		INNER JOIN SYS_USER_ROLE ur ON u.user_id = ur.user_id
+		INNER JOIN SYS_ROLE r ON ur.role_id = r.role_id
+		WHERE u.del_yn = 'N'
+		  AND ur.del_yn = 'N'
+		  AND r.del_yn = 'N'
+		<if test='role_id != null and role_id != ""'>
+		  AND r.role_id = #{role_id}
+		</if>
+		ORDER BY u.user_id
+	</select>
+
+</mapper>
+
