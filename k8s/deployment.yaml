@@ -16,7 +16,8 @@ spec:
     spec:
       containers:
       - name: smw-app
-        image: gilhwanjeon/smw-app:v1.0.6
+        image: gilhwanjeon/smw-app:latest
+        imagePullPolicy: Always
         ports:
         - containerPort: 8080
           name: http
