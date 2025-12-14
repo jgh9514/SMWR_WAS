@@ -110,6 +110,9 @@ management:
   endpoint:
     health:
       show-details: always
+  health:
+    mail:
+      enabled: false  # 메일 헬스 체크 비활성화 (메일 인증 실패로 인한 DOWN 방지)
 
 smw:
   service-domain: localhost, localhost:3000, jgh9514.github.io
