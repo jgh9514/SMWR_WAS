@@ -100,23 +100,14 @@ logging:
     # 인터셉터 로깅
     com.sysconf.interceptor: INFO
 
-# Actuator 및 Prometheus 설정
+# Actuator 설정 (Health Check용만)
 management:
   endpoints:
     web:
       exposure:
-        include: health,info,prometheus,metrics
+        include: health,info
       base-path: /actuator
-  metrics:
-    export:
-      prometheus:
-        enabled: true
-    tags:
-      application: ${spring.application.name}
-      environment: ${spring.profiles.active:dev}
   endpoint:
-    prometheus:
-      enabled: true
     health:
       show-details: always
 
