@@ -25,15 +25,15 @@ spec:
         - name: SPRING_PROFILES_ACTIVE
           value: "docker"
         - name: SPRING_DATASOURCE_URL
-          value: "jdbc:log4jdbc:postgresql://postgres:5432/smw_db"
+          value: "jdbc:log4jdbc:postgresql://pg1101.gabiadb.com:5432/jgh9514"
         - name: SPRING_DATASOURCE_USERNAME
-          value: "smw_user"
+          value: "jgh9514"
         - name: SPRING_DATASOURCE_PASSWORD
-          value: "smw_password"
+          value: "jgh1596123"
         - name: SPRING_DATASOURCE_HIKARI_USERNAME
-          value: "smw_user"
+          value: "jgh9514"
         - name: SPRING_DATASOURCE_HIKARI_PASSWORD
-          value: "smw_password"
+          value: "jgh1596123"
         resources:
           requests:
             memory: "512Mi"
