@@ -126,9 +126,6 @@ jobs:
           # 최신 이미지로 업데이트
           sed -i 's|image: gilhwanjeon/smw-app:.*|image: gilhwanjeon/smw-app:latest|g' k8s/deployment.yaml
           
-          # PostgreSQL 배포
-          kubectl apply -f k8s/postgres.yaml || sudo kubectl apply -f k8s/postgres.yaml
-          
           # 백엔드 배포
           kubectl apply -f k8s/deployment.yaml || sudo kubectl apply -f k8s/deployment.yaml
           
