@@ -100,6 +100,26 @@ logging:
     # 인터셉터 로깅
     com.sysconf.interceptor: INFO
 
+# Actuator 및 Prometheus 설정
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+      base-path: /actuator
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    tags:
+      application: ${spring.application.name}
+      environment: ${spring.profiles.active:dev}
+  endpoint:
+    prometheus:
+      enabled: true
+    health:
+      show-details: always
+
 smw:
   service-domain: localhost, localhost:3000, jgh9514.github.io
   globalDblinkNm: SMW_DBLINK
