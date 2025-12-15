@@ -118,5 +118,19 @@
         <Logger name="org.hibernate.type.descriptor.sql.BasicBinder" level="WARN" additivity="false">
             <AppenderRef ref="Console"/>
         </Logger>
+        
+        <!-- Tomcat Loggers - HTTP 파싱 에러 로그 레벨 조정 -->
+        <Logger name="org.apache.coyote" level="WARN" additivity="false">
+            <AppenderRef ref="Console"/>
+            <AppenderRef ref="FileAppender"/>
+        </Logger>
+        <Logger name="org.apache.catalina" level="WARN" additivity="false">
+            <AppenderRef ref="Console"/>
+            <AppenderRef ref="FileAppender"/>
+        </Logger>
+        <Logger name="org.apache.tomcat" level="WARN" additivity="false">
+            <AppenderRef ref="Console"/>
+            <AppenderRef ref="FileAppender"/>
+        </Logger>
     </Loggers>
 </Configuration> 

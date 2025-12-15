@@ -99,6 +99,10 @@ logging:
     jdbc.sqltiming: WARN
     # 인터셉터 로깅
     com.sysconf.interceptor: INFO
+    # Tomcat HTTP 파싱 에러 로그 레벨 조정 (HTTPS 요청이 HTTP 포트로 들어올 때 발생하는 에러)
+    org.apache.coyote: WARN
+    org.apache.catalina: WARN
+    org.apache.tomcat: WARN
 
 # Actuator 설정 (Health Check용만)
 management:
