@@ -114,4 +114,13 @@
     <factorypathentry kind="VARJAR" id="M2_REPO/javax/inject/javax.inject/1/javax.inject-1.jar" enabled="true" runInBatchMode="false"/>
     <factorypathentry kind="VARJAR" id="M2_REPO/org/reflections/reflections/0.10.2/reflections-0.10.2.jar" enabled="true" runInBatchMode="false"/>
     <factorypathentry kind="VARJAR" id="M2_REPO/org/javassist/javassist/3.28.0-GA/javassist-3.28.0-GA.jar" enabled="true" runInBatchMode="false"/>
+    <factorypathentry kind="VARJAR" id="M2_REPO/org/springframework/boot/spring-boot-starter-actuator/2.3.3.RELEASE/spring-boot-starter-actuator-2.3.3.RELEASE.jar" enabled="true" runInBatchMode="false"/>
+    <factorypathentry kind="VARJAR" id="M2_REPO/org/springframework/boot/spring-boot-actuator-autoconfigure/2.3.3.RELEASE/spring-boot-actuator-autoconfigure-2.3.3.RELEASE.jar" enabled="true" runInBatchMode="false"/>
+    <factorypathentry kind="VARJAR" id="M2_REPO/org/springframework/boot/spring-boot-actuator/2.3.3.RELEASE/spring-boot-actuator-2.3.3.RELEASE.jar" enabled="true" runInBatchMode="false"/>
+    <factorypathentry kind="VARJAR" id="M2_REPO/io/micrometer/micrometer-core/1.5.4/micrometer-core-1.5.4.jar" enabled="true" runInBatchMode="false"/>
+    <factorypathentry kind="VARJAR" id="M2_REPO/org/hdrhistogram/HdrHistogram/2.1.12/HdrHistogram-2.1.12.jar" enabled="true" runInBatchMode="false"/>
+    <factorypathentry kind="VARJAR" id="M2_REPO/org/latencyutils/LatencyUtils/2.0.3/LatencyUtils-2.0.3.jar" enabled="true" runInBatchMode="false"/>
+    <factorypathentry kind="VARJAR" id="M2_REPO/io/micrometer/micrometer-registry-prometheus/1.5.4/micrometer-registry-prometheus-1.5.4.jar" enabled="true" runInBatchMode="false"/>
+    <factorypathentry kind="VARJAR" id="M2_REPO/io/prometheus/simpleclient_common/0.8.1/simpleclient_common-0.8.1.jar" enabled="true" runInBatchMode="false"/>
+    <factorypathentry kind="VARJAR" id="M2_REPO/io/prometheus/simpleclient/0.8.1/simpleclient-0.8.1.jar" enabled="true" runInBatchMode="false"/>
 </factorypath>

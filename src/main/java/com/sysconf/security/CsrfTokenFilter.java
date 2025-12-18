@@ -35,6 +35,13 @@ public class CsrfTokenFilter implements Filter {
 			return;
 		}
 
+		// /api/v1/** 경로는 CSRF 검증 제외 (Spring Security CSRF 설정과 일치)
+		String requestURI = httpRequest.getRequestURI();
+		if (requestURI != null && requestURI.startsWith("/api/v1/")) {
+			chain.doFilter(request, response);
+			return;
+		}
+
 		// X-Requested-With 헤더 검증
 		String requestedWith = httpRequest.getHeader("X-Requested-With");
 		if (requestedWith == null || !"XMLHttpRequest".equals(requestedWith)) {
