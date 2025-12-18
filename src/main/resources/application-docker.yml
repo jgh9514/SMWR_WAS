@@ -103,7 +103,7 @@ management:
       enabled: false  # 메일 헬스 체크 비활성화 (메일 인증 실패로 인한 DOWN 방지)
 
 smw:
-  service-domain: localhost, localhost:3000
+  service-domain: localhost, localhost:3000, 52.64.170.214:32282
   globalDblinkNm: SMW_DBLINK
   front-url: http://localhost:3000
   server-url: http://localhost:8080
