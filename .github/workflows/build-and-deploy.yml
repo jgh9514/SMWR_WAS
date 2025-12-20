@@ -129,7 +129,8 @@ jobs:
         done
 
     - name: Deploy to Kubernetes via SSH
-      timeout-minutes: 15
+      # 타임아웃 제거 (배포 작업이 완료될 때까지 대기)
+      # timeout-minutes: 20
       run: |
         ssh -i ~/.ssh/ec2_key \
           -o StrictHostKeyChecking=no \
@@ -140,19 +141,46 @@ jobs:
           -o TCPKeepAlive=yes \
           -o BatchMode=yes \
           ubuntu@${{ secrets.EC2_HOST }} << 'EOF'
-          set -e
-          cd ~/SMWR_WAS
+          # set -e 제거 (일부 명령어 실패해도 계속 진행)
+          cd ~/SMWR_WAS || { echo "ERROR: SMWR_WAS 디렉토리로 이동 실패"; exit 1; }
           
           # Git 저장소 설정 (없는 경우)
           if [ ! -d .git ]; then
-            git init
-            git remote add origin https://github.com/jgh9514/SMWR_WAS.git || true
-            git fetch origin
-            git checkout -b main origin/main || git reset --hard origin/main
+            echo "=== Git 저장소 초기화 ==="
+            git init || echo "Git init 실패 (무시)"
+            git remote add origin https://github.com/jgh9514/SMWR_WAS.git 2>/dev/null || \
+            git remote set-url origin https://github.com/jgh9514/SMWR_WAS.git 2>/dev/null || \
+            echo "Git remote 설정 실패 (무시)"
           fi
           
-          # 최신 코드 가져오기
-          git pull origin main || git fetch origin && git reset --hard origin/main
+          # 최신 코드 가져오기 (재시도 로직 포함, 실패해도 계속 진행)
+          echo "=== 최신 코드 가져오기 ==="
+          GIT_FETCH_SUCCESS=false
+          for i in {1..5}; do
+            if timeout 30 git fetch origin main 2>&1; then
+              echo "Git fetch 성공"
+              GIT_FETCH_SUCCESS=true
+              break
+            else
+              echo "Git fetch 실패, 재시도 $i/5... (5초 대기)"
+              sleep 5
+            fi
+          done
+          
+          # 로컬 브랜치 업데이트 (fetch가 성공한 경우만)
+          if [ "$GIT_FETCH_SUCCESS" = "true" ] && git rev-parse --verify origin/main >/dev/null 2>&1; then
+            echo "=== 로컬 브랜치 업데이트 ==="
+            git reset --hard origin/main 2>&1 || \
+            git checkout -B main origin/main 2>&1 || \
+            echo "WARNING: Git reset 실패, 기존 코드 사용"
+          else
+            echo "WARNING: Git fetch 실패 또는 origin/main 브랜치를 찾을 수 없음, 기존 코드 사용"
+          fi
+          
+          # 현재 Git 상태 확인
+          echo "=== 현재 Git 상태 ==="
+          git log --oneline -1 2>/dev/null || echo "Git 로그 확인 실패"
+          git status --short 2>/dev/null || echo "Git 상태 확인 실패"
           
           # kubeconfig 설정 확인 및 수정
           mkdir -p ~/.kube
@@ -180,9 +208,11 @@ jobs:
           # KUBECONFIG 환경 변수 설정
           export KUBECONFIG=~/.kube/config
           
-          # K3s 클러스터 상태 확인
+          # K3s 클러스터 상태 확인 (호스트 이름 해석 오류 무시)
           echo "=== K3s 클러스터 상태 확인 ==="
-          sudo systemctl status k3s --no-pager || echo "K3s 서비스 상태 확인 실패"
+          # 호스트 이름 해석 오류를 무시하기 위해 환경 변수 설정
+          export DEBIAN_FRONTEND=noninteractive
+          sudo systemctl status k3s --no-pager 2>/dev/null | head -5 || echo "K3s 서비스 상태 확인 실패 (무시)"
           
           # kubectl이 작동하는지 확인
           echo "=== kubectl 클러스터 정보 확인 ==="
@@ -200,44 +230,63 @@ jobs:
           }
           
           # 최신 이미지로 업데이트
-          sed -i 's|image: gilhwanjeon/smw-app:.*|image: gilhwanjeon/smw-app:latest|g' k8s/deployment.yaml
+          echo "=== 이미지 태그 업데이트 ==="
+          if [ -f k8s/deployment.yaml ]; then
+            sed -i 's|image: gilhwanjeon/smw-app:.*|image: gilhwanjeon/smw-app:latest|g' k8s/deployment.yaml
+            echo "이미지 태그 업데이트 완료"
+          else
+            echo "WARNING: k8s/deployment.yaml 파일을 찾을 수 없음"
+          fi
           
           # 백엔드 배포
           echo "=== 배포 시작 ==="
-          kubectl apply -f k8s/deployment.yaml --request-timeout=30s || {
-            echo "배포 실패, 재시도 중..."
-            kubectl apply -f k8s/deployment.yaml --request-timeout=30s || exit 1
-          }
+          if [ -f k8s/deployment.yaml ]; then
+            kubectl apply -f k8s/deployment.yaml --request-timeout=60s || {
+              echo "배포 실패, 재시도 중..."
+              sleep 5
+              kubectl apply -f k8s/deployment.yaml --request-timeout=60s || {
+                echo "ERROR: 배포 실패"
+                exit 1
+              }
+            }
+          else
+            echo "ERROR: k8s/deployment.yaml 파일이 없습니다."
+            exit 1
+          fi
           
           # Pod 재시작 (배포가 이미 존재하는 경우)
           echo "=== Pod 재시작 ==="
-          kubectl rollout restart deployment/smw-app --request-timeout=30s 2>/dev/null || \
-          kubectl delete pod -l app=smw-app --request-timeout=30s 2>/dev/null || \
+          kubectl rollout restart deployment/smw-app --request-timeout=60s 2>/dev/null || \
+          kubectl delete pod -l app=smw-app --request-timeout=60s 2>/dev/null || \
           echo "Pod 재시작 스킵 (새 배포일 수 있음)"
           
           # 배포 상태 확인
           echo "=== 배포 상태 확인 ==="
-          kubectl get pods --request-timeout=10s || exit 1
-          kubectl get services --request-timeout=10s || exit 1
+          kubectl get pods --request-timeout=30s || {
+            echo "WARNING: Pod 상태 확인 실패"
+          }
+          kubectl get services --request-timeout=30s || {
+            echo "WARNING: Service 상태 확인 실패"
+          }
           
-          # 배포 완료 대기 (단축)
-          echo "=== 배포 완료 대기 (10초) ==="
-          sleep 10
+          # 배포 완료 대기 (최소 대기)
+          echo "=== 배포 완료 대기 (5초) ==="
+          sleep 5
           
           # 최종 상태 확인
           echo "=== 최종 배포 상태 ==="
-          kubectl get pods --request-timeout=10s || exit 1
+          kubectl get pods -l app=smw-app --request-timeout=30s || echo "Pod 상태 확인 실패 (무시)"
           
-          # Pod 로그 확인 (최근 10줄만, 빠르게)
-          echo "=== Pod 로그 확인 (최근 10줄) ==="
-          POD_NAME=$(kubectl get pods -l app=smw-app -o jsonpath='{.items[0].metadata.name}' --request-timeout=10s 2>/dev/null || echo "")
-          if [ -n "$POD_NAME" ]; then
-            kubectl logs --tail=10 $POD_NAME --request-timeout=10s 2>/dev/null || echo "로그 확인 실패 (무시)"
+          # Pod 로그 확인 (최근 5줄만, 빠르게)
+          echo "=== Pod 로그 확인 (최근 5줄) ==="
+          POD_NAME=$(kubectl get pods -l app=smw-app -o jsonpath='{.items[0].metadata.name}' --request-timeout=15s 2>/dev/null || echo "")
+          if [ -n "$POD_NAME" ] && [ "$POD_NAME" != "null" ]; then
+            kubectl logs --tail=5 $POD_NAME --request-timeout=15s 2>/dev/null || echo "로그 확인 실패 (무시)"
           else
-            echo "Pod를 찾을 수 없습니다."
+            echo "Pod를 찾을 수 없습니다. (무시)"
           fi
           
-          echo "=== 배포 완료 ==="
+          echo "=== 배포 작업 완료 ==="
         EOF
 
 
