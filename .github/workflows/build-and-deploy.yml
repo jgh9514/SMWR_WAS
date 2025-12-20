@@ -129,15 +129,16 @@ jobs:
         done
 
     - name: Deploy to Kubernetes via SSH
-      timeout-minutes: 10
+      timeout-minutes: 15
       run: |
         ssh -i ~/.ssh/ec2_key \
           -o StrictHostKeyChecking=no \
           -o UserKnownHostsFile=~/.ssh/known_hosts \
           -o ConnectTimeout=30 \
-          -o ServerAliveInterval=60 \
-          -o ServerAliveCountMax=3 \
+          -o ServerAliveInterval=30 \
+          -o ServerAliveCountMax=10 \
           -o TCPKeepAlive=yes \
+          -o BatchMode=yes \
           ubuntu@${{ secrets.EC2_HOST }} << 'EOF'
           set -e
           cd ~/SMWR_WAS
@@ -219,19 +220,24 @@ jobs:
           kubectl get pods --request-timeout=10s || exit 1
           kubectl get services --request-timeout=10s || exit 1
           
-          # 배포 완료 대기 및 상태 재확인
-          echo "=== 배포 완료 대기 (30초) ==="
-          sleep 30
+          # 배포 완료 대기 (단축)
+          echo "=== 배포 완료 대기 (10초) ==="
+          sleep 10
+          
+          # 최종 상태 확인
+          echo "=== 최종 배포 상태 ==="
           kubectl get pods --request-timeout=10s || exit 1
           
-          # Pod 로그 확인 (최근 20줄)
-          echo "=== Pod 로그 확인 ==="
-          POD_NAME=$(kubectl get pods -l app=smw-app -o jsonpath='{.items[0].metadata.name}' --request-timeout=10s)
+          # Pod 로그 확인 (최근 10줄만, 빠르게)
+          echo "=== Pod 로그 확인 (최근 10줄) ==="
+          POD_NAME=$(kubectl get pods -l app=smw-app -o jsonpath='{.items[0].metadata.name}' --request-timeout=10s 2>/dev/null || echo "")
           if [ -n "$POD_NAME" ]; then
-            kubectl logs --tail=20 $POD_NAME --request-timeout=10s || echo "로그 확인 실패"
+            kubectl logs --tail=10 $POD_NAME --request-timeout=10s 2>/dev/null || echo "로그 확인 실패 (무시)"
           else
             echo "Pod를 찾을 수 없습니다."
           fi
+          
+          echo "=== 배포 완료 ==="
         EOF
 
 
