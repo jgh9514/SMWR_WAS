@@ -78,21 +78,66 @@ jobs:
     - name: Configure SSH
       run: |
         mkdir -p ~/.ssh
+        chmod 700 ~/.ssh
+        
         # SSH 키를 파일로 저장 (멀티라인 처리)
-        cat > ~/.ssh/ec2_key << 'KEYEOF'
-        ${{ secrets.EC2_SSH_KEY }}
-        KEYEOF
+        # 개행 문자 제거 및 형식 정리
+        echo "${{ secrets.EC2_SSH_KEY }}" | tr -d '\r' > ~/.ssh/ec2_key
         chmod 600 ~/.ssh/ec2_key
-        # EC2 호스트 키 추가
-        ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || true
-        # SSH 키 형식 확인
+        
+        # SSH 키 형식 검증
+        echo "=== SSH 키 검증 ==="
         head -1 ~/.ssh/ec2_key
+        if ! grep -q "BEGIN.*PRIVATE KEY" ~/.ssh/ec2_key; then
+          echo "ERROR: SSH 키 형식이 올바르지 않습니다."
+          exit 1
+        fi
+        
+        # EC2 호스트 키 추가 (재시도 로직 포함)
+        echo "=== EC2 호스트 키 추가 ==="
+        for i in {1..5}; do
+          if ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts 2>&1; then
+            echo "호스트 키 추가 성공"
+            break
+          else
+            echo "호스트 키 추가 실패, 재시도 $i/5..."
+            sleep 2
+          fi
+        done
+        
+        # SSH 연결 테스트
+        echo "=== SSH 연결 테스트 ==="
+        for i in {1..3}; do
+          if ssh -i ~/.ssh/ec2_key \
+            -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=~/.ssh/known_hosts \
+            -o ConnectTimeout=10 \
+            -o ServerAliveInterval=60 \
+            -o ServerAliveCountMax=3 \
+            ubuntu@${{ secrets.EC2_HOST }} \
+            "echo 'SSH 연결 성공'" 2>&1; then
+            echo "SSH 연결 테스트 성공"
+            break
+          else
+            echo "SSH 연결 테스트 실패, 재시도 $i/3..."
+            sleep 5
+            if [ $i -eq 3 ]; then
+              echo "ERROR: SSH 연결에 실패했습니다."
+              exit 1
+            fi
+          fi
+        done
 
     - name: Deploy to Kubernetes via SSH
+      timeout-minutes: 10
       run: |
         ssh -i ~/.ssh/ec2_key \
           -o StrictHostKeyChecking=no \
           -o UserKnownHostsFile=~/.ssh/known_hosts \
+          -o ConnectTimeout=30 \
+          -o ServerAliveInterval=60 \
+          -o ServerAliveCountMax=3 \
+          -o TCPKeepAlive=yes \
           ubuntu@${{ secrets.EC2_HOST }} << 'EOF'
           set -e
           cd ~/SMWR_WAS
