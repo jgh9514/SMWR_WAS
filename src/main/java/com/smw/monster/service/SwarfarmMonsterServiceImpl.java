@@ -1,13 +1,8 @@
 package com.smw.monster.service;
 
-import java.io.File;
-import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -30,6 +25,7 @@ import org.springframework.web.client.RestTemplate;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smw.monster.dto.SwarfarmMonsterResponse;
 import com.smw.monster.mapper.SwarfarmMonsterMapper;
+import com.sysconf.util.S3Service;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -41,8 +37,8 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
     private static final String SWARFARM_API_BASE_URL = "https://swarfarm.com/api/v2/monsters/";
     private static final String SWARFARM_IMAGE_BASE_URL = "https://swarfarm.com/static/herders/images/monsters/";
     private static final int DEFAULT_PAGE_SIZE = 100; // Swarfarm API 기본 페이지 크기
-    private static final int MAX_PARALLEL_PAGES = 5; // 동시 처리할 최대 페이지 수
-    private static final int IMAGE_DOWNLOAD_THREADS = 10; // 이미지 다운로드 스레드 풀 크기
+    private static final int MAX_PARALLEL_PAGES = 3; // 동시 처리할 최대 페이지 수 (커넥션 풀 부족 방지를 위해 감소)
+    private static final int IMAGE_DOWNLOAD_THREADS = 5; // 이미지 다운로드 스레드 풀 크기 (커넥션 풀 부족 방지를 위해 감소)
     
     @Autowired
     private SwarfarmMonsterMapper swarfarmMonsterMapper;
@@ -52,6 +48,9 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
     
     @Autowired
     private ObjectMapper objectMapper;
+    
+    @Autowired
+    private S3Service s3Service;
     
     @Value("${server.servlet.context-path:}")
     private String contextPath;
@@ -80,26 +79,6 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
         } else {
             log.info(logMessage);
         }
-    }
-    
-    private String getImageBasePath() {
-        // 프로젝트 루트의 static/images 경로
-        // 실제 파일 시스템 경로 사용 (JAR 파일 내부가 아닌)
-        String projectRoot = System.getProperty("user.dir");
-        String imagePath = projectRoot + File.separator + "src" + File.separator + "main" + File.separator + "resources" + File.separator + "static" + File.separator + "images";
-        
-        // 경로가 존재하지 않으면 생성
-        try {
-            Path path = Paths.get(imagePath);
-            if (!Files.exists(path)) {
-                Files.createDirectories(path);
-                log.info("이미지 디렉토리 생성: {}", imagePath);
-            }
-        } catch (Exception e) {
-            log.warn("이미지 디렉토리 생성 실패: {}", imagePath, e);
-        }
-        
-        return imagePath;
     }
     
     @Override
@@ -236,20 +215,19 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
                         try {
                             Map<String, Object> monsterData = convertToMap(monster);
                             
-                            // 이미지 다운로드 (비동기)
+                            // 이미지 다운로드 및 S3 업로드 (비동기)
                             if (monster.getImageFilename() != null && monster.getElement() != null) {
                                 String imageUrl = downloadMonsterImage(monster.getImageFilename(), monster.getElement());
                                 // 이미지 다운로드 실패 시에도 기본 경로 설정 (NOT NULL 제약조건 대응)
                                 if (imageUrl == null) {
-                                    String elementFolder = monster.getElement().substring(0, 1).toUpperCase() 
-                                            + monster.getElement().substring(1).toLowerCase();
-                                    imageUrl = "/images/" + elementFolder + "/" + monster.getImageFilename();
+                                    // S3에 기본 이미지가 있다고 가정하고 CloudFront URL 생성
+                                    imageUrl = "https://dyjduzi8vf2k4.cloudfront.net/monster/default/monster_default.png";
                                     log.debug("이미지 다운로드 실패, 기본 경로 사용: {}", imageUrl);
                                 }
                                 monsterData.put("image_url", imageUrl);
                             } else {
                                 // image_filename이나 element가 없는 경우 기본값 설정
-                                String defaultImageUrl = "/images/default/monster_default.png";
+                                String defaultImageUrl = "https://dyjduzi8vf2k4.cloudfront.net/monster/default/monster_default.png";
                                 monsterData.put("image_url", defaultImageUrl);
                                 log.debug("이미지 정보 없음, 기본 이미지 경로 사용: {}", defaultImageUrl);
                             }
@@ -294,11 +272,13 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
     
     /**
      * 여러 몬스터를 배치로 저장 (성능 최적화)
+     * 커넥션 풀 부족 방지를 위해 각 저장 작업 후 커넥션을 즉시 반환하도록 처리
      */
     private int saveMonstersBatch(List<Map<String, Object>> monsterDataList) {
         int savedCount = 0;
         for (Map<String, Object> monsterData : monsterDataList) {
             try {
+                // 각 몬스터 저장은 독립적인 작업으로 처리하여 커넥션을 빠르게 반환
                 if (saveMonster(monsterData)) {
                     savedCount++;
                     
@@ -330,30 +310,9 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
     public String downloadMonsterImage(String imageFilename, String element) {
         HttpURLConnection connection = null;
         InputStream inputStream = null;
-        FileOutputStream outputStream = null;
         
         try {
             String imageUrl = SWARFARM_IMAGE_BASE_URL + imageFilename;
-            String basePath = getImageBasePath();
-            
-            // 속성별 폴더 경로 생성
-            String elementFolder = element.substring(0, 1).toUpperCase() + element.substring(1).toLowerCase();
-            Path imageDir = Paths.get(basePath, elementFolder);
-            
-            // 폴더가 없으면 생성
-            if (!Files.exists(imageDir)) {
-                Files.createDirectories(imageDir);
-                log.debug("이미지 디렉토리 생성: {}", imageDir);
-            }
-            
-            // 이미지 파일 경로
-            Path imagePath = imageDir.resolve(imageFilename);
-            
-            // 이미 존재하는 파일이면 건너뜀
-            if (Files.exists(imagePath)) {
-                log.debug("이미지가 이미 존재합니다: {}", imagePath);
-                return "/images/" + elementFolder + "/" + imageFilename;
-            }
             
             // 이미지 다운로드
             URL url = new URL(imageUrl);
@@ -369,20 +328,27 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
             
             if (responseCode == HttpURLConnection.HTTP_OK) {
                 inputStream = connection.getInputStream();
-                outputStream = new FileOutputStream(imagePath.toFile());
                 
-                byte[] buffer = new byte[8192]; // 버퍼 크기 증가
-                int bytesRead;
-                long totalBytes = 0;
-                
-                while ((bytesRead = inputStream.read(buffer)) != -1) {
-                    outputStream.write(buffer, 0, bytesRead);
-                    totalBytes += bytesRead;
+                // Content-Type 추론
+                String contentType = connection.getContentType();
+                if (contentType == null || contentType.isEmpty()) {
+                    // 파일명에서 추론
+                    String lowerFilename = imageFilename.toLowerCase();
+                    if (lowerFilename.endsWith(".png")) {
+                        contentType = "image/png";
+                    } else if (lowerFilename.endsWith(".jpg") || lowerFilename.endsWith(".jpeg")) {
+                        contentType = "image/jpeg";
+                    } else if (lowerFilename.endsWith(".gif")) {
+                        contentType = "image/gif";
+                    } else {
+                        contentType = "image/jpeg"; // 기본값
+                    }
                 }
                 
-                outputStream.flush();
-                log.info("이미지 다운로드 완료: {} ({} bytes)", imagePath, totalBytes);
-                return "/images/" + elementFolder + "/" + imageFilename;
+                // S3에 업로드 (monster/ 폴더 아래에 저장)
+                String cloudFrontUrl = s3Service.uploadImage(inputStream, imageFilename, contentType);
+                log.info("이미지 S3 업로드 완료: {} -> {}", imageFilename, cloudFrontUrl);
+                return cloudFrontUrl;
             } else {
                 log.warn("이미지 다운로드 실패. HTTP 응답 코드: {} - URL: {}", responseCode, imageUrl);
                 return null;
@@ -395,7 +361,7 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
             log.warn("이미지 파일을 찾을 수 없음: {} - URL: {}", imageFilename, SWARFARM_IMAGE_BASE_URL + imageFilename, e);
             return null;
         } catch (Exception e) {
-            log.error("이미지 다운로드 중 오류 발생: {} - URL: {}", imageFilename, SWARFARM_IMAGE_BASE_URL + imageFilename, e);
+            log.error("이미지 다운로드 및 S3 업로드 중 오류 발생: {} - URL: {}", imageFilename, SWARFARM_IMAGE_BASE_URL + imageFilename, e);
             return null; // 예외를 던지지 않고 null 반환하여 배치가 계속 진행되도록 함
         } finally {
             // 리소스 정리
@@ -404,13 +370,6 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
                     inputStream.close();
                 } catch (Exception e) {
                     log.warn("InputStream 닫기 실패", e);
-                }
-            }
-            if (outputStream != null) {
-                try {
-                    outputStream.close();
-                } catch (Exception e) {
-                    log.warn("FileOutputStream 닫기 실패", e);
                 }
             }
             if (connection != null) {
@@ -438,14 +397,13 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
                 String element = (String) monsterData.get("monster_elemental");
                 
                 if (imageFilename != null && element != null) {
-                    String elementFolder = element.substring(0, 1).toUpperCase() 
-                            + element.substring(1).toLowerCase();
-                    String defaultImageUrl = "/images/" + elementFolder + "/" + imageFilename;
+                    // S3 경로로 기본값 설정
+                    String defaultImageUrl = "https://dyjduzi8vf2k4.cloudfront.net/monster/" + imageFilename;
                     monsterData.put("image_url", defaultImageUrl);
                     log.debug("image_url이 null이어서 기본 경로 설정: {}", defaultImageUrl);
                 } else {
                     // 최종 기본값
-                    monsterData.put("image_url", "/images/default/monster_default.png");
+                    monsterData.put("image_url", "https://dyjduzi8vf2k4.cloudfront.net/monster/default/monster_default.png");
                     log.debug("image_url이 null이고 이미지 정보도 없어서 최종 기본값 설정");
                 }
             }

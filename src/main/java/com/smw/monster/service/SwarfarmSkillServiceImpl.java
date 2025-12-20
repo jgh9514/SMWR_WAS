@@ -1,13 +1,8 @@
 package com.smw.monster.service;
 
-import java.io.File;
-import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -20,6 +15,7 @@ import org.springframework.web.client.RestTemplate;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smw.monster.dto.SwarfarmSkillResponse;
 import com.smw.monster.mapper.SwarfarmSkillMapper;
+import com.sysconf.util.S3Service;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -41,21 +37,8 @@ public class SwarfarmSkillServiceImpl implements SwarfarmSkillService {
     @Autowired
     private ObjectMapper objectMapper;
     
-    private String getImageBasePath() {
-        try {
-            // 클래스패스에서 resources 경로 찾기
-            String resourcePath = getClass().getClassLoader().getResource("static/images/skills").getPath();
-            // Windows 경로 처리
-            if (resourcePath.startsWith("/") && System.getProperty("os.name").toLowerCase().contains("win")) {
-                resourcePath = resourcePath.substring(1);
-            }
-            return resourcePath;
-        } catch (Exception e) {
-            // 대체 경로
-            String projectRoot = System.getProperty("user.dir");
-            return projectRoot + File.separator + "src" + File.separator + "main" + File.separator + "resources" + File.separator + "static" + File.separator + "images" + File.separator + "skills";
-        }
-    }
+    @Autowired
+    private S3Service s3Service;
     
     @Override
     public int syncAllSkills() {
@@ -167,30 +150,15 @@ public class SwarfarmSkillServiceImpl implements SwarfarmSkillService {
     
     @Override
     public String downloadSkillImage(String iconFilename) {
+        HttpURLConnection connection = null;
+        InputStream inputStream = null;
+        
         try {
             String imageUrl = SWARFARM_IMAGE_BASE_URL + iconFilename;
-            String basePath = getImageBasePath();
-            
-            // skills 폴더 경로 생성
-            Path imageDir = Paths.get(basePath);
-            
-            // 폴더가 없으면 생성
-            if (!Files.exists(imageDir)) {
-                Files.createDirectories(imageDir);
-            }
-            
-            // 이미지 파일 경로
-            Path imagePath = imageDir.resolve(iconFilename);
-            
-            // 이미 존재하는 파일이면 건너뜀
-            if (Files.exists(imagePath)) {
-                log.debug("이미지가 이미 존재합니다: {}", imagePath);
-                return "/images/skills/" + iconFilename;
-            }
             
             // 이미지 다운로드
             URL url = new URL(imageUrl);
-            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+            connection = (HttpURLConnection) url.openConnection();
             connection.setRequestMethod("GET");
             connection.setConnectTimeout(10000);
             connection.setReadTimeout(10000);
@@ -198,26 +166,48 @@ public class SwarfarmSkillServiceImpl implements SwarfarmSkillService {
             
             int responseCode = connection.getResponseCode();
             if (responseCode == HttpURLConnection.HTTP_OK) {
-                try (InputStream inputStream = connection.getInputStream();
-                     FileOutputStream outputStream = new FileOutputStream(imagePath.toFile())) {
-                    
-                    byte[] buffer = new byte[4096];
-                    int bytesRead;
-                    while ((bytesRead = inputStream.read(buffer)) != -1) {
-                        outputStream.write(buffer, 0, bytesRead);
+                inputStream = connection.getInputStream();
+                
+                // Content-Type 추론
+                String contentType = connection.getContentType();
+                if (contentType == null || contentType.isEmpty()) {
+                    // 파일명에서 추론
+                    String lowerFilename = iconFilename.toLowerCase();
+                    if (lowerFilename.endsWith(".png")) {
+                        contentType = "image/png";
+                    } else if (lowerFilename.endsWith(".jpg") || lowerFilename.endsWith(".jpeg")) {
+                        contentType = "image/jpeg";
+                    } else if (lowerFilename.endsWith(".gif")) {
+                        contentType = "image/gif";
+                    } else {
+                        contentType = "image/png"; // 기본값
                     }
                 }
                 
-                log.info("이미지 다운로드 완료: {}", imagePath);
-                return "/images/skills/" + iconFilename;
+                // S3에 업로드 (monster/ 폴더 아래에 저장)
+                String cloudFrontUrl = s3Service.uploadImage(inputStream, iconFilename, contentType);
+                log.info("스킬 이미지 S3 업로드 완료: {} -> {}", iconFilename, cloudFrontUrl);
+                return cloudFrontUrl;
             } else {
                 log.warn("이미지 다운로드 실패. HTTP 응답 코드: {}", responseCode);
                 return null;
             }
             
         } catch (Exception e) {
-            log.error("이미지 다운로드 중 오류 발생: {}", iconFilename, e);
+            log.error("이미지 다운로드 및 S3 업로드 중 오류 발생: {}", iconFilename, e);
             throw new RuntimeException("이미지 다운로드 실패", e);
+        } finally {
+            // 리소스 정리
+            if (inputStream != null) {
+                try {
+                    inputStream.close();
+                } catch (Exception e) {
+                    log.warn("InputStream 닫기 실패", e);
+                }
+            }
+            if (connection != null) {
+                connection.disconnect();
+            }
         }
     }
     

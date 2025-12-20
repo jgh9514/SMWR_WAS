@@ -15,11 +15,12 @@ spring:
     hikari:
       username: jgh9514
       password: jgh1596123
-      maximum-pool-size: 5 # 최대 연결 개수
-      minimum-idle: 2      # 최소 유휴 연결 개수
+      maximum-pool-size: 30 # 배치 작업 병렬 처리 고려하여 증가 (페이지 처리 5개 * 각 페이지마다 여러 DB 작업 + 일반 요청 여유)
+      minimum-idle: 10 # 최소 유휴 연결 개수 증가 (배치 작업 대비)
       idle-timeout: 30000   # 유휴 연결 유지 시간 (밀리초)
       max-lifetime: 1800000 # 연결 최대 수명 (밀리초)
       connection-timeout: 30000 # 연결 대기 시간 (밀리초)
+      leak-detection-threshold: 60000 # 커넥션 누수 감지 (60초)
   servlet:
     multipart.max-file-size: 20MB
     max-request-size: 25MB
@@ -126,5 +127,13 @@ smw:
   cookie-live-time: 600 # 쿠키 유효시간 10분
   cookie-domain: jgh9514.github.io
   rate-limit:
-    max-requests: 100 # 1분당 최대 요청 수
+    max-requests: 1000 # 1분당 최대 요청 수 (완화)
     window-seconds: 60 # 시간 윈도우 (초)
+
+# AWS S3 설정
+# 쿠버네티스 환경에서는 환경 변수(AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION)를 사용합니다.
+# 로컬 개발 환경에서도 환경 변수 사용을 권장합니다 (보안상 이유).
+# application.yml에 직접 설정하려면 아래 주석을 해제하세요:
+# AWS_ACCESS_KEY_ID: your-access-key-id
+# AWS_SECRET_ACCESS_KEY: your-secret-access-key
+# AWS_REGION: ap-northeast-2

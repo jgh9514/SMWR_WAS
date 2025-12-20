@@ -86,8 +86,21 @@ public class RateLimitFilter implements Filter {
 		HttpServletRequest httpRequest = (HttpServletRequest) request;
 		HttpServletResponse httpResponse = (HttpServletResponse) response;
 
-		// 로그인 API는 더 엄격한 제한 적용
 		String requestUri = httpRequest.getRequestURI();
+		
+		// /api/v1/** 경로는 Rate Limit 제외 (프론트엔드 API 요청)
+		if (requestUri != null && requestUri.startsWith("/api/v1/")) {
+			chain.doFilter(request, response);
+			return;
+		}
+		
+		// Actuator 엔드포인트도 제외
+		if (requestUri != null && requestUri.startsWith("/actuator/")) {
+			chain.doFilter(request, response);
+			return;
+		}
+
+		// 로그인 API는 더 엄격한 제한 적용
 		boolean isLoginEndpoint = requestUri != null && requestUri.contains("/login");
 		int effectiveMaxRequests = isLoginEndpoint ? 10 : maxRequests; // 로그인은 1분에 10회
 		int effectiveWindowSeconds = isLoginEndpoint ? 60 : windowSeconds;

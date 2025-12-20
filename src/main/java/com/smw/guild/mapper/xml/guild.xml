@@ -463,7 +463,7 @@
 		/* selectFileAttachmentList */
 		select fa.file_id
 			  ,fa.file_seq
-			  ,fa.file_path
+			  ,fa.file_url
 			  ,fa.file_name
 			  ,fa.file_type
 			  ,fa.file_size
@@ -493,7 +493,7 @@
 		insert into SYS_FILE_ATTACHMENT (
 			file_id
 			,file_seq
-			,file_path
+			,file_url
 			,file_name
 			,file_type
 			,file_size
@@ -508,7 +508,7 @@
 		) values(
 			CAST(#{file_id} AS BIGINT)
 			,CAST(#{file_seq} AS INTEGER)
-			,#{file_path}
+			,#{file_url}
 			,#{file_name}
 			,#{file_type}
 			,CAST(#{file_size} AS BIGINT)

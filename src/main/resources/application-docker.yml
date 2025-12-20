@@ -13,11 +13,12 @@ spring:
     hikari:
       username: ${SPRING_DATASOURCE_USERNAME:smw_user}
       password: ${SPRING_DATASOURCE_PASSWORD:smw_password}
-      maximum-pool-size: 5
-      minimum-idle: 2
+      maximum-pool-size: 30 # 배치 작업 병렬 처리 고려하여 증가 (페이지 처리 3개 * 각 페이지마다 여러 DB 작업 + 일반 요청 여유)
+      minimum-idle: 10 # 최소 유휴 연결 개수 증가 (배치 작업 대비)
       idle-timeout: 30000
       max-lifetime: 1800000
       connection-timeout: 30000
+      leak-detection-threshold: 60000 # 커넥션 누수 감지 (60초)
   servlet:
     multipart.max-file-size: 20MB
     max-request-size: 25MB
@@ -110,6 +111,6 @@ smw:
   cookie-live-time: 600
   cookie-domain: localhost
   rate-limit:
-    max-requests: 100
+    max-requests: 1000  # Rate Limit 완화 (1분당 최대 1000회)
     window-seconds: 60
 

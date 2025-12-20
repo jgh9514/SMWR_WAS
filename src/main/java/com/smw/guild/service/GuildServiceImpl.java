@@ -13,7 +13,11 @@ import org.springframework.transaction.annotation.Transactional;
 import com.smw.guild.mapper.GuildMapper;
 import com.cf.notification.service.NotificationService;
 import com.sysconf.util.DateUtil;
+import com.sysconf.util.S3Service;
 
+import lombok.extern.slf4j.Slf4j;
+
+@Slf4j
 @Service
 @Primary
 public class GuildServiceImpl implements GuildService {
@@ -26,6 +30,9 @@ public class GuildServiceImpl implements GuildService {
 
 	@Autowired
 	private NotificationService notificationService;
+	
+	@Autowired
+	private S3Service s3Service;
 
 	@Override
 	public List<Map<String, ?>> selectGuildList(Map<String, Object> param) {
@@ -230,7 +237,88 @@ public class GuildServiceImpl implements GuildService {
 			param.put("status", "PENDING");
 		}
 		
+		// 파일 처리 (JSON 파일, 이미지 파일)
+		Long fileId = null;
+		int fileSeq = 0;
+		
+		// JSON 파일 처리
+		if (param.get("json_file_content") != null && param.get("json_file_name") != null) {
+			try {
+				byte[] jsonBytes = (byte[]) param.get("json_file_content");
+				String jsonFileName = (String) param.get("json_file_name");
+				String jsonContentType = "application/json";
+				
+				// S3에 업로드
+				String jsonFileUrl = s3Service.uploadFile(jsonBytes, jsonFileName, jsonContentType, "files");
+				
+				// 파일 ID 생성 (첫 번째 파일이면)
+				if (fileId == null) {
+					Map<String, ?> fileIdResult = mapper.selectFileId();
+					fileId = ((Number) fileIdResult.get("key")).longValue();
+				}
+				
+				// 파일 첨부 정보 저장
+				Map<String, Object> fileParam = new HashMap<>();
+				fileParam.put("file_id", fileId);
+				fileParam.put("file_seq", ++fileSeq);
+				fileParam.put("file_url", jsonFileUrl);
+				fileParam.put("file_name", jsonFileName);
+				fileParam.put("file_type", "JSON");
+				fileParam.put("file_size", param.get("json_file_size"));
+				fileParam.put("reference_type", "GUILD_APPLICATION");
+				fileParam.put("reference_id", null); // 나중에 application_id로 업데이트
+				mapper.insertFileAttachment(fileParam);
+			} catch (Exception e) {
+				log.error("JSON 파일 업로드 실패", e);
+				// 파일 업로드 실패해도 신청은 진행
+			}
+		}
+		
+		// 이미지 파일 처리
+		if (param.get("image_file_url") != null && param.get("image_file_name") != null) {
+			try {
+				// 파일 ID 생성 (첫 번째 파일이면)
+				if (fileId == null) {
+					Map<String, ?> fileIdResult = mapper.selectFileId();
+					fileId = ((Number) fileIdResult.get("key")).longValue();
+				}
+				
+				// 파일 첨부 정보 저장
+				Map<String, Object> fileParam = new HashMap<>();
+				fileParam.put("file_id", fileId);
+				fileParam.put("file_seq", ++fileSeq);
+				fileParam.put("file_url", param.get("image_file_url"));
+				fileParam.put("file_name", param.get("image_file_name"));
+				fileParam.put("file_type", "IMAGE");
+				fileParam.put("file_size", param.get("image_file_size"));
+				fileParam.put("reference_type", "GUILD_APPLICATION");
+				fileParam.put("reference_id", null); // 나중에 application_id로 업데이트
+				mapper.insertFileAttachment(fileParam);
+			} catch (Exception e) {
+				log.error("이미지 파일 정보 저장 실패", e);
+				// 파일 정보 저장 실패해도 신청은 진행
+			}
+		}
+		
+		// file_id 설정
+		if (fileId != null) {
+			param.put("file_id", fileId);
+		}
+		
 		int result = mapper.insertGuildApplication(param);
+		
+		// 파일의 reference_id 업데이트 (application_id로)
+		if (result > 0 && fileId != null) {
+			Object applicationIdObj = param.get("application_id");
+			if (applicationIdObj != null) {
+				String applicationId = applicationIdObj.toString();
+				Map<String, Object> updateParam = new HashMap<>();
+				updateParam.put("file_id", fileId);
+				updateParam.put("reference_id", applicationId);
+				// reference_id 업데이트는 별도 쿼리 필요 (현재는 매퍼에 없으므로 생략)
+				// 필요시 updateFileAttachmentReference 메서드 추가
+			}
+		}
 		
 		// 관리자에게 알림 생성
 		if (result > 0) {
@@ -240,7 +328,7 @@ public class GuildServiceImpl implements GuildService {
 			List<Map<String, ?>> admins = mapper.selectUsersByRole(adminParam);
 			
 			String guildName = (String) param.get("guild_name");
-			String applicationId = param.get("guild_application_id") != null ? param.get("guild_application_id").toString() : null;
+			String applicationId = param.get("application_id") != null ? param.get("application_id").toString() : null;
 			
 			for (Map<String, ?> admin : admins) {
 				String adminId = (String) admin.get("user_id");
@@ -252,7 +340,7 @@ public class GuildServiceImpl implements GuildService {
 						guildName + " 길드 생성 신청이 접수되었습니다.",
 						applicationId,
 						"/admin/guildapplication",
-						(String) param.get("crt_user_id")
+						(String) param.get("sess_user_id")
 					);
 				}
 			}

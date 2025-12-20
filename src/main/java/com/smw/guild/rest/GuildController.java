@@ -19,6 +19,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import com.smw.guild.service.GuildService;
 import com.sysconf.util.FileValidationUtil;
+import com.sysconf.util.S3Service;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -30,6 +31,9 @@ public class GuildController {
 
 	@Autowired
 	private GuildService service;
+	
+	@Autowired
+	private S3Service s3Service;
 
 	/**
 	 * 길드 목록 조회
@@ -236,8 +240,7 @@ public class GuildController {
 					return ResponseEntity.ok(result);
 				}
 
-				// JSON 파일을 바이트 배열로 저장하거나 파일 경로로 저장
-				// 여기서는 파일명과 크기 정보만 저장 (실제 파일 저장은 서비스 레이어에서 처리)
+				// JSON 파일을 바이트 배열로 저장 (서비스 레이어에서 S3 업로드 처리)
 				param.put("json_file_name", jsonFile.getOriginalFilename());
 				param.put("json_file_size", jsonFile.getSize());
 				param.put("json_file_content", jsonFile.getBytes());
@@ -252,12 +255,27 @@ public class GuildController {
 					return ResponseEntity.ok(result);
 				}
 
-				// 이미지 파일을 바이트 배열로 저장하거나 파일 경로로 저장
-				// 여기서는 파일명과 크기 정보만 저장 (실제 파일 저장은 서비스 레이어에서 처리)
-				param.put("image_file_name", imageFile.getOriginalFilename());
-				param.put("image_file_size", imageFile.getSize());
-				param.put("image_file_content", imageFile.getBytes());
-				param.put("image_file_content_type", imageFile.getContentType());
+				// 이미지 파일을 S3에 업로드
+				try {
+					String fileName = imageFile.getOriginalFilename();
+					String contentType = imageFile.getContentType();
+					if (contentType == null || contentType.isEmpty()) {
+						contentType = "image/jpeg"; // 기본값
+					}
+					
+					// S3에 업로드하고 CloudFront URL 반환
+					String cloudFrontUrl = s3Service.uploadImage(imageFile.getBytes(), fileName, contentType);
+					
+					// 파일 정보 저장
+					param.put("image_file_name", fileName);
+					param.put("image_file_size", imageFile.getSize());
+					param.put("image_file_url", cloudFrontUrl); // S3 CloudFront URL 저장
+					param.put("image_file_content_type", contentType);
+				} catch (Exception e) {
+					result.put("result", "FAIL");
+					result.put("message", "이미지 업로드 중 오류가 발생했습니다: " + e.getMessage());
+					return ResponseEntity.ok(result);
+				}
 			}
 		} catch (Exception e) {
 			result.put("result", "FAIL");
