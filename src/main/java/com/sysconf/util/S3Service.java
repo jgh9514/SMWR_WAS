@@ -39,8 +39,9 @@ public class S3Service {
      */
     private S3Client createS3Client() {
         return S3Client.builder()
-                // 명시적으로 서울 리전(ap-northeast-2) 설정 - 환경 변수 무시 방지
-                .region(Region.AP_NORTHEAST_2)
+                // 명시적으로 시드니 리전(ap-southeast-2) 설정 - S3 버킷 리전과 일치
+                // 환경 변수 무시 방지 및 301 에러 방지
+                .region(Region.AP_SOUTHEAST_2)
                 // DefaultCredentialsProvider를 명시적으로 설정하여 EC2 IAM 역할 자동 인식
                 .credentialsProvider(DefaultCredentialsProvider.create())
                 .build();

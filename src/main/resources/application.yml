@@ -138,7 +138,7 @@ cloud:
     s3:
       bucket: summonerswar-community
     region:
-      static: ap-northeast-2
+      static: ap-southeast-2  # S3 버킷이 시드니 리전에 있으므로 일치시킴
     stack:
       auto: false # 중요: K8s 환경에서 불필요한 스택 감지 방지
     # IAM 역할(인스턴스 프로파일)을 사용하도록 강제 설정
