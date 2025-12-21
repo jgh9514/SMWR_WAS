@@ -39,11 +39,15 @@ public class CookieUtil {
 			autoLogin = userInfo.get("auto_login").toString();
 		}
 
+		// HTTPS 환경 감지
+		boolean isSecure = request.isSecure() || 
+			(request.getHeader("X-Forwarded-Proto") != null && "https".equals(request.getHeader("X-Forwarded-Proto")));
+		
 		ResponseCookie.ResponseCookieBuilder cookieBuilder = ResponseCookie.from(tokenName, token)
 												.path("/")
 												.maxAge("true".equals(autoLogin) ? -1 : cookieLiveTime)
 												.httpOnly(true) // XSS 방지를 위한 HttpOnly 설정
-												.secure(false) // HTTPS 환경에서는 true로 변경 필요
+												.secure(isSecure) // HTTPS 환경에서는 true
 												.sameSite("Lax"); // CSRF 방지를 위한 SameSite 설정
 		
 		// 도메인 설정: 로컬 환경에서는 도메인을 설정하지 않음 (로컬에서 쿠키가 작동하도록)
@@ -77,11 +81,15 @@ public class CookieUtil {
 //		String token = tokenUtil.setToken(userInfo);
 		String cookieValue = getCookieValue(request, tokenName);
 
+		// HTTPS 환경 감지
+		boolean isSecure = request.isSecure() || 
+			(request.getHeader("X-Forwarded-Proto") != null && "https".equals(request.getHeader("X-Forwarded-Proto")));
+		
 		ResponseCookie.ResponseCookieBuilder cookieBuilder = ResponseCookie.from(tokenName, cookieValue)
 												.path("/")
 												.maxAge(cookieLiveTime)
 												.httpOnly(true) // XSS 방지를 위한 HttpOnly 설정
-												.secure(false) // HTTPS 환경에서는 true로 변경 필요
+												.secure(isSecure) // HTTPS 환경에서는 true
 												.sameSite("Lax"); // CSRF 방지를 위한 SameSite 설정
 		
 		// 도메인 설정: 로컬 환경에서는 도메인을 설정하지 않음 (로컬에서 쿠키가 작동하도록)

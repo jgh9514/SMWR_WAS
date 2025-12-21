@@ -108,12 +108,12 @@ management:
       enabled: false  # 메일 헬스 체크 비활성화 (메일 인증 실패로 인한 DOWN 방지)
 
 smw:
-  service-domain: localhost, localhost:3000, 52.64.170.214:32282
+  service-domain: localhost, localhost:3000, 13.236.20.39:32282, jgh9514.com, www.jgh9514.com
   globalDblinkNm: SMW_DBLINK
   front-url: http://localhost:3000
   server-url: http://localhost:8080
   cookie-live-time: 600
-  cookie-domain: localhost
+  cookie-domain: jgh9514.com
   rate-limit:
     max-requests: 1000  # Rate Limit 완화 (1분당 최대 1000회)
     window-seconds: 60
