@@ -4,7 +4,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import lombok.extern.slf4j.Slf4j;
@@ -25,9 +24,6 @@ public class S3Service {
     private static final String MONSTER_FOLDER = "monster";
     private static final String FILES_FOLDER = "files"; // 일반 파일 저장 폴더
     
-    @Value("${cloud.aws.region.static:ap-northeast-2}")
-    private String region;
-    
     /**
      * S3 클라이언트 생성
      * DefaultCredentialsProvider를 사용하여 EC2 IAM 역할(인스턴스 프로파일)을 자동으로 인식합니다.
@@ -43,7 +39,8 @@ public class S3Service {
      */
     private S3Client createS3Client() {
         return S3Client.builder()
-                .region(Region.of(region))
+                // 명시적으로 서울 리전(ap-northeast-2) 설정 - 환경 변수 무시 방지
+                .region(Region.AP_NORTHEAST_2)
                 // DefaultCredentialsProvider를 명시적으로 설정하여 EC2 IAM 역할 자동 인식
                 .credentialsProvider(DefaultCredentialsProvider.create())
                 .build();
