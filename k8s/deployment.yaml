@@ -19,8 +19,10 @@ spec:
       # 또는 AWS SDK가 자동으로 EC2 인스턴스 메타데이터를 감지하도록 설정
       containers:
       - name: smw-app
+        # SHA 기반 태그 사용 (이미지 변경 감지 명확화)
+        # GitHub Actions에서 자동으로 업데이트됨: main-{sha} 형식
         image: gilhwanjeon/smw-app:latest
-        imagePullPolicy: Always
+        imagePullPolicy: Always  # 항상 최신 이미지 가져오기 (latest 태그 사용 시 필수)
         ports:
         - containerPort: 8080
           name: http
