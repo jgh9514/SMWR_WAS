@@ -29,10 +29,23 @@ public class AuthInterceptor extends HandlerInterceptorAdapter {
 			return true;
 		}
 
+		// 디버깅: 쿠키 정보 로깅
+		javax.servlet.http.Cookie[] cookies = request.getCookies();
+		if (cookies != null) {
+			log.debug("요청 쿠키 개수: {}, URI: {}", cookies.length, request.getRequestURI());
+			for (javax.servlet.http.Cookie cookie : cookies) {
+				if (Constant.LOGIN_TOKEN_NAME.equals(cookie.getName())) {
+					log.debug("인증 쿠키 발견: {} (길이: {})", cookie.getName(), cookie.getValue() != null ? cookie.getValue().length() : 0);
+				}
+			}
+		} else {
+			log.warn("쿠키가 없음 - URI: {}, Host: {}", request.getRequestURI(), request.getHeader("Host"));
+		}
+
 		Map<String, Object> userInfo = cookieUtil.getToken(request);
 
 		if(userInfo == null) {
-			log.warn("세션 정보 없음 - URI: {}", request.getRequestURI());
+			log.warn("세션 정보 없음 - URI: {}, 쿠키 존재 여부: {}", request.getRequestURI(), cookies != null);
 			response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
 			response.setContentType("application/json;charset=UTF-8");
 			response.getWriter().write("{\"error\":\"Unauthorized\",\"message\":\"로그인이 필요합니다.\"}");

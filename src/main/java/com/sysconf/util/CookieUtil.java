@@ -179,9 +179,15 @@ public class CookieUtil {
             for (Cookie cookie : cookies) {
                 if (Constant.LOGIN_TOKEN_NAME.equals(cookie.getName())) {
                 	token = cookie.getValue();
+                	break;
                 }
             }
         }
+    	
+    	// 토큰이 없으면 null 반환
+    	if (token == null || token.isEmpty()) {
+    		return null;
+    	}
     	
 		Map<String, Object> userInfo = tokenUtil.getToken(token);
 		
