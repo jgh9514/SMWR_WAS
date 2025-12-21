@@ -132,14 +132,18 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
                     // 모든 Future 완료 대기 (예외 발생 시 즉시 중단)
                     CompletableFuture<Void> allFutures = CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]));
                     try {
-                        allFutures.join(); // 모든 작업 완료 대기
+                        // 모든 작업 완료 대기 (예외 발생 시 즉시 예외 전파)
+                        allFutures.get();
                         // 모든 작업이 성공한 경우에만 결과 수집
                         for (CompletableFuture<Integer> f : futures) {
+                            // 각 Future의 예외 확인 (예외가 있으면 즉시 throw)
                             totalSynced += f.get();
                         }
                     } catch (Exception e) {
                         addBatchLog("페이지 처리 중 오류 발생: %s", e.getMessage());
                         log.error("페이지 처리 중 오류", e);
+                        // 모든 Future 취소
+                        futures.forEach(f -> f.cancel(true));
                         throw new RuntimeException("페이지 처리 실패", e);
                     }
                     futures.clear();
@@ -148,15 +152,21 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
             
             // 남은 작업 완료 대기
             if (!futures.isEmpty()) {
-                CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
-                for (CompletableFuture<Integer> f : futures) {
-                    try {
+                CompletableFuture<Void> allFutures = CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]));
+                try {
+                    // 모든 작업 완료 대기 (예외 발생 시 즉시 예외 전파)
+                    allFutures.get();
+                    // 모든 작업이 성공한 경우에만 결과 수집
+                    for (CompletableFuture<Integer> f : futures) {
+                        // 각 Future의 예외 확인 (예외가 있으면 즉시 throw)
                         totalSynced += f.get();
-                    } catch (Exception e) {
-                        addBatchLog("페이지 처리 중 오류: %s", e.getMessage());
-                        log.error("페이지 처리 중 오류", e);
-                        throw new RuntimeException("페이지 처리 실패", e);
                     }
+                } catch (Exception e) {
+                    addBatchLog("페이지 처리 중 오류 발생: %s", e.getMessage());
+                    log.error("페이지 처리 중 오류", e);
+                    // 모든 Future 취소
+                    futures.forEach(f -> f.cancel(true));
+                    throw new RuntimeException("페이지 처리 실패", e);
                 }
             }
             
@@ -250,18 +260,24 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
                     }, imageDownloadExecutor))
                     .collect(Collectors.toList());
             
-            // 모든 데이터 변환 완료 대기
-            List<Map<String, Object>> monsterDataList = monsterDataFutures.stream()
-                    .map(future -> {
-                        try {
-                            return future.get(60, TimeUnit.SECONDS);
-                        } catch (Exception e) {
-                            log.error("몬스터 데이터 변환 대기 중 오류", e);
-                            throw new RuntimeException("몬스터 데이터 변환 대기 실패", e);
-                        }
-                    })
-                    .filter(data -> data != null)
-                    .collect(Collectors.toList());
+            // 모든 데이터 변환 완료 대기 (예외 발생 시 즉시 중단)
+            List<Map<String, Object>> monsterDataList = new ArrayList<>();
+            try {
+                // 모든 Future 완료 대기 (예외 발생 시 즉시 예외 전파)
+                CompletableFuture.allOf(monsterDataFutures.toArray(new CompletableFuture[0])).get();
+                // 모든 작업이 성공한 경우에만 결과 수집
+                for (CompletableFuture<Map<String, Object>> future : monsterDataFutures) {
+                    Map<String, Object> data = future.get(60, TimeUnit.SECONDS);
+                    if (data != null) {
+                        monsterDataList.add(data);
+                    }
+                }
+            } catch (Exception e) {
+                log.error("몬스터 데이터 변환 대기 중 오류 발생", e);
+                // 모든 Future 취소
+                monsterDataFutures.forEach(f -> f.cancel(true));
+                throw new RuntimeException("몬스터 데이터 변환 대기 실패", e);
+            }
             
             // 배치로 DB 저장
             int syncedCount = saveMonstersBatch(monsterDataList);

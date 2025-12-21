@@ -141,3 +141,6 @@ cloud:
       static: ap-northeast-2
     stack:
       auto: false # 중요: K8s 환경에서 불필요한 스택 감지 방지
+    # IAM 역할(인스턴스 프로파일)을 사용하도록 강제 설정
+    credentials:
+      instance-profile: true

@@ -30,16 +30,21 @@ public class S3Service {
     
     /**
      * S3 클라이언트 생성
-     * DefaultCredentialsProvider를 사용하여 EC2 IAM 역할을 자동으로 인식합니다.
-     * AWS SDK는 다음 순서로 자격 증명을 찾습니다:
-     * 1. 환경 변수 (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
+     * DefaultCredentialsProvider를 사용하여 EC2 IAM 역할(인스턴스 프로파일)을 자동으로 인식합니다.
+     * 
+     * AWS SDK v2의 DefaultCredentialsProvider는 다음 순서로 자격 증명을 찾습니다:
+     * 1. 환경 변수 (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY) - Kubernetes 환경에서는 설정하지 않음
      * 2. Java 시스템 속성
      * 3. 자격 증명 파일 (~/.aws/credentials)
-     * 4. IAM 역할 (EC2 인스턴스에 부여된 경우) <- 이 방법 사용
+     * 4. EC2 인스턴스 메타데이터 서비스 (IAM 역할) <- Kubernetes Pod에서 이 방법 사용
+     * 
+     * Kubernetes 환경에서는 EC2 인스턴스에 부여된 IAM 역할을 자동으로 감지합니다.
+     * application.yml의 cloud.aws.credentials.instance-profile: true 설정과 함께 사용됩니다.
      */
     private S3Client createS3Client() {
         return S3Client.builder()
                 .region(Region.of(region))
+                // DefaultCredentialsProvider를 명시적으로 설정하여 EC2 IAM 역할 자동 인식
                 .credentialsProvider(DefaultCredentialsProvider.create())
                 .build();
     }
