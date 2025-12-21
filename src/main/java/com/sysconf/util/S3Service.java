@@ -8,9 +8,11 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import lombok.extern.slf4j.Slf4j;
+import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 
@@ -28,18 +30,17 @@ public class S3Service {
     
     /**
      * S3 클라이언트 생성
-     * IAM 역할을 사용하므로 자격 증명을 명시적으로 설정하지 않습니다.
-     * AWS SDK가 자동으로 EC2 인스턴스에 부여된 IAM 역할을 감지합니다.
+     * DefaultCredentialsProvider를 사용하여 EC2 IAM 역할을 자동으로 인식합니다.
+     * AWS SDK는 다음 순서로 자격 증명을 찾습니다:
+     * 1. 환경 변수 (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
+     * 2. Java 시스템 속성
+     * 3. 자격 증명 파일 (~/.aws/credentials)
+     * 4. IAM 역할 (EC2 인스턴스에 부여된 경우) <- 이 방법 사용
      */
     private S3Client createS3Client() {
-        // Region만 설정하고, 자격 증명은 AWS SDK가 자동으로 감지하도록 합니다.
-        // AWS SDK는 다음 순서로 자격 증명을 찾습니다:
-        // 1. 환경 변수 (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
-        // 2. Java 시스템 속성
-        // 3. 자격 증명 파일 (~/.aws/credentials)
-        // 4. IAM 역할 (EC2 인스턴스에 부여된 경우) <- 이 방법 사용
         return S3Client.builder()
                 .region(Region.of(region))
+                .credentialsProvider(DefaultCredentialsProvider.create())
                 .build();
     }
     
@@ -59,11 +60,12 @@ public class S3Service {
             // S3 키 생성 (monster/ 폴더 아래에 저장)
             String s3Key = MONSTER_FOLDER + "/" + fileName;
             
-            // PutObjectRequest 생성
+            // PutObjectRequest 생성 (PublicRead ACL 설정으로 CloudFront에서 읽을 수 있도록)
             PutObjectRequest putObjectRequest = PutObjectRequest.builder()
                     .bucket(BUCKET_NAME)
                     .key(s3Key)
                     .contentType(contentType)
+                    .acl(ObjectCannedACL.PUBLIC_READ) // CloudFront에서 읽을 수 있도록 PublicRead 설정
                     .build();
             
             // InputStream을 바이트 배열로 변환 (Java 8 호환)
@@ -107,11 +109,12 @@ public class S3Service {
             // S3 키 생성 (monster/ 폴더 아래에 저장)
             String s3Key = MONSTER_FOLDER + "/" + fileName;
             
-            // PutObjectRequest 생성
+            // PutObjectRequest 생성 (PublicRead ACL 설정으로 CloudFront에서 읽을 수 있도록)
             PutObjectRequest putObjectRequest = PutObjectRequest.builder()
                     .bucket(BUCKET_NAME)
                     .key(s3Key)
                     .contentType(contentType)
+                    .acl(ObjectCannedACL.PUBLIC_READ) // CloudFront에서 읽을 수 있도록 PublicRead 설정
                     .build();
             
             // S3에 업로드
@@ -205,11 +208,12 @@ public class S3Service {
             // S3 키 생성
             String s3Key = folder + "/" + fileName;
             
-            // PutObjectRequest 생성
+            // PutObjectRequest 생성 (PublicRead ACL 설정으로 CloudFront에서 읽을 수 있도록)
             PutObjectRequest putObjectRequest = PutObjectRequest.builder()
                     .bucket(BUCKET_NAME)
                     .key(s3Key)
                     .contentType(contentType)
+                    .acl(ObjectCannedACL.PUBLIC_READ) // CloudFront에서 읽을 수 있도록 PublicRead 설정
                     .build();
             
             // S3에 업로드

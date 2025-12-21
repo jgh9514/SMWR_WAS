@@ -129,15 +129,18 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
                 
                 // 동시 처리 수 제한
                 if (futures.size() >= MAX_PARALLEL_PAGES) {
-                    CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
-                    for (CompletableFuture<Integer> f : futures) {
-                        try {
+                    // 모든 Future 완료 대기 (예외 발생 시 즉시 중단)
+                    CompletableFuture<Void> allFutures = CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]));
+                    try {
+                        allFutures.join(); // 모든 작업 완료 대기
+                        // 모든 작업이 성공한 경우에만 결과 수집
+                        for (CompletableFuture<Integer> f : futures) {
                             totalSynced += f.get();
-                        } catch (Exception e) {
-                            addBatchLog("페이지 처리 중 오류: %s", e.getMessage());
-                            log.error("페이지 처리 중 오류", e);
-                            throw new RuntimeException("페이지 처리 실패", e);
                         }
+                    } catch (Exception e) {
+                        addBatchLog("페이지 처리 중 오류 발생: %s", e.getMessage());
+                        log.error("페이지 처리 중 오류", e);
+                        throw new RuntimeException("페이지 처리 실패", e);
                     }
                     futures.clear();
                 }
@@ -152,6 +155,7 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
                     } catch (Exception e) {
                         addBatchLog("페이지 처리 중 오류: %s", e.getMessage());
                         log.error("페이지 처리 중 오류", e);
+                        throw new RuntimeException("페이지 처리 실패", e);
                     }
                 }
             }

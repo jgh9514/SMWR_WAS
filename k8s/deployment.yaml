@@ -14,6 +14,9 @@ spec:
       labels:
         app: smw-app
     spec:
+      # K3s 환경에서 Pod가 EC2 인스턴스의 IAM 역할을 사용할 수 있도록 설정
+      # EC2 메타데이터 서비스(169.254.169.254)에 접근할 수 있도록 hostNetwork 사용
+      # 또는 AWS SDK가 자동으로 EC2 인스턴스 메타데이터를 감지하도록 설정
       containers:
       - name: smw-app
         image: gilhwanjeon/smw-app:latest
@@ -22,6 +25,10 @@ spec:
         - containerPort: 8080
           name: http
         env:
+        # AWS SDK가 EC2 인스턴스 메타데이터 서비스를 사용하도록 명시적으로 설정
+        # K3s 환경에서 Pod가 EC2 인스턴스의 IAM 역할을 사용할 수 있도록 설정
+        - name: AWS_REGION
+          value: "ap-northeast-2"
         - name: SPRING_PROFILES_ACTIVE
           value: "docker"
         - name: SPRING_DATASOURCE_URL
