@@ -9,10 +9,12 @@ spring:
       enabled: true
   datasource:
     driver-class-name: net.sf.log4jdbc.sql.jdbcapi.DriverSpy
-    url: jdbc:log4jdbc:postgresql://postgres:5432/smw_db
+    # 쿠버네티스 환경에서는 시크릿에서 값을 가져옵니다 (deployment.yaml 참조)
+    # 로컬 개발 환경에서는 환경 변수 또는 기본값을 사용합니다
+    url: ${SPRING_DATASOURCE_URL:jdbc:log4jdbc:postgresql://localhost:5432/dummy_db}
     hikari:
-      username: ${SPRING_DATASOURCE_USERNAME:smw_user}
-      password: ${SPRING_DATASOURCE_PASSWORD:smw_password}
+      username: ${SPRING_DATASOURCE_USERNAME:dummy_user}
+      password: ${SPRING_DATASOURCE_PASSWORD:dummy_password}
       maximum-pool-size: 30 # 배치 작업 병렬 처리 고려하여 증가 (페이지 처리 3개 * 각 페이지마다 여러 DB 작업 + 일반 요청 여유)
       minimum-idle: 10 # 최소 유휴 연결 개수 증가 (배치 작업 대비)
       idle-timeout: 30000
@@ -26,9 +28,11 @@ spring:
     enabled: true
     host: smtp.gmail.com
     port: 587
-    username: ${MAIL_USERNAME:jgh9514@gmail.com}
-    password: ${MAIL_PASSWORD:dkpgthimeykzielq}
-    from: ${MAIL_FROM:jgh9514@gmail.com}
+    # 쿠버네티스 환경에서는 시크릿에서 값을 가져옵니다
+    # 로컬 개발 환경에서는 환경 변수를 사용하세요
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    from: ${MAIL_FROM:}
     properties:
       mail:
         smtp:

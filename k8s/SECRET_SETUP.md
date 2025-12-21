@@ -12,9 +12,9 @@ EC2 서버에서 다음 명령어를 실행하세요:
 
 ```bash
 kubectl create secret generic smw-db-secret \
-  --from-literal=url='jdbc:log4jdbc:postgresql://pg1101.gabiadb.com:5432/jgh9514' \
-  --from-literal=username='jgh9514' \
-  --from-literal=password='jgh1596123'
+  --from-literal=url='jdbc:log4jdbc:postgresql://YOUR_DB_HOST:YOUR_DB_PORT/YOUR_DB_NAME' \
+  --from-literal=username='YOUR_DB_USERNAME' \
+  --from-literal=password='YOUR_DB_PASSWORD'
 ```
 
 ### 방법 2: YAML 파일로 생성
@@ -23,9 +23,9 @@ kubectl create secret generic smw-db-secret \
 2. base64로 인코딩:
 
 ```bash
-echo -n 'jdbc:log4jdbc:postgresql://pg1101.gabiadb.com:5432/jgh9514' | base64
-echo -n 'jgh9514' | base64
-echo -n 'jgh1596123' | base64
+echo -n 'jdbc:log4jdbc:postgresql://YOUR_DB_HOST:YOUR_DB_PORT/YOUR_DB_NAME' | base64
+echo -n 'YOUR_DB_USERNAME' | base64
+echo -n 'YOUR_DB_PASSWORD' | base64
 ```
 
 3. 인코딩된 값을 `secret.yaml`에 입력
@@ -51,11 +51,11 @@ kubectl get secret smw-db-secret -o jsonpath='{.data.password}' | base64 -d
 ## Secret 업데이트
 
 ```bash
-# Secret 값 업데이트
+# Secret 값 업데이트 (실제 값으로 변경하세요)
 kubectl create secret generic smw-db-secret \
-  --from-literal=url='새로운-url' \
-  --from-literal=username='새로운-username' \
-  --from-literal=password='새로운-password' \
+  --from-literal=url='jdbc:log4jdbc:postgresql://YOUR_DB_HOST:YOUR_DB_PORT/YOUR_DB_NAME' \
+  --from-literal=username='YOUR_DB_USERNAME' \
+  --from-literal=password='YOUR_DB_PASSWORD' \
   --dry-run=client -o yaml | kubectl apply -f -
 
 # Pod 재시작 (새 Secret 적용)
