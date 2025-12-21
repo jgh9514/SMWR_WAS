@@ -186,10 +186,19 @@ public class CookieUtil {
     	
     	// 토큰이 없으면 null 반환
     	if (token == null || token.isEmpty()) {
+    		org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(CookieUtil.class);
+    		log.debug("토큰이 없음 - 쿠키 개수: {}, URI: {}", cookies != null ? cookies.length : 0, request.getRequestURI());
     		return null;
     	}
     	
+    	org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(CookieUtil.class);
+    	log.debug("토큰 발견 - 길이: {}, URI: {}", token.length(), request.getRequestURI());
+    	
 		Map<String, Object> userInfo = tokenUtil.getToken(token);
+		
+		if (userInfo == null) {
+			log.warn("토큰에서 사용자 정보를 찾을 수 없음 - URI: {}, 토큰 길이: {}", request.getRequestURI(), token.length());
+		}
 		
 		return userInfo;
     }

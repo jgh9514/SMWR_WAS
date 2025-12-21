@@ -9,10 +9,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
@@ -37,9 +33,6 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
     private static final String SWARFARM_API_BASE_URL = "https://swarfarm.com/api/v2/monsters/";
     private static final String SWARFARM_IMAGE_BASE_URL = "https://swarfarm.com/static/herders/images/monsters/";
     private static final int DEFAULT_PAGE_SIZE = 100; // Swarfarm API 기본 페이지 크기
-    private static final int MAX_PARALLEL_PAGES = 3; // 동시 처리할 최대 페이지 수 (커넥션 풀 부족 방지를 위해 감소)
-    private static final int IMAGE_DOWNLOAD_THREADS = 5; // 이미지 다운로드 스레드 풀 크기 (커넥션 풀 부족 방지를 위해 감소)
-    
     @Autowired
     private SwarfarmMonsterMapper swarfarmMonsterMapper;
     
@@ -54,12 +47,6 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
     
     @Value("${server.servlet.context-path:}")
     private String contextPath;
-    
-    // 이미지 다운로드용 스레드 풀
-    private final ExecutorService imageDownloadExecutor = Executors.newFixedThreadPool(IMAGE_DOWNLOAD_THREADS);
-    
-    // 페이지 처리용 스레드 풀
-    private final ExecutorService pageProcessExecutor = Executors.newFixedThreadPool(MAX_PARALLEL_PAGES);
     
     // 로그 콜백 (배치 실행 시 상세 로그 수집용)
     private Consumer<String> logCallback = null;
@@ -108,66 +95,13 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
             Set<Integer> existingSwarfarmIds = loadExistingSwarfarmIds();
             addBatchLog("기존 몬스터 수: %d개 (건너뛸 몬스터)", existingSwarfarmIds.size());
             
-            // 첫 페이지 처리
-            addBatchLog("페이지 1 처리 시작...");
-            int synced = syncMonstersByPage(1, existingSwarfarmIds);
-            totalSynced += synced;
-            addBatchLog("페이지 1 처리 완료: %d개 저장", synced);
-            
-            // 나머지 페이지 병렬 처리
-            addBatchLog("나머지 페이지 병렬 처리 시작 (최대 %d개 동시 처리)...", MAX_PARALLEL_PAGES);
-            List<CompletableFuture<Integer>> futures = new ArrayList<>();
-            for (int page = 2; page <= totalPages; page++) {
-                final int pageNum = page;
-                CompletableFuture<Integer> future = CompletableFuture.supplyAsync(() -> {
-                    addBatchLog("페이지 %d 동기화 시작", pageNum);
-                    int pageSynced = syncMonstersByPage(pageNum, existingSwarfarmIds);
-                    addBatchLog("페이지 %d 동기화 완료: %d개 저장", pageNum, pageSynced);
-                    return pageSynced;
-                }, pageProcessExecutor);
-                futures.add(future);
-                
-                // 동시 처리 수 제한
-                if (futures.size() >= MAX_PARALLEL_PAGES) {
-                    // 모든 Future 완료 대기 (예외 발생 시 즉시 중단)
-                    CompletableFuture<Void> allFutures = CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]));
-                    try {
-                        // 모든 작업 완료 대기 (예외 발생 시 즉시 예외 전파)
-                        allFutures.get();
-                        // 모든 작업이 성공한 경우에만 결과 수집
-                        for (CompletableFuture<Integer> f : futures) {
-                            // 각 Future의 예외 확인 (예외가 있으면 즉시 throw)
-                            totalSynced += f.get();
-                        }
-                    } catch (Exception e) {
-                        addBatchLog("페이지 처리 중 오류 발생: %s", e.getMessage());
-                        log.error("페이지 처리 중 오류", e);
-                        // 모든 Future 취소
-                        futures.forEach(f -> f.cancel(true));
-                        throw new RuntimeException("페이지 처리 실패", e);
-                    }
-                    futures.clear();
-                }
-            }
-            
-            // 남은 작업 완료 대기
-            if (!futures.isEmpty()) {
-                CompletableFuture<Void> allFutures = CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]));
-                try {
-                    // 모든 작업 완료 대기 (예외 발생 시 즉시 예외 전파)
-                    allFutures.get();
-                    // 모든 작업이 성공한 경우에만 결과 수집
-                    for (CompletableFuture<Integer> f : futures) {
-                        // 각 Future의 예외 확인 (예외가 있으면 즉시 throw)
-                        totalSynced += f.get();
-                    }
-                } catch (Exception e) {
-                    addBatchLog("페이지 처리 중 오류 발생: %s", e.getMessage());
-                    log.error("페이지 처리 중 오류", e);
-                    // 모든 Future 취소
-                    futures.forEach(f -> f.cancel(true));
-                    throw new RuntimeException("페이지 처리 실패", e);
-                }
+            // 모든 페이지 순차 처리 (에러 발생 시 즉시 중단 및 롤백)
+            addBatchLog("페이지 순차 처리 시작 (에러 발생 시 즉시 중단)...");
+            for (int page = 1; page <= totalPages; page++) {
+                addBatchLog("페이지 %d 처리 시작...", page);
+                int synced = syncMonstersByPage(page, existingSwarfarmIds);
+                totalSynced += synced;
+                addBatchLog("페이지 %d 처리 완료: %d개 저장", page, synced);
             }
             
             long elapsedTime = System.currentTimeMillis() - startTime;
@@ -224,59 +158,38 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
             
             log.info("페이지 {}: {}개 중 {}개 새 몬스터 발견", page, response.getResults().size(), newMonsters.size());
             
-            // 몬스터 데이터 변환 및 이미지 다운로드 (병렬 처리)
-            List<CompletableFuture<Map<String, Object>>> monsterDataFutures = newMonsters.stream()
-                    .map(monster -> CompletableFuture.supplyAsync(() -> {
-                        try {
-                            Map<String, Object> monsterData = convertToMap(monster);
-                            
-                            // 이미지 다운로드 및 S3 업로드 (비동기)
-                            if (monster.getImageFilename() != null && monster.getElement() != null) {
-                                String imageUrl = downloadMonsterImage(monster.getImageFilename(), monster.getElement());
-                                // 이미지 다운로드 실패 시에도 기본 경로 설정 (NOT NULL 제약조건 대응)
-                                if (imageUrl == null) {
-                                    // S3에 기본 이미지가 있다고 가정하고 CloudFront URL 생성
-                                    imageUrl = "https://dyjduzi8vf2k4.cloudfront.net/monster/default/monster_default.png";
-                                    log.debug("이미지 다운로드 실패, 기본 경로 사용: {}", imageUrl);
-                                }
-                                monsterData.put("image_url", imageUrl);
-                            } else {
-                                // image_filename이나 element가 없는 경우 기본값 설정
-                                String defaultImageUrl = "https://dyjduzi8vf2k4.cloudfront.net/monster/default/monster_default.png";
-                                monsterData.put("image_url", defaultImageUrl);
-                                log.debug("이미지 정보 없음, 기본 이미지 경로 사용: {}", defaultImageUrl);
-                            }
-                            
-                            // Skills와 Sources 정보도 함께 저장
-                            monsterData.put("_skills", monster.getSkills());
-                            monsterData.put("_sources", monster.getSource());
-                            monsterData.put("_swarfarm_id", monster.getId());
-                            
-                            return monsterData;
-                        } catch (Exception e) {
-                            log.error("몬스터 데이터 변환 중 오류: {}", monster.getId(), e);
-                            throw new RuntimeException("몬스터 데이터 변환 실패: " + monster.getId(), e);
-                        }
-                    }, imageDownloadExecutor))
-                    .collect(Collectors.toList());
-            
-            // 모든 데이터 변환 완료 대기 (예외 발생 시 즉시 중단)
+            // 몬스터 데이터 변환 및 이미지 다운로드 (순차 처리 - 에러 발생 시 즉시 중단)
             List<Map<String, Object>> monsterDataList = new ArrayList<>();
-            try {
-                // 모든 Future 완료 대기 (예외 발생 시 즉시 예외 전파)
-                CompletableFuture.allOf(monsterDataFutures.toArray(new CompletableFuture[0])).get();
-                // 모든 작업이 성공한 경우에만 결과 수집
-                for (CompletableFuture<Map<String, Object>> future : monsterDataFutures) {
-                    Map<String, Object> data = future.get(60, TimeUnit.SECONDS);
-                    if (data != null) {
-                        monsterDataList.add(data);
+            for (SwarfarmMonsterResponse.MonsterData monster : newMonsters) {
+                try {
+                    Map<String, Object> monsterData = convertToMap(monster);
+                    
+                    // 이미지 다운로드 및 S3 업로드 (순차 처리)
+                    // 이미지 다운로드 실패 시 예외를 던져서 DB 저장을 하지 않도록 함
+                    if (monster.getImageFilename() != null && monster.getElement() != null) {
+                        String imageUrl = downloadMonsterImage(monster.getImageFilename(), monster.getElement());
+                        // downloadMonsterImage는 실패 시 RuntimeException을 던지므로 null 체크 불필요
+                        // 하지만 안전을 위해 확인
+                        if (imageUrl == null || imageUrl.isEmpty()) {
+                            throw new RuntimeException("이미지 다운로드 실패: " + monster.getImageFilename() + " - URL이 null입니다.");
+                        }
+                        monsterData.put("image_url", imageUrl);
+                    } else {
+                        // image_filename이나 element가 없는 경우 예외 발생 (DB에 저장하지 않음)
+                        throw new RuntimeException("이미지 정보 없음: swarfarm_id=" + monster.getId() + ", image_filename=" + monster.getImageFilename() + ", element=" + monster.getElement());
                     }
+                    
+                    // Skills와 Sources 정보도 함께 저장
+                    monsterData.put("_skills", monster.getSkills());
+                    monsterData.put("_sources", monster.getSource());
+                    monsterData.put("_swarfarm_id", monster.getId());
+                    
+                    monsterDataList.add(monsterData);
+                } catch (Exception e) {
+                    log.error("몬스터 데이터 변환 중 오류: swarfarm_id={}, name={}", monster.getId(), monster.getName(), e);
+                    // 에러 발생 시 즉시 중단 (이전까지 처리된 데이터도 롤백됨)
+                    throw new RuntimeException("몬스터 데이터 변환 실패: swarfarm_id=" + monster.getId() + " - " + e.getMessage(), e);
                 }
-            } catch (Exception e) {
-                log.error("몬스터 데이터 변환 대기 중 오류 발생", e);
-                // 모든 Future 취소
-                monsterDataFutures.forEach(f -> f.cancel(true));
-                throw new RuntimeException("몬스터 데이터 변환 대기 실패", e);
             }
             
             // 배치로 DB 저장
@@ -452,24 +365,8 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
     }
     
     /**
-     * 스레드 풀 종료 (애플리케이션 종료 시 호출)
+     * 스레드 풀 종료 메서드 제거 (순차 처리로 변경하여 스레드 풀 불필요)
      */
-    public void shutdown() {
-        imageDownloadExecutor.shutdown();
-        pageProcessExecutor.shutdown();
-        try {
-            if (!imageDownloadExecutor.awaitTermination(60, TimeUnit.SECONDS)) {
-                imageDownloadExecutor.shutdownNow();
-            }
-            if (!pageProcessExecutor.awaitTermination(60, TimeUnit.SECONDS)) {
-                pageProcessExecutor.shutdownNow();
-            }
-        } catch (InterruptedException e) {
-            imageDownloadExecutor.shutdownNow();
-            pageProcessExecutor.shutdownNow();
-            Thread.currentThread().interrupt();
-        }
-    }
     
     /**
      * Swarfarm API에서 데이터 가져오기

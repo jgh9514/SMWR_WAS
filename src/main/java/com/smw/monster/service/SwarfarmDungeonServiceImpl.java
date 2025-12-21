@@ -27,7 +27,7 @@ public class SwarfarmDungeonServiceImpl implements SwarfarmDungeonService {
     private static final String SWARFARM_API_BASE_URL = "https://swarfarm.com/api/v2/dungeons/";
     private static final String SWARFARM_IMAGE_BASE_URL = "https://swarfarm.com/static/herders/images/";
     private static final int DEFAULT_PAGE_SIZE = 100; // Swarfarm API 기본 페이지 크기
-    
+
     @Autowired
     private SwarfarmDungeonMapper swarfarmDungeonMapper;
     
