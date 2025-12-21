@@ -95,7 +95,7 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
             
             if (firstResponse == null) {
                 addBatchLog("오류: 첫 페이지 데이터를 가져올 수 없습니다.");
-                return 0;
+                throw new RuntimeException("첫 페이지 데이터를 가져올 수 없습니다.");
             }
             
             int totalCount = firstResponse.getCount();
@@ -136,6 +136,7 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
                         } catch (Exception e) {
                             addBatchLog("페이지 처리 중 오류: %s", e.getMessage());
                             log.error("페이지 처리 중 오류", e);
+                            throw new RuntimeException("페이지 처리 실패", e);
                         }
                     }
                     futures.clear();
@@ -240,7 +241,7 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
                             return monsterData;
                         } catch (Exception e) {
                             log.error("몬스터 데이터 변환 중 오류: {}", monster.getId(), e);
-                            return null;
+                            throw new RuntimeException("몬스터 데이터 변환 실패: " + monster.getId(), e);
                         }
                     }, imageDownloadExecutor))
                     .collect(Collectors.toList());
@@ -252,7 +253,7 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
                             return future.get(60, TimeUnit.SECONDS);
                         } catch (Exception e) {
                             log.error("몬스터 데이터 변환 대기 중 오류", e);
-                            return null;
+                            throw new RuntimeException("몬스터 데이터 변환 대기 실패", e);
                         }
                     })
                     .filter(data -> data != null)
@@ -266,7 +267,7 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
             
         } catch (Exception e) {
             log.error("페이지 {} 동기화 중 오류 발생", page, e);
-            return 0;
+            throw new RuntimeException("페이지 " + page + " 동기화 실패", e);
         }
     }
     
@@ -301,6 +302,7 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
                 }
             } catch (Exception e) {
                 log.error("몬스터 배치 저장 중 오류 발생", e);
+                throw new RuntimeException("몬스터 배치 저장 실패", e);
             }
         }
         return savedCount;
@@ -350,19 +352,19 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
                 log.info("이미지 S3 업로드 완료: {} -> {}", imageFilename, cloudFrontUrl);
                 return cloudFrontUrl;
             } else {
-                log.warn("이미지 다운로드 실패. HTTP 응답 코드: {} - URL: {}", responseCode, imageUrl);
-                return null;
+                log.error("이미지 다운로드 실패. HTTP 응답 코드: {} - URL: {}", responseCode, imageUrl);
+                throw new RuntimeException("이미지 다운로드 실패. HTTP 응답 코드: " + responseCode + " - " + imageFilename);
             }
             
         } catch (java.net.SocketTimeoutException e) {
-            log.warn("이미지 다운로드 타임아웃: {}", imageFilename, e);
-            return null;
+            log.error("이미지 다운로드 타임아웃: {} - URL: {}", imageFilename, SWARFARM_IMAGE_BASE_URL + imageFilename, e);
+            throw new RuntimeException("이미지 다운로드 타임아웃: " + imageFilename, e);
         } catch (java.io.FileNotFoundException e) {
-            log.warn("이미지 파일을 찾을 수 없음: {} - URL: {}", imageFilename, SWARFARM_IMAGE_BASE_URL + imageFilename, e);
-            return null;
+            log.error("이미지 파일을 찾을 수 없음: {} - URL: {}", imageFilename, SWARFARM_IMAGE_BASE_URL + imageFilename, e);
+            throw new RuntimeException("이미지 파일을 찾을 수 없음: " + imageFilename, e);
         } catch (Exception e) {
             log.error("이미지 다운로드 및 S3 업로드 중 오류 발생: {} - URL: {}", imageFilename, SWARFARM_IMAGE_BASE_URL + imageFilename, e);
-            return null; // 예외를 던지지 않고 null 반환하여 배치가 계속 진행되도록 함
+            throw new RuntimeException("이미지 다운로드 및 S3 업로드 실패: " + imageFilename, e);
         } finally {
             // 리소스 정리
             if (inputStream != null) {
@@ -550,6 +552,7 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
             }
         } catch (Exception e) {
             log.error("스킬 저장 중 오류 발생", e);
+            throw new RuntimeException("몬스터 스킬 저장 실패: swarfarmId=" + swarfarmId, e);
         }
     }
     
@@ -582,6 +585,7 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
             }
         } catch (Exception e) {
             log.error("획득 경로 저장 중 오류 발생", e);
+            throw new RuntimeException("몬스터 획득 경로 저장 실패: swarfarmId=" + swarfarmId, e);
         }
     }
     

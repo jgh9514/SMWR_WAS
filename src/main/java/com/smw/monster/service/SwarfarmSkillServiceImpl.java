@@ -52,7 +52,7 @@ public class SwarfarmSkillServiceImpl implements SwarfarmSkillService {
             
             if (firstResponse == null) {
                 log.error("첫 페이지 데이터를 가져올 수 없습니다.");
-                return 0;
+                throw new RuntimeException("첫 페이지 데이터를 가져올 수 없습니다.");
             }
             
             int totalCount = firstResponse.getCount();
@@ -75,11 +75,11 @@ public class SwarfarmSkillServiceImpl implements SwarfarmSkillService {
             }
             
             log.info("===== Swarfarm 스킬 동기화 완료. 총 {}개 동기화 =====", totalSynced);
+            return totalSynced;
         } catch (Exception e) {
             log.error("스킬 동기화 중 오류 발생", e);
+            throw new RuntimeException("스킬 동기화 실패", e);
         }
-        
-        return totalSynced;
     }
     
     @Override
@@ -111,7 +111,8 @@ public class SwarfarmSkillServiceImpl implements SwarfarmSkillService {
                             String imagePath = downloadSkillImage(skill.getIconFilename());
                             skillData.put("icon_path", imagePath);
                         } catch (Exception e) {
-                            log.warn("이미지 다운로드 실패: {}", skill.getIconFilename(), e);
+                            log.error("이미지 다운로드 실패: {}", skill.getIconFilename(), e);
+                            throw new RuntimeException("스킬 이미지 다운로드 실패: " + skill.getIconFilename(), e);
                         }
                     }
                     
@@ -136,6 +137,7 @@ public class SwarfarmSkillServiceImpl implements SwarfarmSkillService {
                     }
                 } catch (Exception e) {
                     log.error("스킬 저장 중 오류 발생: {}", skill.getId(), e);
+                    throw new RuntimeException("스킬 저장 실패: " + skill.getId(), e);
                 }
             }
             
@@ -144,7 +146,7 @@ public class SwarfarmSkillServiceImpl implements SwarfarmSkillService {
             
         } catch (Exception e) {
             log.error("페이지 {} 동기화 중 오류 발생", page, e);
-            return 0;
+            throw new RuntimeException("페이지 " + page + " 동기화 실패", e);
         }
     }
     
@@ -189,8 +191,8 @@ public class SwarfarmSkillServiceImpl implements SwarfarmSkillService {
                 log.info("스킬 이미지 S3 업로드 완료: {} -> {}", iconFilename, cloudFrontUrl);
                 return cloudFrontUrl;
             } else {
-                log.warn("이미지 다운로드 실패. HTTP 응답 코드: {}", responseCode);
-                return null;
+                log.error("이미지 다운로드 실패. HTTP 응답 코드: {} - URL: {}", responseCode, imageUrl);
+                throw new RuntimeException("이미지 다운로드 실패. HTTP 응답 코드: " + responseCode + " - " + iconFilename);
             }
             
         } catch (Exception e) {
@@ -339,6 +341,7 @@ public class SwarfarmSkillServiceImpl implements SwarfarmSkillService {
             }
         } catch (Exception e) {
             log.error("스킬 업그레이드 저장 중 오류 발생", e);
+            throw new RuntimeException("스킬 업그레이드 저장 실패: swarfarmId=" + swarfarmId, e);
         }
     }
     
@@ -388,6 +391,7 @@ public class SwarfarmSkillServiceImpl implements SwarfarmSkillService {
             }
         } catch (Exception e) {
             log.error("스킬 효과 저장 중 오류 발생", e);
+            throw new RuntimeException("스킬 효과 저장 실패: swarfarmId=" + swarfarmId, e);
         }
     }
     
@@ -414,6 +418,7 @@ public class SwarfarmSkillServiceImpl implements SwarfarmSkillService {
             }
         } catch (Exception e) {
             log.error("스킬 사용 몬스터 저장 중 오류 발생", e);
+            throw new RuntimeException("스킬 사용 몬스터 저장 실패: swarfarmId=" + swarfarmId, e);
         }
     }
 }

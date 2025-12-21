@@ -51,7 +51,7 @@ public class SwarfarmSkillEffectServiceImpl implements SwarfarmSkillEffectServic
             
             if (firstResponse == null) {
                 log.error("첫 페이지 데이터를 가져올 수 없습니다.");
-                return 0;
+                throw new RuntimeException("첫 페이지 데이터를 가져올 수 없습니다.");
             }
             
             int totalCount = firstResponse.getCount();
@@ -72,11 +72,11 @@ public class SwarfarmSkillEffectServiceImpl implements SwarfarmSkillEffectServic
             }
             
             log.info("===== Swarfarm 스킬 이펙트 동기화 완료. 총 {}개 동기화 =====", totalSynced);
+            return totalSynced;
         } catch (Exception e) {
             log.error("스킬 이펙트 동기화 중 오류 발생", e);
+            throw new RuntimeException("스킬 이펙트 동기화 실패", e);
         }
-        
-        return totalSynced;
     }
     
     @Override
@@ -118,6 +118,7 @@ public class SwarfarmSkillEffectServiceImpl implements SwarfarmSkillEffectServic
                     }
                 } catch (Exception e) {
                     log.error("스킬 이펙트 저장 중 오류 발생: {}", effect.getId(), e);
+                    throw new RuntimeException("스킬 이펙트 저장 실패: " + effect.getId(), e);
                 }
             }
             
@@ -126,7 +127,7 @@ public class SwarfarmSkillEffectServiceImpl implements SwarfarmSkillEffectServic
             
         } catch (Exception e) {
             log.error("페이지 {} 동기화 중 오류 발생", page, e);
-            return 0;
+            throw new RuntimeException("페이지 " + page + " 동기화 실패", e);
         }
     }
     
@@ -180,8 +181,8 @@ public class SwarfarmSkillEffectServiceImpl implements SwarfarmSkillEffectServic
                 log.info("스킬 이펙트 이미지 S3 업로드 완료: {} -> {}", iconFilename, cloudFrontUrl);
                 return cloudFrontUrl;
             } else {
-                log.warn("이미지 다운로드 실패. HTTP 응답 코드: {}", responseCode);
-                return null;
+                log.error("이미지 다운로드 실패. HTTP 응답 코드: {} - URL: {}", responseCode, imageUrl);
+                throw new RuntimeException("이미지 다운로드 실패. HTTP 응답 코드: " + responseCode + " - " + iconFilename);
             }
             
         } catch (Exception e) {

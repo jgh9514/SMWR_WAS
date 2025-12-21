@@ -8,8 +8,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import lombok.extern.slf4j.Slf4j;
-import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
-import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -25,40 +23,23 @@ public class S3Service {
     private static final String MONSTER_FOLDER = "monster";
     private static final String FILES_FOLDER = "files"; // 일반 파일 저장 폴더
     
-    @Value("${AWS_ACCESS_KEY_ID:}")
-    private String accessKeyId;
-    
-    @Value("${AWS_SECRET_ACCESS_KEY:}")
-    private String secretAccessKey;
-    
-    @Value("${AWS_REGION:ap-northeast-2}")
+    @Value("${cloud.aws.region.static:ap-northeast-2}")
     private String region;
     
     /**
      * S3 클라이언트 생성
+     * IAM 역할을 사용하므로 자격 증명을 명시적으로 설정하지 않습니다.
+     * AWS SDK가 자동으로 EC2 인스턴스에 부여된 IAM 역할을 감지합니다.
      */
     private S3Client createS3Client() {
-        if (accessKeyId == null || accessKeyId.isEmpty() || 
-            secretAccessKey == null || secretAccessKey.isEmpty()) {
-            // 환경 변수에서 가져오기
-            accessKeyId = System.getenv("AWS_ACCESS_KEY_ID");
-            secretAccessKey = System.getenv("AWS_SECRET_ACCESS_KEY");
-            String envRegion = System.getenv("AWS_REGION");
-            if (envRegion != null && !envRegion.isEmpty()) {
-                region = envRegion;
-            }
-        }
-        
-        if (accessKeyId == null || accessKeyId.isEmpty() || 
-            secretAccessKey == null || secretAccessKey.isEmpty()) {
-            throw new IllegalStateException("AWS 자격 증명이 설정되지 않았습니다. AWS_ACCESS_KEY_ID와 AWS_SECRET_ACCESS_KEY 환경 변수를 확인하세요.");
-        }
-        
-        AwsBasicCredentials awsCreds = AwsBasicCredentials.create(accessKeyId, secretAccessKey);
-        
+        // Region만 설정하고, 자격 증명은 AWS SDK가 자동으로 감지하도록 합니다.
+        // AWS SDK는 다음 순서로 자격 증명을 찾습니다:
+        // 1. 환경 변수 (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
+        // 2. Java 시스템 속성
+        // 3. 자격 증명 파일 (~/.aws/credentials)
+        // 4. IAM 역할 (EC2 인스턴스에 부여된 경우) <- 이 방법 사용
         return S3Client.builder()
                 .region(Region.of(region))
-                .credentialsProvider(StaticCredentialsProvider.create(awsCreds))
                 .build();
     }
     

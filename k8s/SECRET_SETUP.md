@@ -35,6 +35,19 @@ echo -n 'YOUR_DB_PASSWORD' | base64
 kubectl apply -f k8s/secret.yaml
 ```
 
+## AWS S3 자격 증명 (IAM 역할 사용)
+
+S3 업로드는 **IAM 역할**을 통해 자동으로 인증됩니다.
+
+- ✅ **IAM 역할 사용**: EC2 인스턴스에 부여된 IAM 역할을 AWS SDK가 자동으로 감지합니다.
+- ❌ **Access Key/Secret Key 불필요**: 코드나 설정 파일에 자격 증명을 저장할 필요가 없습니다.
+- 🔒 **보안**: IAM 역할을 사용하면 자격 증명을 코드나 환경 변수에 저장하지 않아도 됩니다.
+
+**IAM 역할 설정 방법**:
+1. AWS 콘솔에서 EC2 인스턴스에 IAM 역할 부여
+2. IAM 역할에 S3 버킷(`summonerswar-community`) 접근 권한 추가
+3. 애플리케이션 코드는 자동으로 IAM 역할을 사용합니다.
+
 ## Secret 확인
 
 ```bash
@@ -51,7 +64,7 @@ kubectl get secret smw-db-secret -o jsonpath='{.data.password}' | base64 -d
 ## Secret 업데이트
 
 ```bash
-# Secret 값 업데이트 (실제 값으로 변경하세요)
+# DB Secret 값 업데이트 (실제 값으로 변경하세요)
 kubectl create secret generic smw-db-secret \
   --from-literal=url='jdbc:log4jdbc:postgresql://YOUR_DB_HOST:YOUR_DB_PORT/YOUR_DB_NAME' \
   --from-literal=username='YOUR_DB_USERNAME' \
