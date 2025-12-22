@@ -158,25 +158,37 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
             
             log.info("페이지 {}: {}개 중 {}개 새 몬스터 발견", page, response.getResults().size(), newMonsters.size());
             
-            // 몬스터 데이터 변환 및 이미지 다운로드 (순차 처리 - 에러 발생 시 즉시 중단)
+            // 몬스터 데이터 변환 및 이미지 다운로드 (이미지가 있는 경우만 처리)
             List<Map<String, Object>> monsterDataList = new ArrayList<>();
+            int skippedCount = 0;
             for (SwarfarmMonsterResponse.MonsterData monster : newMonsters) {
                 try {
+                    // 이미지 정보 확인
+                    if (monster.getImageFilename() == null || monster.getElement() == null) {
+                        addBatchLog("이미지 정보 없음으로 패스: swarfarm_id=%d, name=%s, image_filename=%s, element=%s", 
+                                monster.getId(), monster.getName(), monster.getImageFilename(), monster.getElement());
+                        skippedCount++;
+                        continue;
+                    }
+                    
                     Map<String, Object> monsterData = convertToMap(monster);
                     
                     // 이미지 다운로드 및 S3 업로드 (순차 처리)
-                    // 이미지 다운로드 실패 시 예외를 던져서 DB 저장을 하지 않도록 함
-                    if (monster.getImageFilename() != null && monster.getElement() != null) {
+                    // 이미지 다운로드 실패 시 패스
+                    try {
                         String imageUrl = downloadMonsterImage(monster.getImageFilename(), monster.getElement());
-                        // downloadMonsterImage는 실패 시 RuntimeException을 던지므로 null 체크 불필요
-                        // 하지만 안전을 위해 확인
                         if (imageUrl == null || imageUrl.isEmpty()) {
-                            throw new RuntimeException("이미지 다운로드 실패: " + monster.getImageFilename() + " - URL이 null입니다.");
+                            addBatchLog("이미지 다운로드 실패로 패스: swarfarm_id=%d, name=%s, image_filename=%s", 
+                                    monster.getId(), monster.getName(), monster.getImageFilename());
+                            skippedCount++;
+                            continue;
                         }
                         monsterData.put("image_url", imageUrl);
-                    } else {
-                        // image_filename이나 element가 없는 경우 예외 발생 (DB에 저장하지 않음)
-                        throw new RuntimeException("이미지 정보 없음: swarfarm_id=" + monster.getId() + ", image_filename=" + monster.getImageFilename() + ", element=" + monster.getElement());
+                    } catch (Exception imageEx) {
+                        addBatchLog("이미지 다운로드 중 오류로 패스: swarfarm_id=%d, name=%s, image_filename=%s, 오류=%s", 
+                                monster.getId(), monster.getName(), monster.getImageFilename(), imageEx.getMessage());
+                        skippedCount++;
+                        continue;
                     }
                     
                     // Skills와 Sources 정보도 함께 저장
@@ -186,10 +198,16 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
                     
                     monsterDataList.add(monsterData);
                 } catch (Exception e) {
-                    log.error("몬스터 데이터 변환 중 오류: swarfarm_id={}, name={}", monster.getId(), monster.getName(), e);
-                    // 에러 발생 시 즉시 중단 (이전까지 처리된 데이터도 롤백됨)
-                    throw new RuntimeException("몬스터 데이터 변환 실패: swarfarm_id=" + monster.getId() + " - " + e.getMessage(), e);
+                    addBatchLog("몬스터 데이터 변환 중 오류로 패스: swarfarm_id=%d, name=%s, 오류=%s", 
+                            monster.getId(), monster.getName(), e.getMessage());
+                    skippedCount++;
+                    // 개별 몬스터 오류는 패스하고 계속 진행
+                    continue;
                 }
+            }
+            
+            if (skippedCount > 0) {
+                addBatchLog("이미지 없음 또는 오류로 인해 %d개 몬스터 패스됨", skippedCount);
             }
             
             // 배치로 DB 저장

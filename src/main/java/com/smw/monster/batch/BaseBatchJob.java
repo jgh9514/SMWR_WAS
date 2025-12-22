@@ -201,6 +201,7 @@ public abstract class BaseBatchJob implements Job {
     
     /**
      * 배치 실행 이력 업데이트
+     * 별도 트랜잭션(REQUIRES_NEW)으로 처리하여 연결 누수 방지
      */
     protected void updateBatchRunHis(String rsltCd, String rsltTxt) {
         if (runSn == null || batchMapper == null) {
@@ -208,7 +209,16 @@ public abstract class BaseBatchJob implements Job {
             return;
         }
         
+        TransactionStatus updateTxStatus = null;
         try {
+            // 별도 트랜잭션으로 처리 (REQUIRES_NEW) - 메인 트랜잭션과 독립적으로 실행
+            if (transactionManager != null) {
+                DefaultTransactionDefinition def = new DefaultTransactionDefinition();
+                def.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+                def.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+                updateTxStatus = transactionManager.getTransaction(def);
+            }
+            
             // TEXT 타입이므로 길이 제한 없이 저장 (최대 1GB까지 가능하지만, 실용적으로는 충분)
             // 너무 긴 경우를 대비해 최대 100만자로 제한 (약 2MB)
             String finalTxt = rsltTxt;
@@ -223,9 +233,22 @@ public abstract class BaseBatchJob implements Job {
             runHis.put("rslt_txt", finalTxt);
             batchMapper.updateBatchRunHis(runHis);
             
+            // 트랜잭션 커밋 (연결이 제대로 닫히도록 보장)
+            if (updateTxStatus != null && !updateTxStatus.isCompleted()) {
+                transactionManager.commit(updateTxStatus);
+            }
+            
             log.info("배치 실행 이력 업데이트 완료. run_sn={}, rslt_cd={}, 로그 길이={}자", 
                     runSn, rsltCd, finalTxt != null ? finalTxt.length() : 0);
         } catch (Exception e) {
+            // 트랜잭션 롤백
+            if (updateTxStatus != null && !updateTxStatus.isCompleted()) {
+                try {
+                    transactionManager.rollback(updateTxStatus);
+                } catch (Exception rollbackEx) {
+                    log.error("배치 이력 업데이트 트랜잭션 롤백 중 오류 발생", rollbackEx);
+                }
+            }
             log.error("배치 실행 이력 업데이트 중 오류 발생", e);
         }
     }

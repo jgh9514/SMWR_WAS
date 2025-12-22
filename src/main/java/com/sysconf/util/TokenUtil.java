@@ -3,11 +3,11 @@ package com.sysconf.util;
 import java.util.HashMap;
 import java.util.Map;
 
-import javax.annotation.PostConstruct;
-
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import com.admin.user.service.UserService;
+import com.smw.guild.service.GuildService;
 import com.sysconf.security.JwtTokenProvider;
 
 import lombok.extern.slf4j.Slf4j;
@@ -16,77 +16,86 @@ import lombok.extern.slf4j.Slf4j;
 @Component
 public class TokenUtil {
 	
-	private Map<String, Map<String, Object>> tokenMap;
-
 	@Autowired
 	JwtTokenProvider jwtTokenProvider;
 	
-	@PostConstruct
-	public void init() {
-		tokenMap = new HashMap<>();
-	}
+	@Autowired
+	UserService userService;
+	
+	@Autowired
+	GuildService guildService;
 	
 	/**
-	 * JWT 토큰을 검증하고 사용자 정보를 반환합니다.
-	 * 1. JWT 유효성 검증 (만료, 서명 등)
-	 * 2. 유효한 경우 tokenMap에서 사용자 정보 조회
+	 * JWT 토큰으로 사용자 정보를 조회합니다.
+	 * JWT에서 user_id를 추출한 후 DB에서 사용자 정보를 조회합니다.
 	 * 
 	 * @param token JWT 토큰
-	 * @return 사용자 정보 Map, 토큰이 유효하지 않으면 null
+	 * @return 사용자 정보 Map, 조회 실패 시 null
 	 */
 	public Map<String, Object> getToken(String token) {
 		if (token == null || token.isEmpty()) {
-			log.debug("토큰이 null이거나 비어있음");
 			return null;
 		}
 		
 		try {
-			// 1. JWT 유효성 검증
-			String validationResult = jwtTokenProvider.isValidToken(token);
-			log.debug("JWT 검증 결과: {}", validationResult);
+			// JWT에서 user_id 추출 (JWT 파싱 실패 시 예외 발생)
+			String userId = jwtTokenProvider.getUserIdByToken(token);
 			
-			if (!"ACCESS".equals(validationResult)) {
-				// JWT가 만료되었거나 유효하지 않음
-				log.warn("JWT 검증 실패: {} - 토큰 길이: {}", validationResult, token.length());
-				// 만료된 토큰은 tokenMap에서도 제거
-				if (tokenMap != null && tokenMap.containsKey(token)) {
-					tokenMap.remove(token);
-				}
+			// DB에서 사용자 정보 조회
+			Map<String, Object> param = new HashMap<>();
+			param.put("user_id", userId);
+			Map<String, Object> userInfo = userService.selectUserInfo(param);
+			
+			if (userInfo == null || "dehs-NOTEXISTS".equals(userInfo.get("user_id"))) {
+				log.warn("DB에서 사용자 정보를 찾을 수 없음: user_id={}", userId);
 				return null;
 			}
 			
-			// 2. JWT가 유효하면 tokenMap에서 사용자 정보 조회
-			log.debug("tokenMap 크기: {}, 토큰 존재 여부: {}", tokenMap != null ? tokenMap.size() : 0, tokenMap != null && tokenMap.containsKey(token));
+			// 사용자 정보에서 비밀번호 제거
+			userInfo.remove("user_pw");
 			
-			if (tokenMap != null && tokenMap.containsKey(token)) {
-				Map<String, Object> userInfo = tokenMap.get(token);
-				log.debug("사용자 정보 조회 성공: user_id={}", userInfo.get("user_id"));
-				return userInfo;
+			// 길드 정보 조회
+			Map<String, Object> guildParam = new HashMap<>();
+			guildParam.put("user_id", userId);
+			Map<String, ?> userGuild = guildService.selectUserGuild(guildParam);
+			if (userGuild != null) {
+				userInfo.put("guild_id", userGuild.get("guild_id"));
+				userInfo.put("guild_name", userGuild.get("guild_name"));
+				userInfo.put("guild_role", userGuild.get("role"));
 			}
 			
-			// 3. tokenMap에 없어도 JWT가 유효하면 JWT에서 user_id 추출 가능
-			// 하지만 현재 구조상 tokenMap에 userInfo가 저장되어 있으므로 null 반환
-			log.warn("JWT는 유효하지만 tokenMap에 사용자 정보가 없음 - 토큰 길이: {}", token.length());
-			return null;
+			log.debug("JWT 기반 사용자 정보 조회 성공: user_id={}", userId);
+			
+			return userInfo;
 		} catch (Exception e) {
-			// JWT 파싱 오류 등 예외 발생 시
-			log.error("토큰 처리 중 예외 발생", e);
+			// JWT 파싱 실패 또는 DB 조회 실패
+			log.debug("토큰에서 사용자 정보 조회 실패: {}", e.getMessage());
 			return null;
 		}
 	}
 	
+	/**
+	 * 사용자 정보로 JWT 토큰을 생성합니다.
+	 * 
+	 * @param userInfo 사용자 정보
+	 * @return JWT 토큰
+	 */
 	public String setToken(Map<String, Object> userInfo) throws Exception {
 		String token = jwtTokenProvider.createToken(userInfo.get("user_id").toString());
-		tokenMap.put(token, userInfo);
 		
-		log.debug("토큰 생성 및 저장 완료 - user_id: {}, 토큰 길이: {}, tokenMap 크기: {}", 
-			userInfo.get("user_id"), token.length(), tokenMap.size());
+		log.debug("JWT 토큰 생성 완료 - user_id: {}, 토큰 길이: {}", 
+			userInfo.get("user_id"), token.length());
 
 		return token;
 	}
 
+	/**
+	 * 토큰 삭제 (JWT 기반이므로 별도 처리 불필요)
+	 * 실제 토큰 삭제는 쿠키에서 처리됩니다.
+	 */
 	public void deleteToken(String token) {
-		tokenMap.remove(token);
+		// JWT 기반이므로 메모리에서 삭제할 필요 없음
+		log.debug("토큰 삭제 요청 (JWT 기반이므로 쿠키에서만 삭제됨)");
 	}
 }
 
