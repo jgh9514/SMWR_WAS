@@ -64,7 +64,7 @@
         </Logger>
         
         <!-- Application Loggers -->
-        <Logger name="com.smw" level="INFO" additivity="false">
+        <Logger name="com.smw" level="DEBUG" additivity="false">
             <AppenderRef ref="Console"/>
             <AppenderRef ref="FileAppender"/>
         </Logger>

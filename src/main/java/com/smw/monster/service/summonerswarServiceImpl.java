@@ -87,13 +87,43 @@ public class summonerswarServiceImpl implements summonerswarService {
 
 	@Override
 	public Map<String, ?> selectMonsterDetailList(Map<String, Object> param) {
+		// 디버깅: 파라미터 로깅
+		org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(summonerswarServiceImpl.class);
+		log.info("selectMonsterDetailList 파라미터: {}", param);
+		
 		expandMonsterIdsToIncludeCollaborations(param);
+		
+		// 디버깅: 확장된 파라미터 로깅
+		log.info("expandMonsterIdsToIncludeCollaborations 후 파라미터: {}", param);
+		
 		Map<String, Object> map = new HashMap<String, Object>();
-		map.put("enemyData", swMapper.selectMonsterDetailList(param));
-		map.put("recommendedList", swMapper.selectRecommendedAttackDeckList(param));
-		map.put("recommendedTotalCount", swMapper.selectRecommendedAttackDeckListCount(param));
-		map.put("historyList", swMapper.selectMonsterDetailTeamList(param));
-		map.put("historyTotalCount", swMapper.selectMonsterDetailTeamListCount(param));
+		
+		// enemyData 조회 (리스트 반환)
+		List<Map<String, ?>> enemyDataList = swMapper.selectMonsterDetailList(param);
+		log.info("enemyData 조회 결과: {}개", enemyDataList != null ? enemyDataList.size() : 0);
+		
+		// recommendedList 조회
+		List<Map<String, ?>> recommendedList = swMapper.selectRecommendedAttackDeckList(param);
+		log.info("recommendedList 조회 결과: {}개", recommendedList != null ? recommendedList.size() : 0);
+		
+		// recommendedTotalCount 조회
+		int recommendedTotalCount = swMapper.selectRecommendedAttackDeckListCount(param);
+		log.info("recommendedTotalCount: {}", recommendedTotalCount);
+		
+		// historyList 조회
+		List<Map<String, ?>> historyList = swMapper.selectMonsterDetailTeamList(param);
+		log.info("historyList 조회 결과: {}개", historyList != null ? historyList.size() : 0);
+		
+		// historyTotalCount 조회
+		int historyTotalCount = swMapper.selectMonsterDetailTeamListCount(param);
+		log.info("historyTotalCount: {}", historyTotalCount);
+		
+		map.put("enemyData", enemyDataList);
+		map.put("recommendedList", recommendedList);
+		map.put("recommendedTotalCount", recommendedTotalCount);
+		map.put("historyList", historyList);
+		map.put("historyTotalCount", historyTotalCount);
+		
 		return map;
 	}
 	
@@ -206,5 +236,28 @@ public class summonerswarServiceImpl implements summonerswarService {
 	@Override
 	public int deleteGuildSiegeInfoByMatchId(String matchId) {
 		return swMapper.deleteGuildSiegeInfoByMatchId(matchId);
+	}
+	
+	@Override
+	public Map<String, ?> selectMonsterInfo(String monsterId) {
+		org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(summonerswarServiceImpl.class);
+		log.info("몬스터 기본 정보 조회: monster_id={}", monsterId);
+		
+		// 몬스터 기본 정보 조회
+		Map<String, ?> monsterInfo = swMapper.selectMonsterInfo(monsterId);
+		if (monsterInfo == null || monsterInfo.isEmpty()) {
+			log.warn("몬스터 정보를 찾을 수 없습니다: monster_id={}", monsterId);
+			return new HashMap<>();
+		}
+		
+		// 몬스터 스킬 목록 조회
+		List<Map<String, ?>> skills = swMapper.selectMonsterSkills(monsterId);
+		log.info("몬스터 스킬 조회 완료: {}개", skills != null ? skills.size() : 0);
+		
+		// 결과에 스킬 정보 추가
+		Map<String, Object> result = new HashMap<>(monsterInfo);
+		result.put("skills", skills != null ? skills : new java.util.ArrayList<>());
+		
+		return result;
 	}
 }

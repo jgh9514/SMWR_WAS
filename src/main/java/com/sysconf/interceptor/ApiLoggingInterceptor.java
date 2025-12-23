@@ -31,11 +31,11 @@ public class ApiLoggingInterceptor extends HandlerInterceptorAdapter {
 	@SuppressWarnings("unchecked")
 	@Override
 	public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
-		// DEBUG 로그 제거 - 필요시 TRACE 레벨로 변경 가능
-
 		if("OPTIONS".equals(request.getMethod())) {
 			return true;
 		}
+		
+		log.info("API 요청: {} {}", request.getMethod(), request.getRequestURI());
 
 		// 사용자 정보 가져오기 (있으면 사용, 없으면 null)
 		Map<String, Object> userInfo = cookieUtil.getToken(request);

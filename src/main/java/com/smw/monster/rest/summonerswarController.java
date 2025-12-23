@@ -19,7 +19,9 @@ import com.smw.monster.service.summonerswarService;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import lombok.extern.slf4j.Slf4j;
 
+@Slf4j
 @Tag(name = "Summoners War", description = "Summoners War 관련 API")
 @RestController
 @RequestMapping("/api/v1/summonerswar")
@@ -32,16 +34,18 @@ public class summonerswarController {
     @Operation(summary = "몬스터 목록 조회", description = "페이지네이션이 적용된 몬스터 목록을 조회합니다.")
     @PostMapping("/monster-list")
     public ResponseEntity<?> selectMonsterList(@RequestBody Map<String, Object> param, HttpSession session) {
+    	log.info("몬스터 목록 조회 요청: {}", param);
     	List<Map<String, ?>> list = swService.selectMonsterList(param);
-    	
+    	log.info("몬스터 목록 조회 완료: {}개", list != null ? list.size() : 0);
         return new ResponseEntity<>(list, HttpStatus.OK);
     }
 
     @Operation(summary = "전체 페이지 수 조회", description = "몬스터 목록의 전체 페이지 수를 조회합니다.")
     @PostMapping("/total-page-count")
-    public ResponseEntity<?> selectTotalPageCount(@RequestBody Map<String, Object> param, HttpSession session) {	
+    public ResponseEntity<?> selectTotalPageCount(@RequestBody Map<String, Object> param, HttpSession session) {
+    	log.info("전체 페이지 수 조회 요청: {}", param);
     	int count = swService.selectTotalPageCount(param);
-    	
+    	log.info("전체 페이지 수 조회 완료: {}", count);
         return new ResponseEntity<>(count, HttpStatus.OK);
     }
 
@@ -70,9 +74,29 @@ public class summonerswarController {
         return new ResponseEntity<>(result, HttpStatus.OK);
     }
 	
+    @Operation(summary = "몬스터 기본 정보 조회", description = "특정 몬스터의 기본 정보(스탯, 스킬, 리더)를 조회합니다.")
+    @PostMapping("/monster/info")
+    public ResponseEntity<?> selectMonsterInfo(@RequestBody Map<String, Object> param, HttpSession session) {
+    	String monsterId = param.get("monster_id") != null ? param.get("monster_id").toString() : null;
+    	
+    	if (monsterId == null || monsterId.isEmpty()) {
+    		Map<String, Object> error = new HashMap<>();
+    		error.put("error", "monster_id는 필수입니다.");
+    		return ResponseEntity.badRequest().body(error);
+    	}
+    	
+    	log.info("몬스터 기본 정보 조회 요청: monster_id={}", monsterId);
+    	Map<String, ?> result = swService.selectMonsterInfo(monsterId);
+    	log.info("몬스터 기본 정보 조회 완료");
+    	
+    	return new ResponseEntity<>(result, HttpStatus.OK);
+    }
+    
     @Operation(summary = "몬스터 상세 정보 조회", description = "특정 몬스터의 상세 정보를 조회합니다.")
     @PostMapping("/monster-detail-list")
     public ResponseEntity<?> selectMonsterDetailList(@RequestBody Map<String, Object> param, HttpSession session) {
+    	log.info("몬스터 상세 정보 조회 요청: {}", param);
+    	
     	// 공덱 이력 페이지네이션 파라미터 설정 (기본값: limit=10, offset=1)
     	if (!param.containsKey("historyLimit") || param.get("historyLimit") == null) {
     		param.put("historyLimit", 10);
@@ -97,6 +121,11 @@ public class summonerswarController {
     	}
     	
     	Map<String, ?> list = swService.selectMonsterDetailList(param);
+    	
+    	log.info("몬스터 상세 정보 조회 완료 - enemyData: {}, historyList: {}, recommendedList: {}", 
+    			list.get("enemyData") != null ? ((List<?>) list.get("enemyData")).size() : 0,
+    			list.get("historyList") != null ? ((List<?>) list.get("historyList")).size() : 0,
+    			list.get("recommendedList") != null ? ((List<?>) list.get("recommendedList")).size() : 0);
     	
         return new ResponseEntity<>(list, HttpStatus.OK);
     }

@@ -72,4 +72,14 @@ public interface summonerswarMapper {
 	public int deleteGuildSiegeBattleLogByMatchId(@Param("matchId") String matchId);
 	
 	public int deleteGuildSiegeInfoByMatchId(@Param("matchId") String matchId);
+	
+	/**
+	 * 몬스터 기본 정보 조회 (스탯, 스킬, 리더 포함)
+	 */
+	public Map<String, ?> selectMonsterInfo(@Param("monster_id") String monsterId);
+	
+	/**
+	 * 몬스터 스킬 목록 조회
+	 */
+	public List<Map<String, ?>> selectMonsterSkills(@Param("monster_id") String monsterId);
 }

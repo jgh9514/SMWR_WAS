@@ -11,10 +11,10 @@ spring:
       enabled: true
   datasource:
     driver-class-name: net.sf.log4jdbc.sql.jdbcapi.DriverSpy
-    url: jdbc:log4jdbc:postgresql://pg1101.gabiadb.com:5432/jgh9514
+    url: ${SPRING_DATASOURCE_URL:jdbc:log4jdbc:postgresql://13.236.20.39:30432/summonerswar}
     hikari:
-      username: jgh9514
-      password: jgh1596123
+      username: ${SPRING_DATASOURCE_USERNAME:postgres}
+      password: ${SPRING_DATASOURCE_PASSWORD:@@jgh15963}
       maximum-pool-size: 30 # 배치 작업 병렬 처리 고려하여 증가 (페이지 처리 5개 * 각 페이지마다 여러 DB 작업 + 일반 요청 여유)
       minimum-idle: 10 # 최소 유휴 연결 개수 증가 (배치 작업 대비)
       idle-timeout: 30000   # 유휴 연결 유지 시간 (밀리초)

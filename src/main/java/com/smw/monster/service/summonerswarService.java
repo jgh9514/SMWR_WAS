@@ -61,4 +61,9 @@ public interface summonerswarService {
 	
 	public int deleteGuildSiegeInfoByMatchId(String matchId);
 	
+	/**
+	 * 몬스터 기본 정보 조회 (스탯, 스킬, 리더 포함)
+	 */
+	public Map<String, ?> selectMonsterInfo(String monsterId);
+	
 }

@@ -1149,5 +1149,92 @@
 		WHERE match_id = #{matchId}
 	</delete>
 	
+	<!-- 몬스터 기본 정보 조회 (스탯, 리더 포함) -->
+	<select id="selectMonsterInfo" parameterType="String" resultType="sqlMap">
+		/* selectMonsterInfo - 몬스터 기본 정보 조회 */
+		SELECT 
+			m.monster_id,
+			m.monster_elemental,
+			m.kr_name,
+			m.un_name,
+			m.star_type,
+			m.star,
+			m.arousal_type,
+			m.image_url,
+			m.leader_id,
+			m.swarfarm_id,
+			m.com2us_id,
+			m.family_id,
+			m.skill_group_id,
+			m.archetype,
+			m.base_stars,
+			m.natural_stars,
+			m.obtainable,
+			m.can_awaken,
+			m.awaken_level,
+			m.awaken_bonus,
+			m.skill_ups_to_max,
+			m.fusion_food,
+			m.homunculus,
+			-- 기본 스탯
+			m.base_hp,
+			m.base_attack,
+			m.base_defense,
+			m.speed,
+			m.crit_rate,
+			m.crit_damage,
+			m.resistance,
+			m.accuracy,
+			m.raw_hp,
+			m.raw_attack,
+			m.raw_defense,
+			m.max_lvl_hp,
+			m.max_lvl_attack,
+			m.max_lvl_defense,
+			-- 리더 스킬 정보
+			ml.leader_id as leader_skill_id,
+			ml.type as leader_type,
+			ml.stat as leader_stat,
+			ml.increase_by as leader_increase_by,
+			ml.icon_path as leader_icon,
+			get_leader_skill_desc(ml.type, ml.stat, ml.increase_by) as leader_skill_description
+		FROM monster m
+		LEFT JOIN monster_leaders ml ON m.leader_id = ml.leader_id
+		WHERE m.monster_id = #{monster_id}
+	</select>
+	
+	<!-- 몬스터 스킬 목록 조회 -->
+	<select id="selectMonsterSkills" parameterType="String" resultType="sqlMap">
+		/* selectMonsterSkills - 몬스터 스킬 목록 조회 */
+		SELECT 
+			ms.monster_id,
+			ms.skill_id,
+			ms.skill_order,
+			-- skill 테이블이 없을 경우를 대비해 기본값 반환
+			ms.skill_id as skill_detail_id,
+			NULL as swarfarm_id,
+			NULL as com2us_id,
+			NULL as skill_name,
+			NULL as skill_description,
+			ms.skill_order as slot,
+			NULL as cooltime,
+			NULL as hits,
+			NULL as passive,
+			NULL as aoe,
+			NULL as random,
+			NULL as max_level,
+			NULL as multiplier_formula,
+			NULL as multiplier_formula_raw,
+			NULL as scales_with,
+			NULL as icon_filename,
+			NULL as icon_path,
+			NULL as level_progress_description,
+			NULL as other_skill_id,
+			NULL as swarfarm_url
+		FROM monster_skills ms
+		WHERE ms.monster_id = #{monster_id}
+		ORDER BY ms.skill_order ASC
+	</select>
+	
 </mapper>
 
