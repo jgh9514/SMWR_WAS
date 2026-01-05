@@ -97,6 +97,11 @@ public class summonerswarController {
     public ResponseEntity<?> selectMonsterDetailList(@RequestBody Map<String, Object> param, HttpSession session) {
     	log.info("몬스터 상세 정보 조회 요청: {}", param);
     	
+    	// 시즌 조회 범위 파라미터 설정 (기본값: C - 현재 시즌만)
+    	if (!param.containsKey("siege_view_scope") || param.get("siege_view_scope") == null) {
+    		param.put("siege_view_scope", "C");
+    	}
+    	
     	// 공덱 이력 페이지네이션 파라미터 설정 (기본값: limit=10, offset=1)
     	if (!param.containsKey("historyLimit") || param.get("historyLimit") == null) {
     		param.put("historyLimit", 10);
