@@ -60,9 +60,7 @@ public class AuthInterceptor extends HandlerInterceptorAdapter {
 		userMap.put("sess_lang_cd", userInfo.get("lang_cd"));
 		userMap.put("sess_corg_no", userInfo.get("corg_no"));
 		userMap.put("sess_role", userInfo.get("roles"));
-		// siege_view_scope가 없으면 기본값 'C' (현재 시즌만)
-		Object siegeViewScope = userInfo.get("siege_view_scope");
-		userMap.put("siege_view_scope", siegeViewScope != null ? siegeViewScope : "C");
+		userMap.put("siege_view_scope", userInfo.get("siege_view_scope"));
 		// 길드 정보 추가
 		if (userInfo.get("guild_id") != null) {
 			userMap.put("sess_guild_id", userInfo.get("guild_id"));

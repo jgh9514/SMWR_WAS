@@ -5,15 +5,20 @@ import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
 
+import javax.mail.MessagingException;
+import javax.mail.internet.MimeMessage;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.MailException;
 import org.springframework.mail.MailSendException;
-import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.JavaMailSenderImpl;
+import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
+import org.thymeleaf.TemplateEngine;
+import org.thymeleaf.context.Context;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -24,6 +29,9 @@ public class EmailServiceImpl implements EmailService {
 
 	@Autowired(required = false)
 	private JavaMailSender mailSender;
+
+	@Autowired(required = false)
+	private TemplateEngine templateEngine;
 
 	@Value("${spring.mail.enabled:false}")
 	private boolean mailEnabled;
@@ -217,7 +225,7 @@ public class EmailServiceImpl implements EmailService {
 	}
 	
 	/**
-	 * 이메일 발송
+	 * 이메일 발송 (Thymeleaf 템플릿 사용)
 	 * @return 발송 성공 여부
 	 */
 	private boolean sendEmail(String to, String code) {
@@ -225,18 +233,36 @@ public class EmailServiceImpl implements EmailService {
 			throw new IllegalStateException("JavaMailSender가 초기화되지 않았습니다. application.yml의 메일 설정을 확인하세요.");
 		}
 		
-		SimpleMailMessage message = new SimpleMailMessage();
-		message.setFrom(fromEmail);
-		message.setTo(to);
-		message.setSubject("[전투 로그 분석] 이메일 인증 코드");
-		message.setText("인증 코드: " + code + "\n\n이 코드는 5분간 유효합니다.");
-		
-		log.debug("메일 메시지 생성 완료 - From: {}, To: {}, Subject: {}", fromEmail, to, message.getSubject());
+		if (templateEngine == null) {
+			throw new IllegalStateException("TemplateEngine이 초기화되지 않았습니다. Thymeleaf 설정을 확인하세요.");
+		}
 		
 		try {
+			// Thymeleaf 컨텍스트 생성 및 변수 설정
+			Context context = new Context();
+			context.setVariable("code", code);
+			
+			// HTML 템플릿 처리
+			String htmlContent = templateEngine.process("email/verification-code", context);
+			
+			// MimeMessage 생성
+			MimeMessage message = mailSender.createMimeMessage();
+			MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+			
+			helper.setFrom(fromEmail);
+			helper.setTo(to);
+			helper.setSubject("[전투 로그 분석] 이메일 인증 코드");
+			helper.setText(htmlContent, true); // true = HTML 형식
+			
+			log.debug("메일 메시지 생성 완료 - From: {}, To: {}, Subject: {}", fromEmail, to, helper.getMimeMessage().getSubject());
+			
+			// 메일 발송
 			mailSender.send(message);
 			log.debug("메일 전송 완료 (예외 없음)");
 			return true;
+		} catch (MessagingException e) {
+			log.error("메일 메시지 생성 중 MessagingException 발생: {}", e.getMessage(), e);
+			throw new MailSendException("메일 메시지 생성 실패: " + e.getMessage(), e);
 		} catch (MailException e) {
 			log.error("메일 전송 중 MailException 발생: {}", e.getMessage(), e);
 			throw e; // 상위로 전달

@@ -53,13 +53,40 @@ public class MybatisInterceptor implements Interceptor {
         MappedStatement ms = (MappedStatement) invocation.getArgs()[0];
         Object parameter = invocation.getArgs()[1];
 
+        // 디버깅: userInfo 확인
+        org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(MybatisInterceptor.class);
+        log.info("========== MybatisInterceptor.intercept() 시작 ========== Mapper ID: {}", ms.getId());
+        
+        // selectUserInfo는 MybatisInterceptor를 거치지 않음 (userInfo 조회 시 SessionThread에 정보가 없을 수 있음)
+        if (ms.getId().contains("selectUserInfo")) {
+            return invocation.proceed();
+        }
+        
         Map<String, Object> userInfo = SessionThread.SESSION_USER_INFO.get();
+        log.info("MybatisInterceptor - Mapper ID: {}", ms.getId());
+        log.info("MybatisInterceptor - userInfo 존재 여부: {}", userInfo != null);
+        if (userInfo != null) {
+            log.info("MybatisInterceptor - userInfo siege_view_scope: {}", userInfo.get("siege_view_scope"));
+        } else {
+            log.warn("MybatisInterceptor - userInfo가 null입니다. Mapper ID: {}", ms.getId());
+        }
+        
         if (parameter instanceof Map) {
             Map<String, Object> parameters = (Map<String, Object>) parameter;
+            
+            log.info("MybatisInterceptor - 파라미터 siege_view_scope (주입 전): {}", parameters.get("siege_view_scope"));
+            
             if (userInfo != null) {
-                parameters.putAll(userInfo);
+                // request body에 이미 존재하는 키는 덮어쓰지 않음 (request body 우선)
+                for (Map.Entry<String, Object> entry : userInfo.entrySet()) {
+                    if (!parameters.containsKey(entry.getKey())) {
+                        parameters.put(entry.getKey(), entry.getValue());
+                    }
+                }
             }
             parameters.put("global_dblink_nm", globalDblinkNm);
+            
+            log.info("MybatisInterceptor - 파라미터 siege_view_scope (주입 후): {}", parameters.get("siege_view_scope"));
         }
 
         // ?�래 ?�행??SQL 가?�오�?
@@ -161,10 +188,12 @@ public class MybatisInterceptor implements Interceptor {
 
             if ("Y".equals(parameterMap.get("COMMON_ROLE_WKPL_CONDITION"))) {
                 List<String> wkplRoleList = null;
-                if (userInfo.get("sess_wkpl_role") != null) {
-                    wkplRoleList = (List<String>) userInfo.get("sess_wkpl_role");
-                } else {
-                    wkplRoleList = Arrays.asList(userInfo.get("sess_wkpl_id").toString());
+                if (userInfo != null) {
+                    if (userInfo.get("sess_wkpl_role") != null) {
+                        wkplRoleList = (List<String>) userInfo.get("sess_wkpl_role");
+                    } else if (userInfo.get("sess_wkpl_id") != null) {
+                        wkplRoleList = Arrays.asList(userInfo.get("sess_wkpl_id").toString());
+                    }
                 }
 
                 if (wkplRoleList != null && !wkplRoleList.isEmpty()) {
@@ -187,6 +216,7 @@ public class MybatisInterceptor implements Interceptor {
             invocation.getArgs()[0] = newMs;
         }
 
+        log.info("========== MybatisInterceptor.intercept() 종료 ========== Mapper ID: {}", ms.getId());
         return invocation.proceed();
     }
 

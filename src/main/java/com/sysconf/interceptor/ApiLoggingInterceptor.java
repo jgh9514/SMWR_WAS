@@ -41,19 +41,31 @@ public class ApiLoggingInterceptor extends HandlerInterceptorAdapter {
 		Map<String, Object> userInfo = cookieUtil.getToken(request);
 		Map<String, Object> userMap = null;
 		
+		log.debug("ApiLoggingInterceptor - userInfo 존재 여부: {}", userInfo != null);
+		if(userInfo != null) {
+			log.debug("ApiLoggingInterceptor - userInfo siege_view_scope: {}", userInfo.get("siege_view_scope"));
+		}
+		
 		if(userInfo != null) {
 			userMap = new HashMap<>(); 
 			userMap.put("sess_user_id", userInfo.get("user_id"));
 			userMap.put("sess_lang_cd", userInfo.get("lang_cd"));
 			userMap.put("sess_corg_no", userInfo.get("corg_no"));
 			userMap.put("sess_role", userInfo.get("roles"));
-			Object siegeViewScope = userInfo.get("siege_view_scope");
-			userMap.put("siege_view_scope", siegeViewScope != null ? siegeViewScope : "C");
+			userMap.put("siege_view_scope", userInfo.get("siege_view_scope"));
 			if (userInfo.get("guild_id") != null) {
 				userMap.put("sess_guild_id", userInfo.get("guild_id"));
 				userMap.put("sess_guild_name", userInfo.get("guild_name"));
 				userMap.put("sess_guild_role", userInfo.get("guild_role"));
 			}
+			
+			log.debug("ApiLoggingInterceptor - userMap siege_view_scope: {}", userMap.get("siege_view_scope"));
+			
+			// SessionThread에 설정 (MybatisInterceptor에서 사용)
+			SessionThread.SESSION_USER_INFO.set(userMap);
+			log.debug("ApiLoggingInterceptor - SessionThread.SESSION_USER_INFO 설정 완료");
+		} else {
+			log.warn("ApiLoggingInterceptor - userInfo가 null입니다. URI: {}", request.getRequestURI());
 		}
 
 		// API 로깅 파라미터 준비
@@ -110,6 +122,12 @@ public class ApiLoggingInterceptor extends HandlerInterceptorAdapter {
 	@Override
 	public void postHandle(HttpServletRequest request, HttpServletResponse response, Object handler, ModelAndView model) throws Exception {
 		// DEBUG 로그 제거
+	}
+	
+	@Override
+	public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex) throws Exception {
+		// SessionThread 정리
+		SessionThread.SESSION_USER_INFO.remove();
 	}
 	
 	@SuppressWarnings("rawtypes")
