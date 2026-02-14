@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.admin.user.service.UserService;
 import com.cf.login.service.LoginService;
 
 import io.swagger.v3.oas.annotations.Operation;
@@ -31,6 +32,9 @@ public class LoginController {
 
 	@Autowired
 	LoginService service;
+
+	@Autowired
+	UserService userService;
 	
 	@Autowired
 	private CookieUtil cookieUtil;
@@ -103,6 +107,42 @@ public class LoginController {
 	@org.springframework.transaction.annotation.Transactional
 	public ResponseEntity<?> signup(@RequestBody Map<String, Object> param, HttpServletRequest request, HttpServletResponse response) throws Exception {
 		return ResponseEntity.ok(service.signup(param));
+	}
+
+	/**
+	 * 아이디 중복 체크
+	 */
+	@Operation(summary = "아이디 중복 체크", description = "사용자 아이디(user_id)가 이미 사용 중인지 확인합니다.")
+	@PostMapping("/user-id/check")
+	public ResponseEntity<?> checkUserIdDuplicate(@RequestBody Map<String, Object> param) {
+		Map<String, Object> result = new HashMap<>();
+		try {
+			Object userIdObj = param.get("user_id");
+			String userId = userIdObj == null ? "" : userIdObj.toString().trim();
+			if (userId.isEmpty()) {
+				result.put("result", "FAIL");
+				result.put("message", "user_id가 필요합니다.");
+				result.put("isDuplicate", false);
+				return new ResponseEntity<>(result, HttpStatus.OK);
+			}
+
+			Map<String, Object> checkParam = new HashMap<>();
+			checkParam.put("user_id", userId);
+			Map<String, Object> existingUser = userService.selectUserInfo(checkParam);
+
+			boolean isDuplicate = existingUser != null && !"dehs-NOTEXISTS".equals(existingUser.get("user_id"));
+
+			result.put("result", "SUCCESS");
+			result.put("isDuplicate", isDuplicate);
+			result.put("message", isDuplicate ? "이미 사용 중인 아이디입니다." : "사용 가능한 아이디입니다.");
+			return new ResponseEntity<>(result, HttpStatus.OK);
+		} catch (Exception e) {
+			log.error("아이디 중복 체크 실패", e);
+			result.put("result", "FAIL");
+			result.put("message", "아이디 중복 체크 처리 중 오류가 발생했습니다.");
+			result.put("isDuplicate", false);
+			return new ResponseEntity<>(result, HttpStatus.OK);
+		}
 	}
 
 

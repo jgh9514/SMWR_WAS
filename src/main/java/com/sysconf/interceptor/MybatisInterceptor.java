@@ -74,7 +74,9 @@ public class MybatisInterceptor implements Interceptor {
         if (parameter instanceof Map) {
             Map<String, Object> parameters = (Map<String, Object>) parameter;
             
-            log.info("MybatisInterceptor - 파라미터 siege_view_scope (주입 전): {}", parameters.get("siege_view_scope"));
+            // MyBatis의 MapperMethod.ParamMap은 존재하지 않는 키를 get() 하면 BindingException을 던질 수 있음
+            Object preSiegeViewScope = parameters.containsKey("siege_view_scope") ? parameters.get("siege_view_scope") : null;
+            log.info("MybatisInterceptor - 파라미터 siege_view_scope (주입 전): {}", preSiegeViewScope);
             
             if (userInfo != null) {
                 // request body에 이미 존재하는 키는 덮어쓰지 않음 (request body 우선)
@@ -83,10 +85,17 @@ public class MybatisInterceptor implements Interceptor {
                         parameters.put(entry.getKey(), entry.getValue());
                     }
                 }
+            } else {
+                // 로그인 정보가 없는 경우에도, 일부 쿼리는 siege_view_scope 파라미터를 필수로 요구함.
+                // 기본값(C: 현재 시즌만)을 주입해서 BindingException을 방지한다.
+                if (!parameters.containsKey("siege_view_scope")) {
+                    parameters.put("siege_view_scope", "C");
+                }
             }
             parameters.put("global_dblink_nm", globalDblinkNm);
             
-            log.info("MybatisInterceptor - 파라미터 siege_view_scope (주입 후): {}", parameters.get("siege_view_scope"));
+            Object postSiegeViewScope = parameters.containsKey("siege_view_scope") ? parameters.get("siege_view_scope") : null;
+            log.info("MybatisInterceptor - 파라미터 siege_view_scope (주입 후): {}", postSiegeViewScope);
         }
 
         // ?�래 ?�행??SQL 가?�오�?

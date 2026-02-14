@@ -133,7 +133,7 @@
    update set usg_yn 		= #{usg_yn}
      		 ,del_yn 		= #{del_yn} 
 			 ,upt_user_id 	= #{sess_user_id}
-			 ,upt_date 		= to_char(sysdate, 'YYYYMMDDHH24MISS') /* YYYY-MM-DD HH:MI:SS:nnn */
+			 ,upt_date 		= CURRENT_TIMESTAMP
 		 when not matched then	    
        insert (
         	  user_id 
@@ -151,9 +151,9 @@
 			 ,#{usg_yn}
 			 ,#{del_yn}
 			 ,#{sess_user_id}
-			 ,to_char(sysdate, 'YYYYMMDDHH24MISS') /* YYYY-MM-DD HH:MI:SS:nnn */
+			 ,CURRENT_TIMESTAMP
 			 ,#{sess_user_id}
-			 ,to_char(sysdate, 'YYYYMMDDHH24MISS') /* YYYY-MM-DD HH:MI:SS:nnn */
+			 ,CURRENT_TIMESTAMP
 		      ); 
 	</update>
 	
@@ -239,7 +239,7 @@
   			 del_yn = 'Y'
         	,usg_yn = 'N'
         	,upt_user_id = #{sess_user_id}
-        	,upt_date = to_char(sysdate, 'YYYYMMDDHH24MISS') /* YYYY-MM-DD HH:MI:SS:nnn */
+        	,upt_date = CURRENT_TIMESTAMP
         where role_id = #{role_id}
     </update>
     
@@ -319,8 +319,8 @@
 			  ,#{role_id}
 			  ,'Y'
 			  ,'N'
-			  ,to_char(sysdate, 'YYYYMMDDHH24MISS') /* YYYY-MM-DD HH:MI:SS:nnn */
-			  ,to_char(sysdate, 'YYYYMMDDHH24MISS') /* YYYY-MM-DD HH:MI:SS:nnn */
+			  ,CURRENT_TIMESTAMP
+			  ,CURRENT_TIMESTAMP
 			  ,#{sess_user_id}
 			  ,#{sess_user_id}
 		)

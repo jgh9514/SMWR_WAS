@@ -834,7 +834,8 @@
 		WITH match_guilds AS (
 			SELECT 
 				match_id,
-				COUNT(*) as guild_count
+				COUNT(DISTINCT guild_id) as guild_count,
+				COUNT(DISTINCT match_rank) as rank_count
 			FROM guild_siege_battle_log
 			WHERE 1 = 1
 			  <!-- 시즌 조회 범위: C(현재 시즌만), A(전체) -->
@@ -849,10 +850,12 @@
 			    )
 			  )
 			GROUP BY match_id
-			HAVING COUNT(*) = 3  -- 3파전만 조회
+			-- 3파전만 조회
+			-- 실제 테이블에 중복/추가 로그가 존재할 수 있으므로 COUNT(*)가 아니라 DISTINCT 기준으로 판별
+			HAVING COUNT(DISTINCT guild_id) = 3 AND COUNT(DISTINCT match_rank) = 3
 		),
 		guild_ranked AS (
-			SELECT 
+			SELECT DISTINCT
 				gsbl.match_id,
 				gsbl.guild_id,
 				gsbl.guild_name,
@@ -991,7 +994,8 @@
 			    )
 			  )
 			GROUP BY match_id
-			HAVING COUNT(*) = 3  -- 3파전만 조회
+			-- 3파전만 조회 (중복/추가 로그 대응)
+			HAVING COUNT(DISTINCT guild_id) = 3 AND COUNT(DISTINCT match_rank) = 3
 		)
 	</select>
 	

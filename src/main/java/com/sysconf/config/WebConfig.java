@@ -14,9 +14,13 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 import com.sysconf.interceptor.AuthInterceptor;
 import com.sysconf.interceptor.ApiLoggingInterceptor;
+import com.sysconf.interceptor.SessionInterceptor;
 
 @Configuration
 public class WebConfig implements WebMvcConfigurer {
+	
+	@Autowired
+	SessionInterceptor sessionInterceptor;
 	
 	@Autowired
 	AuthInterceptor authInterceptor;
@@ -55,6 +59,10 @@ public class WebConfig implements WebMvcConfigurer {
 	public void addInterceptors(InterceptorRegistry registry) {
 		WebMvcConfigurer.super.addInterceptors(registry);
 		
+		// 세션(토큰) 정보 주입: 가능한 경우 항상 SessionThread에 사용자 정보를 주입 (차단 없음)
+		registry.addInterceptor(sessionInterceptor)
+		        .addPathPatterns("/api/v1/**");
+		
 		// API 로깅 인터셉터: 모든 API에 적용 (인증 필요 없이 로깅만 수행)
 		registry.addInterceptor(apiLoggingInterceptor)
 		        .addPathPatterns("/api/v1/**");
@@ -63,7 +71,8 @@ public class WebConfig implements WebMvcConfigurer {
 		registry.addInterceptor(authInterceptor)
 		        .addPathPatterns(
 		        		"/api/v1/admin/**",      // 관리자 영역
-		        		"/api/v1/siege/**"       // 점령전 관련
+		        		"/api/v1/siege/**",      // 점령전 관련
+		        		"/api/v1/summonerswar/account-summary/**" // SWEX 계정 요약(업로드/조회)
 		        );
 	}
 	
