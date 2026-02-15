@@ -59,6 +59,32 @@ spec:
             secretKeyRef:
               name: smw-db-secret
               key: password
+        # 메일 설정 (선택)
+        # - Secret(smws-mail-secret)이 없으면 메일 발송은 비활성화되며, 개발용 dev_code 응답을 사용할 수 있습니다.
+        - name: SPRING_MAIL_ENABLED
+          valueFrom:
+            secretKeyRef:
+              name: smw-mail-secret
+              key: enabled
+              optional: true
+        - name: SPRING_MAIL_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: smw-mail-secret
+              key: username
+              optional: true
+        - name: SPRING_MAIL_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: smw-mail-secret
+              key: password
+              optional: true
+        - name: SPRING_MAIL_FROM
+          valueFrom:
+            secretKeyRef:
+              name: smw-mail-secret
+              key: from
+              optional: true
         # AWS 자격 증명은 IAM 역할을 통해 자동으로 제공되므로 환경 변수 설정 불필요
         # AWS SDK가 EC2 인스턴스에 부여된 IAM 역할을 자동으로 감지합니다.
         resources:

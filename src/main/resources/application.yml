@@ -25,12 +25,14 @@ spring:
     multipart.max-file-size: 20MB
     max-request-size: 25MB
   mail:
-    enabled: true
+    # 로컬(dev)에서도 메일 계정/비밀번호를 repo에 하드코딩하지 않도록 환경변수로 제어합니다.
+    enabled: ${SPRING_MAIL_ENABLED:${MAIL_ENABLED:false}}
     host: smtp.gmail.com
     port: 587
-    username: jgh9514@gmail.com
-    password: 'dkpgthimeykzielq'  # Gmail 앱 비밀번호
-    from: jgh9514@gmail.com
+    # 표준 Spring 환경변수(SPRING_MAIL_*)와 커스텀(MAIL_*) 둘 다 지원
+    username: ${SPRING_MAIL_USERNAME:${MAIL_USERNAME:}}
+    password: ${SPRING_MAIL_PASSWORD:${MAIL_PASSWORD:}}
+    from: ${SPRING_MAIL_FROM:${MAIL_FROM:noreply@example.com}}
     properties:
       mail:
         smtp:
@@ -45,7 +47,7 @@ spring:
             trust: "*"
           # Gmail 보안 설정
           enable: true
-        debug: true  # 메일 발송 디버그 로그 활성화
+        debug: ${SPRING_MAIL_DEBUG:${MAIL_DEBUG:true}}  # 메일 발송 디버그 로그 (dev에서만 권장)
   jpa:
     properties:
       hibernate:

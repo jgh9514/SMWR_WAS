@@ -25,14 +25,16 @@ spring:
     multipart.max-file-size: 20MB
     max-request-size: 25MB
   mail:
-    enabled: true
+    # 쿠버네티스/개발 서버에서는 환경변수로 제어 (기본 false 권장)
+    enabled: ${SPRING_MAIL_ENABLED:${MAIL_ENABLED:false}}
     host: smtp.gmail.com
     port: 587
     # 쿠버네티스 환경에서는 시크릿에서 값을 가져옵니다
     # 로컬 개발 환경에서는 환경 변수를 사용하세요
-    username: ${MAIL_USERNAME:}
-    password: ${MAIL_PASSWORD:}
-    from: ${MAIL_FROM:}
+    # 표준 Spring 환경변수(SPRING_MAIL_*)와 커스텀(MAIL_*) 둘 다 지원
+    username: ${SPRING_MAIL_USERNAME:${MAIL_USERNAME:}}
+    password: ${SPRING_MAIL_PASSWORD:${MAIL_PASSWORD:}}
+    from: ${SPRING_MAIL_FROM:${MAIL_FROM:}}
     properties:
       mail:
         smtp:
