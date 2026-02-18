@@ -83,6 +83,10 @@ public class InquiryServiceImpl implements InquiryService {
 		for (Map<String, ?> admin : admins) {
 			String adminId = (String) admin.get("user_id");
 			if (adminId != null) {
+				// MyBatis 인터셉터가 주입하는 sess_user_id를 생성자(crt_user_id)로 사용
+				String creatorUserId = param.get("sess_user_id") != null
+					? String.valueOf(param.get("sess_user_id"))
+					: (param.get("crt_user_id") != null ? String.valueOf(param.get("crt_user_id")) : null);
 				notificationService.createNotification(
 					adminId,
 					"INQUIRY_PENDING",
@@ -90,7 +94,7 @@ public class InquiryServiceImpl implements InquiryService {
 					title != null ? title : "새로운 문의가 등록되었습니다.",
 					inquiryId,
 					"/inquiry",
-					(String) param.get("crt_user_id")
+					creatorUserId
 				);
 			}
 		}
@@ -117,6 +121,10 @@ public class InquiryServiceImpl implements InquiryService {
 				String inquiryTitle = (String) inquiry.get("title");
 				
 				if (inquiryUserId != null) {
+					// 답변 등록자는 세션 사용자로 처리 (upt_user_id가 없을 수 있음)
+					String updaterUserId = param.get("sess_user_id") != null
+						? String.valueOf(param.get("sess_user_id"))
+						: (param.get("upt_user_id") != null ? String.valueOf(param.get("upt_user_id")) : null);
 					notificationService.createNotification(
 						inquiryUserId,
 						"INQUIRY_ANSWERED",
@@ -124,7 +132,7 @@ public class InquiryServiceImpl implements InquiryService {
 						inquiryTitle != null ? inquiryTitle + " 문의에 답변이 등록되었습니다." : "문의에 답변이 등록되었습니다.",
 						inquiryId,
 						"/inquiry",
-						(String) param.get("upt_user_id")
+						updaterUserId
 					);
 				}
 			}

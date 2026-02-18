@@ -62,17 +62,17 @@
 				                 on vbdi.monster_id_3 = mcm3.collaboration_monster_id
 				          where vbdi.type = 'defense'
 								<if test="monster_id1 != null and monster_id1 != ''">
-								   AND vbdi.monster_id_1 IN ('${monster_id1}')
+								   AND vbdi.monster_id_1 = #{monster_id1}
 								</if>
 								<if test="monster_id2 != null and monster_id2 != '' and monster_id3 != null and monster_id3 != ''">
-								   AND LEAST(vbdi.monster_id_2, vbdi.monster_id_3) IN ('${monster_id2}')
-								   AND GREATEST(vbdi.monster_id_2, vbdi.monster_id_3) IN ('${monster_id3}')
+								   AND LEAST(vbdi.monster_id_2, vbdi.monster_id_3) = #{monster_id2}
+								   AND GREATEST(vbdi.monster_id_2, vbdi.monster_id_3) = #{monster_id3}
 								</if>
 								<if test="monster_id2 != null and monster_id2 != '' and (monster_id3 == null or monster_id3 == '')">
-								   AND (vbdi.monster_id_2 IN ('${monster_id2}') OR vbdi.monster_id_3 IN ('${monster_id2}'))
+								   AND (vbdi.monster_id_2 = #{monster_id2} OR vbdi.monster_id_3 = #{monster_id2})
 								</if>
 								<if test="monster_id3 != null and monster_id3 != '' and (monster_id2 == null or monster_id2 == '')">
-								   AND (vbdi.monster_id_2 IN ('${monster_id3}') OR vbdi.monster_id_3 IN ('${monster_id3}'))
+								   AND (vbdi.monster_id_2 = #{monster_id3} OR vbdi.monster_id_3 = #{monster_id3})
 								</if>
 								<if test="match_id != null and match_id != '' and match_id != 'null'">
 								   AND vbdi.match_id = #{match_id}
@@ -82,6 +82,13 @@
 			 		ON vbdi.match_id = bll.match_id
 			 	   AND vbdi.log_timestamp = bll.log_timestamp
 			  where 1=1
+			  	<!-- 보안: 내 길드가 참가한 매치만 조회 -->
+			  	AND EXISTS (
+			  	  SELECT 1
+			  	    FROM guild_siege_battle_log gsbl
+			  	   WHERE gsbl.match_id = bll.match_id
+			  	     AND gsbl.guild_id = #{sess_guild_id}::text
+			  	)
 			  	<!-- 시즌 조회 범위: C(현재 시즌만), A(전체) -->
 			  	AND (
 			  	  #{siege_view_scope} = 'A' 
@@ -90,8 +97,8 @@
 			  	      FROM guild_siege_season 
 			  	     WHERE end_date IS NULL
 			  	  ) = 0
-			  	  OR TO_DATE(SUBSTRING(bll.match_id, 1, 6), 'YYYYMM') >= (
-			  	    SELECT DATE_TRUNC('month', start_date)
+			  	  OR SUBSTRING(bll.match_id, 1, 6) >= (
+			  	    SELECT TO_CHAR(DATE_TRUNC('month', start_date), 'YYYYMM')
 			  	      FROM guild_siege_season
 			  	     WHERE end_date IS NULL
 			  	     ORDER BY season_no DESC
@@ -119,75 +126,74 @@
 	</select>
 	
 	<select id="selectTotalPageCount" parameterType="sqlMap" resultType="Int">
-		/* selectTotalPageCount - Optimized with JOIN */
-		select count(1) as rowCount
-		  from (select monster_id_1
-			         , monster_id_2
-			         , monster_id_3
-				  from (
-				        select vbdi.match_id
-				             , vbdi.log_timestamp
-				             , vbdi.type
-				             , coalesce(mcm1.original_monster_id, vbdi.monster_id_1) AS monster_id_1
-				             , least(coalesce(mcm2.original_monster_id, vbdi.monster_id_2), 
-				                     coalesce(mcm3.original_monster_id, vbdi.monster_id_3)) AS monster_id_2
-				             , greatest(coalesce(mcm2.original_monster_id, vbdi.monster_id_2), 
-				                        coalesce(mcm3.original_monster_id, vbdi.monster_id_3)) AS monster_id_3
-				          from view_battle_deck_info vbdi
-				          left join monster_collaboration_mapping mcm1
-				                 on vbdi.monster_id_1 = mcm1.collaboration_monster_id
-				          left join monster_collaboration_mapping mcm2
-				                 on vbdi.monster_id_2 = mcm2.collaboration_monster_id
-				          left join monster_collaboration_mapping mcm3
-				                 on vbdi.monster_id_3 = mcm3.collaboration_monster_id
-				          where vbdi.type = 'defense'
-								<if test="monster_id1 != null and monster_id1 != ''">
-								   AND vbdi.monster_id_1 IN ('${monster_id1}')
-								</if>
-								<if test="monster_id2 != null and monster_id2 != '' and monster_id3 != null and monster_id3 != ''">
-								   AND LEAST(vbdi.monster_id_2, vbdi.monster_id_3) IN ('${monster_id2}')
-								   AND GREATEST(vbdi.monster_id_2, vbdi.monster_id_3) IN ('${monster_id3}')
-								</if>
-								<if test="monster_id2 != null and monster_id2 != '' and (monster_id3 == null or monster_id3 == '')">
-								   AND (vbdi.monster_id_2 IN ('${monster_id2}') OR vbdi.monster_id_3 IN ('${monster_id2}'))
-								</if>
-								<if test="monster_id3 != null and monster_id3 != '' and (monster_id2 == null or monster_id2 == '')">
-								   AND (vbdi.monster_id_2 IN ('${monster_id3}') OR vbdi.monster_id_3 IN ('${monster_id3}'))
-								</if>
-								<if test="match_id != null and match_id != '' and match_id != 'null'">
-								   AND vbdi.match_id = #{match_id}
-								</if>
-				       ) vbdi
-			      left join battle_log_list bll
-			 		ON vbdi.match_id = bll.match_id
-			 	   AND vbdi.log_timestamp = bll.log_timestamp
-			     where 1=1
-			  	<!-- 시즌 조회 범위: C(현재 시즌만), A(전체) -->
-			  	AND (
-			  	  #{siege_view_scope} = 'A' 
-			  	  OR (
-			  	    SELECT COUNT(*) 
-			  	      FROM guild_siege_season 
-			  	     WHERE end_date IS NULL
-			  	  ) = 0
-			  	  OR TO_DATE(SUBSTRING(bll.match_id, 1, 6), 'YYYYMM') >= (
-			  	    SELECT DATE_TRUNC('month', start_date)
-			  	      FROM guild_siege_season
-			  	     WHERE end_date IS NULL
-			  	     ORDER BY season_no DESC
-			  	     LIMIT 1
-			  	  )
-			  	)
-			  	<if test="guild_ids != null and guild_ids.size() > 0">
-				   AND bll.opp_guild_id IN 
-				   <foreach collection="guild_ids" item="guild_id" open="(" separator="," close=")">
-				   		#{guild_id}
-				   </foreach>
-				</if>
-			     group by monster_id_1
-			            , monster_id_2
-			            , monster_id_3
-		  ) a
+		/* selectTotalPageCount - Optimized with COUNT DISTINCT */
+		SELECT COUNT(DISTINCT (vbdi.monster_id_1, vbdi.monster_id_2, vbdi.monster_id_3)) as rowCount
+		  FROM (
+		        select vbdi.match_id
+		             , vbdi.log_timestamp
+		             , coalesce(mcm1.original_monster_id, vbdi.monster_id_1) AS monster_id_1
+		             , least(coalesce(mcm2.original_monster_id, vbdi.monster_id_2), 
+		                     coalesce(mcm3.original_monster_id, vbdi.monster_id_3)) AS monster_id_2
+		             , greatest(coalesce(mcm2.original_monster_id, vbdi.monster_id_2), 
+		                        coalesce(mcm3.original_monster_id, vbdi.monster_id_3)) AS monster_id_3
+		          from view_battle_deck_info vbdi
+		          left join monster_collaboration_mapping mcm1
+		                 on vbdi.monster_id_1 = mcm1.collaboration_monster_id
+		          left join monster_collaboration_mapping mcm2
+		                 on vbdi.monster_id_2 = mcm2.collaboration_monster_id
+		          left join monster_collaboration_mapping mcm3
+		                 on vbdi.monster_id_3 = mcm3.collaboration_monster_id
+		         where vbdi.type = 'defense'
+						<if test="monster_id1 != null and monster_id1 != ''">
+						   AND vbdi.monster_id_1 = #{monster_id1}
+						</if>
+						<if test="monster_id2 != null and monster_id2 != '' and monster_id3 != null and monster_id3 != ''">
+						   AND LEAST(vbdi.monster_id_2, vbdi.monster_id_3) = #{monster_id2}
+						   AND GREATEST(vbdi.monster_id_2, vbdi.monster_id_3) = #{monster_id3}
+						</if>
+						<if test="monster_id2 != null and monster_id2 != '' and (monster_id3 == null or monster_id3 == '')">
+						   AND (vbdi.monster_id_2 = #{monster_id2} OR vbdi.monster_id_3 = #{monster_id2})
+						</if>
+						<if test="monster_id3 != null and monster_id3 != '' and (monster_id2 == null or monster_id2 == '')">
+						   AND (vbdi.monster_id_2 = #{monster_id3} OR vbdi.monster_id_3 = #{monster_id3})
+						</if>
+						<if test="match_id != null and match_id != '' and match_id != 'null'">
+						   AND vbdi.match_id = #{match_id}
+						</if>
+		   ) vbdi
+		   JOIN battle_log_list bll
+		 		ON vbdi.match_id = bll.match_id
+		 	   AND vbdi.log_timestamp = bll.log_timestamp
+		 WHERE 1=1
+		  	<!-- 보안: 내 길드가 참가한 매치만 조회 -->
+		  	AND EXISTS (
+		  	  SELECT 1
+		  	    FROM guild_siege_battle_log gsbl
+		  	   WHERE gsbl.match_id = bll.match_id
+		  	     AND gsbl.guild_id = #{sess_guild_id}::text
+		  	)
+		  	<!-- 시즌 조회 범위: C(현재 시즌만), A(전체) -->
+		  	AND (
+		  	  #{siege_view_scope} = 'A' 
+		  	  OR (
+		  	    SELECT COUNT(*) 
+		  	      FROM guild_siege_season 
+		  	     WHERE end_date IS NULL
+		  	  ) = 0
+		  	  OR SUBSTRING(bll.match_id, 1, 6) >= (
+		  	    SELECT TO_CHAR(DATE_TRUNC('month', start_date), 'YYYYMM')
+		  	      FROM guild_siege_season
+		  	     WHERE end_date IS NULL
+		  	     ORDER BY season_no DESC
+		  	     LIMIT 1
+		  	  )
+		  	)
+		  	<if test="guild_ids != null and guild_ids.size() > 0">
+			   AND bll.opp_guild_id IN 
+			   <foreach collection="guild_ids" item="guild_id" open="(" separator="," close=")">
+			   		#{guild_id}
+			   </foreach>
+			</if>
 	</select>
 
 	<insert id="insertEnemyTeamSave" parameterType="sqlMap">
@@ -279,6 +285,13 @@
               ON vbdi.monster_id_3 = m3.monster_id
        LEFT JOIN monster_leaders ml1 ON m1.leader_id = ml1.leader_id
        WHERE 1=1
+       	<!-- 보안: 내 길드가 참가한 매치만 조회 -->
+       	AND EXISTS (
+       	  SELECT 1
+       	    FROM guild_siege_battle_log gsbl
+       	   WHERE gsbl.match_id = bll.match_id
+       	     AND gsbl.guild_id = #{sess_guild_id}::text
+       	)
        	<!-- 시즌 조회 범위: C(현재 시즌만), A(전체) -->
        	AND (
        	  #{siege_view_scope} = 'A' 
@@ -287,8 +300,8 @@
        	      FROM guild_siege_season 
        	     WHERE end_date IS NULL
        	  ) = 0
-       	  OR TO_DATE(SUBSTRING(bll.match_id, 1, 6), 'YYYYMM') >= (
-       	    SELECT DATE_TRUNC('month', start_date)
+       	  OR SUBSTRING(bll.match_id, 1, 6) >= (
+       	    SELECT TO_CHAR(DATE_TRUNC('month', start_date), 'YYYYMM')
        	      FROM guild_siege_season
        	     WHERE end_date IS NULL
        	     ORDER BY season_no DESC
@@ -346,6 +359,12 @@
 				  join battle_log_list bll on vbdi1.match_id = bll.match_id 
 				                           and vbdi1.log_timestamp = bll.log_timestamp
 				 where vbdi1.type = 'defense'
+				   and exists (
+				     select 1
+				       from guild_siege_battle_log gsbl
+				      where gsbl.match_id = bll.match_id
+				        and gsbl.guild_id = #{sess_guild_id}::text
+				   )
 				   and vbdi1.monster_id_1 IN (${dm1_list})
 				   and LEAST(vbdi1.monster_id_2, vbdi1.monster_id_3) IN (${dm2_list})
 				   and GREATEST(vbdi1.monster_id_2, vbdi1.monster_id_3) IN (${dm3_list})
@@ -357,8 +376,8 @@
 				         FROM guild_siege_season 
 				        WHERE end_date IS NULL
 				     ) = 0
-				     OR TO_DATE(SUBSTRING(bll.match_id, 1, 6), 'YYYYMM') >= (
-				       SELECT DATE_TRUNC('month', start_date)
+				     OR SUBSTRING(bll.match_id, 1, 6) >= (
+				       SELECT TO_CHAR(DATE_TRUNC('month', start_date), 'YYYYMM')
 				         FROM guild_siege_season
 				        WHERE end_date IS NULL
 				        ORDER BY season_no DESC
@@ -437,6 +456,12 @@
 				  join battle_log_list bll on vbdi1.match_id = bll.match_id 
 				                           and vbdi1.log_timestamp = bll.log_timestamp
 				 where vbdi1.type = 'defense'
+				   and exists (
+				     select 1
+				       from guild_siege_battle_log gsbl
+				      where gsbl.match_id = bll.match_id
+				        and gsbl.guild_id = #{sess_guild_id}::text
+				   )
 				   and vbdi1.monster_id_1 IN (${dm1_list})
 				   and LEAST(vbdi1.monster_id_2, vbdi1.monster_id_3) IN (${dm2_list})
 				   and GREATEST(vbdi1.monster_id_2, vbdi1.monster_id_3) IN (${dm3_list})
@@ -448,8 +473,8 @@
 				         FROM guild_siege_season 
 				        WHERE end_date IS NULL
 				     ) = 0
-				     OR TO_DATE(SUBSTRING(bll.match_id, 1, 6), 'YYYYMM') >= (
-				       SELECT DATE_TRUNC('month', start_date)
+				     OR SUBSTRING(bll.match_id, 1, 6) >= (
+				       SELECT TO_CHAR(DATE_TRUNC('month', start_date), 'YYYYMM')
 				         FROM guild_siege_season
 				        WHERE end_date IS NULL
 				        ORDER BY season_no DESC
@@ -727,8 +752,8 @@
 				         FROM guild_siege_season 
 				        WHERE end_date IS NULL
 				     ) = 0
-				     OR TO_DATE(SUBSTRING(bll.match_id, 1, 6), 'YYYYMM') >= (
-				       SELECT DATE_TRUNC('month', start_date)
+				     OR SUBSTRING(bll.match_id, 1, 6) >= (
+				       SELECT TO_CHAR(DATE_TRUNC('month', start_date), 'YYYYMM')
 				         FROM guild_siege_season
 				        WHERE end_date IS NULL
 				        ORDER BY season_no DESC

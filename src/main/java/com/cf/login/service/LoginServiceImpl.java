@@ -77,6 +77,7 @@ public class LoginServiceImpl implements LoginService {
         try {
             String email = param.get("email") != null ? param.get("email").toString().trim() : null;
             String userId = param.get("user_id") != null ? param.get("user_id").toString().trim() : null;
+            String userName = param.get("user_name") != null ? param.get("user_name").toString().trim() : null;
             
             // 이메일 인증 완료 여부 확인
             if (email == null || !emailService.isEmailVerified(email)) {
@@ -94,9 +95,25 @@ public class LoginServiceImpl implements LoginService {
                 result.put("message", "이미 사용 중인 아이디입니다.");
                 return result;
             }
+
+			// 이메일 중복 체크 (이미 가입된 이메일 방지)
+			if (email != null && !email.isEmpty()) {
+				Map<String, Object> emailParam = new HashMap<>();
+				emailParam.put("email", email);
+				int emailCnt = userService.countUserByEmail(emailParam);
+				if (emailCnt > 0) {
+					result.put("result", "FAIL");
+					result.put("message", "이미 등록된 이메일입니다.");
+					return result;
+				}
+			}
             
             // 회원가입 데이터 준비
             param.put("user_id", userId);
+            // 닉네임 입력을 제거했으므로, 비어있으면 user_id를 기본값으로 사용
+            if (userName == null || userName.isEmpty()) {
+                param.put("user_name", userId);
+            }
             if (param.get("password") != null) {
                 param.put("user_pw", SHA256.encrypt(StringUtil.nvl(param.get("password").toString())));
             }
@@ -144,6 +161,11 @@ public class LoginServiceImpl implements LoginService {
             if (errorMessage != null) {
                 log.warn("사용자 검증 실패: {}", errorMessage);
                 result.put("result", errorMessage);
+                return result;
+            }
+            // validateUser에서 null을 걸러도 정적 분석기가 추론을 못하는 경우가 있어 방어적으로 처리
+            if (userInfo == null) {
+                result.put("result", "NOuserINFO");
                 return result;
             }
             

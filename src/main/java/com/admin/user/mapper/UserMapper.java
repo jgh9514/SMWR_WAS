@@ -10,6 +10,11 @@ public interface UserMapper {
 	
 	public Map<String, Object> selectUserInfo(Map<String, Object> param);
 
+	/**
+	 * 이메일 중복 체크 (del_yn='N' 기준)
+	 */
+	public int countUserByEmail(Map<String, Object> param);
+
 	public List<Map<String, Object>> selectDeptTreeList(Map<String, Object> param);
 	
 	public List<Map<String, ?>> selectDeptSearchList(Map<String, Object> param);

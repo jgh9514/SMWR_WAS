@@ -4,7 +4,6 @@ import java.io.IOException;
 import java.util.Set;
 
 import com.sysconf.servlet.CachedBodyHttpServletWrapper;
-import com.sysconf.util.StringUtil;
 
 import org.springframework.beans.factory.annotation.Value;
 
@@ -25,15 +24,13 @@ public class SimpleCorsFilter implements Filter {
 	@Value("${smw.service-domain}")
 	private Set<String> service_domain;
 
-	private StringUtil StringUtil = new StringUtil();
-
 	@SuppressWarnings("static-access")
 	public void doFilter(ServletRequest req, ServletResponse res, FilterChain chain)
 			throws IOException, ServletException {
 
 		HttpServletRequest request = (HttpServletRequest) req;
 		HttpServletResponse response = (HttpServletResponse) res;
-		String originHeader = StringUtil.nvl(request.getHeader("Origin"));
+		String originHeader = nvl(request.getHeader("Origin"));
 
 		boolean isMatch = service_domain.stream().anyMatch(s -> 
 			originHeader.equals("http://" + s) || 
@@ -73,5 +70,9 @@ public class SimpleCorsFilter implements Filter {
 	}
 
 	public void destroy() {
+	}
+
+	private static String nvl(String str) {
+		return (str == null) ? "" : str;
 	}
 }

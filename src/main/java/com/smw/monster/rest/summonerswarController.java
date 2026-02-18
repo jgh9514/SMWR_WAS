@@ -4,6 +4,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpSession;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -29,6 +30,38 @@ public class summonerswarController {
 
 	@Autowired
 	summonerswarService swService;
+
+	private Map<String, Object> getSessUserInfo(HttpServletRequest request) {
+		Object attr = request != null ? request.getAttribute("userInfo") : null;
+		if (attr instanceof Map) {
+			@SuppressWarnings("unchecked")
+			Map<String, Object> m = (Map<String, Object>) attr;
+			return m;
+		}
+		return null;
+	}
+
+	private ResponseEntity<?> requireLoginAndGuild(HttpServletRequest request, Map<String, Object> param) {
+		Map<String, Object> userInfo = getSessUserInfo(request);
+		if (userInfo == null || userInfo.get("sess_user_id") == null) {
+			Map<String, Object> body = new HashMap<>();
+			body.put("result", "FAIL");
+			body.put("message", "로그인이 필요합니다.");
+			return new ResponseEntity<>(body, HttpStatus.UNAUTHORIZED);
+		}
+		if (userInfo.get("sess_guild_id") == null) {
+			Map<String, Object> body = new HashMap<>();
+			body.put("result", "FAIL");
+			body.put("message", "길드 가입이 필요합니다.");
+			return new ResponseEntity<>(body, HttpStatus.FORBIDDEN);
+		}
+		// MyBatis 쿼리에서 사용할 수 있도록 명시적으로도 주입 (인터셉터가 주입하지만 방어적으로 추가)
+		if (param != null) {
+			param.put("sess_user_id", userInfo.get("sess_user_id"));
+			param.put("sess_guild_id", userInfo.get("sess_guild_id"));
+		}
+		return null;
+	}
 	
 	
     @Operation(summary = "몬스터 목록 조회", description = "페이지네이션이 적용된 몬스터 목록을 조회합니다.")
@@ -42,7 +75,9 @@ public class summonerswarController {
 
     @Operation(summary = "전체 페이지 수 조회", description = "몬스터 목록의 전체 페이지 수를 조회합니다.")
     @PostMapping("/total-page-count")
-    public ResponseEntity<?> selectTotalPageCount(@RequestBody Map<String, Object> param, HttpSession session) {
+    public ResponseEntity<?> selectTotalPageCount(@RequestBody Map<String, Object> param, HttpSession session, HttpServletRequest request) {
+    	ResponseEntity<?> guard = requireLoginAndGuild(request, param);
+    	if (guard != null) return guard;
     	log.info("전체 페이지 수 조회 요청: {}", param);
     	int count = swService.selectTotalPageCount(param);
     	log.info("전체 페이지 수 조회 완료: {}", count);
@@ -51,7 +86,9 @@ public class summonerswarController {
 
     @Operation(summary = "적 팀 목록 조회", description = "적 팀 목록을 조회합니다.")
     @PostMapping("/enemyTeam-list")
-    public ResponseEntity<?> selectEnemyTeamList(@RequestBody Map<String, Object> param, HttpSession session) {
+    public ResponseEntity<?> selectEnemyTeamList(@RequestBody Map<String, Object> param, HttpSession session, HttpServletRequest request) {
+    	ResponseEntity<?> guard = requireLoginAndGuild(request, param);
+    	if (guard != null) return guard;
     	List<Map<String, ?>> list = swService.selectEnemyTeamList(param);
     	
         return new ResponseEntity<>(list, HttpStatus.OK);
@@ -94,7 +131,9 @@ public class summonerswarController {
     
     @Operation(summary = "몬스터 상세 정보 조회", description = "특정 몬스터의 상세 정보를 조회합니다.")
     @PostMapping("/monster-detail-list")
-    public ResponseEntity<?> selectMonsterDetailList(@RequestBody Map<String, Object> param, HttpSession session) {
+    public ResponseEntity<?> selectMonsterDetailList(@RequestBody Map<String, Object> param, HttpSession session, HttpServletRequest request) {
+    	ResponseEntity<?> guard = requireLoginAndGuild(request, param);
+    	if (guard != null) return guard;
     	log.info("몬스터 상세 정보 조회 요청: {}", param);
     	
     	// 공덱 이력 페이지네이션 파라미터 설정 (기본값: limit=10, offset=1)
@@ -200,10 +239,12 @@ public class summonerswarController {
     		Map<String, ?> list = log_list.get(i);
     		List<Map<String, ?>> guild_info_list = (List<Map<String, ?>>) list.get("guild_info_list");
     		List<Map<String, ?>> battle_log_list = (List<Map<String, ?>>) list.get("battle_log_list");
+
+    		// null 방어 (업로드 데이터가 비정상인 경우에도 NPE 방지)
+    		final List<Map<String, ?>> safeGuildInfoList = guild_info_list == null ? java.util.Collections.emptyList() : guild_info_list;
+    		final List<Map<String, ?>> safeBattleLogList = battle_log_list == null ? java.util.Collections.emptyList() : battle_log_list;
     		
-    		if (battle_log_list != null) {
-    			totalBattleCount += battle_log_list.size();
-    		}
+    		totalBattleCount += safeBattleLogList.size();
     		
     		// siegeOptions 확인: 해당 인덱스가 "skip"이면 건너뛰기
     		if (siegeOptions != null && siegeOptions.containsKey(String.valueOf(i))) {
@@ -212,8 +253,8 @@ public class summonerswarController {
     				continue; // 건너뛰기
     			}
     			// "overwrite"인 경우 기존 데이터 삭제 후 저장
-    			if ("overwrite".equals(option) && guild_info_list != null && guild_info_list.size() > 0) {
-    				Map<String, ?> firstGuildInfo = guild_info_list.get(0);
+    			if ("overwrite".equals(option) && safeGuildInfoList.size() > 0) {
+    				Map<String, ?> firstGuildInfo = safeGuildInfoList.get(0);
     				String matchId = firstGuildInfo.get("match_id") != null ? firstGuildInfo.get("match_id").toString() : null;
     				if (matchId != null) {
     					// 기존 데이터 삭제 (순서 중요: deck -> battle_log -> guild_info)
@@ -231,8 +272,8 @@ public class summonerswarController {
     		// overwrite 옵션이 있는지 확인
     		boolean isOverwrite = siegeOptions != null && siegeOptions.containsKey(String.valueOf(i)) && "overwrite".equals(siegeOptions.get(String.valueOf(i)));
     		
-    		for (int j = 0; j < guild_info_list.size(); j++) {
-    			Map<String, ?> guild_info = guild_info_list.get(j);
+    		for (int j = 0; j < safeGuildInfoList.size(); j++) {
+    			Map<String, ?> guild_info = safeGuildInfoList.get(j);
     			// overwrite가 아닌 경우에만 중복 체크
     			if (j == 0 && !isOverwrite) {
     				Map<String, ?> matchCheck = swService.selectGuildMatchCheck(guild_info);
@@ -253,8 +294,8 @@ public class summonerswarController {
     			insertedSiegeCount++;
     		}
     		
-    		for (int j = 0; j < battle_log_list.size(); j++) {
-    			Map<String, ?> battle_log = battle_log_list.get(j);
+    		for (int j = 0; j < safeBattleLogList.size(); j++) {
+    			Map<String, ?> battle_log = safeBattleLogList.get(j);
 				Map<String, ?> matchCheck = swService.selectBattleMatchCheck(battle_log);
 				if (!"0".equals(matchCheck.get("count").toString())) {
 					// 중복이고 옵션이 없으면 건너뛰기

@@ -7,7 +7,7 @@ public interface EmailService {
 	/**
 	 * 이메일 인증 코드 발송
 	 */
-	public Map<String, Object> sendVerificationCode(String email);
+	public Map<String, Object> sendVerificationCode(String email, String clientIp);
 	
 	/**
 	 * 이메일 인증 코드 확인

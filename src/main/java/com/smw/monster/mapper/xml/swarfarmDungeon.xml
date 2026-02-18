@@ -28,9 +28,9 @@
             #{icon_path},
             #{swarfarm_url},
             CURRENT_TIMESTAMP,
-            COALESCE(#{crt_user_id}, 'SYSTEM'),
+            'SYSTEM',
             CURRENT_TIMESTAMP,
-            COALESCE(#{upt_user_id}, 'SYSTEM'),
+            'SYSTEM',
             CURRENT_TIMESTAMP
         )
         ON CONFLICT (dungeon_id) 
@@ -43,7 +43,7 @@
             icon_path = EXCLUDED.icon_path,
             swarfarm_url = EXCLUDED.swarfarm_url,
             last_sync_date = CURRENT_TIMESTAMP,
-            upt_user_id = COALESCE(EXCLUDED.upt_user_id, 'SYSTEM'),
+            upt_user_id = 'SYSTEM',
             upt_date = CURRENT_TIMESTAMP
     </insert>
 

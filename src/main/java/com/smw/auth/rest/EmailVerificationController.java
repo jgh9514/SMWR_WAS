@@ -40,7 +40,9 @@ public class EmailVerificationController {
 			return ResponseEntity.ok(result);
 		}
 		
-		return ResponseEntity.ok(emailService.sendVerificationCode(email.trim()));
+		// 클라이언트 IP(간단 rate limit용)
+		String clientIp = request != null ? request.getRemoteAddr() : null;
+		return ResponseEntity.ok(emailService.sendVerificationCode(email.trim(), clientIp));
 	}
 
 	/**

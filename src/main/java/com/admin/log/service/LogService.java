@@ -18,4 +18,9 @@ public interface LogService {
 	public List<Map<String, String>> selectBatchConfig(Map<String, Object> param);
 	
 	public void insertApiLog(Map<String, Object> param);
+	
+	/**
+	 * API 로그를 비동기로 적재합니다. (요청 응답 시간에 영향 최소화)
+	 */
+	public void insertApiLogAsync(Map<String, Object> param);
 }

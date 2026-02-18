@@ -81,7 +81,11 @@ public class NotificationServiceImpl implements NotificationService {
 		param.put("content", content);
 		param.put("related_id", relatedId);
 		param.put("related_url", relatedUrl);
-		param.put("crt_user_id", crtUserId);
+		// 생성자 ID는 NOT NULL: 없으면 수신자(user_id) 또는 SYSTEM로 대체
+		String safeCrtUserId = (crtUserId != null && !crtUserId.trim().isEmpty())
+			? crtUserId
+			: (userId != null && !userId.trim().isEmpty() ? userId : "SYSTEM");
+		param.put("crt_user_id", safeCrtUserId);
 		
 		notificationMapper.insertNotification(param);
 	}

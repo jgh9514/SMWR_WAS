@@ -1,7 +1,6 @@
 package com.cf.login.rest;
 
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
 import javax.servlet.http.HttpServletRequest;
@@ -82,7 +81,20 @@ public class LoginController {
 	public ResponseEntity<?> autoLoginCheck(HttpServletRequest request, HttpServletResponse response) throws Exception {
 		Map<String, Object> result = new HashMap<>();
 
-		Map<String, Object> userInfo = cookieUtil.getToken(request);
+		// SessionInterceptor가 이미 만든 userInfoRaw(원본)를 재사용해서 중복 토큰/DB 조회를 피한다
+		Map<String, Object> userInfo = null;
+		Object raw = request.getAttribute("userInfoRaw");
+		if (raw instanceof Map) {
+			@SuppressWarnings("unchecked")
+			Map<String, Object> rawMap = (Map<String, Object>) raw;
+			// validateUser는 user_id 기반으로 체크하므로 rawMap 사용
+			if (rawMap.get("user_id") != null) {
+				userInfo = rawMap;
+			}
+		}
+		if (userInfo == null) {
+			userInfo = cookieUtil.getToken(request);
+		}
 
 		String errorMessage = service.validateUser(userInfo);
 		if (errorMessage != null) {
@@ -90,10 +102,7 @@ public class LoginController {
 			return new ResponseEntity<>(result, HttpStatus.OK);
 		}
 
-		List<Map<String, ?>> userLoginLogs = service.selectLastLoginHst(userInfo);
-
 		result.put("result", "SUCCESS");
-		result.put("login_hst", userLoginLogs);
 		result.put("userInfo", userInfo);
 
 		return new ResponseEntity<>(result, HttpStatus.OK);

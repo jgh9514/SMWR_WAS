@@ -1,5 +1,6 @@
 package com.sysconf.util;
 
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -7,6 +8,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import com.admin.user.service.UserService;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import com.smw.guild.service.GuildService;
 import com.sysconf.security.JwtTokenProvider;
 
@@ -25,6 +28,13 @@ public class TokenUtil {
 	@Autowired
 	GuildService guildService;
 	
+	// 토큰 기반 유저 정보 조회는 매 요청마다 DB를 칠 수 있어 비용이 큼
+	// - 짧은 TTL(30초) 캐시로 체감 성능을 개선하고, 길드 변경 등도 빠르게 반영되도록 함
+	private final Cache<String, Map<String, Object>> tokenUserInfoCache = Caffeine.newBuilder()
+			.maximumSize(10_000)
+			.expireAfterWrite(Duration.ofSeconds(30))
+			.build();
+	
 	/**
 	 * JWT 토큰으로 사용자 정보를 조회합니다.
 	 * JWT에서 user_id를 추출한 후 DB에서 사용자 정보를 조회합니다.
@@ -35,6 +45,12 @@ public class TokenUtil {
 	public Map<String, Object> getToken(String token) {
 		if (token == null || token.isEmpty()) {
 			return null;
+		}
+		
+		Map<String, Object> cached = tokenUserInfoCache.getIfPresent(token);
+		if (cached != null) {
+			// 호출측에서 put/remove 등을 할 수 있으므로 방어적으로 복사본 반환
+			return new HashMap<>(cached);
 		}
 		
 		try {
@@ -65,7 +81,9 @@ public class TokenUtil {
 			}
 			
 			log.debug("JWT 기반 사용자 정보 조회 성공: user_id={}", userId);
-			
+
+			// 캐시에 보관 (복사본을 저장해서 외부 변경에 영향 없게)
+			tokenUserInfoCache.put(token, new HashMap<>(userInfo));
 			return userInfo;
 		} catch (Exception e) {
 			// JWT 파싱 실패 또는 DB 조회 실패

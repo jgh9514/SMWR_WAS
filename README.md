@@ -1,6 +1,10 @@
 # SMWR_WAS
 서머너즈워 종합 커뮤니티
 
+## DB 마이그레이션 (수동 SQL)
+
+이 프로젝트는 Flyway/Liquibase를 사용하지 않으므로, 스키마 변경은 제공된 `migration_*.sql`을 **수동 실행**해야 합니다.
+
 ## CI/CD 설정 (GitHub Actions)
 
 이 프로젝트는 GitHub Actions를 사용하여 자동 빌드 및 배포를 수행합니다.

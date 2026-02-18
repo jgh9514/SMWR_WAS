@@ -14,7 +14,7 @@ import org.springframework.web.servlet.ModelAndView;
 import org.springframework.web.servlet.handler.HandlerInterceptorAdapter;
 
 import com.admin.log.service.LogService;
-import com.sysconf.util.CookieUtil;
+import java.util.Objects;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -24,9 +24,6 @@ public class ApiLoggingInterceptor extends HandlerInterceptorAdapter {
 
 	@Autowired
 	LogService logService;
-	
-	@Autowired
-	private CookieUtil cookieUtil;
 
 	@SuppressWarnings("unchecked")
 	@Override
@@ -34,42 +31,16 @@ public class ApiLoggingInterceptor extends HandlerInterceptorAdapter {
 		if("OPTIONS".equals(request.getMethod())) {
 			return true;
 		}
-		
-		log.info("API 요청: {} {}", request.getMethod(), request.getRequestURI());
 
-		// 사용자 정보 가져오기 (있으면 사용, 없으면 null)
-		Map<String, Object> userInfo = cookieUtil.getToken(request);
-		Map<String, Object> userMap = null;
-		
-		log.debug("ApiLoggingInterceptor - userInfo 존재 여부: {}", userInfo != null);
-		if(userInfo != null) {
-			log.debug("ApiLoggingInterceptor - userInfo siege_view_scope: {}", userInfo.get("siege_view_scope"));
-		}
-		
-		if(userInfo != null) {
-			userMap = new HashMap<>(); 
-			userMap.put("sess_user_id", userInfo.get("user_id"));
-			userMap.put("sess_lang_cd", userInfo.get("lang_cd"));
-			userMap.put("sess_corg_no", userInfo.get("corg_no"));
-			userMap.put("sess_role", userInfo.get("roles"));
-			userMap.put("siege_view_scope", userInfo.get("siege_view_scope"));
-			if (userInfo.get("guild_id") != null) {
-				userMap.put("sess_guild_id", userInfo.get("guild_id"));
-				userMap.put("sess_guild_name", userInfo.get("guild_name"));
-				userMap.put("sess_guild_role", userInfo.get("guild_role"));
-			}
-			
-			log.debug("ApiLoggingInterceptor - userMap siege_view_scope: {}", userMap.get("siege_view_scope"));
-			
-			// SessionThread에 설정 (MybatisInterceptor에서 사용)
-			SessionThread.SESSION_USER_INFO.set(userMap);
-			log.debug("ApiLoggingInterceptor - SessionThread.SESSION_USER_INFO 설정 완료");
-		} else {
-			log.warn("ApiLoggingInterceptor - userInfo가 null입니다. URI: {}", request.getRequestURI());
-		}
+		// 처리시간 측정용
+		request.setAttribute("__api_start_ms", System.currentTimeMillis());
 
 		// API 로깅 파라미터 준비
 		Map<String, Object> param = new HashMap<>();
+
+		// SessionInterceptor가 주입한 userInfo를 재사용 (쿠키 파싱/세션 주입 중복 제거)
+		Object attr = request.getAttribute("userInfo");
+		Map<String, Object> userMap = (attr instanceof Map) ? (Map<String, Object>) attr : null;
 		
 		// 사용자 정보가 있으면 사용자 ID 설정
 		if(userMap != null && userMap.get("sess_user_id") != null) {
@@ -113,8 +84,9 @@ public class ApiLoggingInterceptor extends HandlerInterceptorAdapter {
 		}
 		param.put("server_ip", request.getRemoteHost());
 		param.put("input_param", getParameter(request));
-		
-		logService.insertApiLog(param);
+
+		// 요청 thread에서 DB insert를 하지 않음 (afterCompletion에서 비동기로 처리)
+		request.setAttribute("__api_log_param", param);
 
 		return true;
 	}
@@ -126,8 +98,19 @@ public class ApiLoggingInterceptor extends HandlerInterceptorAdapter {
 	
 	@Override
 	public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex) throws Exception {
-		// SessionThread 정리
-		SessionThread.SESSION_USER_INFO.remove();
+		// 비동기 API 로그 적재 (등록된 API만 저장됨)
+		Object p = request.getAttribute("__api_log_param");
+		if (p instanceof Map) {
+			@SuppressWarnings("unchecked")
+			Map<String, Object> param = (Map<String, Object>) p;
+			Object st = request.getAttribute("__api_start_ms");
+			if (st instanceof Long) {
+				long elapsed = System.currentTimeMillis() - (Long) st;
+				param.put("elapsed_ms", elapsed); // (현재 DB 컬럼 없음) 추후 확장용
+			}
+			param.put("http_status", Objects.toString(response.getStatus(), "")); // (현재 DB 컬럼 없음) 추후 확장용
+			logService.insertApiLogAsync(param);
+		}
 	}
 	
 	@SuppressWarnings("rawtypes")

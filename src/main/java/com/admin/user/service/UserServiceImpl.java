@@ -42,6 +42,11 @@ public class UserServiceImpl implements UserService {
 
         return userInfo;
     }
+
+	@Override
+	public int countUserByEmail(Map<String, Object> param) {
+		return mapper.countUserByEmail(param);
+	}
 	
 	@Override
 	public List<Map<String, ?>> selectUserPopList(Map<String, Object> param) {

@@ -38,6 +38,9 @@ public class SessionInterceptor extends HandlerInterceptorAdapter {
 			return true;
 		}
 
+		// 원본 사용자 정보도 보관 (login-check 등에서 재사용하여 중복 토큰/DB 조회 방지)
+		request.setAttribute("userInfoRaw", userInfo);
+
 		Map<String, Object> userMap = new HashMap<>();
 		userMap.put("sess_user_id", userInfo.get("user_id"));
 		userMap.put("sess_lang_cd", userInfo.get("lang_cd"));

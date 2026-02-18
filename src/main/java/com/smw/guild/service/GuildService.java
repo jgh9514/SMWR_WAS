@@ -80,6 +80,13 @@ public interface GuildService {
 	 */
 	public int processGuildApplication(Map<String, Object> param);
 	
+	// 길드 가입 신청 (승인 대기)
+	public List<Map<String, ?>> selectJoinApplicationList(Map<String, Object> param);
+	public Map<String, ?> selectMyPendingJoinApplication(Map<String, Object> param);
+	public int insertJoinApplication(Map<String, Object> param);
+	public int processJoinApplication(Map<String, Object> param);
+	public int cancelMyJoinApplication(Map<String, Object> param);
+	
 	/**
 	 * 길드 멤버 목록 조회
 	 */

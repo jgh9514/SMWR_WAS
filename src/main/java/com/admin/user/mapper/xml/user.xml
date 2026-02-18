@@ -8,6 +8,7 @@
 		insert into SYS_USER (
 			user_id
 			,user_nm
+			,email
 			,user_pw
 			,usg_yn
 			,del_yn
@@ -20,6 +21,7 @@
 		) values(
 			#{user_id}
 			,#{user_name}
+			,#{email}
 			,#{user_pw}
 			,COALESCE(#{usg_yn}, 'Y')
 			,COALESCE(#{del_yn}, 'N')
@@ -31,6 +33,16 @@
 			,CURRENT_TIMESTAMP
 		)
 	</insert>
+
+	<!-- 이메일 중복 체크 -->
+	<select id="countUserByEmail" parameterType="sqlMap" resultType="Int">
+		/* countUserByEmail */
+		SELECT COUNT(1)
+		FROM SYS_USER
+		WHERE del_yn = 'N'
+		  AND email IS NOT NULL
+		  AND LOWER(email) = LOWER(#{email})
+	</select>
 
 	<!-- 점령전 조회 범위 업데이트 -->
 	<update id="updateSiegeViewScope" parameterType="sqlMap">

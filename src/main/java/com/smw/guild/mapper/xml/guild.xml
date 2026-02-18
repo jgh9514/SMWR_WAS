@@ -24,7 +24,7 @@
 		  from GUILD g
 		 where g.del_yn = 'N'
 		<if test='guild_name != null and guild_name != ""'>
-		   and g.guild_name like concat('%', trim(#{guild_name}), '%')
+		   and g.guild_name ILIKE ('%' || trim(#{guild_name}) || '%')
 		</if>
 		<if test='usg_yn != null and usg_yn != ""'>
 		   and g.usg_yn = #{usg_yn}
@@ -41,6 +41,10 @@
 		select g.guild_id
 			  ,g.guild_name
 			  ,g.guild_description
+			  ,g.guild_leader_id
+			  ,(select tu.user_nm
+			  	  from SYS_USER tu
+			  	 where tu.user_id = g.guild_leader_id) as leader_name
 			  ,g.max_members
 			  ,g.current_members
 			  ,g.join_type
@@ -52,7 +56,7 @@
 		 where g.del_yn = 'N'
 		   and g.usg_yn = 'Y'
 		<if test='guild_name != null and guild_name != ""'>
-		   and g.guild_name like concat('%', trim(#{guild_name}), '%')
+		   and g.guild_name ILIKE ('%' || trim(#{guild_name}) || '%')
 		</if>
 		<if test='invite_key != null and invite_key != ""'>
 		   and g.invite_key = #{invite_key}

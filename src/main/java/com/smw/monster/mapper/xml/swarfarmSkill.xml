@@ -52,9 +52,9 @@
             #{other_skill_id},
             #{swarfarm_url},
             CURRENT_TIMESTAMP,
-            COALESCE(#{crt_user_id}, 'SYSTEM'),
+            'SYSTEM',
             CURRENT_TIMESTAMP,
-            COALESCE(#{upt_user_id}, 'SYSTEM'),
+            'SYSTEM',
             CURRENT_TIMESTAMP
         )
         ON CONFLICT (skill_id) 

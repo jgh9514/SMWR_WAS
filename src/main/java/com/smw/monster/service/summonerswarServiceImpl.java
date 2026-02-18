@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
 
@@ -18,6 +19,11 @@ public class summonerswarServiceImpl implements summonerswarService {
 	summonerswarMapper swMapper;
 	
 	@Override
+	@Cacheable(
+		cacheNames = "monsterList",
+		key = "'all'",
+		condition = "#root.args[0] == null || #root.args[0].isEmpty()"
+	)
 	public List<Map<String, ?>> selectMonsterList(Map<String, Object> param) {
 		return swMapper.selectMonsterList(param);
 	}

@@ -20,6 +20,8 @@ import org.springframework.stereotype.Service;
 import org.thymeleaf.TemplateEngine;
 import org.thymeleaf.context.Context;
 
+import com.admin.user.service.UserService;
+
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
@@ -39,9 +41,37 @@ public class EmailServiceImpl implements EmailService {
 	@Value("${spring.mail.from:noreply@example.com}")
 	private String fromEmail;
 
+	@Value("${smw.email.verification.min-interval-seconds:30}")
+	private int minIntervalSeconds;
+
+	@Value("${smw.email.verification.max-per-hour-email:5}")
+	private int maxPerHourPerEmail;
+
+	@Value("${smw.email.verification.max-per-hour-ip:20}")
+	private int maxPerHourPerIp;
+
+	@Value("${smw.email.verification.max-verify-failures:10}")
+	private int maxVerifyFailures;
+
+	@Autowired
+	private UserService userService;
+
 	// 인증 코드 저장 (메모리 기반, 실제 운영에서는 Redis 등 사용 권장)
 	// Key: email, Value: {code, expiresAt}
 	private static final Map<String, Map<String, Object>> verificationCodes = new ConcurrentHashMap<>();
+
+	// 발송 rate limit 상태 (메모리 기반)
+	private static final Map<String, RateState> rateByEmail = new ConcurrentHashMap<>();
+	private static final Map<String, RateState> rateByIp = new ConcurrentHashMap<>();
+
+	// 인증 코드 검증 실패 횟수
+	private static final Map<String, Integer> verifyFailCounts = new ConcurrentHashMap<>();
+
+	private static class RateState {
+		volatile long windowStartMs = 0;
+		volatile int windowCount = 0;
+		volatile long lastSentAtMs = 0;
+	}
 	
 	// 인증 완료된 이메일 저장 (메모리 기반, 실제 운영에서는 Redis 등 사용 권장)
 	// Key: email, Value: verifiedAt (인증 완료 시간)
@@ -54,7 +84,7 @@ public class EmailServiceImpl implements EmailService {
 	private static final long VERIFICATION_VALID_TIME = 30 * 60 * 1000;
 
 	@Override
-	public Map<String, Object> sendVerificationCode(String email) {
+	public Map<String, Object> sendVerificationCode(String email, String clientIp) {
 		Map<String, Object> result = new HashMap<>();
 		
 		// 이메일 형식 검증
@@ -62,6 +92,38 @@ public class EmailServiceImpl implements EmailService {
 			result.put("result", "FAIL");
 			result.put("message", "올바른 이메일 형식이 아닙니다.");
 			return result;
+		}
+
+		// 이미 등록된 이메일이면 발송 차단 (중복 가입 방지)
+		try {
+			Map<String, Object> p = new HashMap<>();
+			p.put("email", email);
+			int cnt = userService.countUserByEmail(p);
+			if (cnt > 0) {
+				result.put("result", "FAIL");
+				result.put("message", "이미 등록된 이메일입니다.");
+				return result;
+			}
+		} catch (Exception e) {
+			// 이메일 컬럼/쿼리 환경에 따라 실패할 수 있어, 실패 시에는 발송만 계속 진행 (로그만 남김)
+			log.warn("이메일 중복 체크 실패(무시하고 진행): {}", e.getMessage());
+		}
+
+		// 발송 제한(이메일/아이피)
+		String emailKey = email.toLowerCase();
+		long now = System.currentTimeMillis();
+
+		if (!consumeRate(rateByEmail, emailKey, now, minIntervalSeconds, maxPerHourPerEmail)) {
+			result.put("result", "FAIL");
+			result.put("message", "인증 코드는 잠시 후 다시 요청해주세요.");
+			return result;
+		}
+		if (clientIp != null && !clientIp.trim().isEmpty()) {
+			if (!consumeRate(rateByIp, clientIp.trim(), now, 0, maxPerHourPerIp)) {
+				result.put("result", "FAIL");
+				result.put("message", "요청이 너무 많습니다. 잠시 후 다시 시도해주세요.");
+				return result;
+			}
 		}
 		
 		// 6자리 인증 코드 생성
@@ -73,6 +135,8 @@ public class EmailServiceImpl implements EmailService {
 		codeInfo.put("code", code);
 		codeInfo.put("expiresAt", expiresAt);
 		verificationCodes.put(email, codeInfo);
+		// 발송 성공/실패와 무관하게 실패 카운터는 초기화 (새 코드 발급 기준)
+		verifyFailCounts.remove(emailKey);
 		
 		// 이메일 발송
 		log.info("메일 발송 시도 - mailEnabled: {}, mailSender: {}", mailEnabled, mailSender != null);
@@ -138,9 +202,48 @@ public class EmailServiceImpl implements EmailService {
 		return result;
 	}
 
+	/**
+	 * 이메일/아이피 기준 간단 rate limit
+	 * - minIntervalSeconds: 마지막 발송 이후 최소 대기(초). 0이면 미적용
+	 * - maxPerHour: 1시간 윈도우 내 최대 요청 수
+	 */
+	private boolean consumeRate(Map<String, RateState> store, String key, long now, int minIntervalSeconds, int maxPerHour) {
+		final RateState state = store.computeIfAbsent(key, (k) -> new RateState());
+		synchronized (state) {
+			if (minIntervalSeconds > 0 && state.lastSentAtMs > 0) {
+				long minIntervalMs = minIntervalSeconds * 1000L;
+				if (now - state.lastSentAtMs < minIntervalMs) {
+					return false;
+				}
+			}
+
+			// 1시간 윈도우
+			if (state.windowStartMs == 0 || now - state.windowStartMs >= 60 * 60 * 1000L) {
+				state.windowStartMs = now;
+				state.windowCount = 0;
+			}
+
+			if (maxPerHour > 0 && state.windowCount >= maxPerHour) {
+				return false;
+			}
+
+			state.windowCount += 1;
+			state.lastSentAtMs = now;
+			return true;
+		}
+	}
+
 	@Override
 	public Map<String, Object> verifyCode(String email, String code) {
 		Map<String, Object> result = new HashMap<>();
+		String emailKey = email != null ? email.toLowerCase() : "";
+
+		Integer failCnt = verifyFailCounts.get(emailKey);
+		if (failCnt != null && failCnt >= maxVerifyFailures) {
+			result.put("result", "FAIL");
+			result.put("message", "인증 시도 횟수가 초과되었습니다. 인증 코드를 재발송 후 다시 시도해주세요.");
+			return result;
+		}
 		
 		Map<String, Object> codeInfo = verificationCodes.get(email);
 		
@@ -162,6 +265,7 @@ public class EmailServiceImpl implements EmailService {
 		// 인증 코드 확인
 		String storedCode = (String) codeInfo.get("code");
 		if (!storedCode.equals(code)) {
+			verifyFailCounts.put(emailKey, (failCnt == null ? 1 : failCnt + 1));
 			result.put("result", "FAIL");
 			result.put("message", "인증 코드가 일치하지 않습니다.");
 			return result;
@@ -169,6 +273,7 @@ public class EmailServiceImpl implements EmailService {
 		
 		// 인증 성공
 		verificationCodes.remove(email);
+		verifyFailCounts.remove(emailKey);
 		// 인증 완료된 이메일로 저장 (30분간 유효)
 		verifiedEmails.put(email, System.currentTimeMillis());
 		result.put("result", "SUCCESS");

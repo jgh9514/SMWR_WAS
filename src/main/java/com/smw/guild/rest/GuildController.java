@@ -35,6 +35,39 @@ public class GuildController {
 	@Autowired
 	private S3Service s3Service;
 
+	@SuppressWarnings("unchecked")
+	private String getSessUserId(HttpServletRequest request) {
+		Object attr = request.getAttribute("userInfo");
+		if (attr instanceof Map) {
+			Map<String, Object> userInfo = (Map<String, Object>) attr;
+			Object v = userInfo.get("sess_user_id");
+			return v != null ? v.toString() : null;
+		}
+		return null;
+	}
+	
+	@SuppressWarnings("unchecked")
+	private String getSessGuildId(HttpServletRequest request) {
+		Object attr = request.getAttribute("userInfo");
+		if (attr instanceof Map) {
+			Map<String, Object> userInfo = (Map<String, Object>) attr;
+			Object v = userInfo.get("sess_guild_id");
+			return v != null ? v.toString() : null;
+		}
+		return null;
+	}
+	
+	@SuppressWarnings("unchecked")
+	private String getSessGuildRole(HttpServletRequest request) {
+		Object attr = request.getAttribute("userInfo");
+		if (attr instanceof Map) {
+			Map<String, Object> userInfo = (Map<String, Object>) attr;
+			Object v = userInfo.get("sess_guild_role");
+			return v != null ? v.toString() : null;
+		}
+		return null;
+	}
+
 	/**
 	 * 길드 목록 조회
 	 */
@@ -124,6 +157,17 @@ public class GuildController {
 	@Transactional
 	public ResponseEntity<?> joinGuild(@RequestBody Map<String, Object> param, HttpSession session, HttpServletRequest request) {
 		Map<String, Object> result = new HashMap<>();
+
+		String sessUserId = getSessUserId(request);
+		if (sessUserId == null || sessUserId.isEmpty()) {
+			result.put("result", "FAIL");
+			result.put("message", "로그인이 필요합니다.");
+			return ResponseEntity.status(401).body(result);
+		}
+		// 클라이언트 입력(user_id)에 의존하지 않고, 로그인 사용자로 가입 처리
+		param.put("user_id", sessUserId);
+		param.put("crt_user_id", sessUserId);
+		param.put("sess_user_id", sessUserId);
 		
 		// 기본값 설정
 		if (param.get("role") == null || "".equals(param.get("role"))) {
@@ -148,6 +192,17 @@ public class GuildController {
 	@Transactional
 	public ResponseEntity<?> leaveGuild(@RequestBody Map<String, Object> param, HttpSession session, HttpServletRequest request) {
 		Map<String, Object> result = new HashMap<>();
+
+		String sessUserId = getSessUserId(request);
+		if (sessUserId == null || sessUserId.isEmpty()) {
+			result.put("result", "FAIL");
+			result.put("message", "로그인이 필요합니다.");
+			return ResponseEntity.status(401).body(result);
+		}
+		// 클라이언트 입력(user_id)에 의존하지 않고, 로그인 사용자로 탈퇴 처리
+		param.put("user_id", sessUserId);
+		param.put("upt_user_id", sessUserId);
+		param.put("sess_user_id", sessUserId);
 		
 		int count = service.deleteUserGuild(param);
 		if (count > 0) {
@@ -210,7 +265,7 @@ public class GuildController {
 		
 		return ResponseEntity.ok(result);
 	}
-
+	
 	/**
 	 * 길드 신청 등록
 	 */
@@ -303,6 +358,14 @@ public class GuildController {
 	public ResponseEntity<?> processGuildApplication(@RequestBody Map<String, Object> param, HttpSession session, HttpServletRequest request) {
 		Map<String, Object> result = new HashMap<>();
 		
+		String sessUserId = getSessUserId(request);
+		if (sessUserId != null && !sessUserId.isEmpty()) {
+			// 처리자/수정자 보정 (클라이언트 입력에 의존하지 않음)
+			param.put("process_user_id", sessUserId);
+			param.put("upt_user_id", sessUserId);
+			param.put("sess_user_id", sessUserId);
+		}
+		
 		int count = service.processGuildApplication(param);
 		if (count > 0) {
 			result.put("result", "SUCCESS");
@@ -310,6 +373,120 @@ public class GuildController {
 			result.put("result", "FAIL");
 		}
 		
+		return ResponseEntity.ok(result);
+	}
+	
+	// ---------------------- 길드 가입 신청 (승인 대기) ----------------------
+	
+	@Operation(summary = "내 길드 가입 신청 상태", description = "내 승인대기 길드 가입 신청을 조회합니다.")
+	@PostMapping("/join-application/my-status")
+	public ResponseEntity<?> myJoinApplicationStatus(HttpSession session, HttpServletRequest request) {
+		Map<String, Object> result = new HashMap<>();
+		String sessUserId = getSessUserId(request);
+		if (sessUserId == null || sessUserId.isEmpty()) {
+			result.put("result", "FAIL");
+			result.put("message", "로그인이 필요합니다.");
+			return ResponseEntity.status(401).body(result);
+		}
+		Map<String, Object> param = new HashMap<>();
+		Map<String, ?> app = service.selectMyPendingJoinApplication(param);
+		result.put("result", "SUCCESS");
+		result.put("hasPendingJoinApplication", app != null);
+		if (app != null) {
+			result.put("application", app);
+		}
+		return ResponseEntity.ok(result);
+	}
+	
+	@Operation(summary = "길드 가입 신청", description = "길드에 가입 신청(PENDING)합니다.")
+	@PostMapping("/join-application/save")
+	@Transactional
+	public ResponseEntity<?> applyJoinApplication(@RequestBody Map<String, Object> param, HttpSession session, HttpServletRequest request) {
+		Map<String, Object> result = new HashMap<>();
+		String sessUserId = getSessUserId(request);
+		if (sessUserId == null || sessUserId.isEmpty()) {
+			result.put("result", "FAIL");
+			result.put("message", "로그인이 필요합니다.");
+			return ResponseEntity.status(401).body(result);
+		}
+		param.put("sess_user_id", sessUserId);
+		int count = service.insertJoinApplication(param);
+		if (count > 0) {
+			result.put("result", "SUCCESS");
+		} else {
+			result.put("result", "FAIL");
+			result.put("message", "길드 가입 신청에 실패했습니다.");
+		}
+		return ResponseEntity.ok(result);
+	}
+	
+	@Operation(summary = "길드 가입 신청 목록", description = "길드장/매니저가 길드 가입 신청 목록을 조회합니다.")
+	@PostMapping("/join-application/list")
+	public ResponseEntity<?> joinApplicationList(@RequestBody Map<String, Object> param, HttpSession session, HttpServletRequest request) {
+		String sessGuildId = getSessGuildId(request);
+		String sessGuildRole = getSessGuildRole(request);
+		if (sessGuildId == null || sessGuildId.isEmpty()) {
+			return ResponseEntity.ok(new java.util.ArrayList<>());
+		}
+		boolean isLeader = "LEADER".equals(sessGuildRole);
+		boolean isManager = "MANAGER".equals(sessGuildRole);
+		if (!isLeader && !isManager) {
+			return ResponseEntity.status(403).body(new java.util.ArrayList<>());
+		}
+		// 서버측에서 guild_id 강제
+		param.put("guild_id", sessGuildId);
+		return ResponseEntity.ok(service.selectJoinApplicationList(param));
+	}
+	
+	@Operation(summary = "길드 가입 신청 처리", description = "길드 가입 신청을 승인/반려합니다.")
+	@PostMapping("/join-application/process")
+	@Transactional
+	public ResponseEntity<?> processJoinApplication(@RequestBody Map<String, Object> param, HttpSession session, HttpServletRequest request) {
+		Map<String, Object> result = new HashMap<>();
+		String sessUserId = getSessUserId(request);
+		String sessGuildRole = getSessGuildRole(request);
+		if (sessUserId == null || sessUserId.isEmpty()) {
+			result.put("result", "FAIL");
+			result.put("message", "로그인이 필요합니다.");
+			return ResponseEntity.status(401).body(result);
+		}
+		boolean isLeader = "LEADER".equals(sessGuildRole);
+		boolean isManager = "MANAGER".equals(sessGuildRole);
+		if (!isLeader && !isManager) {
+			result.put("result", "FAIL");
+			result.put("message", "권한이 없습니다.");
+			return ResponseEntity.status(403).body(result);
+		}
+		param.put("process_user_id", sessUserId);
+		int count = service.processJoinApplication(param);
+		if (count > 0) {
+			result.put("result", "SUCCESS");
+		} else {
+			result.put("result", "FAIL");
+		}
+		return ResponseEntity.ok(result);
+	}
+	
+	@Operation(summary = "길드 가입 신청 취소", description = "내 승인대기 길드 가입 신청을 취소합니다.")
+	@PostMapping("/join-application/cancel")
+	@Transactional
+	public ResponseEntity<?> cancelJoinApplication(@RequestBody(required = false) Map<String, Object> param, HttpSession session, HttpServletRequest request) {
+		Map<String, Object> result = new HashMap<>();
+		String sessUserId = getSessUserId(request);
+		if (sessUserId == null || sessUserId.isEmpty()) {
+			result.put("result", "FAIL");
+			result.put("message", "로그인이 필요합니다.");
+			return ResponseEntity.status(401).body(result);
+		}
+		Map<String, Object> safeParam = param != null ? param : new HashMap<>();
+		safeParam.put("sess_user_id", sessUserId);
+		int count = service.cancelMyJoinApplication(safeParam);
+		if (count > 0) {
+			result.put("result", "SUCCESS");
+		} else {
+			result.put("result", "FAIL");
+			result.put("message", "취소할 승인대기 신청이 없습니다.");
+		}
 		return ResponseEntity.ok(result);
 	}
 
@@ -321,6 +498,103 @@ public class GuildController {
 	public ResponseEntity<?> getGuildMemberList(@RequestBody Map<String, Object> param, HttpSession session, HttpServletRequest request) {
 		List<Map<String, ?>> list = service.selectGuildMemberList(param);
 		return ResponseEntity.ok(list);
+	}
+	
+	/**
+	 * 길드 멤버 추방 (길드장/매니저)
+	 */
+	@Operation(summary = "길드 멤버 추방", description = "길드장/매니저가 길드 멤버를 추방합니다.")
+	@PostMapping("/member/kick")
+	@Transactional
+	public ResponseEntity<?> kickGuildMember(@RequestBody Map<String, Object> param, HttpSession session, HttpServletRequest request) {
+		Map<String, Object> result = new HashMap<>();
+		
+		String sessUserId = getSessUserId(request);
+		String sessGuildId = getSessGuildId(request);
+		String sessGuildRole = getSessGuildRole(request);
+		if (sessUserId == null || sessUserId.isEmpty()) {
+			result.put("result", "FAIL");
+			result.put("message", "로그인이 필요합니다.");
+			return ResponseEntity.status(401).body(result);
+		}
+		if (sessGuildId == null || sessGuildId.isEmpty()) {
+			result.put("result", "FAIL");
+			result.put("message", "길드에 소속되어 있지 않습니다.");
+			return ResponseEntity.ok(result);
+		}
+		boolean isLeader = "LEADER".equals(sessGuildRole);
+		boolean isManager = "MANAGER".equals(sessGuildRole);
+		if (!isLeader && !isManager) {
+			result.put("result", "FAIL");
+			result.put("message", "권한이 없습니다.");
+			return ResponseEntity.status(403).body(result);
+		}
+		
+		Object targetObj = param.get("user_id");
+		String targetUserId = targetObj != null ? targetObj.toString().trim() : "";
+		if (targetUserId.isEmpty()) {
+			result.put("result", "FAIL");
+			result.put("message", "user_id가 필요합니다.");
+			return ResponseEntity.ok(result);
+		}
+		if (sessUserId.equals(targetUserId)) {
+			result.put("result", "FAIL");
+			result.put("message", "본인은 추방할 수 없습니다.");
+			return ResponseEntity.ok(result);
+		}
+		
+		// 대상 유저의 현재 길드 확인
+		Map<String, Object> targetGuildParam = new HashMap<>();
+		targetGuildParam.put("user_id", targetUserId);
+		Map<String, ?> targetGuild = service.selectUserGuild(targetGuildParam);
+		if (targetGuild == null || targetGuild.get("guild_id") == null) {
+			result.put("result", "FAIL");
+			result.put("message", "대상 유저가 길드에 소속되어 있지 않습니다.");
+			return ResponseEntity.ok(result);
+		}
+		String targetGuildId = targetGuild.get("guild_id").toString();
+		if (!sessGuildId.equals(targetGuildId)) {
+			result.put("result", "FAIL");
+			result.put("message", "같은 길드 멤버만 추방할 수 있습니다.");
+			return ResponseEntity.ok(result);
+		}
+		
+		String targetRole = targetGuild.get("role") != null ? targetGuild.get("role").toString() : null;
+		// 매니저는 MEMBER만 추방 가능, 길드장은 LEADER를 제외하고 추방 가능
+		if (isManager && !"MEMBER".equals(targetRole)) {
+			result.put("result", "FAIL");
+			result.put("message", "매니저는 일반 길드원만 추방할 수 있습니다.");
+			return ResponseEntity.ok(result);
+		}
+		if (isLeader && "LEADER".equals(targetRole)) {
+			result.put("result", "FAIL");
+			result.put("message", "길드장은 추방할 수 없습니다.");
+			return ResponseEntity.ok(result);
+		}
+		
+		// leave_reason 기록 (옵션)
+		Object reasonObj = param.get("leave_reason");
+		String reason = reasonObj != null ? reasonObj.toString().trim() : "";
+		
+		Map<String, Object> kickParam = new HashMap<>();
+		kickParam.put("user_id", targetUserId);
+		kickParam.put("upt_user_id", sessUserId);
+		kickParam.put("sess_user_id", sessUserId);
+		if (!reason.isEmpty()) {
+			kickParam.put("leave_reason", reason);
+		} else {
+			kickParam.put("leave_reason", "KICK");
+		}
+		
+		int count = service.deleteUserGuild(kickParam);
+		if (count > 0) {
+			result.put("result", "SUCCESS");
+		} else {
+			result.put("result", "FAIL");
+			result.put("message", "추방에 실패했습니다.");
+		}
+		
+		return ResponseEntity.ok(result);
 	}
 
 	/**
@@ -350,6 +624,16 @@ public class GuildController {
 	@PostMapping("/invite/join")
 	public ResponseEntity<?> joinGuildByInviteKey(@RequestBody Map<String, Object> param, HttpSession session, HttpServletRequest request) {
 		Map<String, Object> result = new HashMap<>();
+
+		String sessUserId = getSessUserId(request);
+		if (sessUserId == null || sessUserId.isEmpty()) {
+			result.put("result", "FAIL");
+			result.put("message", "로그인이 필요합니다.");
+			return ResponseEntity.status(401).body(result);
+		}
+		param.put("user_id", sessUserId);
+		param.put("crt_user_id", sessUserId);
+		param.put("sess_user_id", sessUserId);
 		
 		int count = service.joinGuildByInviteKey(param);
 		if (count > 0) {

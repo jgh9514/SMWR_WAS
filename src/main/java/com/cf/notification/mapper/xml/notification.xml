@@ -67,7 +67,7 @@
 			#{related_url},
 			'N',
 			'N',
-			#{crt_user_id},
+			#{sess_user_id},
 			CURRENT_TIMESTAMP,
 			CURRENT_TIMESTAMP
 		)
