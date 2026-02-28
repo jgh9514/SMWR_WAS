@@ -62,17 +62,17 @@
 				                 on vbdi.monster_id_3 = mcm3.collaboration_monster_id
 				          where vbdi.type = 'defense'
 								<if test="monster_id1 != null and monster_id1 != ''">
-								   AND vbdi.monster_id_1 = #{monster_id1}
+								   AND vbdi.monster_id_1 IN (${monster_id1_list})
 								</if>
 								<if test="monster_id2 != null and monster_id2 != '' and monster_id3 != null and monster_id3 != ''">
-								   AND LEAST(vbdi.monster_id_2, vbdi.monster_id_3) = #{monster_id2}
-								   AND GREATEST(vbdi.monster_id_2, vbdi.monster_id_3) = #{monster_id3}
+								   AND LEAST(vbdi.monster_id_2, vbdi.monster_id_3) IN (${monster_id2_list})
+								   AND GREATEST(vbdi.monster_id_2, vbdi.monster_id_3) IN (${monster_id3_list})
 								</if>
 								<if test="monster_id2 != null and monster_id2 != '' and (monster_id3 == null or monster_id3 == '')">
-								   AND (vbdi.monster_id_2 = #{monster_id2} OR vbdi.monster_id_3 = #{monster_id2})
+								   AND (vbdi.monster_id_2 IN (${monster_id2_list}) OR vbdi.monster_id_3 IN (${monster_id2_list}))
 								</if>
 								<if test="monster_id3 != null and monster_id3 != '' and (monster_id2 == null or monster_id2 == '')">
-								   AND (vbdi.monster_id_2 = #{monster_id3} OR vbdi.monster_id_3 = #{monster_id3})
+								   AND (vbdi.monster_id_2 IN (${monster_id3_list}) OR vbdi.monster_id_3 IN (${monster_id3_list}))
 								</if>
 								<if test="match_id != null and match_id != '' and match_id != 'null'">
 								   AND vbdi.match_id = #{match_id}
@@ -81,6 +81,9 @@
 			 left join battle_log_list bll
 			 		ON vbdi.match_id = bll.match_id
 			 	   AND vbdi.log_timestamp = bll.log_timestamp
+			 left join monster sm1 on vbdi.monster_id_1 = sm1.monster_id
+			 left join monster sm2 on vbdi.monster_id_2 = sm2.monster_id
+			 left join monster sm3 on vbdi.monster_id_3 = sm3.monster_id
 			  where 1=1
 			  	<!-- 보안: 내 길드가 참가한 매치만 조회 -->
 			  	AND EXISTS (
@@ -110,6 +113,17 @@
 				   <foreach collection="guild_ids" item="guild_id" open="(" separator="," close=")">
 				   		#{guild_id}
 				   </foreach>
+				</if>
+				<!-- 방덱 성급 필터: FOUR_STAR(3마리 모두 4★ 이하), FIVE_STAR(그 외: 5★ 이상 포함) -->
+				<if test="deck_star_filter != null and deck_star_filter != '' and deck_star_filter != 'ALL'">
+					<if test="deck_star_filter == 'FOUR_STAR'">
+						AND sm1.star &lt;= 4
+						AND sm2.star &lt;= 4
+						AND sm3.star &lt;= 4
+					</if>
+					<if test="deck_star_filter == 'FIVE_STAR'">
+						AND (sm1.star &gt;= 5 OR sm2.star &gt;= 5 OR sm3.star &gt;= 5)
+					</if>
 				</if>
 			  group by monster_id_1
 			         , monster_id_2
@@ -145,17 +159,17 @@
 		                 on vbdi.monster_id_3 = mcm3.collaboration_monster_id
 		         where vbdi.type = 'defense'
 						<if test="monster_id1 != null and monster_id1 != ''">
-						   AND vbdi.monster_id_1 = #{monster_id1}
+						   AND vbdi.monster_id_1 IN (${monster_id1_list})
 						</if>
 						<if test="monster_id2 != null and monster_id2 != '' and monster_id3 != null and monster_id3 != ''">
-						   AND LEAST(vbdi.monster_id_2, vbdi.monster_id_3) = #{monster_id2}
-						   AND GREATEST(vbdi.monster_id_2, vbdi.monster_id_3) = #{monster_id3}
+						   AND LEAST(vbdi.monster_id_2, vbdi.monster_id_3) IN (${monster_id2_list})
+						   AND GREATEST(vbdi.monster_id_2, vbdi.monster_id_3) IN (${monster_id3_list})
 						</if>
 						<if test="monster_id2 != null and monster_id2 != '' and (monster_id3 == null or monster_id3 == '')">
-						   AND (vbdi.monster_id_2 = #{monster_id2} OR vbdi.monster_id_3 = #{monster_id2})
+						   AND (vbdi.monster_id_2 IN (${monster_id2_list}) OR vbdi.monster_id_3 IN (${monster_id2_list}))
 						</if>
 						<if test="monster_id3 != null and monster_id3 != '' and (monster_id2 == null or monster_id2 == '')">
-						   AND (vbdi.monster_id_2 = #{monster_id3} OR vbdi.monster_id_3 = #{monster_id3})
+						   AND (vbdi.monster_id_2 IN (${monster_id3_list}) OR vbdi.monster_id_3 IN (${monster_id3_list}))
 						</if>
 						<if test="match_id != null and match_id != '' and match_id != 'null'">
 						   AND vbdi.match_id = #{match_id}
@@ -164,6 +178,9 @@
 		   JOIN battle_log_list bll
 		 		ON vbdi.match_id = bll.match_id
 		 	   AND vbdi.log_timestamp = bll.log_timestamp
+		   LEFT JOIN monster sm1 on vbdi.monster_id_1 = sm1.monster_id
+		   LEFT JOIN monster sm2 on vbdi.monster_id_2 = sm2.monster_id
+		   LEFT JOIN monster sm3 on vbdi.monster_id_3 = sm3.monster_id
 		 WHERE 1=1
 		  	<!-- 보안: 내 길드가 참가한 매치만 조회 -->
 		  	AND EXISTS (
@@ -193,6 +210,17 @@
 			   <foreach collection="guild_ids" item="guild_id" open="(" separator="," close=")">
 			   		#{guild_id}
 			   </foreach>
+			</if>
+			<!-- 방덱 성급 필터: FOUR_STAR(3마리 모두 4★ 이하), FIVE_STAR(그 외: 5★ 이상 포함) -->
+			<if test="deck_star_filter != null and deck_star_filter != '' and deck_star_filter != 'ALL'">
+				<if test="deck_star_filter == 'FOUR_STAR'">
+					AND sm1.star &lt;= 4
+					AND sm2.star &lt;= 4
+					AND sm3.star &lt;= 4
+				</if>
+				<if test="deck_star_filter == 'FIVE_STAR'">
+					AND (sm1.star &gt;= 5 OR sm2.star &gt;= 5 OR sm3.star &gt;= 5)
+				</if>
 			</if>
 	</select>
 
