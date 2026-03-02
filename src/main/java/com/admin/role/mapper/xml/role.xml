@@ -41,7 +41,7 @@
 		/* selectRolekey */
 		select concat('R',coalesce(fn_lpad((max(substr(role_id, 2, 5)) + 1), 4, '0'),'0001')) as "key"
 		  from SYS_ROLE 
-		 where role_id != 'RZZZZ'
+		 where role_id != 'RL0001'
 	</select>
 	
 	<insert id="insertRoleList" parameterType="sqlMap">

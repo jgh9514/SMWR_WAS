@@ -52,6 +52,11 @@ public interface summonerswarService {
 	public Map<String, ?> selectDeckDetail(Map<String, Object> param);
 	
 	public int deleteDeckDetail(Map<String, Object> param);
+
+	/**
+	 * 추천 공덱 스탯 수정 (몬스터는 변경 불가)
+	 */
+	public int updateRecommendedAttackDeckStats(Map<String, Object> param);
 	
 	public Map<String, ?> selectCurrentSeason(Map<String, Object> param);
 	

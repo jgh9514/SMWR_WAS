@@ -6,7 +6,7 @@ public class Constant {
 	public static final String FAIL = "Fail";
 	
 	// 권한 목록
-    public static final String ROLE_ADMIN  = "RZZZZ"; // 시스템 사용자
+    public static final String ROLE_ADMIN  = "RL0001"; // 시스템 운영자(관리자)
     public static final String ROLE_GENERAL = "R0001"; // 일반 사용자
     
     

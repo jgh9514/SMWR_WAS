@@ -19,6 +19,16 @@ public interface summonerswarMapper {
 	
 	public int insertFriendlyteamTeamSave(Map<String, Object> param);
 
+	/**
+	 * 공덱 수정일 갱신
+	 */
+	public int touchRecommendedAttackDeck(Map<String, Object> param);
+	
+	/**
+	 * 공덱 몬스터 스탯 upsert
+	 */
+	public int upsertRecommendedAttackDeckStats(Map<String, Object> param);
+
 	public List<Map<String, ?>> selectMonsterDetailList(Map<String, Object> param);
 	
 	public List<Map<String, ?>> selectRecommendedAttackDeckList(Map<String, Object> param);

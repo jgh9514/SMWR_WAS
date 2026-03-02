@@ -41,19 +41,24 @@
 		ORDER BY 
 			<choose>
 				<when test="orderBy != null and orderBy != ''">
-					<if test="orderBy == 'monster_id'">monster_id</if>
+					<if test="orderBy == 'monster_id'">CAST(monster_id AS INTEGER)</if>
 					<if test="orderBy == 'kr_name'">kr_name</if>
 					<if test="orderBy == 'star'">star</if>
 					<if test="orderBy == 'crt_date'">crt_date</if>
 				</when>
 				<otherwise>
-					CAST(monster_id AS INTEGER) ASC
+					CAST(monster_id AS INTEGER)
 				</otherwise>
 			</choose>
-		<if test="orderDir != null and orderDir != ''">
-			<if test="orderDir == 'desc'">DESC</if>
-			<if test="orderDir == 'asc'">ASC</if>
-		</if>
+		<choose>
+			<when test="orderDir != null and orderDir != ''">
+				<if test="orderDir == 'desc'">DESC</if>
+				<if test="orderDir == 'asc'">ASC</if>
+			</when>
+			<otherwise>
+				ASC
+			</otherwise>
+		</choose>
 		<if test="limit != null and limit != ''">
 			LIMIT #{limit}
 		</if>

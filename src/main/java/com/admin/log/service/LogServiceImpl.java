@@ -12,6 +12,7 @@ import java.util.Map;
 
 import javax.annotation.PreDestroy;
 
+import org.apache.logging.log4j.ThreadContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
@@ -106,11 +107,19 @@ public class LogServiceImpl implements LogService {
 	public void insertApiLogAsync(Map<String, Object> param) {
 		// 요청 thread에서 분리 (copy해서 동시성 이슈 방지)
 		final Map<String, Object> copy = param != null ? new HashMap<>(param) : new HashMap<>();
+		final java.util.Map<String, String> mdc = ThreadContext.getImmutableContext();
 		apiLogExecutor.submit(() -> {
+			if (mdc != null && !mdc.isEmpty()) {
+				ThreadContext.putAll(mdc);
+			}
 			try {
 				insertApiLog(copy);
 			} catch (Exception ignore) {
 				// 로깅 실패는 업무 흐름에 영향 주지 않음
+			} finally {
+				if (mdc != null && !mdc.isEmpty()) {
+					for (String k : mdc.keySet()) ThreadContext.remove(k);
+				}
 			}
 		});
 	}

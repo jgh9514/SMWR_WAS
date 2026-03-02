@@ -42,7 +42,7 @@ public class LoginController {
 	@PostMapping("/login")
 	public ResponseEntity<?> login(@RequestBody Map<String, Object> param, HttpServletRequest request, HttpSession session, HttpServletResponse response) throws Exception {
 		log.info("===== 로그인 요청 시작 =====");
-		log.info("요청 파라미터: {}", param);
+		log.info("요청 파라미터: {}", maskSensitive(param));
 		try {
 			Map<String, Object> result = service.login(param, request, response);
 			log.info("로그인 결과: {}", result);
@@ -51,6 +51,18 @@ public class LoginController {
 			log.error("로그인 처리 중 오류 발생", e);
 			throw e;
 		}
+	}
+
+	private Map<String, Object> maskSensitive(Map<String, Object> param) {
+		if (param == null) return null;
+		Map<String, Object> copy = new HashMap<>(param);
+		if (copy.containsKey("password")) {
+			Object pw = copy.get("password");
+			if (pw != null && !pw.toString().isEmpty()) {
+				copy.put("password", "******");
+			}
+		}
+		return copy;
 	}
 
 	/**

@@ -1,8 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Configuration status="WARN">
     <Properties>
-        <Property name="LOG_PATTERN">%d{yyyy-MM-dd HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg%n</Property>
+        <Property name="LOG_PATTERN">%d{yyyy-MM-dd HH:mm:ss.SSS} [%t] %-5level %logger{36} [%X{traceId}] - %msg%n</Property>
         <Property name="LOG_FILE_PATH">${sys:user.dir}/log/test.log</Property>
+        <!-- SQL 로그 레벨: 기본 DEBUG, 필요 시 -DSQL_LOG_LEVEL=INFO -->
+        <Property name="SQL_LOG_LEVEL">${sys:SQL_LOG_LEVEL:-DEBUG}</Property>
+        <!-- MyBatis 인터셉터 로그 레벨: 기본 WARN, 필요 시 -DMYBATIS_LOG_LEVEL=DEBUG -->
+        <Property name="MYBATIS_LOG_LEVEL">${sys:MYBATIS_LOG_LEVEL:-WARN}</Property>
     </Properties>
     
     <Appenders>
@@ -68,6 +72,11 @@
             <AppenderRef ref="Console"/>
             <AppenderRef ref="FileAppender"/>
         </Logger>
+        <!-- MyBatis Mapper 기본 로그(Preparing/Parameters/Total) 노이즈 억제 -->
+        <Logger name="com.smw.guild.mapper" level="INFO" additivity="false">
+            <AppenderRef ref="Console"/>
+            <AppenderRef ref="FileAppender"/>
+        </Logger>
         <Logger name="com.cf" level="INFO" additivity="false">
             <AppenderRef ref="Console"/>
             <AppenderRef ref="FileAppender"/>
@@ -82,16 +91,33 @@
         </Logger>
         
         <!-- Interceptor Loggers - DEBUG 제거 -->
-        <Logger name="com.sysconf.interceptor" level="INFO" additivity="false">
+        <Logger name="com.sysconf.interceptor" level="WARN" additivity="false">
+            <AppenderRef ref="Console"/>
+            <AppenderRef ref="FileAppender"/>
+        </Logger>
+
+        <!-- MybatisInterceptor: inline SQL(파라미터 합친 형태) 디버깅용 -->
+        <Logger name="com.sysconf.interceptor.MybatisInterceptor" level="DEBUG" additivity="false">
             <AppenderRef ref="Console"/>
             <AppenderRef ref="FileAppender"/>
         </Logger>
         
         <!-- SQL Loggers - WARN으로 변경하여 불필요한 로그 제거 -->
-        <Logger name="jdbc.sqlonly" level="WARN" additivity="false">
+        <!-- sqlonly는 sqltiming과 중복되기 쉬워 기본 OFF -->
+        <Logger name="jdbc.sqlonly" level="OFF" additivity="false">
             <AppenderRef ref="SqlAppender"/>
         </Logger>
-        <Logger name="jdbc.sqltiming" level="WARN" additivity="false">
+        <!-- sqltiming: 실행된 SQL + timing (필요 시 INFO로 올려서 쿼리 확인) -->
+        <Logger name="jdbc.sqltiming" level="${SQL_LOG_LEVEL}" additivity="false">
+            <AppenderRef ref="Console"/>
+            <AppenderRef ref="SqlAppender"/>
+        </Logger>
+        <!-- log4jdbc-log4j2 delegator 로거
+             - SQL 로그는 유지하되, ResultSet "표 형태" 덤프만 필터링 -->
+        <Logger name="log4jdbc.log4j2" level="INFO" additivity="false">
+            <!-- 예: 파이프(|)로 보이는 resultset table 출력만 차단 -->
+            <RegexFilter regex="(?s).*\\|[-]{5,}\\|.*" onMatch="DENY" onMismatch="NEUTRAL"/>
+            <AppenderRef ref="Console"/>
             <AppenderRef ref="SqlAppender"/>
         </Logger>
         <Logger name="jdbc.audit" level="warn" additivity="false">
@@ -100,9 +126,8 @@
         <Logger name="jdbc.resultset" level="warn" additivity="false">
             <AppenderRef ref="SqlAppender"/>
         </Logger>
-        <Logger name="jdbc.resultsettable" level="warn" additivity="false">
-            <AppenderRef ref="SqlAppender"/>
-        </Logger>
+        <!-- resultsettable(표)는 로그가 과도하므로 OFF -->
+        <Logger name="jdbc.resultsettable" level="OFF" additivity="false" />
         <Logger name="jdbc.connection" level="warn" additivity="false">
             <AppenderRef ref="SqlAppender"/>
         </Logger>

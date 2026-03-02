@@ -9,16 +9,22 @@ import java.util.Map;
 import org.apache.ibatis.executor.Executor;
 import org.apache.ibatis.mapping.BoundSql;
 import org.apache.ibatis.mapping.MappedStatement;
+import org.apache.ibatis.mapping.ParameterMapping;
 import org.apache.ibatis.mapping.SqlSource;
 import org.apache.ibatis.plugin.Interceptor;
 import org.apache.ibatis.plugin.Intercepts;
 import org.apache.ibatis.plugin.Invocation;
 import org.apache.ibatis.plugin.Signature;
+import org.apache.ibatis.reflection.MetaObject;
+import org.apache.ibatis.reflection.SystemMetaObject;
 import org.apache.ibatis.session.ResultHandler;
 import org.apache.ibatis.session.RowBounds;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import lombok.extern.slf4j.Slf4j;
+
+@Slf4j
 @Component
 @Intercepts(
         {
@@ -46,16 +52,22 @@ public class MybatisInterceptor implements Interceptor {
 
 	@Value("${smw.globalDblinkNm}")
 	private String globalDblinkNm;
+	
+	@Value("${smw.mybatis.log.inline-sql:false}")
+	private boolean inlineSqlLogEnabled;
+	
+	@Value("${smw.mybatis.log.result-total:false}")
+	private boolean resultTotalLogEnabled;
 
     @SuppressWarnings("unchecked")
 	public Object intercept(Invocation invocation) throws Throwable {
-        // ?�출??SQL?�보
+        // 호출 SQL 정보
         MappedStatement ms = (MappedStatement) invocation.getArgs()[0];
         Object parameter = invocation.getArgs()[1];
 
-        // 디버깅: userInfo 확인
-        org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(MybatisInterceptor.class);
-        log.info("========== MybatisInterceptor.intercept() 시작 ========== Mapper ID: {}", ms.getId());
+        if (log.isDebugEnabled()) {
+            log.debug("MybatisInterceptor.intercept() start. mapperId={}", ms.getId());
+        }
         
         // selectUserInfo는 MybatisInterceptor를 거치지 않음 (userInfo 조회 시 SessionThread에 정보가 없을 수 있음)
         if (ms.getId().contains("selectUserInfo")) {
@@ -63,12 +75,11 @@ public class MybatisInterceptor implements Interceptor {
         }
         
         Map<String, Object> userInfo = SessionThread.SESSION_USER_INFO.get();
-        log.info("MybatisInterceptor - Mapper ID: {}", ms.getId());
-        log.info("MybatisInterceptor - userInfo 존재 여부: {}", userInfo != null);
-        if (userInfo != null) {
-            log.info("MybatisInterceptor - userInfo siege_view_scope: {}", userInfo.get("siege_view_scope"));
-        } else {
-            log.warn("MybatisInterceptor - userInfo가 null입니다. Mapper ID: {}", ms.getId());
+        if (log.isDebugEnabled()) {
+            log.debug("MybatisInterceptor - mapperId={}, userInfoPresent={}", ms.getId(), userInfo != null);
+            if (userInfo != null) {
+                log.debug("MybatisInterceptor - userInfo.siege_view_scope={}", userInfo.get("siege_view_scope"));
+            }
         }
         
         if (parameter instanceof Map) {
@@ -76,50 +87,67 @@ public class MybatisInterceptor implements Interceptor {
             
             // MyBatis의 MapperMethod.ParamMap은 존재하지 않는 키를 get() 하면 BindingException을 던질 수 있음
             Object preSiegeViewScope = parameters.containsKey("siege_view_scope") ? parameters.get("siege_view_scope") : null;
-            log.info("MybatisInterceptor - 파라미터 siege_view_scope (주입 전): {}", preSiegeViewScope);
+            if (log.isDebugEnabled()) {
+                log.debug("MybatisInterceptor - siege_view_scope before={}", preSiegeViewScope);
+            }
             
             if (userInfo != null) {
-                // request body에 이미 존재하는 키는 덮어쓰지 않음 (request body 우선)
+                // request body 우선이지만, 값이 null/빈문자열이면 세션값으로 보정
                 for (Map.Entry<String, Object> entry : userInfo.entrySet()) {
-                    if (!parameters.containsKey(entry.getKey())) {
-                        parameters.put(entry.getKey(), entry.getValue());
-                    }
+                    String key = entry.getKey();
+                    Object incoming = entry.getValue();
+                    if (shouldInject(parameters, key)) parameters.put(key, incoming);
                 }
             } else {
                 // 로그인 정보가 없는 경우에도, 일부 쿼리는 siege_view_scope 파라미터를 필수로 요구함.
                 // 기본값(C: 현재 시즌만)을 주입해서 BindingException을 방지한다.
-                if (!parameters.containsKey("siege_view_scope")) {
+                if (shouldInject(parameters, "siege_view_scope")) {
                     parameters.put("siege_view_scope", "C");
                 }
             }
-            parameters.put("global_dblink_nm", globalDblinkNm);
+            if (shouldInject(parameters, "global_dblink_nm")) {
+                parameters.put("global_dblink_nm", globalDblinkNm);
+            }
             
             Object postSiegeViewScope = parameters.containsKey("siege_view_scope") ? parameters.get("siege_view_scope") : null;
-            log.info("MybatisInterceptor - 파라미터 siege_view_scope (주입 후): {}", postSiegeViewScope);
+            if (log.isDebugEnabled()) {
+                log.debug("MybatisInterceptor - siege_view_scope after={}", postSiegeViewScope);
+            }
         }
 
-        // ?�래 ?�행??SQL 가?�오�?
+        long startedAt = System.currentTimeMillis();
+
+        // 원래 실행할 SQL 가져오기
         BoundSql boundSql = ms.getBoundSql(parameter);
         String originalSQL = boundSql.getSql();
+        
+        if (inlineSqlLogEnabled && log.isDebugEnabled()) {
+        	try {
+        		String inlined = buildInlinedSql(ms, boundSql, parameter);
+        		log.debug("SQL(inlined) mapperId={}\n{}", ms.getId(), inlined);
+        	} catch (Exception e) {
+        		// 인라인 SQL 로깅은 디버깅용이므로 실패해도 흐름에 영향 주지 않음
+        		log.debug("SQL(inlined) build failed. mapperId={}", ms.getId(), e);
+        	}
+        }
 
-        // ?�터?�터 거쳤?��? ?�인
+        // 인터셉터 거쳤는지 확인
         if (originalSQL.contains("COMMON_PAGE_SEARCH")) {
-            return invocation.proceed();
+            Object r = invocation.proceed();
+            logResultTotalIfNeeded(invocation, ms, startedAt, r);
+            return r;
         }
 
         if (parameter instanceof Map) {
             Map<String, Object> parameterMap = (Map<String, Object>) parameter;
-            // ?�이지번호가 ?�으�?
             if (parameterMap == null || !parameterMap.containsKey("COMMON_SEARCH_PAGE_INFO")) {
                 return invocation.proceed();
             } else if ("N".equals(parameterMap.get("COMMON_AUTO_CONDITION"))) {
                 return invocation.proceed();
             }
 
-            // ?�라미터???�수문자(' ; " \ / # *) ?�외
             parameterMap.replaceAll((key, value) -> value != null ? String.valueOf(value).replaceAll("[';\"\\\\/#/*]", "") : null);
 
-            // ?�재 ?�이지 조회조건 가?��???조건 쿼리 ?�성
             List<Map<String, Object>> pageSearchList = PageSearchResult.PAGE_ITEM_LIST.get(parameterMap.get("COMMON_SEARCH_PAGE_INFO"));
 
             StringBuilder wrapperSQL = new StringBuilder();
@@ -130,7 +158,6 @@ public class MybatisInterceptor implements Interceptor {
                     .append("  ) COMMON_PAGE_SEARCH ")
                     .append(" WHERE 1 = 1 ");
 
-            // = 조건?�로 ?�어�?Element
             String[] EQUAL_ELEMENT = {"WKPL", "DEPT", "YEAR", "USER", "SELECT", "CMPY", "LOC", "CALENDAR"};
             List<String> EQUAL_ELEMENT_LIST = new ArrayList<>(Arrays.asList(EQUAL_ELEMENT));
 
@@ -225,10 +252,126 @@ public class MybatisInterceptor implements Interceptor {
             invocation.getArgs()[0] = newMs;
         }
 
-        log.info("========== MybatisInterceptor.intercept() 종료 ========== Mapper ID: {}", ms.getId());
-        return invocation.proceed();
+        Object result = invocation.proceed();
+        logResultTotalIfNeeded(invocation, ms, startedAt, result);
+        if (log.isDebugEnabled()) {
+            log.debug("MybatisInterceptor.intercept() end. mapperId={}", ms.getId());
+        }
+        return result;
     }
 
+    private boolean shouldInject(Map<String, Object> parameters, String key) {
+        if (!parameters.containsKey(key)) return true;
+        Object current = parameters.get(key);
+        if (current == null) return true;
+        if (current instanceof String && ((String) current).trim().isEmpty()) return true;
+        return false;
+    }
+    
+    private String buildInlinedSql(MappedStatement ms, BoundSql boundSql, Object parameterObject) {
+    	String sql = boundSql.getSql();
+    	if (sql == null) return "";
+    	sql = sql.replaceAll("\\s+", " ").trim();
+    	
+    	List<ParameterMapping> mappings = boundSql.getParameterMappings();
+    	if (mappings == null || mappings.isEmpty()) return sql;
+
+    	MetaObject metaObject = (parameterObject == null) ? null : ms.getConfiguration().newMetaObject(parameterObject);
+    	StringBuilder out = new StringBuilder(sql.length() + 64);
+    	
+    	int mappingIdx = 0;
+    	for (int i = 0; i < sql.length(); i++) {
+    		char c = sql.charAt(i);
+    		if (c == '?' && mappingIdx < mappings.size()) {
+    			ParameterMapping pm = mappings.get(mappingIdx++);
+    			Object value = resolveParamValue(boundSql, metaObject, parameterObject, pm.getProperty());
+    			out.append(formatSqlLiteral(value, pm.getProperty()));
+    		} else {
+    			out.append(c);
+    		}
+    	}
+    	return out.toString();
+    }
+    
+    private Object resolveParamValue(BoundSql boundSql, MetaObject metaObject, Object parameterObject, String property) {
+    	if (property == null) return null;
+    	// foreach 등에서 추가 파라미터가 생기는 경우
+    	if (boundSql.hasAdditionalParameter(property)) {
+    		return boundSql.getAdditionalParameter(property);
+    	}
+    	// mybatis 내부가 __frch_XXX 형태를 추가 파라미터로 넣는 경우도 있음
+    	if (property.startsWith("__frch_") && boundSql.hasAdditionalParameter(property)) {
+    		return boundSql.getAdditionalParameter(property);
+    	}
+    	if (parameterObject == null) return null;
+    	if (parameterObject instanceof Map) {
+    		return ((Map<?, ?>) parameterObject).get(property);
+    	}
+    	if (metaObject == null) {
+    		metaObject = SystemMetaObject.forObject(parameterObject);
+    	}
+    	if (metaObject.hasGetter(property)) {
+    		return metaObject.getValue(property);
+    	}
+    	// 단일 파라미터(primitive/string)일 수 있음
+    	return parameterObject;
+    }
+    
+    private String formatSqlLiteral(Object value, String property) {
+    	if (value == null) return "NULL";
+    	
+    	// 민감정보 마스킹
+    	if (property != null) {
+    		String p = property.toLowerCase();
+    		if (p.contains("password") || p.contains("passwd") || p.contains("pwd")) {
+    			return "'******'";
+    		}
+    	}
+    	
+    	if (value instanceof Number || value instanceof Boolean) {
+    		return String.valueOf(value);
+    	}
+    	if (value instanceof java.util.Date) {
+    		java.text.SimpleDateFormat fmt = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
+    		return "'" + fmt.format((java.util.Date) value) + "'";
+    	}
+    	
+    	String s = String.valueOf(value);
+    	// 너무 긴 값은 잘라서 로그 폭발 방지
+    	if (s.length() > 200) {
+    		s = s.substring(0, 200) + "...";
+    	}
+    	// SQL string literal escape
+    	s = s.replace("'", "''");
+    	return "'" + s + "'";
+    }
+    
+    @SuppressWarnings({ "rawtypes" })
+    private void logResultTotalIfNeeded(Invocation invocation, MappedStatement ms, long startedAt, Object result) {
+    	if (!resultTotalLogEnabled) return;
+    	if (ms == null) return;
+    	
+    	String method = invocation != null && invocation.getMethod() != null ? invocation.getMethod().getName() : "";
+    	long elapsedMs = Math.max(0, System.currentTimeMillis() - startedAt);
+    	
+    	try {
+    		if ("query".equals(method)) {
+    			int total = -1;
+    			if (result instanceof List) total = ((List) result).size();
+    			// 조회 결과(total) 로그는 기본적으로 출력하지 않음 (필요 시 DEBUG + 설정으로만 확인)
+    			if (log.isDebugEnabled()) {
+    				log.debug("MyBatis Total mapperId={}, total={}, elapsedMs={}", ms.getId(), total, elapsedMs);
+    			}
+    		} else if ("update".equals(method)) {
+    			// update 요약도 DEBUG로만 출력 (노이즈 억제)
+    			if (log.isDebugEnabled()) {
+    				log.debug("MyBatis Update mapperId={}, affected={}, elapsedMs={}", ms.getId(), result, elapsedMs);
+    			}
+    		}
+    	} catch (Exception ignore) {
+    		// no-op
+    	}
+    }
 
     private static class BoundSqlSqlSource implements SqlSource {
         private final BoundSql boundSql;

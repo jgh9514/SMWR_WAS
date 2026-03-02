@@ -48,3 +48,7 @@ k8s/*-secret.yaml
 *.bak
 *.swp
 *~
+*.log
+*.sql
+*.log
+*.sql

@@ -10,6 +10,7 @@ import javax.servlet.http.HttpSession;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -17,6 +18,9 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.smw.monster.service.summonerswarService;
+import com.smw.infra.kafka.SiegeEventProducer;
+import com.smw.infra.kafka.event.SiegeUploadedEvent;
+import com.sysconf.constants.Constant;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -30,6 +34,9 @@ public class summonerswarController {
 
 	@Autowired
 	summonerswarService swService;
+	
+	@Autowired
+	SiegeEventProducer siegeEventProducer;
 
 	private Map<String, Object> getSessUserInfo(HttpServletRequest request) {
 		Object attr = request != null ? request.getAttribute("userInfo") : null;
@@ -62,14 +69,67 @@ public class summonerswarController {
 		}
 		return null;
 	}
+
+	@SuppressWarnings("unchecked")
+	private boolean isAdminUser(HttpServletRequest request) {
+		Map<String, Object> userInfo = getSessUserInfo(request);
+		if (userInfo == null) return false;
+		// SessionInterceptor/AuthInterceptor에서 roles는 sess_role로 주입됨 (하위호환으로 roles도 허용)
+		Object rolesObj = userInfo.get("roles");
+		if (rolesObj == null) {
+			rolesObj = userInfo.get("sess_role");
+		}
+		if (!(rolesObj instanceof List)) return false;
+		List<?> roles = (List<?>) rolesObj;
+		for (Object r : roles) {
+			if (!(r instanceof Map)) continue;
+			Map<String, ?> role = (Map<String, ?>) r;
+			Object roleId = role.get("role_id");
+			Object usgYn = role.get("usg_yn");
+			String roleIdStr = String.valueOf(roleId);
+			// usg_yn이 없는 데이터도 있어 하위호환으로 허용(없으면 사용중으로 간주)
+			boolean enabled = (usgYn == null) || "Y".equalsIgnoreCase(String.valueOf(usgYn));
+			// 관리자 = 시스템 운영자(RL0001)
+			if (enabled && Constant.ROLE_ADMIN.equals(roleIdStr)) {
+				return true;
+			}
+		}
+		return false;
+	}
+	
+	/**
+	 * 관리자만 "전체 길드 / 특정 길드" 조회를 허용합니다.
+	 * - view_all_guilds=true 또는 view_guild_id가 세션 길드와 다르면 admin 필요
+	 */
+	private ResponseEntity<?> requireAdminForGuildOverride(HttpServletRequest request, Map<String, Object> param) {
+		if (param == null) return null;
+		Map<String, Object> userInfo = getSessUserInfo(request);
+		String sessGuildId = userInfo != null && userInfo.get("sess_guild_id") != null ? String.valueOf(userInfo.get("sess_guild_id")) : null;
+		
+		boolean viewAll = false;
+		Object viewAllObj = param.get("view_all_guilds");
+		if (viewAllObj instanceof Boolean) viewAll = (Boolean) viewAllObj;
+		else if (viewAllObj != null) viewAll = "true".equalsIgnoreCase(String.valueOf(viewAllObj)) || "Y".equalsIgnoreCase(String.valueOf(viewAllObj));
+		
+		String viewGuildId = param.get("view_guild_id") != null ? String.valueOf(param.get("view_guild_id")) : null;
+		boolean wantsOtherGuild = viewGuildId != null && !viewGuildId.trim().isEmpty() && sessGuildId != null && !viewGuildId.trim().equals(sessGuildId);
+		boolean wantsOverride = viewAll || wantsOtherGuild;
+		if (!wantsOverride) return null;
+		
+		if (!isAdminUser(request)) {
+			Map<String, Object> body = new HashMap<>();
+			body.put("result", "FAIL");
+			body.put("message", "관리자만 전체 길드/특정 길드 전적 조회가 가능합니다.");
+			return new ResponseEntity<>(body, HttpStatus.FORBIDDEN);
+		}
+		return null;
+	}
 	
 	
     @Operation(summary = "몬스터 목록 조회", description = "페이지네이션이 적용된 몬스터 목록을 조회합니다.")
     @PostMapping("/monster-list")
     public ResponseEntity<?> selectMonsterList(@RequestBody Map<String, Object> param, HttpSession session) {
-    	log.info("몬스터 목록 조회 요청: {}", param);
     	List<Map<String, ?>> list = swService.selectMonsterList(param);
-    	log.info("몬스터 목록 조회 완료: {}개", list != null ? list.size() : 0);
         return new ResponseEntity<>(list, HttpStatus.OK);
     }
 
@@ -78,9 +138,9 @@ public class summonerswarController {
     public ResponseEntity<?> selectTotalPageCount(@RequestBody Map<String, Object> param, HttpSession session, HttpServletRequest request) {
     	ResponseEntity<?> guard = requireLoginAndGuild(request, param);
     	if (guard != null) return guard;
-    	log.info("전체 페이지 수 조회 요청: {}", param);
+    	ResponseEntity<?> adminGuard = requireAdminForGuildOverride(request, param);
+    	if (adminGuard != null) return adminGuard;
     	int count = swService.selectTotalPageCount(param);
-    	log.info("전체 페이지 수 조회 완료: {}", count);
         return new ResponseEntity<>(count, HttpStatus.OK);
     }
 
@@ -89,6 +149,8 @@ public class summonerswarController {
     public ResponseEntity<?> selectEnemyTeamList(@RequestBody Map<String, Object> param, HttpSession session, HttpServletRequest request) {
     	ResponseEntity<?> guard = requireLoginAndGuild(request, param);
     	if (guard != null) return guard;
+    	ResponseEntity<?> adminGuard = requireAdminForGuildOverride(request, param);
+    	if (adminGuard != null) return adminGuard;
     	List<Map<String, ?>> list = swService.selectEnemyTeamList(param);
     	
         return new ResponseEntity<>(list, HttpStatus.OK);
@@ -98,7 +160,10 @@ public class summonerswarController {
 	
     @Operation(summary = "팀 정보 저장", description = "적 팀 또는 아군 팀 정보를 저장합니다.")
     @PostMapping("/enemyTeam-save")
-    public ResponseEntity<?> insertEnemyTeamSave(@RequestBody Map<String, Object> param, HttpSession session) {
+    public ResponseEntity<?> insertEnemyTeamSave(@RequestBody Map<String, Object> param, HttpSession session, HttpServletRequest request) {
+    	ResponseEntity<?> guard = requireLoginAndGuild(request, param);
+    	if (guard != null) return guard;
+
     	int type = (int) param.get("type");
     	int n = -1;
     	if (type == 1) {
@@ -124,7 +189,6 @@ public class summonerswarController {
     	
     	log.info("몬스터 기본 정보 조회 요청: monster_id={}", monsterId);
     	Map<String, ?> result = swService.selectMonsterInfo(monsterId);
-    	log.info("몬스터 기본 정보 조회 완료");
     	
     	return new ResponseEntity<>(result, HttpStatus.OK);
     }
@@ -134,7 +198,8 @@ public class summonerswarController {
     public ResponseEntity<?> selectMonsterDetailList(@RequestBody Map<String, Object> param, HttpSession session, HttpServletRequest request) {
     	ResponseEntity<?> guard = requireLoginAndGuild(request, param);
     	if (guard != null) return guard;
-    	log.info("몬스터 상세 정보 조회 요청: {}", param);
+    	ResponseEntity<?> adminGuard = requireAdminForGuildOverride(request, param);
+    	if (adminGuard != null) return adminGuard;
     	
     	// 공덱 이력 페이지네이션 파라미터 설정 (기본값: limit=10, offset=1)
     	if (!param.containsKey("historyLimit") || param.get("historyLimit") == null) {
@@ -160,20 +225,19 @@ public class summonerswarController {
     	}
     	
     	Map<String, ?> list = swService.selectMonsterDetailList(param);
-    	
-    	log.info("몬스터 상세 정보 조회 완료 - enemyData: {}, historyList: {}, recommendedList: {}", 
-    			list.get("enemyData") != null ? ((List<?>) list.get("enemyData")).size() : 0,
-    			list.get("historyList") != null ? ((List<?>) list.get("historyList")).size() : 0,
-    			list.get("recommendedList") != null ? ((List<?>) list.get("recommendedList")).size() : 0);
-    	
+
         return new ResponseEntity<>(list, HttpStatus.OK);
     }
 	
     @Operation(summary = "길드 공성 JSON 검증", description = "길드 공성전 로그 데이터의 중복 여부를 확인합니다.")
     @SuppressWarnings("unchecked")
 	@PostMapping("/siege-validate")
-    public ResponseEntity<?> validateSiegeData(@RequestBody Map<String, Object> param, HttpSession session) {
-    	List<Map<String, ?>> log_list = (List<Map<String, ?>>) param.get("log_list");
+    public ResponseEntity<?> validateSiegeData(@RequestBody Map<String, Object> param, HttpSession session, HttpServletRequest request) {
+    	Map<String, Object> p = param != null ? param : new HashMap<>();
+    	ResponseEntity<?> guard = requireLoginAndGuild(request, p);
+    	if (guard != null) return guard;
+
+    	List<Map<String, ?>> log_list = (List<Map<String, ?>>) p.get("log_list");
     	List<Map<String, Object>> siegeItems = new java.util.ArrayList<>();
     	int totalBattleCount = 0;
     	
@@ -227,13 +291,19 @@ public class summonerswarController {
     @SuppressWarnings("unchecked")
 	@PostMapping("/siege-upload")
     @Transactional
-    public ResponseEntity<?> saveSiegeData(@RequestBody Map<String, Object> param, HttpSession session) {
-    	List<Map<String, ?>> log_list = (List<Map<String, ?>>) param.get("log_list");
-    	Map<String, String> siegeOptions = (Map<String, String>) param.get("siegeOptions"); // "skip" 또는 "overwrite"
+    @CacheEvict(cacheNames = {"guildSiegeHistory", "guildSiegeHistoryCount"}, allEntries = true)
+    public ResponseEntity<?> saveSiegeData(@RequestBody Map<String, Object> param, HttpSession session, HttpServletRequest request) {
+    	Map<String, Object> p = param != null ? param : new HashMap<>();
+    	ResponseEntity<?> guard = requireLoginAndGuild(request, p);
+    	if (guard != null) return guard;
+
+    	List<Map<String, ?>> log_list = (List<Map<String, ?>>) p.get("log_list");
+    	Map<String, String> siegeOptions = (Map<String, String>) p.get("siegeOptions"); // "skip" 또는 "overwrite"
     	
     	int insertedSiegeCount = 0;
     	int insertedBattleCount = 0;
     	int totalBattleCount = 0;
+    	java.util.List<String> affectedMatchIds = new java.util.ArrayList<>();
     	
     	for (int i = 0; i < log_list.size(); i++) {
     		Map<String, ?> list = log_list.get(i);
@@ -292,6 +362,11 @@ public class summonerswarController {
     		
     		if (siegeInserted) {
     			insertedSiegeCount++;
+    			if (safeGuildInfoList.size() > 0) {
+    				Map<String, ?> firstGuildInfo = safeGuildInfoList.get(0);
+    				String matchId = firstGuildInfo.get("match_id") != null ? firstGuildInfo.get("match_id").toString() : null;
+    				if (matchId != null) affectedMatchIds.add(matchId);
+    			}
     		}
     		
     		for (int j = 0; j < safeBattleLogList.size(); j++) {
@@ -331,7 +406,64 @@ public class summonerswarController {
     	result.put("totalBattleCount", totalBattleCount);
     	result.put("insertedBattleCount", insertedBattleCount);
     	
+    	// 업로드 성공 이벤트 발행 (다중 WAS 환경에서 캐시 동기화/후처리 트리거)
+    	siegeEventProducer.publishSiegeUploaded(
+    			new SiegeUploadedEvent(System.currentTimeMillis(), insertedSiegeCount, insertedBattleCount, affectedMatchIds)
+    	);
+    	
         return new ResponseEntity<>(result, HttpStatus.OK);
+    }
+
+    @Operation(summary = "최근 점령전 목록 조회", description = "최근 점령전 목록을 조회합니다. (FRONT 호환: list + totalPage)")
+    @PostMapping("/recent-siege-list")
+    public ResponseEntity<?> selectRecentSiegeList(@RequestBody Map<String, Object> param, HttpSession session, HttpServletRequest request) {
+    	Map<String, Object> p = param != null ? param : new HashMap<>();
+    	ResponseEntity<?> guard = requireLoginAndGuild(request, p);
+    	if (guard != null) return guard;
+    	ResponseEntity<?> adminGuard = requireAdminForGuildOverride(request, p);
+    	if (adminGuard != null) return adminGuard;
+
+    	int paging = 10;
+    	int offset = 0;
+    	
+    	if (p != null) {
+    		Object pagingObj = p.get("paging");
+    		if (pagingObj != null) {
+    			try { paging = Integer.parseInt(String.valueOf(pagingObj)); } catch (Exception ignore) {}
+    		}
+    		Object offsetObj = p.get("offset");
+    		if (offsetObj != null) {
+    			try { offset = Integer.parseInt(String.valueOf(offsetObj)); } catch (Exception ignore) {}
+    		}
+    		// page 기반도 지원
+    		if (p.get("page") != null) {
+    			try {
+    				int page = Integer.parseInt(String.valueOf(p.get("page")));
+    				if (page > 0) offset = (page - 1) * paging;
+    			} catch (Exception ignore) {}
+    		}
+    	}
+    	
+    	Map<String, Object> q = new HashMap<>();
+    	q.putAll(p);
+    	q.put("limit", paging);
+    	q.put("offset", offset);
+    	
+    	List<Map<String, ?>> list = swService.selectGuildSiegeHistorySimple(q);
+    	Map<String, Object> countParam = new HashMap<>();
+    	countParam.putAll(p);
+    	countParam.remove("limit");
+    	countParam.remove("offset");
+    	countParam.remove("page");
+    	countParam.remove("paging");
+    	int totalCount = swService.selectGuildSiegeHistoryCount(countParam);
+    	int totalPage = paging > 0 ? (int) Math.ceil(totalCount / (double) paging) : 0;
+    	
+    	Map<String, Object> resp = new HashMap<>();
+    	resp.put("list", list);
+    	resp.put("totalPage", totalPage);
+    	
+    	return new ResponseEntity<>(resp, HttpStatus.OK);
     }
 	
     @Operation(summary = "아레나 JSON 저장", description = "아레나 대전 로그 데이터를 저장합니다.")
@@ -399,23 +531,73 @@ public class summonerswarController {
     
     @Operation(summary = "길드 공성 히스토리 조회", description = "길드 공성전 히스토리를 조회합니다.")
     @PostMapping("/guild-siege-history")
-    public ResponseEntity<?> selectGuildSiegeHistory(@RequestBody Map<String, Object> param, HttpSession session) {
-    	List<Map<String, ?>> list = swService.selectGuildSiegeHistorySimple(param);
+    public ResponseEntity<?> selectGuildSiegeHistory(@RequestBody Map<String, Object> param, HttpSession session, HttpServletRequest request) {
+    	// 무제한 조회 방지: limit/offset 기본값 강제
+    	Map<String, Object> q = new HashMap<>();
+    	if (param != null) q.putAll(param);
+
+    	ResponseEntity<?> guard = requireLoginAndGuild(request, q);
+    	if (guard != null) return guard;
+    	ResponseEntity<?> adminGuard = requireAdminForGuildOverride(request, q);
+    	if (adminGuard != null) return adminGuard;
+    	
+    	int limit = 10;
+    	int offset = 0;
+    	try {
+    		if (q.get("limit") != null) limit = Integer.parseInt(String.valueOf(q.get("limit")));
+    	} catch (Exception ignore) {}
+    	try {
+    		if (q.get("offset") != null) offset = Integer.parseInt(String.valueOf(q.get("offset")));
+    	} catch (Exception ignore) {}
+    	// page 기반이 들어오면 offset 계산
+    	try {
+    		if (q.get("page") != null) {
+    			int page = Integer.parseInt(String.valueOf(q.get("page")));
+    			if (page > 0) offset = (page - 1) * limit;
+    		}
+    	} catch (Exception ignore) {}
+    	
+    	// 과도한 limit 상한 (DB 보호)
+    	if (limit <= 0) limit = 10;
+    	if (limit > 100) limit = 100;
+    	if (offset < 0) offset = 0;
+    	
+    	q.put("limit", limit);
+    	q.put("offset", offset);
+    	
+    	List<Map<String, ?>> list = swService.selectGuildSiegeHistorySimple(q);
     	
         return new ResponseEntity<>(list, HttpStatus.OK);
     }
     
     @Operation(summary = "길드 공성 히스토리 수 조회", description = "길드 공성전 히스토리의 총 개수를 조회합니다.")
     @PostMapping("/guild-siege-history-count")
-    public ResponseEntity<?> selectGuildSiegeHistoryCount(@RequestBody Map<String, Object> param, HttpSession session) {
-    	int count = swService.selectGuildSiegeHistoryCount(param);
+    public ResponseEntity<?> selectGuildSiegeHistoryCount(@RequestBody Map<String, Object> param, HttpSession session, HttpServletRequest request) {
+    	// count는 limit/offset 영향 없이 집계되도록 제거
+    	Map<String, Object> q = new HashMap<>();
+    	if (param != null) q.putAll(param);
+
+    	ResponseEntity<?> guard = requireLoginAndGuild(request, q);
+    	if (guard != null) return guard;
+    	ResponseEntity<?> adminGuard = requireAdminForGuildOverride(request, q);
+    	if (adminGuard != null) return adminGuard;
+
+    	q.remove("limit");
+    	q.remove("offset");
+    	q.remove("page");
+    	q.remove("paging");
+    	int count = swService.selectGuildSiegeHistoryCount(q);
     	
         return new ResponseEntity<>(count, HttpStatus.OK);
     }
     
     @Operation(summary = "공덱 상세 정보 조회", description = "공덱의 상세 정보를 조회합니다.")
     @PostMapping("/deck-detail")
-    public ResponseEntity<?> selectDeckDetail(@RequestBody Map<String, Object> param, HttpSession session) {
+    public ResponseEntity<?> selectDeckDetail(@RequestBody Map<String, Object> param, HttpSession session, HttpServletRequest request) {
+    	Map<String, Object> p = param != null ? param : new HashMap<>();
+    	ResponseEntity<?> guard = requireLoginAndGuild(request, p);
+    	if (guard != null) return guard;
+
     	Map<String, ?> result = swService.selectDeckDetail(param);
     	
         return new ResponseEntity<>(result, HttpStatus.OK);
@@ -423,16 +605,36 @@ public class summonerswarController {
     
     @Operation(summary = "공덱 삭제", description = "공덱을 삭제합니다.")
     @PostMapping("/deck-detail-delete")
-    public ResponseEntity<?> deleteDeckDetail(@RequestBody Map<String, Object> param, HttpSession session) {
+    public ResponseEntity<?> deleteDeckDetail(@RequestBody Map<String, Object> param, HttpSession session, HttpServletRequest request) {
+    	Map<String, Object> p = param != null ? param : new HashMap<>();
+    	ResponseEntity<?> guard = requireLoginAndGuild(request, p);
+    	if (guard != null) return guard;
+
     	int n = swService.deleteDeckDetail(param);
     	
     	String result = n > 0 ? "SUCCESS" : "FAIL";
         return new ResponseEntity<>(result, HttpStatus.OK);
     }
+
+    @Operation(summary = "공덱 스탯 수정", description = "공덱 몬스터 스탯만 수정합니다. (몬스터 변경 불가)")
+    @PostMapping("/deck-detail-update")
+    public ResponseEntity<?> updateDeckDetail(@RequestBody Map<String, Object> param, HttpSession session, HttpServletRequest request) {
+    	Map<String, Object> p = param != null ? param : new HashMap<>();
+    	ResponseEntity<?> guard = requireLoginAndGuild(request, p);
+    	if (guard != null) return guard;
+
+    	int n = swService.updateRecommendedAttackDeckStats(p);
+    	String result = n > 0 ? "SUCCESS" : "FAIL";
+    	return new ResponseEntity<>(result, HttpStatus.OK);
+    }
     
     @Operation(summary = "현재 시즌 조회", description = "현재 진행 중인 점령전 시즌 정보를 조회합니다.")
     @PostMapping("/current-season")
-    public ResponseEntity<?> selectCurrentSeason(@RequestBody Map<String, Object> param, HttpSession session) {
+    public ResponseEntity<?> selectCurrentSeason(@RequestBody Map<String, Object> param, HttpSession session, HttpServletRequest request) {
+    	Map<String, Object> p = param != null ? param : new HashMap<>();
+    	ResponseEntity<?> guard = requireLoginAndGuild(request, p);
+    	if (guard != null) return guard;
+
     	Map<String, ?> result = swService.selectCurrentSeason(param);
     	
         return new ResponseEntity<>(result, HttpStatus.OK);

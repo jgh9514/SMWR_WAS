@@ -43,7 +43,11 @@ public class summonerswarServiceImpl implements summonerswarService {
 			if (param.containsKey(key) && param.get(key) != null && !param.get(key).toString().isEmpty()) {
 				String monsterId = param.get(key).toString();
 				List<String> allRelatedIds = swMapper.getAllRelatedMonsterIds(monsterId);
-				// allRelatedIds가 null이거나 empty여도 최소한 원본 ID를 포함한 _list 생성
+				// allRelatedIds가 null이거나 empty여도 최소한 원본 ID를 포함한 _list/_ids 생성
+				List<String> ids = (allRelatedIds != null && !allRelatedIds.isEmpty())
+						? allRelatedIds
+						: java.util.Arrays.asList(monsterId);
+				param.put(key + "_ids", ids);
 				if (allRelatedIds != null && !allRelatedIds.isEmpty()) {
 					String idsString = allRelatedIds.stream()
 						.map(id -> "'" + id + "'")
@@ -61,7 +65,11 @@ public class summonerswarServiceImpl implements summonerswarService {
 			if (param.containsKey(key) && param.get(key) != null && !param.get(key).toString().isEmpty()) {
 				String monsterId = param.get(key).toString();
 				List<String> allRelatedIds = swMapper.getAllRelatedMonsterIds(monsterId);
-				// allRelatedIds가 null이거나 empty여도 최소한 원본 ID를 포함한 _list 생성
+				// allRelatedIds가 null이거나 empty여도 최소한 원본 ID를 포함한 _list/_ids 생성
+				List<String> ids = (allRelatedIds != null && !allRelatedIds.isEmpty())
+						? allRelatedIds
+						: java.util.Arrays.asList(monsterId);
+				param.put(key + "_ids", ids);
 				if (allRelatedIds != null && !allRelatedIds.isEmpty()) {
 					String idsString = allRelatedIds.stream()
 						.map(id -> "'" + id + "'")
@@ -88,41 +96,117 @@ public class summonerswarServiceImpl implements summonerswarService {
 	
 	@Override
 	public int insertFriendlyteamTeamSave(Map<String, Object> param) {
-		return swMapper.insertFriendlyteamTeamSave(param);
+		if (param == null) return 0;
+		int n = swMapper.insertFriendlyteamTeamSave(param);
+		if (n <= 0) return n;
+		
+		// insertFriendlyteamTeamSave에서 selectKey로 deck_id가 채워짐
+		Object deckIdObj = param != null ? param.get("deck_id") : null;
+		if (deckIdObj == null) return n;
+		
+		String deckId = String.valueOf(deckIdObj);
+		String m1 = param.get("atk_monster_1") != null ? String.valueOf(param.get("atk_monster_1")) : null;
+		String m2 = param.get("atk_monster_2") != null ? String.valueOf(param.get("atk_monster_2")) : null;
+		String m3 = param.get("atk_monster_3") != null ? String.valueOf(param.get("atk_monster_3")) : null;
+		
+		// 스탯 저장 (없으면 0으로 upsert)
+		upsertDeckStatsFromPayload(param, deckId, m1, "monster_1_stats");
+		upsertDeckStatsFromPayload(param, deckId, m2, "monster_2_stats");
+		upsertDeckStatsFromPayload(param, deckId, m3, "monster_3_stats");
+		
+		// 수정일 갱신
+		Map<String, Object> touch = new HashMap<>();
+		touch.put("deck_id", deckId);
+		touch.put("sess_user_id", param.get("sess_user_id"));
+		swMapper.touchRecommendedAttackDeck(touch);
+		
+		return n;
+	}
+
+	@SuppressWarnings("unchecked")
+	private void upsertDeckStatsFromPayload(Map<String, Object> root, String deckId, String monsterId, String statsKey) {
+		if (deckId == null || monsterId == null || monsterId.isEmpty()) return;
+		Object raw = root != null ? root.get(statsKey) : null;
+		Map<String, Object> stats = (raw instanceof Map) ? (Map<String, Object>) raw : java.util.Collections.emptyMap();
+		
+		Map<String, Object> p = new HashMap<>();
+		p.put("deck_id", deckId);
+		p.put("monster_id", monsterId);
+		p.put("hp", intOrZero(stats.get("hp")));
+		p.put("atk", intOrZero(stats.get("atk")));
+		p.put("def", intOrZero(stats.get("def")));
+		p.put("spd", intOrZero(stats.get("spd")));
+		p.put("crit_rate", intOrZero(firstNonNull(stats.get("critRate"), stats.get("crit_rate"))));
+		p.put("crit_dmg", intOrZero(firstNonNull(stats.get("critDmg"), stats.get("crit_dmg"))));
+		p.put("resistance", intOrZero(stats.get("resistance")));
+		p.put("accuracy", intOrZero(stats.get("accuracy")));
+		p.put("sess_user_id", root != null ? root.get("sess_user_id") : null);
+		
+		swMapper.upsertRecommendedAttackDeckStats(p);
+	}
+	
+	private Object firstNonNull(Object a, Object b) {
+		return a != null ? a : b;
+	}
+	
+	private int intOrZero(Object v) {
+		if (v == null) return 0;
+		if (v instanceof Number) return ((Number) v).intValue();
+		try {
+			String s = String.valueOf(v).trim();
+			if (s.isEmpty()) return 0;
+			return (int) Double.parseDouble(s);
+		} catch (Exception ignore) {
+			return 0;
+		}
+	}
+
+	@Override
+	public int updateRecommendedAttackDeckStats(Map<String, Object> param) {
+		if (param == null || param.get("deck_id") == null) return 0;
+		
+		// 몬스터 변경은 허용하지 않음: DB에서 공격 몬스터 ID를 가져와 그 몬스터에만 적용
+		Map<String, Object> q = new HashMap<>();
+		q.put("deck_id", String.valueOf(param.get("deck_id")));
+		Map<String, ?> deck = swMapper.selectDeckDetail(q);
+		if (deck == null || deck.isEmpty()) return 0;
+		
+		String deckId = String.valueOf(q.get("deck_id"));
+		String m1 = deck.get("atk_monster_1") != null ? String.valueOf(deck.get("atk_monster_1")) : null;
+		String m2 = deck.get("atk_monster_2") != null ? String.valueOf(deck.get("atk_monster_2")) : null;
+		String m3 = deck.get("atk_monster_3") != null ? String.valueOf(deck.get("atk_monster_3")) : null;
+		
+		upsertDeckStatsFromPayload(param, deckId, m1, "monster_1_stats");
+		upsertDeckStatsFromPayload(param, deckId, m2, "monster_2_stats");
+		upsertDeckStatsFromPayload(param, deckId, m3, "monster_3_stats");
+		
+		Map<String, Object> touch = new HashMap<>();
+		touch.put("deck_id", deckId);
+		touch.put("sess_user_id", param.get("sess_user_id"));
+		swMapper.touchRecommendedAttackDeck(touch);
+		return 1;
 	}
 
 	@Override
 	public Map<String, ?> selectMonsterDetailList(Map<String, Object> param) {
-		// 디버깅: 파라미터 로깅
-		org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(summonerswarServiceImpl.class);
-		log.info("selectMonsterDetailList 파라미터: {}", param);
-		
 		expandMonsterIdsToIncludeCollaborations(param);
-		
-		// 디버깅: 확장된 파라미터 로깅
-		log.info("expandMonsterIdsToIncludeCollaborations 후 파라미터: {}", param);
-		
+
 		Map<String, Object> map = new HashMap<String, Object>();
 		
 		// enemyData 조회 (리스트 반환)
 		List<Map<String, ?>> enemyDataList = swMapper.selectMonsterDetailList(param);
-		log.info("enemyData 조회 결과: {}개", enemyDataList != null ? enemyDataList.size() : 0);
 		
 		// recommendedList 조회
 		List<Map<String, ?>> recommendedList = swMapper.selectRecommendedAttackDeckList(param);
-		log.info("recommendedList 조회 결과: {}개", recommendedList != null ? recommendedList.size() : 0);
 		
 		// recommendedTotalCount 조회
 		int recommendedTotalCount = swMapper.selectRecommendedAttackDeckListCount(param);
-		log.info("recommendedTotalCount: {}", recommendedTotalCount);
 		
 		// historyList 조회
 		List<Map<String, ?>> historyList = swMapper.selectMonsterDetailTeamList(param);
-		log.info("historyList 조회 결과: {}개", historyList != null ? historyList.size() : 0);
 		
 		// historyTotalCount 조회
 		int historyTotalCount = swMapper.selectMonsterDetailTeamListCount(param);
-		log.info("historyTotalCount: {}", historyTotalCount);
 		
 		map.put("enemyData", enemyDataList);
 		map.put("recommendedList", recommendedList);
@@ -205,11 +289,13 @@ public class summonerswarServiceImpl implements summonerswarService {
 	}
 	
 	@Override
+	@Cacheable(cacheNames = "guildSiegeHistory", keyGenerator = "stableMapKeyGenerator")
 	public List<Map<String, ?>> selectGuildSiegeHistorySimple(Map<String, Object> param) {
 		return swMapper.selectGuildSiegeHistorySimple(param);
 	}
 	
 	@Override
+	@Cacheable(cacheNames = "guildSiegeHistoryCount", keyGenerator = "stableMapKeyGenerator")
 	public int selectGuildSiegeHistoryCount(Map<String, Object> param) {
 		return swMapper.selectGuildSiegeHistoryCount(param);
 	}
@@ -246,19 +332,14 @@ public class summonerswarServiceImpl implements summonerswarService {
 	
 	@Override
 	public Map<String, ?> selectMonsterInfo(String monsterId) {
-		org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(summonerswarServiceImpl.class);
-		log.info("몬스터 기본 정보 조회: monster_id={}", monsterId);
-		
 		// 몬스터 기본 정보 조회
 		Map<String, ?> monsterInfo = swMapper.selectMonsterInfo(monsterId);
 		if (monsterInfo == null || monsterInfo.isEmpty()) {
-			log.warn("몬스터 정보를 찾을 수 없습니다: monster_id={}", monsterId);
 			return new HashMap<>();
 		}
 		
 		// 몬스터 스킬 목록 조회
 		List<Map<String, ?>> skills = swMapper.selectMonsterSkills(monsterId);
-		log.info("몬스터 스킬 조회 완료: {}개", skills != null ? skills.size() : 0);
 		
 		// 결과에 스킬 정보 추가
 		Map<String, Object> result = new HashMap<>(monsterInfo);

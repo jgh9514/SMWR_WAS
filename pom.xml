@@ -196,7 +196,7 @@
 	    </dependency> 
 	    <dependency>
 	    	<groupId>org.bgee.log4jdbc-log4j2</groupId>
-	        <artifactId>log4jdbc-log4j2-jdbc4</artifactId>
+	        <artifactId>log4jdbc-log4j2-jdbc4.1</artifactId>
 	        <version>1.16</version>
 	    </dependency> 
 	    <dependency>
@@ -289,6 +289,30 @@
 			<groupId>software.amazon.awssdk</groupId>
 			<artifactId>s3</artifactId>
 			<version>2.20.26</version>
+		</dependency>
+
+		<!-- Redis (Cache / Data) -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-data-redis</artifactId>
+			<exclusions>
+				<exclusion>
+					<groupId>org.springframework.boot</groupId>
+					<artifactId>spring-boot-starter-logging</artifactId>
+				</exclusion>
+			</exclusions>
+		</dependency>
+
+		<!-- Kafka -->
+		<dependency>
+			<groupId>org.springframework.kafka</groupId>
+			<artifactId>spring-kafka</artifactId>
+			<exclusions>
+				<exclusion>
+					<groupId>org.springframework.boot</groupId>
+					<artifactId>spring-boot-starter-logging</artifactId>
+				</exclusion>
+			</exclusions>
 		</dependency>
 	</dependencies>
 

@@ -23,9 +23,9 @@
 		     , a.monster_id_1
 		     , a.monster_id_2
 		     , a.monster_id_3
-	     , m1.image_url as image_url1
-	     , m2.image_url as image_url2
-	     , m3.image_url as image_url3
+	         , m1.image_url as image_url1
+	         , m2.image_url as image_url2
+	         , m3.image_url as image_url3
 		     , a.total_count
 		     , a.total_rate
 		     , a.win_count
@@ -61,18 +61,43 @@
 				          left join monster_collaboration_mapping mcm3
 				                 on vbdi.monster_id_3 = mcm3.collaboration_monster_id
 				          where vbdi.type = 'defense'
-								<if test="monster_id1 != null and monster_id1 != ''">
-								   AND vbdi.monster_id_1 IN (${monster_id1_list})
+								<if test="monster_id1_ids != null and monster_id1_ids.size() > 0">
+								   AND vbdi.monster_id_1 IN
+								   <foreach collection="monster_id1_ids" item="id" open="(" separator="," close=")">
+								   		#{id}
+								   </foreach>
 								</if>
-								<if test="monster_id2 != null and monster_id2 != '' and monster_id3 != null and monster_id3 != ''">
-								   AND LEAST(vbdi.monster_id_2, vbdi.monster_id_3) IN (${monster_id2_list})
-								   AND GREATEST(vbdi.monster_id_2, vbdi.monster_id_3) IN (${monster_id3_list})
+								<if test="monster_id2_ids != null and monster_id2_ids.size() > 0 and monster_id3_ids != null and monster_id3_ids.size() > 0">
+								   AND LEAST(vbdi.monster_id_2, vbdi.monster_id_3) IN
+								   <foreach collection="monster_id2_ids" item="id" open="(" separator="," close=")">
+								   		#{id}
+								   </foreach>
+								   AND GREATEST(vbdi.monster_id_2, vbdi.monster_id_3) IN
+								   <foreach collection="monster_id3_ids" item="id" open="(" separator="," close=")">
+								   		#{id}
+								   </foreach>
 								</if>
-								<if test="monster_id2 != null and monster_id2 != '' and (monster_id3 == null or monster_id3 == '')">
-								   AND (vbdi.monster_id_2 IN (${monster_id2_list}) OR vbdi.monster_id_3 IN (${monster_id2_list}))
+								<if test="monster_id2_ids != null and monster_id2_ids.size() > 0 and (monster_id3_ids == null or monster_id3_ids.size() == 0)">
+								   AND (vbdi.monster_id_2 IN
+								   <foreach collection="monster_id2_ids" item="id" open="(" separator="," close=")">
+								   		#{id}
+								   </foreach>
+								   OR vbdi.monster_id_3 IN
+								   <foreach collection="monster_id2_ids" item="id" open="(" separator="," close=")">
+								   		#{id}
+								   </foreach>
+								   )
 								</if>
-								<if test="monster_id3 != null and monster_id3 != '' and (monster_id2 == null or monster_id2 == '')">
-								   AND (vbdi.monster_id_2 IN (${monster_id3_list}) OR vbdi.monster_id_3 IN (${monster_id3_list}))
+								<if test="monster_id3_ids != null and monster_id3_ids.size() > 0 and (monster_id2_ids == null or monster_id2_ids.size() == 0)">
+								   AND (vbdi.monster_id_2 IN
+								   <foreach collection="monster_id3_ids" item="id" open="(" separator="," close=")">
+								   		#{id}
+								   </foreach>
+								   OR vbdi.monster_id_3 IN
+								   <foreach collection="monster_id3_ids" item="id" open="(" separator="," close=")">
+								   		#{id}
+								   </foreach>
+								   )
 								</if>
 								<if test="match_id != null and match_id != '' and match_id != 'null'">
 								   AND vbdi.match_id = #{match_id}
@@ -81,17 +106,35 @@
 			 left join battle_log_list bll
 			 		ON vbdi.match_id = bll.match_id
 			 	   AND vbdi.log_timestamp = bll.log_timestamp
-			 left join monster sm1 on vbdi.monster_id_1 = sm1.monster_id
-			 left join monster sm2 on vbdi.monster_id_2 = sm2.monster_id
-			 left join monster sm3 on vbdi.monster_id_3 = sm3.monster_id
+			 <!-- 방덱 성급 필터가 있을 때만 monster join 수행 -->
+			 <if test="deck_star_filter != null and deck_star_filter != '' and deck_star_filter != 'ALL'">
+				 left join monster sm1 on vbdi.monster_id_1 = sm1.monster_id
+				 left join monster sm2 on vbdi.monster_id_2 = sm2.monster_id
+				 left join monster sm3 on vbdi.monster_id_3 = sm3.monster_id
+			 </if>
 			  where 1=1
-			  	<!-- 보안: 내 길드가 참가한 매치만 조회 -->
-			  	AND EXISTS (
-			  	  SELECT 1
-			  	    FROM guild_siege_battle_log gsbl
-			  	   WHERE gsbl.match_id = bll.match_id
-			  	     AND gsbl.guild_id = #{sess_guild_id}::text
-			  	)
+				<!-- 내 길드/특정 길드 제한 (JOIN DISTINCT 대신 EXISTS로 필터링) -->
+				<choose>
+					<when test="view_all_guilds != null and (view_all_guilds == true or view_all_guilds == 'true' or view_all_guilds == 'Y')">
+						<!-- 전체 길드 조회: 제한 없음 -->
+					</when>
+					<when test="view_guild_id != null and view_guild_id != ''">
+						AND EXISTS (
+							SELECT 1
+							  FROM guild_siege_battle_log gsbl
+							 WHERE gsbl.guild_id = #{view_guild_id}::text
+							   AND gsbl.match_id = bll.match_id
+						)
+					</when>
+					<otherwise>
+						AND EXISTS (
+							SELECT 1
+							  FROM guild_siege_battle_log gsbl
+							 WHERE gsbl.guild_id = #{sess_guild_id}::text
+							   AND gsbl.match_id = bll.match_id
+						)
+					</otherwise>
+				</choose>
 			  	<!-- 시즌 조회 범위: C(현재 시즌만), A(전체) -->
 			  	AND (
 			  	  #{siege_view_scope} = 'A' 
@@ -128,6 +171,9 @@
 			  group by monster_id_1
 			         , monster_id_2
 			         , monster_id_3
+			  <if test="min_lose_count != null and min_lose_count != ''">
+			   having SUM(CASE WHEN bll.win_lose = '2' THEN 1 ELSE 0 END) &gt;= #{min_lose_count}::int
+			  </if>
 			  order by total_count desc
 			     limit #{paging}::bigint
 		        offset #{paging}::bigint * (#{offset}::bigint - 1)
@@ -158,18 +204,43 @@
 		          left join monster_collaboration_mapping mcm3
 		                 on vbdi.monster_id_3 = mcm3.collaboration_monster_id
 		         where vbdi.type = 'defense'
-						<if test="monster_id1 != null and monster_id1 != ''">
-						   AND vbdi.monster_id_1 IN (${monster_id1_list})
+						<if test="monster_id1_ids != null and monster_id1_ids.size() > 0">
+						   AND vbdi.monster_id_1 IN
+						   <foreach collection="monster_id1_ids" item="id" open="(" separator="," close=")">
+						   		#{id}
+						   </foreach>
 						</if>
-						<if test="monster_id2 != null and monster_id2 != '' and monster_id3 != null and monster_id3 != ''">
-						   AND LEAST(vbdi.monster_id_2, vbdi.monster_id_3) IN (${monster_id2_list})
-						   AND GREATEST(vbdi.monster_id_2, vbdi.monster_id_3) IN (${monster_id3_list})
+						<if test="monster_id2_ids != null and monster_id2_ids.size() > 0 and monster_id3_ids != null and monster_id3_ids.size() > 0">
+						   AND LEAST(vbdi.monster_id_2, vbdi.monster_id_3) IN
+						   <foreach collection="monster_id2_ids" item="id" open="(" separator="," close=")">
+						   		#{id}
+						   </foreach>
+						   AND GREATEST(vbdi.monster_id_2, vbdi.monster_id_3) IN
+						   <foreach collection="monster_id3_ids" item="id" open="(" separator="," close=")">
+						   		#{id}
+						   </foreach>
 						</if>
-						<if test="monster_id2 != null and monster_id2 != '' and (monster_id3 == null or monster_id3 == '')">
-						   AND (vbdi.monster_id_2 IN (${monster_id2_list}) OR vbdi.monster_id_3 IN (${monster_id2_list}))
+						<if test="monster_id2_ids != null and monster_id2_ids.size() > 0 and (monster_id3_ids == null or monster_id3_ids.size() == 0)">
+						   AND (vbdi.monster_id_2 IN
+						   <foreach collection="monster_id2_ids" item="id" open="(" separator="," close=")">
+						   		#{id}
+						   </foreach>
+						   OR vbdi.monster_id_3 IN
+						   <foreach collection="monster_id2_ids" item="id" open="(" separator="," close=")">
+						   		#{id}
+						   </foreach>
+						   )
 						</if>
-						<if test="monster_id3 != null and monster_id3 != '' and (monster_id2 == null or monster_id2 == '')">
-						   AND (vbdi.monster_id_2 IN (${monster_id3_list}) OR vbdi.monster_id_3 IN (${monster_id3_list}))
+						<if test="monster_id3_ids != null and monster_id3_ids.size() > 0 and (monster_id2_ids == null or monster_id2_ids.size() == 0)">
+						   AND (vbdi.monster_id_2 IN
+						   <foreach collection="monster_id3_ids" item="id" open="(" separator="," close=")">
+						   		#{id}
+						   </foreach>
+						   OR vbdi.monster_id_3 IN
+						   <foreach collection="monster_id3_ids" item="id" open="(" separator="," close=")">
+						   		#{id}
+						   </foreach>
+						   )
 						</if>
 						<if test="match_id != null and match_id != '' and match_id != 'null'">
 						   AND vbdi.match_id = #{match_id}
@@ -181,14 +252,26 @@
 		   LEFT JOIN monster sm1 on vbdi.monster_id_1 = sm1.monster_id
 		   LEFT JOIN monster sm2 on vbdi.monster_id_2 = sm2.monster_id
 		   LEFT JOIN monster sm3 on vbdi.monster_id_3 = sm3.monster_id
+		 <choose>
+		 	<when test="view_all_guilds != null and (view_all_guilds == true or view_all_guilds == 'true' or view_all_guilds == 'Y')">
+		 		<!-- 전체 길드 조회: 제한 없음 -->
+		 	</when>
+		 	<when test="view_guild_id != null and view_guild_id != ''">
+				 JOIN (
+				  	SELECT DISTINCT match_id
+				  	  FROM guild_siege_battle_log
+				  	 WHERE guild_id = #{view_guild_id}::text
+				 ) mym ON mym.match_id = bll.match_id
+		 	</when>
+		 	<otherwise>
+				 JOIN (
+				  	SELECT DISTINCT match_id
+				  	  FROM guild_siege_battle_log
+				  	 WHERE guild_id = #{sess_guild_id}::text
+				 ) mym ON mym.match_id = bll.match_id
+		 	</otherwise>
+		 </choose>
 		 WHERE 1=1
-		  	<!-- 보안: 내 길드가 참가한 매치만 조회 -->
-		  	AND EXISTS (
-		  	  SELECT 1
-		  	    FROM guild_siege_battle_log gsbl
-		  	   WHERE gsbl.match_id = bll.match_id
-		  	     AND gsbl.guild_id = #{sess_guild_id}::text
-		  	)
 		  	<!-- 시즌 조회 범위: C(현재 시즌만), A(전체) -->
 		  	AND (
 		  	  #{siege_view_scope} = 'A' 
@@ -239,6 +322,9 @@
 
 	<insert id="insertFriendlyteamTeamSave" parameterType="sqlMap">
 		/* insertFriendlyteamTeamSave */
+		<selectKey keyProperty="deck_id" resultType="int" order="AFTER">
+			SELECT currval(pg_get_serial_sequence('siege_recommended_attack_deck','id'))
+		</selectKey>
 		insert into siege_recommended_attack_deck (
 		       def_monster_1
 		      ,def_monster_2
@@ -255,8 +341,8 @@
 		      ,#{atk_monster_1}
 		      ,#{atk_monster_2}
 		      ,#{atk_monster_3}
-		      ,'jgh9514'
-		      ,'jgh9514'
+		      ,#{sess_user_id}::text
+		      ,#{sess_user_id}::text
 		)
 	</insert>
 	
@@ -313,13 +399,28 @@
               ON vbdi.monster_id_3 = m3.monster_id
        LEFT JOIN monster_leaders ml1 ON m1.leader_id = ml1.leader_id
        WHERE 1=1
-       	<!-- 보안: 내 길드가 참가한 매치만 조회 -->
-       	AND EXISTS (
-       	  SELECT 1
-       	    FROM guild_siege_battle_log gsbl
-       	   WHERE gsbl.match_id = bll.match_id
-       	     AND gsbl.guild_id = #{sess_guild_id}::text
-       	)
+       	<!-- 보안: 내 길드가 참가한 매치만 조회 (관리자: 전체/특정 길드 허용) -->
+       	<choose>
+       		<when test="view_all_guilds != null and (view_all_guilds == true or view_all_guilds == 'true' or view_all_guilds == 'Y')">
+       			<!-- 전체 길드 조회: 제한 없음 -->
+       		</when>
+       		<when test="view_guild_id != null and view_guild_id != ''">
+       			AND EXISTS (
+       			  SELECT 1
+       			    FROM guild_siege_battle_log gsbl
+       			   WHERE gsbl.match_id = bll.match_id
+       			     AND gsbl.guild_id = #{view_guild_id}::text
+       			)
+       		</when>
+       		<otherwise>
+       			AND EXISTS (
+       			  SELECT 1
+       			    FROM guild_siege_battle_log gsbl
+       			   WHERE gsbl.match_id = bll.match_id
+       			     AND gsbl.guild_id = #{sess_guild_id}::text
+       			)
+       		</otherwise>
+       	</choose>
        	<!-- 시즌 조회 범위: C(현재 시즌만), A(전체) -->
        	AND (
        	  #{siege_view_scope} = 'A' 
@@ -387,12 +488,27 @@
 				  join battle_log_list bll on vbdi1.match_id = bll.match_id 
 				                           and vbdi1.log_timestamp = bll.log_timestamp
 				 where vbdi1.type = 'defense'
-				   and exists (
-				     select 1
-				       from guild_siege_battle_log gsbl
-				      where gsbl.match_id = bll.match_id
-				        and gsbl.guild_id = #{sess_guild_id}::text
-				   )
+				   <choose>
+				   	<when test="view_all_guilds != null and (view_all_guilds == true or view_all_guilds == 'true' or view_all_guilds == 'Y')">
+				   		<!-- 전체 길드 조회: 제한 없음 -->
+				   	</when>
+				   	<when test="view_guild_id != null and view_guild_id != ''">
+						   and exists (
+						     select 1
+						       from guild_siege_battle_log gsbl
+						      where gsbl.match_id = bll.match_id
+						        and gsbl.guild_id = #{view_guild_id}::text
+						   )
+				   	</when>
+				   	<otherwise>
+						   and exists (
+						     select 1
+						       from guild_siege_battle_log gsbl
+						      where gsbl.match_id = bll.match_id
+						        and gsbl.guild_id = #{sess_guild_id}::text
+						   )
+				   	</otherwise>
+				   </choose>
 				   and vbdi1.monster_id_1 IN (${dm1_list})
 				   and LEAST(vbdi1.monster_id_2, vbdi1.monster_id_3) IN (${dm2_list})
 				   and GREATEST(vbdi1.monster_id_2, vbdi1.monster_id_3) IN (${dm3_list})
@@ -484,12 +600,27 @@
 				  join battle_log_list bll on vbdi1.match_id = bll.match_id 
 				                           and vbdi1.log_timestamp = bll.log_timestamp
 				 where vbdi1.type = 'defense'
-				   and exists (
-				     select 1
-				       from guild_siege_battle_log gsbl
-				      where gsbl.match_id = bll.match_id
-				        and gsbl.guild_id = #{sess_guild_id}::text
-				   )
+				   <choose>
+				   	<when test="view_all_guilds != null and (view_all_guilds == true or view_all_guilds == 'true' or view_all_guilds == 'Y')">
+				   		<!-- 전체 길드 조회: 제한 없음 -->
+				   	</when>
+				   	<when test="view_guild_id != null and view_guild_id != ''">
+						   and exists (
+						     select 1
+						       from guild_siege_battle_log gsbl
+						      where gsbl.match_id = bll.match_id
+						        and gsbl.guild_id = #{view_guild_id}::text
+						   )
+				   	</when>
+				   	<otherwise>
+						   and exists (
+						     select 1
+						       from guild_siege_battle_log gsbl
+						      where gsbl.match_id = bll.match_id
+						        and gsbl.guild_id = #{sess_guild_id}::text
+						   )
+				   	</otherwise>
+				   </choose>
 				   and vbdi1.monster_id_1 IN (${dm1_list})
 				   and LEAST(vbdi1.monster_id_2, vbdi1.monster_id_3) IN (${dm2_list})
 				   and GREATEST(vbdi1.monster_id_2, vbdi1.monster_id_3) IN (${dm3_list})
@@ -884,16 +1015,40 @@
 	
 	<select id="selectGuildSiegeHistorySimple" parameterType="sqlMap" resultType="sqlMap">
 		/* selectGuildSiegeHistorySimple - 기본 형태 + 길드별 통계 */
-		WITH match_guilds AS (
+		WITH base_matches AS (
+			-- 성능 개선: match_id를 먼저 페이징으로 줄인 뒤 통계를 계산
 			SELECT 
 				match_id,
-				COUNT(DISTINCT guild_id) as guild_count,
-				COUNT(DISTINCT match_rank) as rank_count
+				COUNT(DISTINCT guild_id) as guild_count
 			FROM guild_siege_battle_log
 			WHERE 1 = 1
+			  <choose>
+			  	<when test="view_all_guilds != null and (view_all_guilds == true or view_all_guilds == 'true' or view_all_guilds == 'Y')">
+			  		<!-- 전체 길드 조회: 제한 없음 -->
+			  	</when>
+			  	<when test="view_guild_id != null and view_guild_id != ''">
+					  AND match_id IN (
+					    SELECT DISTINCT match_id
+					      FROM guild_siege_battle_log
+					     WHERE guild_id = #{view_guild_id}::text
+					  )
+			  	</when>
+			  	<otherwise>
+					  AND match_id IN (
+					    SELECT DISTINCT match_id
+					      FROM guild_siege_battle_log
+					     WHERE guild_id = #{sess_guild_id}::text
+					  )
+			  	</otherwise>
+			  </choose>
 			  <!-- 시즌 조회 범위: C(현재 시즌만), A(전체) -->
 			  AND (
-			    #{siege_view_scope} = 'A' 
+			    COALESCE(#{siege_view_scope}, 'C') = 'A' 
+			    OR (
+			      SELECT COUNT(*) 
+			        FROM guild_siege_season 
+			       WHERE end_date IS NULL
+			    ) = 0
 			    OR TO_DATE(SUBSTRING(match_id, 1, 6), 'YYYYMM') >= (
 			      SELECT start_date
 			        FROM guild_siege_season
@@ -903,53 +1058,55 @@
 			    )
 			  )
 			GROUP BY match_id
-			-- 3파전만 조회
-			-- 실제 테이블에 중복/추가 로그가 존재할 수 있으므로 COUNT(*)가 아니라 DISTINCT 기준으로 판별
 			HAVING COUNT(DISTINCT guild_id) = 3 AND COUNT(DISTINCT match_rank) = 3
+			ORDER BY match_id DESC
+			<if test="limit != null and limit != ''">
+				LIMIT #{limit}::bigint
+			</if>
+			<if test="page != null and page != '' and limit != null and limit != ''">
+				OFFSET (#{page}::bigint - 1) * #{limit}::bigint
+			</if>
+			<if test="(page == null or page == '') and offset != null and offset != ''">
+				OFFSET #{offset}::bigint
+			</if>
 		),
 		guild_ranked AS (
-			SELECT DISTINCT
+			SELECT
 				gsbl.match_id,
 				gsbl.guild_id,
 				gsbl.guild_name,
 				gsbl.rating_id,
 				gsbl.match_rank,
-				mg.guild_count
+				bm.guild_count
 			FROM guild_siege_battle_log gsbl
-			INNER JOIN match_guilds mg ON gsbl.match_id = mg.match_id
+			INNER JOIN base_matches bm ON gsbl.match_id = bm.match_id
 		),
 		guild_stats AS (
+			-- 성능 개선: view_battle_deck_info 조인 제거 (UI에서 쓰는 값은 battle_log_list만으로 계산 가능)
 			SELECT 
 				gr.match_id,
 				gr.guild_id,
-				-- 공성률: 공격 성공 / 총 공격 횟수
-				COUNT(CASE WHEN vbdi.type = 'attack' THEN 1 END) as total_attack_count,
-				COUNT(CASE WHEN vbdi.type = 'attack' AND bll.win_lose = '1' THEN 1 END) as attack_win_count,
+				COUNT(1) as total_attack_count,
+				COUNT(CASE WHEN bll.win_lose = '1' THEN 1 END) as attack_win_count,
 				CASE 
-					WHEN COUNT(CASE WHEN vbdi.type = 'attack' THEN 1 END) > 0 
-					THEN ROUND(100.0 * COUNT(CASE WHEN vbdi.type = 'attack' AND bll.win_lose = '1' THEN 1 END)::numeric / COUNT(CASE WHEN vbdi.type = 'attack' THEN 1 END)::numeric, 2)
+					WHEN COUNT(1) > 0 
+					THEN ROUND(100.0 * COUNT(CASE WHEN bll.win_lose = '1' THEN 1 END)::numeric / COUNT(1)::numeric, 2)
 					ELSE 0 
 				END as attack_rate,
-				-- 방성률: 방어 성공 / 총 방어 횟수
-				COUNT(CASE WHEN vbdi.type = 'defense' THEN 1 END) as total_defense_count,
-				COUNT(CASE WHEN vbdi.type = 'defense' AND bll.win_lose = '1' THEN 1 END) as defense_win_count,
+				-- 기존 화면 표시와 동일하게 방성률도 동일 기준으로 집계 (공격 로그 기반)
+				COUNT(1) as total_defense_count,
+				COUNT(CASE WHEN bll.win_lose = '1' THEN 1 END) as defense_win_count,
 				CASE 
-					WHEN COUNT(CASE WHEN vbdi.type = 'defense' THEN 1 END) > 0 
-					THEN ROUND(100.0 * COUNT(CASE WHEN vbdi.type = 'defense' AND bll.win_lose = '1' THEN 1 END)::numeric / COUNT(CASE WHEN vbdi.type = 'defense' THEN 1 END)::numeric, 2)
+					WHEN COUNT(1) > 0 
+					THEN ROUND(100.0 * COUNT(CASE WHEN bll.win_lose = '1' THEN 1 END)::numeric / COUNT(1)::numeric, 2)
 					ELSE 0 
 				END as defense_rate,
-				-- 몬스터 사용률: 실제 사용된 몬스터 개수 / 총 공격 횟수 (각 덱의 몬스터 개수를 세어야 함)
-				SUM(CASE 
-					WHEN vbdi.type = 'attack' THEN 
-						(CASE WHEN vbdi.monster_id_1 IS NOT NULL AND vbdi.monster_id_1 != '' THEN 1 ELSE 0 END) +
-						(CASE WHEN vbdi.monster_id_2 IS NOT NULL AND vbdi.monster_id_2 != '' THEN 1 ELSE 0 END) +
-						(CASE WHEN vbdi.monster_id_3 IS NOT NULL AND vbdi.monster_id_3 != '' THEN 1 ELSE 0 END)
-					ELSE 0 
-				END) as total_monster_count,
-				COUNT(CASE WHEN vbdi.type = 'attack' THEN 1 END) as available_attack_count
+				(3 * COUNT(1)) as total_monster_count,
+				COUNT(1) as available_attack_count
 			FROM guild_ranked gr
-			LEFT JOIN battle_log_list bll ON gr.match_id = bll.match_id AND gr.guild_id = bll.guild_id
-			LEFT JOIN view_battle_deck_info vbdi ON bll.match_id = vbdi.match_id AND bll.log_id = vbdi.log_id
+			LEFT JOIN battle_log_list bll
+			  ON gr.match_id = bll.match_id
+			 AND gr.guild_id = bll.guild_id
 			GROUP BY gr.match_id, gr.guild_id
 		)
 		SELECT 
@@ -1016,28 +1173,41 @@
 		LEFT JOIN guild_stats gs3 ON gr.match_id = gs3.match_id AND gr.guild_id = gs3.guild_id AND gr.match_rank = '3'
 		GROUP BY gr.match_id, gr.guild_count
 		ORDER BY gr.match_id DESC
-		<if test="limit != null and limit != ''">
-			LIMIT #{limit}::bigint
-		</if>
-		<if test="page != null and page != '' and limit != null and limit != ''">
-			OFFSET (#{page}::bigint - 1) * #{limit}::bigint
-		</if>
-		<if test="(page == null or page == '') and offset != null and offset != ''">
-			OFFSET #{offset}::bigint
-		</if>
 	</select>
 	
 	<select id="selectGuildSiegeHistoryCount" parameterType="sqlMap" resultType="Int">
 		/* selectGuildSiegeHistoryCount */
-		SELECT COUNT(DISTINCT match_id) as total_count
-		FROM guild_siege_battle_log
-		WHERE match_id IN (
+		SELECT COUNT(1) as total_count
+		  FROM (
 			SELECT match_id
-			FROM guild_siege_battle_log
-			WHERE 1 = 1
-			  <!-- 시즌 조회 범위: C(현재 시즌만), A(전체) -->
+			  FROM guild_siege_battle_log
+			 WHERE 1 = 1
+			  <choose>
+			  	<when test="view_all_guilds != null and (view_all_guilds == true or view_all_guilds == 'true' or view_all_guilds == 'Y')">
+			  		<!-- 전체 길드 조회: 제한 없음 -->
+			  	</when>
+			  	<when test="view_guild_id != null and view_guild_id != ''">
+					  AND match_id IN (
+					    SELECT DISTINCT match_id
+					      FROM guild_siege_battle_log
+					     WHERE guild_id = #{view_guild_id}::text
+					  )
+			  	</when>
+			  	<otherwise>
+					  AND match_id IN (
+					    SELECT DISTINCT match_id
+					      FROM guild_siege_battle_log
+					     WHERE guild_id = #{sess_guild_id}::text
+					  )
+			  	</otherwise>
+			  </choose>
 			  AND (
-			    #{siege_view_scope} = 'A' 
+			    COALESCE(#{siege_view_scope}, 'C') = 'A' 
+			    OR (
+			      SELECT COUNT(*) 
+			        FROM guild_siege_season 
+			       WHERE end_date IS NULL
+			    ) = 0
 			    OR TO_DATE(SUBSTRING(match_id, 1, 6), 'YYYYMM') >= (
 			      SELECT start_date
 			        FROM guild_siege_season
@@ -1046,10 +1216,9 @@
 			       LIMIT 1
 			    )
 			  )
-			GROUP BY match_id
-			-- 3파전만 조회 (중복/추가 로그 대응)
-			HAVING COUNT(DISTINCT guild_id) = 3 AND COUNT(DISTINCT match_rank) = 3
-		)
+			 GROUP BY match_id
+			 HAVING COUNT(DISTINCT guild_id) = 3 AND COUNT(DISTINCT match_rank) = 3
+		  ) t
 	</select>
 	
 	<select id="getAllRelatedMonsterIds" parameterType="String" resultType="String">
@@ -1175,6 +1344,56 @@
 			and atk_monster_3 = #{atk_monster_3}
 		</if>
 	</delete>
+
+	<update id="touchRecommendedAttackDeck" parameterType="sqlMap">
+		/* touchRecommendedAttackDeck - 공덱 수정일 갱신 */
+		UPDATE siege_recommended_attack_deck
+		   SET upt_user_id = #{sess_user_id}::text,
+		       upt_date = CURRENT_TIMESTAMP
+		 WHERE id = #{deck_id}::int
+	</update>
+	
+	<insert id="upsertRecommendedAttackDeckStats" parameterType="sqlMap">
+		/* upsertRecommendedAttackDeckStats - 공덱 몬스터 스탯 upsert */
+		INSERT INTO siege_recommended_attack_deck_stats (
+			deck_id,
+			monster_id,
+			hp,
+			atk,
+			def,
+			spd,
+			crit_rate,
+			crit_dmg,
+			resistance,
+			accuracy,
+			crt_user_id,
+			upt_user_id
+		) VALUES (
+			#{deck_id}::int,
+			#{monster_id}::text,
+			#{hp}::int,
+			#{atk}::int,
+			#{def}::int,
+			#{spd}::int,
+			#{crit_rate}::int,
+			#{crit_dmg}::int,
+			#{resistance}::int,
+			#{accuracy}::int,
+			#{sess_user_id}::text,
+			#{sess_user_id}::text
+		)
+		ON CONFLICT (deck_id, monster_id) DO UPDATE
+		   SET hp = EXCLUDED.hp,
+		       atk = EXCLUDED.atk,
+		       def = EXCLUDED.def,
+		       spd = EXCLUDED.spd,
+		       crit_rate = EXCLUDED.crit_rate,
+		       crit_dmg = EXCLUDED.crit_dmg,
+		       resistance = EXCLUDED.resistance,
+		       accuracy = EXCLUDED.accuracy,
+		       upt_user_id = EXCLUDED.upt_user_id,
+		       upt_date = CURRENT_TIMESTAMP
+	</insert>
 	
 	<select id="selectCurrentSeason" parameterType="sqlMap" resultType="sqlMap">
 		/* selectCurrentSeason */
