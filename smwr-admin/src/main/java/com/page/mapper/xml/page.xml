@@ -1,0 +1,292 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.admin.page.mapper.PageMapper">
+
+	<!-- 페이지 검색 조건 아이템 조회 -->
+	<select id="selectPageConditionItems" parameterType="sqlMap" resultType="sqlMap">
+		/* selectPageConditionItems */
+		SELECT sps.page_id
+		      ,sps.el_nm
+		      ,sps.vmodel_id
+		      ,sps.fromto_yn
+		      ,sps.vmodel_from_id
+		      ,sps.calendar_sch_column_nm
+		 FROM SYS_page sp
+	     JOIN SYS_page_item sps ON sp.page_id = sps.page_id
+		WHERE sp.usg_yn = 'Y'
+		  AND sp.del_yn = 'N'
+		  AND sps.usg_yn = 'Y'
+		  AND sps.del_yn = 'N'
+		  <if test="page_id != null and page_id != ''">
+		  AND sp.page_id = #{page_id}
+		  </if>
+		ORDER BY sps.srt_sn ASC
+	</select>
+
+	<!-- 페이지 목록 조회 -->
+	<select id="selectPageList" parameterType="sqlMap" resultType="sqlMap">
+		/* selectPageList */
+		SELECT sp.page_id
+		      ,sp.page_nm
+		      ,sp.page_url
+		      ,sp.page_desc
+		      ,sp.srt_sn
+		      ,sp.usg_yn
+		      ,sp.del_yn
+		      ,sp.crt_user_id
+		      ,sp.crt_date
+		      ,sp.upt_user_id
+		      ,sp.upt_date
+		 FROM SYS_page sp
+		WHERE sp.del_yn = 'N'
+		  <if test="usg_yn != null and usg_yn != ''">
+		  AND sp.usg_yn = #{usg_yn}
+		  </if>
+		  <if test="page_id != null and page_id != ''">
+		  AND sp.page_id = #{page_id}
+		  </if>
+		ORDER BY sp.srt_sn ASC, sp.page_id ASC
+	</select>
+
+	<!-- 페이지 검색 조건 목록 조회 -->
+	<select id="selectPageConditionList" parameterType="sqlMap" resultType="sqlMap">
+		/* selectPageConditionList */
+		SELECT sps.page_id
+		      ,sps.el_nm
+		      ,sps.vmodel_id
+		      ,sps.fromto_yn
+		      ,sps.vmodel_from_id
+		      ,sps.vmodel_to_id
+		      ,sps.calendar_sch_column_nm
+		      ,sps.el_type
+		      ,sps.el_width
+		      ,sps.el_height
+		      ,sps.srt_sn
+		      ,sps.usg_yn
+		      ,sps.del_yn
+		      ,sps.crt_user_id
+		      ,sps.crt_date
+		      ,sps.upt_user_id
+		      ,sps.upt_date
+		 FROM SYS_page_item sps
+		WHERE sps.del_yn = 'N'
+		  <if test="page_id != null and page_id != ''">
+		  AND sps.page_id = #{page_id}
+		  </if>
+		  <if test="usg_yn != null and usg_yn != ''">
+		  AND sps.usg_yn = #{usg_yn}
+		  </if>
+		ORDER BY sps.srt_sn ASC, sps.el_nm ASC
+	</select>
+
+	<!-- 페이지 삭제 -->
+	<delete id="deletePage" parameterType="sqlMap">
+		/* deletePage */
+		UPDATE SYS_page 
+		   SET del_yn = 'Y'
+		      ,upt_user_id = #{user_id}
+		      ,upt_date = NOW()
+		 WHERE page_id = #{page_id}
+	</delete>
+
+	<!-- 페이지 등록 -->
+	<insert id="insertPage" parameterType="sqlMap">
+		/* insertPage */
+		INSERT INTO SYS_page (
+			page_id,
+			page_nm,
+			page_url,
+			page_desc,
+			srt_sn,
+			usg_yn,
+			del_yn,
+			crt_user_id,
+			crt_date,
+			upt_user_id,
+			upt_date
+		) VALUES (
+			#{page_id},
+			#{page_nm},
+			#{page_url},
+			#{page_desc},
+			#{srt_sn},
+			COALESCE(#{usg_yn}, 'Y'),
+			'N',
+			#{user_id},
+			NOW(),
+			#{user_id},
+			NOW()
+		)
+	</insert>
+
+	<!-- 페이지 수정 -->
+	<update id="updatePage" parameterType="sqlMap">
+		/* updatePage */
+		UPDATE SYS_page 
+		   SET page_nm = #{page_nm}
+		      ,page_url = #{page_url}
+		      ,page_desc = #{page_desc}
+		      ,srt_sn = #{srt_sn}
+		      ,usg_yn = #{usg_yn}
+		      ,upt_user_id = #{user_id}
+		      ,upt_date = NOW()
+		 WHERE page_id = #{page_id}
+	</update>
+
+	<!-- 페이지 검색 조건 목록 삭제 -->
+	<delete id="deletePageConditionList" parameterType="sqlMap">
+		/* deletePageConditionList */
+		UPDATE SYS_page_item 
+		   SET del_yn = 'Y'
+		      ,upt_user_id = #{user_id}
+		      ,upt_date = NOW()
+		 WHERE page_id = #{page_id}
+	</delete>
+
+	<!-- 페이지 검색 조건 삭제 -->
+	<delete id="deletePageCondition" parameterType="sqlMap">
+		/* deletePageCondition */
+		UPDATE SYS_page_item 
+		   SET del_yn = 'Y'
+		      ,upt_user_id = #{user_id}
+		      ,upt_date = NOW()
+		 WHERE page_id = #{page_id}
+		   AND el_nm = #{el_nm}
+	</delete>
+
+	<!-- 페이지 검색 조건 등록 -->
+	<insert id="insertPageCondition" parameterType="sqlMap">
+		/* insertPageCondition */
+		INSERT INTO SYS_page_item (
+			page_id,
+			el_nm,
+			vmodel_id,
+			fromto_yn,
+			vmodel_from_id,
+			vmodel_to_id,
+			calendar_sch_column_nm,
+			el_type,
+			el_width,
+			el_height,
+			srt_sn,
+			usg_yn,
+			del_yn,
+			crt_user_id,
+			crt_date,
+			upt_user_id,
+			upt_date
+		) VALUES (
+			#{page_id},
+			#{el_nm},
+			#{vmodel_id},
+			COALESCE(#{fromto_yn}, 'N'),
+			#{vmodel_from_id},
+			#{vmodel_to_id},
+			#{calendar_sch_column_nm},
+			#{el_type},
+			#{el_width},
+			#{el_height},
+			#{srt_sn},
+			COALESCE(#{usg_yn}, 'Y'),
+			'N',
+			#{user_id},
+			NOW(),
+			#{user_id},
+			NOW()
+		)
+	</insert>
+
+	<!-- 페이지 검색 조건 수정 -->
+	<update id="updatePageCondition" parameterType="sqlMap">
+		/* updatePageCondition */
+		UPDATE SYS_page_item 
+		   SET vmodel_id = #{vmodel_id}
+		      ,fromto_yn = #{fromto_yn}
+		      ,vmodel_from_id = #{vmodel_from_id}
+		      ,vmodel_to_id = #{vmodel_to_id}
+		      ,calendar_sch_column_nm = #{calendar_sch_column_nm}
+		      ,el_type = #{el_type}
+		      ,el_width = #{el_width}
+		      ,el_height = #{el_height}
+		      ,srt_sn = #{srt_sn}
+		      ,usg_yn = #{usg_yn}
+		      ,upt_user_id = #{user_id}
+		      ,upt_date = NOW()
+		 WHERE page_id = #{page_id}
+		   AND el_nm = #{el_nm}
+	</update>
+
+	<!-- 페이지 검색 조건 정보 조회 -->
+	<select id="selectPageConditionInfo" parameterType="sqlMap" resultType="sqlMap">
+		/* selectPageConditionInfo */
+		SELECT sps.page_id
+		      ,sps.el_nm
+		      ,sps.vmodel_id
+		      ,sps.fromto_yn
+		      ,sps.vmodel_from_id
+		      ,sps.vmodel_to_id
+		      ,sps.calendar_sch_column_nm
+		      ,sps.el_type
+		      ,sps.el_width
+		      ,sps.el_height
+		      ,sps.srt_sn
+		      ,sps.usg_yn
+		      ,sps.del_yn
+		      ,sps.crt_user_id
+		      ,sps.crt_date
+		      ,sps.upt_user_id
+		      ,sps.upt_date
+		 FROM SYS_page_item sps
+		WHERE sps.page_id = #{page_id}
+		  AND sps.el_nm = #{el_nm}
+		  AND sps.del_yn = 'N'
+	</select>
+
+	<!-- 페이지 권한 조회 -->
+	<select id="selectPageAuth" parameterType="sqlMap" resultType="sqlMap">
+		/* selectPageAuth */
+		SELECT spa.page_id
+		      ,spa.role_id
+		      ,spa.auth_type
+		      ,spa.usg_yn
+		      ,spa.del_yn
+		 FROM SYS_page_auth spa
+		WHERE spa.page_id = #{page_id}
+		  AND spa.del_yn = 'N'
+		  <if test="role_id != null and role_id != ''">
+		  AND spa.role_id = #{role_id}
+		  </if>
+	</select>
+
+	<!-- 페이지 권한 테이블 조회 -->
+	<select id="selectPageAuthTable" parameterType="sqlMap" resultType="sqlMap">
+		/* selectPageAuthTable */
+		SELECT 'SYS_page_auth' as table_name
+		      ,'page_id' as pk_column
+		      ,'role_id' as fk_column
+	</select>
+
+	<!-- 권한 테이블 조회 -->
+	<select id="selectAuthTable" parameterType="sqlMap" resultType="sqlMap">
+		/* selectAuthTable */
+		SELECT 'SYS_role' as table_name
+		      ,'role_id' as pk_column
+		      ,'role_nm' as nm_column
+	</select>
+
+	<!-- 권한 확인 여부 조회 -->
+	<select id="selectAuthCheckYn" parameterType="sqlMap" resultType="sqlMap">
+		/* selectAuthCheckYn */
+		SELECT CASE 
+		         WHEN COUNT(*) > 0 THEN 'Y' 
+		         ELSE 'N' 
+		       END as auth_check_yn
+		 FROM SYS_page_auth spa
+		WHERE spa.page_id = #{page_id}
+		  AND spa.role_id = #{role_id}
+		  AND spa.del_yn = 'N'
+		  AND spa.usg_yn = 'Y'
+	</select>
+
+</mapper>
+

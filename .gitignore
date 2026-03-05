@@ -52,3 +52,5 @@ k8s/*-secret.yaml
 *.sql
 *.log
 *.sql
+log/test.log
+*.log

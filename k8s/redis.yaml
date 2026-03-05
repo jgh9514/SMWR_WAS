@@ -1,0 +1,54 @@
+# Redis - K8s 클러스터 내부 배포용
+# AWS ElastiCache 등 외부 Redis 사용 시 이 파일은 적용하지 않음
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: smwr-redis
+  labels:
+    app: smwr-redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: smwr-redis
+  template:
+    metadata:
+      labels:
+        app: smwr-redis
+    spec:
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        ports:
+        - containerPort: 6379
+          name: redis
+        command: ["redis-server", "--appendonly", "yes"]
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "500m"
+        volumeMounts:
+        - name: redis-data
+          mountPath: /data
+      volumes:
+      - name: redis-data
+        emptyDir: {}  # 단일 레플리카용. 영구 저장 필요 시 PVC 사용
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: smwr-redis
+  labels:
+    app: smwr-redis
+spec:
+  type: ClusterIP
+  selector:
+    app: smwr-redis
+  ports:
+  - port: 6379
+    targetPort: 6379
+    protocol: TCP
+    name: redis
