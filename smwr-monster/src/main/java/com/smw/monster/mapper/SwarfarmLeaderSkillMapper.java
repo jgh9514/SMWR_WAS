@@ -17,4 +17,9 @@ public interface SwarfarmLeaderSkillMapper {
      * Leader Skill ID로 리더 스킬 존재 여부 확인
      */
     Integer countByLeaderSkillId(@Param("leader_skill_id") Integer leaderSkillId);
+
+    /**
+     * monster_leaders 동기화 (표시용 icon_path 포함)
+     */
+    int upsertMonsterLeader(Map<String, Object> param);
 }

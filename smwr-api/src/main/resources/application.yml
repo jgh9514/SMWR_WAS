@@ -1,17 +1,52 @@
+---
+# local 프로파일 (기본) - DB는 dev(원격) 사용, Redis 미사용
+spring:
+  profiles: local
+  autoconfigure:
+    exclude: org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+  datasource:
+    url: jdbc:log4jdbc:postgresql://13.236.20.39:30432/summonerswar
+    hikari:
+      username: postgres
+      password: '@@jgh15963'
+
+smw:
+  service-domain: localhost, localhost:3000
+  cookie-domain: localhost
+  cookie-live-time: 600
+  front-url: http://localhost:3000
+  server-url: http://localhost:8080
+
+---
+# dev 프로파일 (배포 시 -Dspring.profiles.active=dev)
+spring:
+  profiles: dev
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:log4jdbc:postgresql://13.236.20.39:30432/summonerswar}
+    hikari:
+      username: ${SPRING_DATASOURCE_USERNAME:postgres}
+      password: '${SPRING_DATASOURCE_PASSWORD:@@jgh15963}'
+
+smw:
+  service-domain: jgh9514.com, www.jgh9514.com, api.jgh9514.com
+  cookie-domain: jgh9514.com
+  cookie-live-time: 600
+  front-url: https://jgh9514.com
+  server-url: https://api.jgh9514.com
+
+---
+# 공통 설정
 spring:
   application:
     name: smwr-api
   profiles:
-    active: dev
+    active: local
   batch:
     job:
       enabled: false  # API 서버는 배치 미사용
   datasource:
     driver-class-name: net.sf.log4jdbc.sql.jdbcapi.DriverSpy
-    url: ${SPRING_DATASOURCE_URL:jdbc:log4jdbc:postgresql://localhost:5432/summonerswar}
     hikari:
-      username: ${SPRING_DATASOURCE_USERNAME:postgres}
-      password: ${SPRING_DATASOURCE_PASSWORD:}
       maximum-pool-size: 30
       minimum-idle: 10
   redis:
@@ -44,11 +79,12 @@ mybatis:
 
 server:
   port: 8080
+  servlet:
+    session:
+      timeout: 3600  # 세션 타임아웃(초)
 
 smw:
-  service-domain: localhost, localhost:3000
-  front-url: http://localhost:3000
-  server-url: http://localhost:8080
+  globalDblinkNm: SMW_DBLINK
   cache:
     provider: ${SMW_CACHE_PROVIDER:caffeine}
   kafka:

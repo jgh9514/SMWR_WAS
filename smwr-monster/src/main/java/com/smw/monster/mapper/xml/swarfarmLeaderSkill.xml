@@ -11,6 +11,7 @@
             area,
             element,
             swarfarm_url,
+            icon_path,
             last_sync_date,
             crt_user_id,
             crt_date,
@@ -23,6 +24,7 @@
             #{area},
             #{element},
             #{swarfarm_url},
+            #{icon_path},
             CURRENT_TIMESTAMP,
             'SYSTEM',
             CURRENT_TIMESTAMP,
@@ -36,7 +38,41 @@
             area = EXCLUDED.area,
             element = EXCLUDED.element,
             swarfarm_url = EXCLUDED.swarfarm_url,
+            icon_path = COALESCE(EXCLUDED.icon_path, leader_skill_master.icon_path),
             last_sync_date = CURRENT_TIMESTAMP,
+            upt_user_id = 'SYSTEM',
+            upt_date = CURRENT_TIMESTAMP
+    </insert>
+
+    <!-- monster_leaders 동기화 (표시용 - leader_icon으로 사용됨) -->
+    <insert id="upsertMonsterLeader" parameterType="sqlMap">
+        INSERT INTO public.monster_leaders (
+            leader_id,
+            type,
+            stat,
+            increase_by,
+            icon_path,
+            crt_user_id,
+            crt_date,
+            upt_user_id,
+            upt_date
+        ) VALUES (
+            #{leader_id},
+            #{type},
+            #{stat},
+            #{increase_by},
+            #{icon_path},
+            'SYSTEM',
+            CURRENT_TIMESTAMP,
+            'SYSTEM',
+            CURRENT_TIMESTAMP
+        )
+        ON CONFLICT (leader_id) 
+        DO UPDATE SET
+            type = EXCLUDED.type,
+            stat = EXCLUDED.stat,
+            increase_by = EXCLUDED.increase_by,
+            icon_path = COALESCE(EXCLUDED.icon_path, monster_leaders.icon_path),
             upt_user_id = 'SYSTEM',
             upt_date = CURRENT_TIMESTAMP
     </insert>
