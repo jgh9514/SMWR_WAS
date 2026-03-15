@@ -52,5 +52,8 @@ k8s/*-secret.yaml
 *.sql
 *.log
 *.sql
+<<<<<<< HEAD
 /log/test.log
 *.log
+=======
+>>>>>>> parent of ce97823 (수정)

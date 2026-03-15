@@ -85,38 +85,6 @@ spec:
               name: smw-mail-secret
               key: from
               optional: true
-        # Redis (캐시/세션)
-        - name: SPRING_REDIS_HOST
-          valueFrom:
-            configMapKeyRef:
-              name: smw-infra-config
-              key: redis.host
-              optional: true
-        - name: SPRING_REDIS_PORT
-          valueFrom:
-            configMapKeyRef:
-              name: smw-infra-config
-              key: redis.port
-              optional: true
-        # Kafka (이벤트)
-        - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
-          valueFrom:
-            configMapKeyRef:
-              name: smw-infra-config
-              key: kafka.bootstrap-servers
-              optional: true
-        - name: SMW_CACHE_PROVIDER
-          valueFrom:
-            configMapKeyRef:
-              name: smw-infra-config
-              key: cache.provider
-              optional: true
-        - name: SMW_KAFKA_ENABLED
-          valueFrom:
-            configMapKeyRef:
-              name: smw-infra-config
-              key: kafka.enabled
-              optional: true
         # AWS 자격 증명은 IAM 역할을 통해 자동으로 제공되므로 환경 변수 설정 불필요
         # AWS SDK가 EC2 인스턴스에 부여된 IAM 역할을 자동으로 감지합니다.
         resources:
