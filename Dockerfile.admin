@@ -23,7 +23,9 @@ COPY smwr-admin/src smwr-admin/src
 RUN mvn clean package -DskipTests -B -pl smwr-admin -am
 
 # 빌드된 JAR 복사
-RUN cp /app/smwr-admin/target/smwr-admin-*-exec.jar /app/target/app.jar
+RUN mkdir -p /app/target \
+    && ls -l /app/smwr-admin/target \
+    && cp /app/smwr-admin/target/smwr-admin-*-exec.jar /app/target/app.jar
 
 # Stage 2: 실행 환경
 FROM eclipse-temurin:8-jre

@@ -24,7 +24,9 @@ COPY smwr-api/src smwr-api/src
 RUN mvn clean package -DskipTests -B -pl smwr-api -am
 
 # 빌드된 JAR 복사
-RUN cp /app/smwr-api/target/smwr-api-*.jar /app/target/app.jar
+RUN mkdir -p /app/target \
+    && ls -l /app/smwr-api/target \
+    && cp /app/smwr-api/target/smwr-api-*.jar /app/target/app.jar
 
 # Stage 2: 실행 환경
 FROM eclipse-temurin:8-jre
