@@ -13,7 +13,8 @@ on:
   workflow_dispatch:  # 수동 실행도 가능하도록
 
 env:
-  DOCKER_IMAGE: gilhwanjeon/smw-app
+  DOCKER_API_IMAGE: gilhwanjeon/smw-app
+  DOCKER_ADMIN_IMAGE: gilhwanjeon/smw-admin
   DOCKER_TAG: ${{ github.sha }}
 
 jobs:
@@ -49,28 +50,51 @@ jobs:
         username: ${{ secrets.DOCKER_USERNAME }}
         password: ${{ secrets.DOCKER_PASSWORD }}
 
-    - name: Extract metadata (tags, labels) for Docker
-      id: meta
+    - name: Extract metadata for API Docker image
+      id: meta-api
       uses: docker/metadata-action@v4
       with:
-        images: ${{ env.DOCKER_IMAGE }}
+        images: ${{ env.DOCKER_API_IMAGE }}
         tags: |
           type=sha,prefix={{branch}}-
           type=raw,value=latest,enable={{is_default_branch}}
           type=raw,value=${{ github.run_number }}
 
-    - name: Build and push Docker image
+    - name: Build and push API Docker image
       uses: docker/build-push-action@v4
       with:
         context: .
         file: ./Dockerfile
         platforms: linux/arm64  # EC2 인스턴스가 ARM64 아키텍처를 사용하므로 ARM64로 빌드
         push: true
-        tags: ${{ steps.meta.outputs.tags }}
-        labels: ${{ steps.meta.outputs.labels }}
-        cache-from: type=registry,ref=${{ env.DOCKER_IMAGE }}:latest
+        tags: ${{ steps.meta-api.outputs.tags }}
+        labels: ${{ steps.meta-api.outputs.labels }}
+        cache-from: type=registry,ref=${{ env.DOCKER_API_IMAGE }}:latest
         cache-to: type=inline
-        # 빌드 최적화 옵션
+        build-args: |
+          BUILDKIT_INLINE_CACHE=1
+
+    - name: Extract metadata for Admin Docker image
+      id: meta-admin
+      uses: docker/metadata-action@v4
+      with:
+        images: ${{ env.DOCKER_ADMIN_IMAGE }}
+        tags: |
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
+          type=raw,value=${{ github.run_number }}
+
+    - name: Build and push Admin Docker image
+      uses: docker/build-push-action@v4
+      with:
+        context: .
+        file: ./Dockerfile.admin
+        platforms: linux/arm64  # EC2 인스턴스가 ARM64 아키텍처를 사용하므로 ARM64로 빌드
+        push: true
+        tags: ${{ steps.meta-admin.outputs.tags }}
+        labels: ${{ steps.meta-admin.outputs.labels }}
+        cache-from: type=registry,ref=${{ env.DOCKER_ADMIN_IMAGE }}:latest
+        cache-to: type=inline
         build-args: |
           BUILDKIT_INLINE_CACHE=1
 
@@ -243,13 +267,10 @@ jobs:
           # 최신 이미지로 업데이트 (SHA 기반 태그 사용)
           echo "=== 이미지 태그 업데이트 ==="
           if [ -f k8s/deployment.yaml ]; then
-            # SHA 기반 태그 사용 (이미지 변경 감지 명확화)
-            # 형식: main-{sha} (예: main-abc1234)
-            # GitHub Actions 환경 변수에서 전달받음
             IMAGE_TAG="${IMAGE_TAG:-latest}"
             sed -i "s|image: gilhwanjeon/smw-app:.*|image: gilhwanjeon/smw-app:${IMAGE_TAG}|g" k8s/deployment.yaml
+            sed -i "s|image: gilhwanjeon/smw-admin:.*|image: gilhwanjeon/smw-admin:${IMAGE_TAG}|g" k8s/deployment.yaml
             echo "이미지 태그 업데이트 완료: ${IMAGE_TAG}"
-            # 업데이트된 내용 확인
             grep "image:" k8s/deployment.yaml || echo "이미지 태그 확인 실패"
           else
             echo "WARNING: k8s/deployment.yaml 파일을 찾을 수 없음"
@@ -266,21 +287,25 @@ jobs:
                 exit 1
               }
             }
+            if [ -f k8s/smwr-backend-ingress.yaml ]; then
+              kubectl apply -f k8s/smwr-backend-ingress.yaml --request-timeout=60s || {
+                echo "WARNING: backend ingress 적용 실패"
+              }
+            fi
           else
             echo "ERROR: k8s/deployment.yaml 파일이 없습니다."
             exit 1
           fi
           
-          # Pod 재시작 (latest 태그 사용 시 반드시 필요 - Kubernetes가 이미지 변경을 감지하지 못함)
           echo "=== Pod 재시작 (최신 이미지 적용) ==="
-          echo "⚠️  중요: latest 태그 사용 시 Kubernetes가 이미지 변경을 감지하지 못하므로"
-          echo "   kubectl rollout restart를 실행하여 강제로 Pod를 재시작합니다."
-          kubectl rollout restart deployment/smw-app --request-timeout=60s || {
-            echo "WARNING: rollout restart 실패, Pod 직접 삭제 시도"
-            kubectl delete pod -l app=smw-app --request-timeout=60s || {
-              echo "WARNING: Pod 삭제 실패, 새 배포일 수 있음"
+          for DEPLOY in smw-app smw-admin; do
+            kubectl rollout restart deployment/${DEPLOY} --request-timeout=60s || {
+              echo "WARNING: ${DEPLOY} rollout restart 실패, Pod 직접 삭제 시도"
+              kubectl delete pod -l app=${DEPLOY} --request-timeout=60s || {
+                echo "WARNING: ${DEPLOY} Pod 삭제 실패, 새 배포일 수 있음"
+              }
             }
-          }
+          done
           
           # 배포 상태 확인
           echo "=== 배포 상태 확인 ==="
@@ -291,39 +316,41 @@ jobs:
             echo "WARNING: Service 상태 확인 실패"
           }
           
-          # 배포 완료 대기 (롤아웃 상태 확인)
           echo "=== 배포 완료 대기 (최대 5분) ==="
-          kubectl rollout status deployment/smw-app --timeout=5m || {
-            echo "WARNING: 배포 완료 대기 시간 초과"
-            echo "현재 Pod 상태:"
-            kubectl get pods -l app=smw-app --request-timeout=30s || echo "Pod 상태 확인 실패"
-          }
+          for DEPLOY in smw-app smw-admin; do
+            kubectl rollout status deployment/${DEPLOY} --timeout=5m || {
+              echo "WARNING: ${DEPLOY} 배포 완료 대기 시간 초과"
+              echo "현재 Pod 상태:"
+              kubectl get pods -l app=${DEPLOY} --request-timeout=30s || echo "Pod 상태 확인 실패"
+            }
+          done
           
           # 최종 상태 확인
           echo "=== 최종 배포 상태 ==="
-          kubectl get pods -l app=smw-app -o wide --request-timeout=30s || echo "Pod 상태 확인 실패 (무시)"
+          kubectl get pods -l 'app in (smw-app,smw-admin)' -o wide --request-timeout=30s || echo "Pod 상태 확인 실패 (무시)"
           
           # Pod 상태 상세 확인
           echo "=== Pod 상세 상태 ==="
-          POD_NAME=$(kubectl get pods -l app=smw-app -o jsonpath='{.items[0].metadata.name}' --request-timeout=15s 2>/dev/null || echo "")
-          if [ -n "$POD_NAME" ] && [ "$POD_NAME" != "null" ]; then
-            echo "Pod 이름: $POD_NAME"
-            kubectl describe pod $POD_NAME --request-timeout=30s 2>/dev/null | grep -A 10 "Status\|State\|Ready\|Image" || echo "Pod 상세 정보 확인 실패"
-            
-            # Pod 로그 확인 (최근 10줄)
-            echo "=== Pod 로그 확인 (최근 10줄) ==="
-            kubectl logs --tail=10 $POD_NAME --request-timeout=15s 2>/dev/null || echo "로그 확인 실패 (무시)"
-          else
-            echo "Pod를 찾을 수 없습니다. (무시)"
-          fi
+          for APP_LABEL in smw-app smw-admin; do
+            POD_NAME=$(kubectl get pods -l app=${APP_LABEL} -o jsonpath='{.items[0].metadata.name}' --request-timeout=15s 2>/dev/null || echo "")
+            if [ -n "$POD_NAME" ] && [ "$POD_NAME" != "null" ]; then
+              echo "Pod 이름: $POD_NAME"
+              kubectl describe pod $POD_NAME --request-timeout=30s 2>/dev/null | grep -A 10 "Status\|State\|Ready\|Image" || echo "Pod 상세 정보 확인 실패"
+              echo "=== ${APP_LABEL} Pod 로그 확인 (최근 10줄) ==="
+              kubectl logs --tail=10 $POD_NAME --request-timeout=15s 2>/dev/null || echo "로그 확인 실패 (무시)"
+            else
+              echo "${APP_LABEL} Pod를 찾을 수 없습니다. (무시)"
+            fi
+          done
           
           # 배포 성공 여부 확인
           echo "=== 배포 성공 여부 확인 ==="
-          READY_PODS=$(kubectl get pods -l app=smw-app -o jsonpath='{.items[?(@.status.phase=="Running")].metadata.name}' --request-timeout=15s 2>/dev/null | wc -w)
-          if [ "$READY_PODS" -gt 0 ]; then
-            echo "✅ 배포 성공: $READY_PODS 개의 Pod가 Running 상태입니다."
+          API_READY_PODS=$(kubectl get pods -l app=smw-app -o jsonpath='{.items[?(@.status.phase=="Running")].metadata.name}' --request-timeout=15s 2>/dev/null | wc -w)
+          ADMIN_READY_PODS=$(kubectl get pods -l app=smw-admin -o jsonpath='{.items[?(@.status.phase=="Running")].metadata.name}' --request-timeout=15s 2>/dev/null | wc -w)
+          if [ "$API_READY_PODS" -gt 0 ] && [ "$ADMIN_READY_PODS" -gt 0 ]; then
+            echo "✅ 배포 성공: api=${API_READY_PODS}개, admin=${ADMIN_READY_PODS}개 Pod가 Running 상태입니다."
           else
-            echo "❌ 배포 실패: Running 상태인 Pod가 없습니다."
+            echo "❌ 배포 실패: api=${API_READY_PODS}개, admin=${ADMIN_READY_PODS}개 Pod가 Running 상태입니다."
             exit 1
           fi
           

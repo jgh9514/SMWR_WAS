@@ -19,4 +19,14 @@ spec:
             # 백엔드 서비스 포트 (8080)
             port:
               number: 8080
+  - host: "admin.smwr.local"  # 관리자/배치 API 도메인
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: smw-admin-service
+            port:
+              number: 8081
 
