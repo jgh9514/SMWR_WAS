@@ -207,36 +207,6 @@ spec:
               name: smw-mail-secret
               key: from
               optional: true
-        - name: SPRING_REDIS_HOST
-          valueFrom:
-            configMapKeyRef:
-              name: smw-infra-config
-              key: redis.host
-              optional: true
-        - name: SPRING_REDIS_PORT
-          valueFrom:
-            configMapKeyRef:
-              name: smw-infra-config
-              key: redis.port
-              optional: true
-        - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
-          valueFrom:
-            configMapKeyRef:
-              name: smw-infra-config
-              key: kafka.bootstrap-servers
-              optional: true
-        - name: SMW_CACHE_PROVIDER
-          valueFrom:
-            configMapKeyRef:
-              name: smw-infra-config
-              key: cache.provider
-              optional: true
-        - name: SMW_KAFKA_ENABLED
-          valueFrom:
-            configMapKeyRef:
-              name: smw-infra-config
-              key: kafka.enabled
-              optional: true
         resources:
           requests:
             memory: "512Mi"

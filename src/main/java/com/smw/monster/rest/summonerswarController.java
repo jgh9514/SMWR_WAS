@@ -18,8 +18,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.smw.monster.service.summonerswarService;
-import com.smw.infra.kafka.SiegeEventProducer;
-import com.smw.infra.kafka.event.SiegeUploadedEvent;
 import com.sysconf.constants.Constant;
 
 import io.swagger.v3.oas.annotations.Operation;
@@ -35,9 +33,6 @@ public class summonerswarController {
 	@Autowired
 	summonerswarService swService;
 	
-	@Autowired
-	SiegeEventProducer siegeEventProducer;
-
 	private Map<String, Object> getSessUserInfo(HttpServletRequest request) {
 		Object attr = request != null ? request.getAttribute("userInfo") : null;
 		if (attr instanceof Map) {
@@ -303,8 +298,6 @@ public class summonerswarController {
     	int insertedSiegeCount = 0;
     	int insertedBattleCount = 0;
     	int totalBattleCount = 0;
-    	java.util.List<String> affectedMatchIds = new java.util.ArrayList<>();
-    	
     	for (int i = 0; i < log_list.size(); i++) {
     		Map<String, ?> list = log_list.get(i);
     		List<Map<String, ?>> guild_info_list = (List<Map<String, ?>>) list.get("guild_info_list");
@@ -362,11 +355,6 @@ public class summonerswarController {
     		
     		if (siegeInserted) {
     			insertedSiegeCount++;
-    			if (safeGuildInfoList.size() > 0) {
-    				Map<String, ?> firstGuildInfo = safeGuildInfoList.get(0);
-    				String matchId = firstGuildInfo.get("match_id") != null ? firstGuildInfo.get("match_id").toString() : null;
-    				if (matchId != null) affectedMatchIds.add(matchId);
-    			}
     		}
     		
     		for (int j = 0; j < safeBattleLogList.size(); j++) {
@@ -405,11 +393,6 @@ public class summonerswarController {
     	result.put("insertedSiegeCount", insertedSiegeCount);
     	result.put("totalBattleCount", totalBattleCount);
     	result.put("insertedBattleCount", insertedBattleCount);
-    	
-    	// 업로드 성공 이벤트 발행 (다중 WAS 환경에서 캐시 동기화/후처리 트리거)
-    	siegeEventProducer.publishSiegeUploaded(
-    			new SiegeUploadedEvent(System.currentTimeMillis(), insertedSiegeCount, insertedBattleCount, affectedMatchIds)
-    	);
     	
         return new ResponseEntity<>(result, HttpStatus.OK);
     }

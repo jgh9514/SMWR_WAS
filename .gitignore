@@ -36,8 +36,7 @@ out/
 Thumbs.db
 
 # Spring Boot
-application-local.yml
-application-dev.yml
+src/main/resources/application-local.yml
 
 # Kubernetes Secrets (민감한 정보 포함)
 k8s/secret.yaml
@@ -50,10 +49,4 @@ k8s/*-secret.yaml
 *~
 *.log
 *.sql
-*.log
-*.sql
-<<<<<<< HEAD
 /log/test.log
-*.log
-=======
->>>>>>> parent of ce97823 (수정)

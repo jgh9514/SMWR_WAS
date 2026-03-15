@@ -56,7 +56,7 @@ public class EmailServiceImpl implements EmailService {
 	@Autowired
 	private UserService userService;
 
-	// 인증 코드 저장 (메모리 기반, 실제 운영에서는 Redis 등 사용 권장)
+	// 인증 코드 저장 (메모리 기반)
 	// Key: email, Value: {code, expiresAt}
 	private static final Map<String, Map<String, Object>> verificationCodes = new ConcurrentHashMap<>();
 
@@ -73,7 +73,7 @@ public class EmailServiceImpl implements EmailService {
 		volatile long lastSentAtMs = 0;
 	}
 	
-	// 인증 완료된 이메일 저장 (메모리 기반, 실제 운영에서는 Redis 등 사용 권장)
+	// 인증 완료된 이메일 저장 (메모리 기반)
 	// Key: email, Value: verifiedAt (인증 완료 시간)
 	private static final Map<String, Long> verifiedEmails = new ConcurrentHashMap<>();
 	

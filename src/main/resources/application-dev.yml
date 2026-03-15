@@ -1,0 +1,20 @@
+spring:
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:log4jdbc:postgresql://13.236.20.39:30432/summonerswar}
+    hikari:
+      username: ${SPRING_DATASOURCE_USERNAME:postgres}
+      password: ${SPRING_DATASOURCE_PASSWORD:@@jgh15963}
+  mail:
+    enabled: true
+    username: jgh9514@gmail.com
+    password: 'evelmayasqjjymwh'
+    from: jgh9514@gmail.com
+    properties:
+      mail:
+        debug: true
+
+smw:
+  service-domain: localhost, localhost:3000, jgh9514.github.io
+  front-url: http://localhost:3000
+  server-url: http://localhost:8080
+  cookie-domain: jgh9514.github.io

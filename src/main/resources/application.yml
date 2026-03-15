@@ -1,62 +1,32 @@
 
----
-# local development server
 spring:
   application:
     name: smw
   profiles:
-    active: dev
+    active: ${SPRING_PROFILES_ACTIVE:local}
   cache:
     type: caffeine
     caffeine:
       # monster-list 같은 "거의 고정" 데이터는 WAS 메모리 캐시로 DB 타격을 제거
-      # (필요하면 운영에서 짧게/길게 조절)
       spec: maximumSize=1000,expireAfterWrite=7d,recordStats
   batch:
     job:
       enabled: true
   datasource:
     driver-class-name: net.sf.log4jdbc.sql.jdbcapi.DriverSpy
-    url: ${SPRING_DATASOURCE_URL:jdbc:log4jdbc:postgresql://13.236.20.39:30432/summonerswar}
     hikari:
-      username: ${SPRING_DATASOURCE_USERNAME:postgres}
-      password: ${SPRING_DATASOURCE_PASSWORD:@@jgh15963}
-      maximum-pool-size: 30 # 배치 작업 병렬 처리 고려하여 증가 (페이지 처리 5개 * 각 페이지마다 여러 DB 작업 + 일반 요청 여유)
-      minimum-idle: 10 # 최소 유휴 연결 개수 증가 (배치 작업 대비)
-      idle-timeout: 30000   # 유휴 연결 유지 시간 (밀리초)
-      max-lifetime: 1800000 # 연결 최대 수명 (밀리초)
-      connection-timeout: 30000 # 연결 대기 시간 (밀리초)
+      maximum-pool-size: 30 # 배치 작업 병렬 처리 고려하여 증가
+      minimum-idle: 10 # 최소 유휴 연결 개수 증가
+      idle-timeout: 30000
+      max-lifetime: 1800000
+      connection-timeout: 30000
       leak-detection-threshold: 60000 # 커넥션 누수 감지 (60초)
-  redis:
-    host: ${SPRING_REDIS_HOST:localhost}
-    port: ${SPRING_REDIS_PORT:6379}
-    timeout: 2000ms
-  kafka:
-    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
-    producer:
-      key-serializer: org.apache.kafka.common.serialization.StringSerializer
-      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
-      properties:
-        spring.json.add.type.headers: false
-    consumer:
-      group-id: ${SPRING_KAFKA_CONSUMER_GROUP_ID:smwr-was}
-      auto-offset-reset: latest
-      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
-      properties:
-        spring.json.trusted.packages: com.smw.*
-        spring.json.use.type.headers: false
-        spring.json.value.default.type: com.smw.infra.kafka.event.SiegeUploadedEvent
   servlet:
     multipart.max-file-size: 20MB
     max-request-size: 25MB
   mail:
-    enabled: true
     host: smtp.gmail.com
     port: 587
-    username: jgh9514@gmail.com
-    password: 'evelmayasqjjymwh'  # Gmail 앱 비밀번호
-    from: jgh9514@gmail.com
     properties:
       mail:
         smtp:
@@ -69,32 +39,24 @@ spring:
           writetimeout: 10000
           ssl:
             trust: "*"
-          # Gmail 보안 설정
           enable: true
-        debug: true  # 메일 발송 디버그 로그 활성화
+        debug: false
   jpa:
     properties:
       hibernate:
         show_sql: true
         format_sql: true
         use_sql_comments: true
-        # 완성된 쿼리만 표시
         type: trace
-        # PostgreSQL Dialect 사용
         dialect: org.hibernate.dialect.PostgreSQL95Dialect
-        # SQL 파라미터 바인딩 로깅 비활성화 (log4jdbc가 처리)
         log:
           use_sql_comments: true
 
-
 mybatis:
-  # default Package location - resultType의 Alias를 지정합니다.
   type-aliases-package: com.summonerswar
-  # mapper location - 바라 볼 xml 파일을 지정합니다.
-  config-location: classpath:mybatis/mybatis-config.xml 
+  config-location: classpath:mybatis/mybatis-config.xml
   mapper-locations: classpath*:com/**/mapper/xml/*.xml
-  # column name to camel case - 반환 받는 컬럼명을 CamelCase로 받는 설정을 합니다.
-  
+
 server:
   port: 8080
   tomcat:
@@ -104,9 +66,6 @@ server:
       timeout: 3600
       cookie:
         http-only: true
-      
-# Log4j2 설정은 log4j2.xml 파일에서 관리됩니다.
-# logging 설정은 제거하고 log4j2.xml에서 관리하도록 변경
 
 logging:
   level:
@@ -117,24 +76,18 @@ logging:
     org.springframework.orm: WARN
     org.springframework.transaction: WARN
     org.springframework.security: WARN
-    # Hibernate 로깅 비활성화
     org.hibernate: WARN
     org.hibernate.SQL: WARN
     org.hibernate.type.descriptor.sql.BasicBinder: WARN
-    # log4jdbc 로거 - 필요시에만 활성화 (SQL_LOG_LEVEL=INFO 로 올리면 쿼리/파라미터가 더 많이 보임)
     jdbc.sqlonly: OFF
     jdbc.sqltiming: DEBUG
     jdbc.resultsettable: OFF
-    # MyBatis "==> Preparing/Parameters/Total" 로그 억제
     com.smw.guild.mapper: INFO
-    # 인터셉터 로깅
     com.sysconf.interceptor: INFO
-    # Tomcat HTTP 파싱 에러 로그 레벨 조정 (HTTPS 요청이 HTTP 포트로 들어올 때 발생하는 에러)
     org.apache.coyote: WARN
     org.apache.catalina: WARN
     org.apache.tomcat: WARN
 
-# Actuator 설정 (Health Check용만)
 management:
   endpoints:
     web:
@@ -146,42 +99,28 @@ management:
       show-details: always
   health:
     mail:
-      enabled: false  # 메일 헬스 체크 비활성화 (메일 인증 실패로 인한 DOWN 방지)
+      enabled: false
 
 smw:
-  service-domain: localhost, localhost:3000, jgh9514.github.io
   globalDblinkNm: SMW_DBLINK
-  front-url: http://localhost:3000
-  server-url: http://localhost:8080
-  cookie-live-time: 600 # 쿠키 유효시간 10분
-  cookie-domain: jgh9514.github.io
+  cookie-live-time: 600
   rate-limit:
-    max-requests: 1000 # 1분당 최대 요청 수 (완화)
-    window-seconds: 60 # 시간 윈도우 (초)
+    max-requests: 1000
+    window-seconds: 60
   cache:
-    provider: ${SMW_CACHE_PROVIDER:caffeine} # caffeine|redis
-  kafka:
-    enabled: ${SMW_KAFKA_ENABLED:false}
-    topics:
-      siege-uploaded: ${SMW_KAFKA_TOPIC_SIEGE_UPLOADED:smwr.siege.uploaded}
+    provider: caffeine
   mybatis:
     log:
-      # "파라미터까지 합쳐진 완성된 SQL" 로그 (MybatisInterceptor DEBUG에서 출력)
       inline-sql: ${SMW_MYBATIS_INLINE_SQL:true}
-      # 조회 쿼리 결과(total row count) 로그는 기본 비활성화
       result-total: ${SMW_MYBATIS_RESULT_TOTAL:false}
 
-# AWS S3 설정
-# IAM 역할을 사용하므로 Access Key와 Secret Key를 설정하지 않습니다.
-# AWS SDK가 자동으로 EC2 인스턴스에 부여된 IAM 역할을 감지합니다.
 cloud:
   aws:
     s3:
       bucket: summonerswar-community
     region:
-      static: ap-southeast-2  # S3 버킷이 시드니 리전에 있으므로 일치시킴
+      static: ap-southeast-2
     stack:
-      auto: false # 중요: K8s 환경에서 불필요한 스택 감지 방지
-    # IAM 역할(인스턴스 프로파일)을 사용하도록 강제 설정
+      auto: false
     credentials:
       instance-profile: true
