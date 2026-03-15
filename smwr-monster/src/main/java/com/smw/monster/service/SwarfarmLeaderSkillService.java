@@ -1,15 +1,8 @@
 package com.smw.monster.service;
 
 import java.util.Map;
-import java.util.function.Consumer;
 
 public interface SwarfarmLeaderSkillService {
-    
-    /**
-     * 배치 상세 로그 콜백 설정
-     * @param logCallback 로그 콜백 함수
-     */
-    void setLogCallback(Consumer<String> logCallback);
     
     /**
      * Swarfarm API에서 모든 리더 스킬 데이터를 동기화

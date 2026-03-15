@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.admin.log.mapper.LogMapper">
+
+	<!-- 로그인 이력 목록 조회 -->
+	<select id="selectLoginHisList" parameterType="sqlMap" resultType="sqlMap">
+		/* selectLoginHisList */
+		SELECT 
+			user_log_sn,
+			user_id,
+			login_date,
+			ip_addr,
+			lang_cd
+		FROM SYS_USER_LOGIN_LOG
+		WHERE 1=1
+		<if test="user_id != null and user_id != ''">
+			AND user_id = #{user_id}
+		</if>
+		ORDER BY login_date DESC
+	</select>
+
+	<!-- API 이력 목록 조회 -->
+	<select id="selectApiHisList" parameterType="sqlMap" resultType="sqlMap">
+		/* selectApiHisList */
+		SELECT 
+			api_exe_log_sn,
+			api_id,
+			exe_dtm,
+			user_id,
+			api_exe_url,
+			mthd_tp_cd,
+			ip_addr,
+			lang_cd,
+			svr_ip_addr,
+			inp_param_txt
+		FROM SYS_API_EXE_LOG
+		WHERE 1=1
+		<if test="api_id != null and api_id != ''">
+			AND api_id = #{api_id}
+		</if>
+		<if test="user_id != null and user_id != ''">
+			AND user_id = #{user_id}
+		</if>
+		ORDER BY exe_dtm DESC
+	</select>
+
+	<!-- 배치 이력 목록 조회 -->
+	<select id="selectBatHisList" parameterType="sqlMap" resultType="sqlMap">
+		/* selectBatHisList */
+		SELECT 
+			run_sn as bat_exe_log_sn,
+			bat_id,
+			start_dtm as exe_dtm,
+			end_dtm,
+			rslt_cd,
+			rslt_txt
+		FROM sys_batch_run_his
+		WHERE 1=1
+		ORDER BY run_sn DESC
+		LIMIT 1000
+	</select>
+
+	<!-- 배치 상세 이력 조회 -->
+	<select id="selectDetailBatHis" parameterType="string" resultType="string">
+		/* selectDetailBatHis */
+		SELECT rslt_txt
+		FROM sys_batch_run_his
+		WHERE run_sn = #{id}
+	</select>
+
+	<!-- 배치 목록 조회 -->
+	<select id="selectBatchList" parameterType="sqlMap" resultType="sqlMap">
+		/* selectBatchList */
+		SELECT 
+			run_sn as bat_exe_log_sn,
+			bat_id,
+			start_dtm as exe_dtm,
+			end_dtm,
+			rslt_cd,
+			rslt_txt
+		FROM sys_batch_run_his
+		WHERE 1=1
+		ORDER BY run_sn DESC
+		LIMIT 1000
+	</select>
+
+	<!-- API 실행 로그 등록 -->
+	<insert id="insertApiExecutionLog" parameterType="sqlMap">
+		/* insertApiExecutionLog */
+		INSERT INTO SYS_API_EXE_LOG (
+			api_id,
+			exe_dtm,
+			user_id,
+			api_exe_url,
+			mthd_tp_cd,
+			ip_addr,
+			lang_cd,
+			svr_ip_addr,
+			inp_param_txt
+		) VALUES (
+			#{api_id},
+			#{exe_dtm},
+			#{sess_user_id},
+			#{url},
+			#{method},
+			#{ip},
+			#{sess_lang_cd},
+			#{server_ip},
+			#{input_param}
+		)
+	</insert>
+
+	<!-- API URL로 조회 -->
+	<select id="selectApiByUrl" parameterType="sqlMap" resultType="sqlMap">
+		/* selectApiByUrl */
+		SELECT api_id
+		FROM SYS_API
+		WHERE api_url = #{url}
+		LIMIT 1
+	</select>
+
+</mapper>
+

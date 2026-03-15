@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE configuration PUBLIC "-//mybatis.org//DTD Config 3.0//EN" "http://mybatis.org/dtd/mybatis-3-config.dtd">
+<configuration>
+	<settings>
+		<setting name="mapUnderscoreToCamelCase" value="true" />
+		<setting name="jdbcTypeForNull" value="NULL" />
+		<!-- MyBatis 기본 "Preparing/Parameters/Total" 로그는 SLF4J로 보내서 log4j2 설정으로 제어 -->
+		<setting name="logImpl" value="SLF4J" />
+	</settings>
+	<typeAliases>
+		<typeAlias alias="sqlMap" type="java.util.HashMap" />
+	</typeAliases>
+</configuration>

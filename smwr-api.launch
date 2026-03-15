@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="UTF-8" standalone="no"?>
-<launchConfiguration type="org.eclipse.jdt.launching.localJavaApplication">
-    <listAttribute key="org.eclipse.debug.core.MAPPED_RESOURCES">
-        <listEntry value="/SMWR_WAS/smwr-api/src/main/java/com/smw/api/ApplicationApi.java"/>
-    </listAttribute>
-    <stringAttribute key="org.eclipse.jdt.launching.MAIN_TYPE" value="com.smw.api.ApplicationApi"/>
-    <stringAttribute key="org.eclipse.jdt.launching.PROJECT_ATTR" value="SMWR_WAS"/>
-    <stringAttribute key="org.eclipse.jdt.launching.VM_ARGUMENTS" value="-Dspring.profiles.active=dev -Dserver.port=8080"/>
-</launchConfiguration>

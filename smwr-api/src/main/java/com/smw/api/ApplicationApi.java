@@ -12,9 +12,9 @@ import org.springframework.context.annotation.Bean;
 
 import com.sysconf.config.SessionListener;
 
-@SpringBootApplication(scanBasePackages = { "com.smw", "com.smw.common", "com.sysconf", "com.cf", "com.admin" })
+@SpringBootApplication(scanBasePackages = { "com.smw", "com.sysconf", "com.cf" })
 @EnableCaching
-@MapperScan({ "com.smw", "com.cf", "com.sysconf", "com.admin" })
+@MapperScan({ "com.smw", "com.cf", "com.sysconf" })
 public class ApplicationApi extends SpringBootServletInitializer {
 
 	public static void main(String[] args) {

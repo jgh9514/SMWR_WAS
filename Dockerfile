@@ -1,19 +1,17 @@
-# 멀티 스테이지 빌드 - smwr-api 모듈
+# 멀티 스테이지 빌드
 # Stage 1: Maven 빌드
 FROM maven:3.8-eclipse-temurin-8 AS build
 
 WORKDIR /app
 
-# 부모 POM 및 모듈 POM 복사
+# pom.xml과 소스 코드 복사
 COPY pom.xml .
-COPY smwr-common/pom.xml smwr-common/
-COPY smwr-monster/pom.xml smwr-monster/
-COPY smwr-admin/pom.xml smwr-admin/
-COPY smwr-api/pom.xml smwr-api/
+COPY src ./src
 
-# 의존성만 먼저 다운로드 (캐시 활용)
-RUN mvn dependency:go-offline -B -pl smwr-api -am || true
+# Maven 빌드 실행 (의존성 다운로드 및 빌드)
+RUN mvn clean package -DskipTests
 
+<<<<<<< HEAD
 # 소스 코드 복사
 COPY smwr-common/src smwr-common/src
 COPY smwr-monster/src smwr-monster/src
@@ -27,14 +25,34 @@ RUN mvn clean package -DskipTests -B -pl smwr-api -am
 RUN mkdir -p /app/target \
     && ls -l /app/smwr-api/target \
     && cp /app/smwr-api/target/smwr-api-*.jar /app/target/app.jar
+=======
+# 빌드된 실행 가능한 JAR/WAR 파일을 찾아서 app.jar로 복사
+# 프로젝트가 WAR로 패키징되어 있으므로 WAR 파일도 확인
+# Spring Boot는 WAR 파일도 java -jar로 실행 가능
+RUN cd /app/target && \
+    if [ -f smw-*.war ]; then \
+        cp smw-*.war app.jar; \
+    elif [ -f smw-*.jar ]; then \
+        JAR_FILE=$(ls -t smw-*.jar 2>/dev/null | grep -v "sources\|javadoc" | head -1) && \
+        cp "$JAR_FILE" app.jar; \
+    else \
+        echo "Error: No JAR or WAR file found in /app/target" && \
+        ls -la /app/target && \
+        exit 1; \
+    fi
+>>>>>>> parent of 93cd3b7 (개편)
 
 # Stage 2: 실행 환경
 FROM eclipse-temurin:8-jre
 
 WORKDIR /app
 
+# 빌드 스테이지에서 준비된 app.jar 파일 복사
 COPY --from=build /app/target/app.jar app.jar
 
+# 포트 노출
 EXPOSE 8080
 
+# 애플리케이션 실행
 ENTRYPOINT ["java", "-jar", "app.jar"]
+

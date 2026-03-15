@@ -1362,30 +1362,6 @@ COMMENT ON COLUMN public.guild_application.crt_date IS '등록일';
 COMMENT ON COLUMN public.guild_application.upt_user_id IS '수정자';
 COMMENT ON COLUMN public.guild_application.upt_date IS '수정일';
 
--- public.guild_join_application definition
--- 길드 가입 신청 (승인 대기)
-CREATE TABLE public.guild_join_application (
-	application_id int8 DEFAULT nextval('guild_join_application_seq'::regclass) NOT NULL,
-	guild_id int8 NOT NULL,
-	user_id varchar(50) NOT NULL,
-	status varchar(20) DEFAULT 'PENDING'::character varying NOT NULL,
-	message varchar(500) NULL,
-	process_date timestamp NULL,
-	process_user_id varchar(50) NULL,
-	reject_reason varchar(500) NULL,
-	crt_user_id varchar(50) NOT NULL,
-	crt_date timestamp DEFAULT CURRENT_TIMESTAMP NOT NULL,
-	upt_user_id varchar(50) NOT NULL,
-	upt_date timestamp DEFAULT CURRENT_TIMESTAMP NOT NULL,
-	CONSTRAINT pk_guild_join_application PRIMARY KEY (application_id),
-	CONSTRAINT fk_guild_join_application_guild FOREIGN KEY (guild_id) REFERENCES public.guild(guild_id) ON DELETE CASCADE,
-	CONSTRAINT fk_guild_join_application_user FOREIGN KEY (user_id) REFERENCES public.sys_user(user_id) ON DELETE CASCADE
-);
-CREATE INDEX idx_guild_join_application_guild_status_date ON public.guild_join_application USING btree (guild_id, status, crt_date DESC);
-CREATE INDEX idx_guild_join_application_user_id ON public.guild_join_application USING btree (user_id);
-CREATE UNIQUE INDEX ux_guild_join_application_pending_user ON public.guild_join_application USING btree (user_id) WHERE ((status)::text = 'PENDING'::text);
-COMMENT ON TABLE public.guild_join_application IS '길드 가입 신청';
-
 
 -- public.inquiry definition
 
@@ -1612,7 +1588,7 @@ CREATE TABLE public.notification (
 	upt_user_id varchar(20) NULL, -- 수정자 ID
 	upt_date timestamp DEFAULT CURRENT_TIMESTAMP NOT NULL, -- 수정일
 	CONSTRAINT chk_notification_is_read CHECK (((is_read)::text = ANY ((ARRAY['Y'::character varying, 'N'::character varying])::text[]))),
-	CONSTRAINT chk_notification_type CHECK (((type)::text = ANY ((ARRAY['GUILD_MEMBER_JOINED'::character varying, 'GUILD_MEMBER_LEFT'::character varying, 'GUILD_APPLICATION_PENDING'::character varying, 'GUILD_JOIN_APPLICATION_PENDING'::character varying, 'INQUIRY_PENDING'::character varying, 'INQUIRY_ANSWERED'::character varying, 'NOTICE_NEW'::character varying, 'SYSTEM'::character varying])::text[]))),
+	CONSTRAINT chk_notification_type CHECK (((type)::text = ANY ((ARRAY['GUILD_MEMBER_JOINED'::character varying, 'GUILD_MEMBER_LEFT'::character varying, 'GUILD_APPLICATION_PENDING'::character varying, 'INQUIRY_PENDING'::character varying, 'INQUIRY_ANSWERED'::character varying, 'NOTICE_NEW'::character varying, 'SYSTEM'::character varying])::text[]))),
 	CONSTRAINT notification_pkey PRIMARY KEY (notification_id),
 	CONSTRAINT fk_notification_user FOREIGN KEY (user_id) REFERENCES public.sys_user(user_id)
 );
