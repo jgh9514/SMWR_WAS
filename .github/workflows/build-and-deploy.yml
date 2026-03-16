@@ -14,7 +14,6 @@ on:
 
 env:
   DOCKER_API_IMAGE: gilhwanjeon/smw-app
-  DOCKER_ADMIN_IMAGE: gilhwanjeon/smw-admin
   DOCKER_TAG: ${{ github.sha }}
 
 jobs:
@@ -70,30 +69,6 @@ jobs:
         tags: ${{ steps.meta-api.outputs.tags }}
         labels: ${{ steps.meta-api.outputs.labels }}
         cache-from: type=registry,ref=${{ env.DOCKER_API_IMAGE }}:latest
-        cache-to: type=inline
-        build-args: |
-          BUILDKIT_INLINE_CACHE=1
-
-    - name: Extract metadata for Admin Docker image
-      id: meta-admin
-      uses: docker/metadata-action@v4
-      with:
-        images: ${{ env.DOCKER_ADMIN_IMAGE }}
-        tags: |
-          type=sha,prefix={{branch}}-
-          type=raw,value=latest,enable={{is_default_branch}}
-          type=raw,value=${{ github.run_number }}
-
-    - name: Build and push Admin Docker image
-      uses: docker/build-push-action@v4
-      with:
-        context: .
-        file: ./Dockerfile.admin
-        platforms: linux/arm64  # EC2 인스턴스가 ARM64 아키텍처를 사용하므로 ARM64로 빌드
-        push: true
-        tags: ${{ steps.meta-admin.outputs.tags }}
-        labels: ${{ steps.meta-admin.outputs.labels }}
-        cache-from: type=registry,ref=${{ env.DOCKER_ADMIN_IMAGE }}:latest
         cache-to: type=inline
         build-args: |
           BUILDKIT_INLINE_CACHE=1
@@ -269,7 +244,6 @@ jobs:
           if [ -f k8s/deployment.yaml ]; then
             IMAGE_TAG="${IMAGE_TAG:-latest}"
             sed -i "s|image: gilhwanjeon/smw-app:.*|image: gilhwanjeon/smw-app:${IMAGE_TAG}|g" k8s/deployment.yaml
-            sed -i "s|image: gilhwanjeon/smw-admin:.*|image: gilhwanjeon/smw-admin:${IMAGE_TAG}|g" k8s/deployment.yaml
             echo "이미지 태그 업데이트 완료: ${IMAGE_TAG}"
             grep "image:" k8s/deployment.yaml || echo "이미지 태그 확인 실패"
           else
@@ -298,7 +272,7 @@ jobs:
           fi
           
           echo "=== Pod 재시작 (최신 이미지 적용) ==="
-          for DEPLOY in smw-app smw-admin; do
+          for DEPLOY in smw-app; do
             kubectl rollout restart deployment/${DEPLOY} --request-timeout=60s || {
               echo "WARNING: ${DEPLOY} rollout restart 실패, Pod 직접 삭제 시도"
               kubectl delete pod -l app=${DEPLOY} --request-timeout=60s || {
@@ -317,7 +291,7 @@ jobs:
           }
           
           echo "=== 배포 완료 대기 (최대 5분) ==="
-          for DEPLOY in smw-app smw-admin; do
+          for DEPLOY in smw-app; do
             kubectl rollout status deployment/${DEPLOY} --timeout=5m || {
               echo "WARNING: ${DEPLOY} 배포 완료 대기 시간 초과"
               echo "현재 Pod 상태:"
@@ -327,11 +301,11 @@ jobs:
           
           # 최종 상태 확인
           echo "=== 최종 배포 상태 ==="
-          kubectl get pods -l 'app in (smw-app,smw-admin)' -o wide --request-timeout=30s || echo "Pod 상태 확인 실패 (무시)"
+          kubectl get pods -l app=smw-app -o wide --request-timeout=30s || echo "Pod 상태 확인 실패 (무시)"
           
           # Pod 상태 상세 확인
           echo "=== Pod 상세 상태 ==="
-          for APP_LABEL in smw-app smw-admin; do
+          for APP_LABEL in smw-app; do
             POD_NAME=$(kubectl get pods -l app=${APP_LABEL} -o jsonpath='{.items[0].metadata.name}' --request-timeout=15s 2>/dev/null || echo "")
             if [ -n "$POD_NAME" ] && [ "$POD_NAME" != "null" ]; then
               echo "Pod 이름: $POD_NAME"
@@ -346,11 +320,10 @@ jobs:
           # 배포 성공 여부 확인
           echo "=== 배포 성공 여부 확인 ==="
           API_READY_PODS=$(kubectl get pods -l app=smw-app -o jsonpath='{.items[?(@.status.phase=="Running")].metadata.name}' --request-timeout=15s 2>/dev/null | wc -w)
-          ADMIN_READY_PODS=$(kubectl get pods -l app=smw-admin -o jsonpath='{.items[?(@.status.phase=="Running")].metadata.name}' --request-timeout=15s 2>/dev/null | wc -w)
-          if [ "$API_READY_PODS" -gt 0 ] && [ "$ADMIN_READY_PODS" -gt 0 ]; then
-            echo "✅ 배포 성공: api=${API_READY_PODS}개, admin=${ADMIN_READY_PODS}개 Pod가 Running 상태입니다."
+          if [ "$API_READY_PODS" -gt 0 ]; then
+            echo "✅ 배포 성공: api=${API_READY_PODS}개 Pod가 Running 상태입니다."
           else
-            echo "❌ 배포 실패: api=${API_READY_PODS}개, admin=${ADMIN_READY_PODS}개 Pod가 Running 상태입니다."
+            echo "❌ 배포 실패: api=${API_READY_PODS}개 Pod가 Running 상태입니다."
             exit 1
           fi
           
