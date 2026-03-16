@@ -192,31 +192,7 @@ jobs:
           git log --oneline -1 2>/dev/null || echo "Git 로그 확인 실패"
           git status --short 2>/dev/null || echo "Git 상태 확인 실패"
           
-          # kubeconfig 설정 확인 및 수정
-          mkdir -p ~/.kube
-          
-          # K3s kubeconfig 파일 찾기 및 복사
-          if [ -f /etc/rancher/k3s/k3s.yaml ]; then
-            sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config
-            sudo chown ubuntu:ubuntu ~/.kube/config
-            # server 주소를 EC2 인스턴스의 내부 IP로 변경
-            SERVER_IP=$(hostname -I | awk '{print $1}')
-            sed -i "s|server: https://127.0.0.1:6443|server: https://${SERVER_IP}:6443|g" ~/.kube/config || \
-            sed -i "s|server: https://localhost:6443|server: https://${SERVER_IP}:6443|g" ~/.kube/config
-          elif [ -f /root/.kube/config ]; then
-            sudo cp /root/.kube/config ~/.kube/config
-            sudo chown ubuntu:ubuntu ~/.kube/config
-            SERVER_IP=$(hostname -I | awk '{print $1}')
-            sed -i "s|server: https://127.0.0.1:6443|server: https://${SERVER_IP}:6443|g" ~/.kube/config || \
-            sed -i "s|server: https://localhost:6443|server: https://${SERVER_IP}:6443|g" ~/.kube/config
-          else
-            echo "ERROR: kubeconfig 파일을 찾을 수 없습니다."
-            echo "K3s 클러스터가 설치되어 있는지 확인하세요."
-            exit 1
-          fi
-          
-          # KUBECONFIG 환경 변수 설정
-          export KUBECONFIG=~/.kube/config
+          KUBECTL="sudo k3s kubectl"
           
           # K3s 클러스터 상태 확인 (호스트 이름 해석 오류 무시)
           echo "=== K3s 클러스터 상태 확인 ==="
@@ -226,15 +202,14 @@ jobs:
           
           # kubectl이 작동하는지 확인
           echo "=== kubectl 클러스터 정보 확인 ==="
-          kubectl cluster-info --request-timeout=10s || {
-            echo "kubectl cluster-info 실패, kubeconfig 확인 중..."
-            cat ~/.kube/config | grep -A 2 "server:" || echo "kubeconfig 파일 내용 확인 실패"
+          ${KUBECTL} cluster-info --request-timeout=20s || {
+            echo "k3s kubectl cluster-info 실패"
             exit 1
           }
           
           # kubectl 버전 및 노드 확인
-          kubectl version --client --request-timeout=10s || echo "kubectl version 확인 실패"
-          kubectl get nodes --request-timeout=10s || {
+          ${KUBECTL} version --client --request-timeout=20s || echo "kubectl version 확인 실패"
+          ${KUBECTL} get nodes --request-timeout=20s || {
             echo "노드 확인 실패"
             exit 1
           }
@@ -253,16 +228,16 @@ jobs:
           # 백엔드 배포
           echo "=== 배포 시작 ==="
           if [ -f k8s/deployment.yaml ]; then
-            kubectl apply -f k8s/deployment.yaml --request-timeout=60s || {
+            ${KUBECTL} apply -f k8s/deployment.yaml --request-timeout=180s || {
               echo "배포 실패, 재시도 중..."
               sleep 5
-              kubectl apply -f k8s/deployment.yaml --request-timeout=60s || {
+              ${KUBECTL} apply -f k8s/deployment.yaml --request-timeout=180s || {
                 echo "ERROR: 배포 실패"
                 exit 1
               }
             }
             if [ -f k8s/smwr-backend-ingress.yaml ]; then
-              kubectl apply -f k8s/smwr-backend-ingress.yaml --request-timeout=60s || {
+              ${KUBECTL} apply -f k8s/smwr-backend-ingress.yaml --request-timeout=180s || {
                 echo "WARNING: backend ingress 적용 실패"
               }
             fi
@@ -273,9 +248,9 @@ jobs:
           
           echo "=== Pod 재시작 (최신 이미지 적용) ==="
           for DEPLOY in smw-app; do
-            kubectl rollout restart deployment/${DEPLOY} --request-timeout=60s || {
+            ${KUBECTL} rollout restart deployment/${DEPLOY} --request-timeout=180s || {
               echo "WARNING: ${DEPLOY} rollout restart 실패, Pod 직접 삭제 시도"
-              kubectl delete pod -l app=${DEPLOY} --request-timeout=60s || {
+              ${KUBECTL} delete pod -l app=${DEPLOY} --request-timeout=180s || {
                 echo "WARNING: ${DEPLOY} Pod 삭제 실패, 새 배포일 수 있음"
               }
             }
@@ -283,35 +258,35 @@ jobs:
           
           # 배포 상태 확인
           echo "=== 배포 상태 확인 ==="
-          kubectl get pods --request-timeout=30s || {
+          ${KUBECTL} get pods --request-timeout=30s || {
             echo "WARNING: Pod 상태 확인 실패"
           }
-          kubectl get services --request-timeout=30s || {
+          ${KUBECTL} get services --request-timeout=30s || {
             echo "WARNING: Service 상태 확인 실패"
           }
           
           echo "=== 배포 완료 대기 (최대 5분) ==="
           for DEPLOY in smw-app; do
-            kubectl rollout status deployment/${DEPLOY} --timeout=5m || {
+            ${KUBECTL} rollout status deployment/${DEPLOY} --timeout=5m || {
               echo "WARNING: ${DEPLOY} 배포 완료 대기 시간 초과"
               echo "현재 Pod 상태:"
-              kubectl get pods -l app=${DEPLOY} --request-timeout=30s || echo "Pod 상태 확인 실패"
+              ${KUBECTL} get pods -l app=${DEPLOY} --request-timeout=30s || echo "Pod 상태 확인 실패"
             }
           done
           
           # 최종 상태 확인
           echo "=== 최종 배포 상태 ==="
-          kubectl get pods -l app=smw-app -o wide --request-timeout=30s || echo "Pod 상태 확인 실패 (무시)"
+          ${KUBECTL} get pods -l app=smw-app -o wide --request-timeout=30s || echo "Pod 상태 확인 실패 (무시)"
           
           # Pod 상태 상세 확인
           echo "=== Pod 상세 상태 ==="
           for APP_LABEL in smw-app; do
-            POD_NAME=$(kubectl get pods -l app=${APP_LABEL} -o jsonpath='{.items[0].metadata.name}' --request-timeout=15s 2>/dev/null || echo "")
+            POD_NAME=$(${KUBECTL} get pods -l app=${APP_LABEL} -o jsonpath='{.items[0].metadata.name}' --request-timeout=15s 2>/dev/null || echo "")
             if [ -n "$POD_NAME" ] && [ "$POD_NAME" != "null" ]; then
               echo "Pod 이름: $POD_NAME"
-              kubectl describe pod $POD_NAME --request-timeout=30s 2>/dev/null | grep -A 10 "Status\|State\|Ready\|Image" || echo "Pod 상세 정보 확인 실패"
+              ${KUBECTL} describe pod $POD_NAME --request-timeout=30s 2>/dev/null | grep -A 10 "Status\|State\|Ready\|Image" || echo "Pod 상세 정보 확인 실패"
               echo "=== ${APP_LABEL} Pod 로그 확인 (최근 10줄) ==="
-              kubectl logs --tail=10 $POD_NAME --request-timeout=15s 2>/dev/null || echo "로그 확인 실패 (무시)"
+              ${KUBECTL} logs --tail=10 $POD_NAME --request-timeout=15s 2>/dev/null || echo "로그 확인 실패 (무시)"
             else
               echo "${APP_LABEL} Pod를 찾을 수 없습니다. (무시)"
             fi
@@ -319,7 +294,7 @@ jobs:
           
           # 배포 성공 여부 확인
           echo "=== 배포 성공 여부 확인 ==="
-          API_READY_PODS=$(kubectl get pods -l app=smw-app -o jsonpath='{.items[?(@.status.phase=="Running")].metadata.name}' --request-timeout=15s 2>/dev/null | wc -w)
+          API_READY_PODS=$(${KUBECTL} get pods -l app=smw-app -o jsonpath='{.items[?(@.status.phase=="Running")].metadata.name}' --request-timeout=15s 2>/dev/null | wc -w)
           if [ "$API_READY_PODS" -gt 0 ]; then
             echo "✅ 배포 성공: api=${API_READY_PODS}개 Pod가 Running 상태입니다."
           else
