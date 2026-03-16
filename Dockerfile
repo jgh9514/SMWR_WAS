@@ -11,21 +11,6 @@ COPY src ./src
 # Maven 빌드 실행 (의존성 다운로드 및 빌드)
 RUN mvn clean package -DskipTests
 
-<<<<<<< HEAD
-# 소스 코드 복사
-COPY smwr-common/src smwr-common/src
-COPY smwr-monster/src smwr-monster/src
-COPY smwr-admin/src smwr-admin/src
-COPY smwr-api/src smwr-api/src
-
-# smwr-api 빌드
-RUN mvn clean package -DskipTests -B -pl smwr-api -am
-
-# 빌드된 JAR 복사
-RUN mkdir -p /app/target \
-    && ls -l /app/smwr-api/target \
-    && cp /app/smwr-api/target/smwr-api-*.jar /app/target/app.jar
-=======
 # 빌드된 실행 가능한 JAR/WAR 파일을 찾아서 app.jar로 복사
 # 프로젝트가 WAR로 패키징되어 있으므로 WAR 파일도 확인
 # Spring Boot는 WAR 파일도 java -jar로 실행 가능
@@ -40,7 +25,6 @@ RUN cd /app/target && \
         ls -la /app/target && \
         exit 1; \
     fi
->>>>>>> parent of 93cd3b7 (개편)
 
 # Stage 2: 실행 환경
 FROM eclipse-temurin:8-jre
