@@ -84,6 +84,10 @@ public class MybatisInterceptor implements Interceptor {
             }
             return invocation.proceed();
         }
+        // RtaMapper(실시간대전)는 점령전(siege)과 무관 - siege_view_scope·몬스터ID 등 점령전 전용 로직 스킵
+        if (ms.getId().contains("RtaMapper")) {
+            return invocation.proceed();
+        }
         
         Map<String, Object> userInfo = SessionThread.SESSION_USER_INFO.get();
         if (log.isDebugEnabled()) {
@@ -205,6 +209,7 @@ public class MybatisInterceptor implements Interceptor {
     private void sanitizeMonsterIdCollections(Map<String, Object> parameters) {
         String[] keys = {"monster_id1_ids", "monster_id2_ids", "monster_id3_ids"};
         for (String key : keys) {
+            if (!parameters.containsKey(key)) continue;
             Object val = parameters.get(key);
             if (!(val instanceof List)) continue;
             List<?> list = (List<?>) val;

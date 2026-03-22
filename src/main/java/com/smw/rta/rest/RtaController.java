@@ -1,10 +1,13 @@
 package com.smw.rta.rest;
 
 import com.smw.rta.service.RtaService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
+import static org.springframework.web.bind.annotation.RequestMethod.*;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -13,6 +16,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.HashMap;
 
+@Slf4j
 @Tag(name = "RTA", description = "RTA(Real-Time Arena) 관련 API")
 @RestController
 @RequestMapping("/api/v1/rta")
@@ -22,16 +26,26 @@ public class RtaController {
     private RtaService rtaService;
 
     @Operation(summary = "RTA 매치 목록 조회", description = "RTA 매치 목록을 페이지네이션하여 조회합니다.")
-    @PostMapping("/matches")
-    public ResponseEntity<List<Map<String, Object>>> getRtaMatches(@RequestBody Map<String, Object> param) {
+    @RequestMapping(value = "/matches", method = { GET, POST })
+    public ResponseEntity<List<Map<String, Object>>> getRtaMatches(
+            @RequestBody(required = false) Map<String, Object> param,
+            @RequestParam(required = false) Integer limit,
+            @RequestParam(required = false) Integer offset) {
         
         try {
-            int limit = param.get("limit") != null ? Integer.parseInt(param.get("limit").toString()) : 50;
-            int offset = param.get("offset") != null ? Integer.parseInt(param.get("offset").toString()) : 0;
+            int l = 50;
+            int o = 0;
+            if (param != null) {
+                if (param.get("limit") != null) l = Integer.parseInt(param.get("limit").toString());
+                if (param.get("offset") != null) o = Integer.parseInt(param.get("offset").toString());
+            }
+            if (limit != null) l = limit;
+            if (offset != null) o = offset;
             
-            List<Map<String, Object>> matches = rtaService.getRtaMatches(limit, offset);
+            List<Map<String, Object>> matches = rtaService.getRtaMatches(l, o);
             return ResponseEntity.ok(matches);
         } catch (Exception e) {
+            log.error("RTA matches 조회 실패", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
@@ -49,12 +63,13 @@ public class RtaController {
             List<Map<String, Object>> matches = rtaService.getPlayerRtaMatches(wizardId, limit, offset);
             return ResponseEntity.ok(matches);
         } catch (Exception e) {
+            log.error("RTA player matches 조회 실패 wizardId={}", wizardId, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
 
     @Operation(summary = "RTA 매치 수 조회", description = "전체 RTA 매치의 총 개수를 조회합니다.")
-    @PostMapping("/matches/count")
+    @RequestMapping(value = "/matches/count", method = { GET, POST })
     public ResponseEntity<Map<String, Object>> getRtaMatchesCount() {
         
         try {
@@ -63,6 +78,7 @@ public class RtaController {
             response.put("count", count);
             return ResponseEntity.ok(response);
         } catch (Exception e) {
+            log.error("RTA matches count 조회 실패", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
@@ -75,6 +91,7 @@ public class RtaController {
             Object stats = rtaService.getRtaStats();
             return ResponseEntity.ok(stats);
         } catch (Exception e) {
+            log.error("RTA stats 조회 실패", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
@@ -87,6 +104,7 @@ public class RtaController {
             Object testData = rtaService.testRtaData();
             return ResponseEntity.ok(testData);
         } catch (Exception e) {
+            log.error("RTA test data 조회 실패", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
@@ -102,6 +120,7 @@ public class RtaController {
             Map<String, Object> response = rtaService.getRtaMonsterStats(limit, offset);
             return ResponseEntity.ok(response);
         } catch (Exception e) {
+            log.error("RTA monster stats 조회 실패", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
@@ -120,6 +139,7 @@ public class RtaController {
             Map<String, Object> response = rtaService.getRtaMonsterDetail(monsterId);
             return ResponseEntity.ok(response);
         } catch (Exception e) {
+            log.error("RTA monster detail 조회 실패 param={}", param, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
