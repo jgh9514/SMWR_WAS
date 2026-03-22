@@ -8,10 +8,11 @@ spring:
   lifecycle:
     timeout-per-shutdown-phase: 20s
   datasource:
-    driver-class-name: org.postgresql.Driver
+    # log4jdbc 사용 시 DriverSpy 필요 (jdbc:log4jdbc:postgresql://... 형식)
+    driver-class-name: net.sf.log4jdbc.sql.jdbcapi.DriverSpy
     # 쿠버네티스 환경에서는 시크릿에서 값을 가져옵니다 (deployment.yaml 참조)
     # 로컬 개발 환경에서는 환경 변수 또는 기본값을 사용합니다
-    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/dummy_db}
+    url: ${SPRING_DATASOURCE_URL:jdbc:log4jdbc:postgresql://localhost:5432/dummy_db}
     hikari:
       username: ${SPRING_DATASOURCE_USERNAME:dummy_user}
       password: ${SPRING_DATASOURCE_PASSWORD:dummy_password}
