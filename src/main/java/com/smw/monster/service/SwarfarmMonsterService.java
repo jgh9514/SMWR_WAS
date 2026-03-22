@@ -1,21 +1,14 @@
 package com.smw.monster.service;
 
 import java.util.Map;
-import java.util.function.Consumer;
 
-public interface SwarfarmMonsterService {
+public interface SwarfarmMonsterService extends SwarfarmSyncService {
     
     /**
      * Swarfarm API에서 모든 몬스터 데이터를 동기화
      * @return 동기화된 몬스터 수
      */
     int syncAllMonsters();
-    
-    /**
-     * 로그 콜백 설정 (배치 실행 시 상세 로그 수집용)
-     * @param logCallback 로그 콜백 함수
-     */
-    void setLogCallback(Consumer<String> logCallback);
     
     /**
      * 특정 페이지의 몬스터 데이터를 가져와서 저장

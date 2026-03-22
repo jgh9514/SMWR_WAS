@@ -16,7 +16,6 @@ import java.util.HashMap;
 @Tag(name = "RTA", description = "RTA(Real-Time Arena) 관련 API")
 @RestController
 @RequestMapping("/api/v1/rta")
-@CrossOrigin(origins = "*")
 public class RtaController {
 
     @Autowired

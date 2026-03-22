@@ -17,6 +17,15 @@ public interface summonerswarService {
 	
 	public Map<String, ?> selectMonsterDetailList(Map<String, Object> param);
 	
+	/** 몬스터 상세 - 기본 정보만 (enemyData) */
+	public Map<String, ?> selectMonsterDetailBasic(Map<String, Object> param);
+	
+	/** 몬스터 상세 - 추천 공덱만 */
+	public Map<String, ?> selectMonsterDetailRecommended(Map<String, Object> param);
+	
+	/** 몬스터 상세 - 공성률 이력만 */
+	public Map<String, ?> selectMonsterDetailHistory(Map<String, Object> param);
+	
 	public int selectMonsterDetailTeamListCount(Map<String, Object> param);
 	
 	public int selectRecommendedAttackDeckListCount(Map<String, Object> param);
@@ -59,6 +68,8 @@ public interface summonerswarService {
 	public int updateRecommendedAttackDeckStats(Map<String, Object> param);
 	
 	public Map<String, ?> selectCurrentSeason(Map<String, Object> param);
+
+	public List<Map<String, ?>> selectSeasonList(Map<String, Object> param);
 	
 	public int deleteGuildSiegeBattleDeckByMatchId(String matchId);
 	

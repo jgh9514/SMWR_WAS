@@ -1,5 +1,6 @@
 package com.smw.monster.mapper;
 
+import java.util.List;
 import java.util.Map;
 
 import org.apache.ibatis.annotations.Mapper;
@@ -17,5 +18,10 @@ public interface SwarfarmSkillEffectMapper {
      * Effect ID로 스킬 이펙트 존재 여부 확인
      */
     Integer countByEffectId(@Param("effect_id") Integer effectId);
+
+    /**
+     * 전체 Effect ID 조회
+     */
+    List<Integer> selectAllEffectIds();
 }
 

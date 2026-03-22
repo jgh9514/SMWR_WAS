@@ -2,7 +2,7 @@ package com.smw.monster.service;
 
 import java.util.Map;
 
-public interface SwarfarmDungeonService {
+public interface SwarfarmDungeonService extends SwarfarmSyncService {
     
     /**
      * Swarfarm API에서 모든 던전 데이터를 동기화

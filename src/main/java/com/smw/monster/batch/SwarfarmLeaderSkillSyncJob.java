@@ -13,6 +13,7 @@ public class SwarfarmLeaderSkillSyncJob extends BaseBatchJob {
     @Override
     protected void executeBatch(JobExecutionContext context) throws Exception {
         SwarfarmLeaderSkillService swarfarmLeaderSkillService = applicationContext.getBean(SwarfarmLeaderSkillService.class);
+        attachServiceLogCallback(swarfarmLeaderSkillService);
         
         addLog("===== Swarfarm 리더 스킬 동기화 시작 =====");
         addLog("API 조회 시작...");

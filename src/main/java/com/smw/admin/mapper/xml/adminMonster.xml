@@ -9,6 +9,8 @@
 			monster_elemental,
 			kr_name,
 			un_name,
+			un_name_status,
+			usg_yn,
 			star_type,
 			star,
 			arousal_type,
@@ -37,6 +39,12 @@
 		</if>
 		<if test="arousal_type != null and arousal_type != ''">
 			AND arousal_type = #{arousal_type}
+		</if>
+		<if test="un_name_status != null and un_name_status != ''">
+			AND un_name_status = #{un_name_status}
+		</if>
+		<if test="usg_yn != null and usg_yn != ''">
+			AND usg_yn = #{usg_yn}
 		</if>
 		ORDER BY 
 			<choose>
@@ -90,6 +98,12 @@
 		<if test="arousal_type != null and arousal_type != ''">
 			AND arousal_type = #{arousal_type}
 		</if>
+		<if test="un_name_status != null and un_name_status != ''">
+			AND un_name_status = #{un_name_status}
+		</if>
+		<if test="usg_yn != null and usg_yn != ''">
+			AND usg_yn = #{usg_yn}
+		</if>
 	</select>
 
 	<!-- 몬스터 상세 정보 조회 -->
@@ -99,6 +113,8 @@
 			monster_elemental,
 			kr_name,
 			un_name,
+			un_name_status,
+			usg_yn,
 			star_type,
 			star,
 			arousal_type,
@@ -125,6 +141,9 @@
 			<if test="un_name != null">
 				un_name = #{un_name},
 			</if>
+			<if test="un_name_status != null">
+				un_name_status = #{un_name_status},
+			</if>
 			<if test="star_type != null">
 				star_type = #{star_type},
 			</if>
@@ -139,6 +158,9 @@
 			</if>
 			<if test="leader_id != null">
 				leader_id = #{leader_id},
+			</if>
+			<if test="usg_yn != null">
+				usg_yn = #{usg_yn},
 			</if>
 			upt_user_id = #{upt_user_id},
 			upt_date = CURRENT_TIMESTAMP

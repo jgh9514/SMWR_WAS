@@ -3,9 +3,9 @@ package com.cf.login.rest;
 import java.util.HashMap;
 import java.util.Map;
 
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
-import javax.servlet.http.HttpSession;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpSession;
 
 import com.sysconf.constants.Constant;
 import com.sysconf.util.CookieUtil;
@@ -93,7 +93,7 @@ public class LoginController {
 	public ResponseEntity<?> autoLoginCheck(HttpServletRequest request, HttpServletResponse response) throws Exception {
 		Map<String, Object> result = new HashMap<>();
 
-		// SessionInterceptor가 이미 만든 userInfoRaw(원본)를 재사용해서 중복 토큰/DB 조회를 피한다
+		// AuthSessionInterceptor가 이미 만든 userInfoRaw(원본)를 재사용해서 중복 토큰/DB 조회를 피한다
 		Map<String, Object> userInfo = null;
 		Object raw = request.getAttribute("userInfoRaw");
 		if (raw instanceof Map) {

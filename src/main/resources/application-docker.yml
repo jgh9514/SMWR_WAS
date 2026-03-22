@@ -7,11 +7,13 @@ spring:
   batch:
     job:
       enabled: true
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
   datasource:
-    driver-class-name: net.sf.log4jdbc.sql.jdbcapi.DriverSpy
+    driver-class-name: org.postgresql.Driver
     # 쿠버네티스 환경에서는 시크릿에서 값을 가져옵니다 (deployment.yaml 참조)
     # 로컬 개발 환경에서는 환경 변수 또는 기본값을 사용합니다
-    url: ${SPRING_DATASOURCE_URL:jdbc:log4jdbc:postgresql://localhost:5432/dummy_db}
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/dummy_db}
     hikari:
       username: ${SPRING_DATASOURCE_USERNAME:dummy_user}
       password: ${SPRING_DATASOURCE_PASSWORD:dummy_password}
@@ -20,7 +22,7 @@ spring:
       idle-timeout: 30000
       max-lifetime: 1800000
       connection-timeout: 30000
-      leak-detection-threshold: 60000 # 커넥션 누수 감지 (60초)
+      leak-detection-threshold: ${SPRING_DATASOURCE_HIKARI_LEAK_DETECTION_THRESHOLD:0}
   servlet:
     multipart.max-file-size: 20MB
     max-request-size: 25MB
@@ -53,12 +55,9 @@ spring:
     properties:
       hibernate:
         show_sql: false
-        format_sql: true
-        use_sql_comments: true
-        type: trace
-        dialect: org.hibernate.dialect.PostgreSQL95Dialect
-        log:
-          use_sql_comments: true
+        format_sql: false
+        use_sql_comments: false
+        dialect: org.hibernate.dialect.PostgreSQLDialect
 
 mybatis:
   type-aliases-package: com.summonerswar
@@ -67,6 +66,11 @@ mybatis:
 
 server:
   port: 8080
+  shutdown: graceful
+  compression:
+    enabled: true
+    min-response-size: 1024
+    mime-types: application/json,application/xml,text/html,text/xml,text/plain,text/css,application/javascript
   tomcat:
     min-spare-threads: 40
   servlet:
@@ -88,7 +92,7 @@ logging:
     org.hibernate.SQL: WARN
     org.hibernate.type.descriptor.sql.BasicBinder: WARN
     jdbc.sqlonly: OFF
-    jdbc.sqltiming: DEBUG
+    jdbc.sqltiming: WARN
     jdbc.resultsettable: OFF
     # MyBatis "==> Preparing/Parameters/Total" 로그 억제
     com.smw.guild.mapper: INFO
@@ -98,19 +102,28 @@ logging:
     org.apache.catalina: WARN
     org.apache.tomcat: WARN
 
-# Actuator 설정 (Health Check용만)
+# Actuator 설정
 management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,prometheus,metrics
       base-path: /actuator
   endpoint:
     health:
-      show-details: always
+      show-details: when_authorized
   health:
     mail:
       enabled: false  # 메일 헬스 체크 비활성화 (메일 인증 실패로 인한 DOWN 방지)
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      percentiles-histogram:
+        smw.api.request.duration: true
+        smw.swarfarm.client.duration: true
+        smw.batch.execution.duration: true
+        smw.swarfarm.sync.duration: true
 
 smw:
   service-domain: localhost, localhost:3000, 13.236.20.39:32282, jgh9514.com, www.jgh9514.com
@@ -124,10 +137,31 @@ smw:
     window-seconds: 60
   cache:
     provider: caffeine
+    short-lived:
+      maximum-size: ${SMW_SHORT_CACHE_MAXIMUM_SIZE:500}
+      expire-after-write-minutes: ${SMW_SHORT_CACHE_EXPIRE_AFTER_WRITE_MINUTES:5}
+  ops:
+    thresholds:
+      heap-warning-percent: ${SMW_OPS_HEAP_WARNING_PERCENT:75}
+      heap-critical-percent: ${SMW_OPS_HEAP_CRITICAL_PERCENT:90}
+      process-cpu-warning-percent: ${SMW_OPS_PROCESS_CPU_WARNING_PERCENT:70}
+      process-cpu-critical-percent: ${SMW_OPS_PROCESS_CPU_CRITICAL_PERCENT:90}
+      system-cpu-warning-percent: ${SMW_OPS_SYSTEM_CPU_WARNING_PERCENT:80}
+      system-cpu-critical-percent: ${SMW_OPS_SYSTEM_CPU_CRITICAL_PERCENT:95}
+      thread-warning-count: ${SMW_OPS_THREAD_WARNING_COUNT:250}
+      thread-critical-count: ${SMW_OPS_THREAD_CRITICAL_COUNT:400}
+      gc-pause-warning-ms: ${SMW_OPS_GC_PAUSE_WARNING_MS:500}
+      gc-pause-critical-ms: ${SMW_OPS_GC_PAUSE_CRITICAL_MS:1500}
+      api-error-rate-warning-percent: ${SMW_OPS_API_ERROR_RATE_WARNING_PERCENT:3}
+      api-error-rate-critical-percent: ${SMW_OPS_API_ERROR_RATE_CRITICAL_PERCENT:10}
+      api-slow-rate-warning-percent: ${SMW_OPS_API_SLOW_RATE_WARNING_PERCENT:5}
+      api-slow-rate-critical-percent: ${SMW_OPS_API_SLOW_RATE_CRITICAL_PERCENT:15}
+  swarfarm:
+    image-download-concurrency: ${SMW_SWARFARM_IMAGE_DOWNLOAD_CONCURRENCY:4}
   mybatis:
     log:
       # "파라미터까지 합쳐진 완성된 SQL" 로그 (MybatisInterceptor DEBUG에서 출력)
-      inline-sql: ${SMW_MYBATIS_INLINE_SQL:true}
+      inline-sql: ${SMW_MYBATIS_INLINE_SQL:false}
       # 조회 쿼리 결과(total row count) 로그는 기본 비활성화
       result-total: ${SMW_MYBATIS_RESULT_TOTAL:false}
 

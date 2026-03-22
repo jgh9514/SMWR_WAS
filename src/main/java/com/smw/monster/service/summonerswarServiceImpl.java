@@ -31,7 +31,27 @@ public class summonerswarServiceImpl implements summonerswarService {
 	@Override
 	public List<Map<String, ?>> selectEnemyTeamList(Map<String, Object> param) {
 		expandMonsterIdsToIncludeCollaborations(param);
+		ensurePagingOffset(param);
 		return swMapper.selectEnemyTeamList(param);
+	}
+
+	/** paging/offset이 숫자가 아니면 기본값 설정 (NumberFormatException 방지) */
+	private void ensurePagingOffset(Map<String, Object> param) {
+		param.put("paging", parsePositiveInt(param.get("paging"), 10));
+		param.put("offset", parsePositiveInt(param.get("offset"), 1));
+	}
+	private int parsePositiveInt(Object v, int defaultVal) {
+		if (v == null) return defaultVal;
+		if (v instanceof Number) {
+			int n = ((Number) v).intValue();
+			return n >= 1 ? n : defaultVal;
+		}
+		try {
+			int n = Integer.parseInt(v.toString().trim());
+			return n >= 1 ? n : defaultVal;
+		} catch (NumberFormatException e) {
+			return defaultVal;
+		}
 	}
 	
 	/**
@@ -216,6 +236,37 @@ public class summonerswarServiceImpl implements summonerswarService {
 		
 		return map;
 	}
+
+	@Override
+	public Map<String, ?> selectMonsterDetailBasic(Map<String, Object> param) {
+		expandMonsterIdsToIncludeCollaborations(param);
+		List<Map<String, ?>> enemyDataList = swMapper.selectMonsterDetailList(param);
+		Map<String, Object> map = new HashMap<>();
+		map.put("enemyData", enemyDataList);
+		return map;
+	}
+
+	@Override
+	public Map<String, ?> selectMonsterDetailRecommended(Map<String, Object> param) {
+		expandMonsterIdsToIncludeCollaborations(param);
+		List<Map<String, ?>> recommendedList = swMapper.selectRecommendedAttackDeckList(param);
+		int recommendedTotalCount = swMapper.selectRecommendedAttackDeckListCount(param);
+		Map<String, Object> map = new HashMap<>();
+		map.put("recommendedList", recommendedList);
+		map.put("recommendedTotalCount", recommendedTotalCount);
+		return map;
+	}
+
+	@Override
+	public Map<String, ?> selectMonsterDetailHistory(Map<String, Object> param) {
+		expandMonsterIdsToIncludeCollaborations(param);
+		List<Map<String, ?>> historyList = swMapper.selectMonsterDetailTeamList(param);
+		int historyTotalCount = swMapper.selectMonsterDetailTeamListCount(param);
+		Map<String, Object> map = new HashMap<>();
+		map.put("historyList", historyList);
+		map.put("historyTotalCount", historyTotalCount);
+		return map;
+	}
 	
 	@Override
 	public int selectMonsterDetailTeamListCount(Map<String, Object> param) {
@@ -289,13 +340,13 @@ public class summonerswarServiceImpl implements summonerswarService {
 	}
 	
 	@Override
-	@Cacheable(cacheNames = "guildSiegeHistory", keyGenerator = "stableMapKeyGenerator")
+	@Cacheable(cacheNames = "guildSiegeHistory", cacheManager = "shortLivedCacheManager", keyGenerator = "stableMapKeyGenerator")
 	public List<Map<String, ?>> selectGuildSiegeHistorySimple(Map<String, Object> param) {
 		return swMapper.selectGuildSiegeHistorySimple(param);
 	}
 	
 	@Override
-	@Cacheable(cacheNames = "guildSiegeHistoryCount", keyGenerator = "stableMapKeyGenerator")
+	@Cacheable(cacheNames = "guildSiegeHistoryCount", cacheManager = "shortLivedCacheManager", keyGenerator = "stableMapKeyGenerator")
 	public int selectGuildSiegeHistoryCount(Map<String, Object> param) {
 		return swMapper.selectGuildSiegeHistoryCount(param);
 	}
@@ -312,7 +363,16 @@ public class summonerswarServiceImpl implements summonerswarService {
 	
 	@Override
 	public Map<String, ?> selectCurrentSeason(Map<String, Object> param) {
-		return swMapper.selectCurrentSeason(param);
+		try {
+			return swMapper.selectCurrentSeason(param);
+		} catch (org.springframework.dao.EmptyResultDataAccessException e) {
+			return java.util.Collections.emptyMap();
+		}
+	}
+
+	@Override
+	public List<Map<String, ?>> selectSeasonList(Map<String, Object> param) {
+		return swMapper.selectSeasonList(param);
 	}
 	
 	@Override
@@ -331,6 +391,7 @@ public class summonerswarServiceImpl implements summonerswarService {
 	}
 	
 	@Override
+	@Cacheable(cacheNames = "monsterInfo", key = "#monsterId")
 	public Map<String, ?> selectMonsterInfo(String monsterId) {
 		// 몬스터 기본 정보 조회
 		Map<String, ?> monsterInfo = swMapper.selectMonsterInfo(monsterId);

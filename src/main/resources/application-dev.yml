@@ -1,19 +1,24 @@
 spring:
   datasource:
+    driver-class-name: net.sf.log4jdbc.sql.jdbcapi.DriverSpy
     url: ${SPRING_DATASOURCE_URL:jdbc:log4jdbc:postgresql://13.236.20.39:30432/summonerswar}
     hikari:
+      leak-detection-threshold: 60000
       username: ${SPRING_DATASOURCE_USERNAME:postgres}
-      password: ${SPRING_DATASOURCE_PASSWORD:@@jgh15963}
+      password: ${SPRING_DATASOURCE_PASSWORD:}
   mail:
-    enabled: true
-    username: jgh9514@gmail.com
-    password: 'evelmayasqjjymwh'
-    from: jgh9514@gmail.com
+    enabled: ${SPRING_MAIL_ENABLED:false}
+    username: ${SPRING_MAIL_USERNAME:}
+    password: ${SPRING_MAIL_PASSWORD:}
+    from: ${SPRING_MAIL_FROM:noreply@example.com}
     properties:
       mail:
         debug: true
 
 smw:
+  security:
+    jwt-signing-secret: ${SMW_JWT_SIGNING_SECRET}
+    jwt-encryption-key: ${SMW_JWT_ENCRYPTION_KEY}
   service-domain: localhost, localhost:3000, jgh9514.github.io
   front-url: http://localhost:3000
   server-url: http://localhost:8080

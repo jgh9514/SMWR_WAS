@@ -76,6 +76,8 @@ public interface summonerswarMapper {
 	public int deleteDeckDetail(Map<String, Object> param);
 	
 	public Map<String, ?> selectCurrentSeason(Map<String, Object> param);
+
+	public List<Map<String, ?>> selectSeasonList(Map<String, Object> param);
 	
 	public int deleteGuildSiegeBattleDeckByMatchId(@Param("matchId") String matchId);
 	

@@ -3,28 +3,34 @@ package com.sysconf.config;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestTemplate;
-import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.PathMatchConfigurer;
 import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
 import org.springframework.web.servlet.config.annotation.ViewControllerRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
-import com.sysconf.interceptor.AuthInterceptor;
+import com.sysconf.interceptor.AdminAuthInterceptor;
 import com.sysconf.interceptor.ApiLoggingInterceptor;
-import com.sysconf.interceptor.SessionInterceptor;
+import com.sysconf.interceptor.AuthSessionInterceptor;
 
 @Configuration
 public class WebConfig implements WebMvcConfigurer {
+
+	@Value("${smw.http-client.connect-timeout-ms:10000}")
+	private long httpConnectTimeoutMs;
+
+	@Value("${smw.http-client.read-timeout-ms:10000}")
+	private long httpReadTimeoutMs;
 	
 	@Autowired
-	SessionInterceptor sessionInterceptor;
-	
+	AuthSessionInterceptor authSessionInterceptor;
+
 	@Autowired
-	AuthInterceptor authInterceptor;
-	
+	AdminAuthInterceptor adminAuthInterceptor;
+
 	@Autowired
 	ApiLoggingInterceptor apiLoggingInterceptor;
 
@@ -42,11 +48,8 @@ public class WebConfig implements WebMvcConfigurer {
 //		configurer.setUseSuffixPatternMatch(false);
 	}
 
-	@Override
-	public void addCorsMappings(CorsRegistry registry) {
-		registry.addMapping("/api/v1/**")
-                .allowCredentials(true);
-	}
+	// CORS는 SimpleCorsFilter에서 smw.service-domain 기준으로 처리 (WebConfig CORS 제거 시 *+credentials 충돌 방지)
+	// @Override addCorsMappings 제거
 
 	@Override
 	public void addResourceHandlers(ResourceHandlerRegistry registry) {
@@ -59,28 +62,24 @@ public class WebConfig implements WebMvcConfigurer {
 	public void addInterceptors(InterceptorRegistry registry) {
 		WebMvcConfigurer.super.addInterceptors(registry);
 		
-		// 세션(토큰) 정보 주입: 가능한 경우 항상 SessionThread에 사용자 정보를 주입 (차단 없음)
-		registry.addInterceptor(sessionInterceptor)
+		// 일반용: 세션 주입 + @RequireLogin 분기
+		registry.addInterceptor(authSessionInterceptor)
 		        .addPathPatterns("/api/v1/**");
-		
+
+		// 관리자용: @RequireAdmin 분기 (ROLE_ADMIN 권한 체크)
+		registry.addInterceptor(adminAuthInterceptor)
+		        .addPathPatterns("/api/v1/**");
+
 		// API 로깅 인터셉터: 모든 API에 적용 (인증 필요 없이 로깅만 수행)
 		registry.addInterceptor(apiLoggingInterceptor)
 		        .addPathPatterns("/api/v1/**");
-		
-		// 인증 인터셉터: 인증이 필요한 경로에만 적용
-		registry.addInterceptor(authInterceptor)
-		        .addPathPatterns(
-		        		"/api/v1/admin/**",      // 관리자 영역
-		        		"/api/v1/siege/**",      // 점령전 관련
-		        		"/api/v1/summonerswar/account-summary/**" // SWEX 계정 요약(업로드/조회)
-		        );
 	}
 	
 	@Bean
 	public RestTemplate restTemplate() {
 		SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
-		factory.setConnectTimeout(10000);
-		factory.setReadTimeout(10000);
+		factory.setConnectTimeout((int) httpConnectTimeoutMs);
+		factory.setReadTimeout((int) httpReadTimeoutMs);
 		return new RestTemplate(factory);
 	}
 

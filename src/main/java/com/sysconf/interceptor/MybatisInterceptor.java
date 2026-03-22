@@ -1,8 +1,6 @@
 package com.sysconf.interceptor;
 
-import java.math.BigDecimal;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
@@ -10,7 +8,6 @@ import org.apache.ibatis.executor.Executor;
 import org.apache.ibatis.mapping.BoundSql;
 import org.apache.ibatis.mapping.MappedStatement;
 import org.apache.ibatis.mapping.ParameterMapping;
-import org.apache.ibatis.mapping.SqlSource;
 import org.apache.ibatis.plugin.Interceptor;
 import org.apache.ibatis.plugin.Intercepts;
 import org.apache.ibatis.plugin.Invocation;
@@ -19,8 +16,11 @@ import org.apache.ibatis.reflection.MetaObject;
 import org.apache.ibatis.reflection.SystemMetaObject;
 import org.apache.ibatis.session.ResultHandler;
 import org.apache.ibatis.session.RowBounds;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+
+import com.sysconf.cache.CurrentSeasonCache;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -59,6 +59,9 @@ public class MybatisInterceptor implements Interceptor {
 	@Value("${smw.mybatis.log.result-total:false}")
 	private boolean resultTotalLogEnabled;
 
+	@Autowired(required = false)
+	private CurrentSeasonCache currentSeasonCache;
+
     @SuppressWarnings("unchecked")
 	public Object intercept(Invocation invocation) throws Throwable {
         // 호출 SQL 정보
@@ -71,6 +74,14 @@ public class MybatisInterceptor implements Interceptor {
         
         // selectUserInfo는 MybatisInterceptor를 거치지 않음 (userInfo 조회 시 SessionThread에 정보가 없을 수 있음)
         if (ms.getId().contains("selectUserInfo")) {
+            return invocation.proceed();
+        }
+        // LogMapper(API 실행 로그)는 siege_view_scope 등 불필요한 파라미터 주입 제외 (NumberFormatException 방지)
+        if (ms.getId().contains("LogMapper")) {
+            if (parameter instanceof Map) {
+                Map<String, Object> params = (Map<String, Object>) parameter;
+                sanitizeNumericParams(params);
+            }
             return invocation.proceed();
         }
         
@@ -108,6 +119,26 @@ public class MybatisInterceptor implements Interceptor {
             if (shouldInject(parameters, "global_dblink_nm")) {
                 parameters.put("global_dblink_nm", globalDblinkNm);
             }
+            // siege_defense_deck_stats 조회 시 guild_siege_season 서브쿼리 제거 (조회 성능 개선)
+            if (currentSeasonCache != null && ms.getId().contains("summonerswarMapper")
+                    && shouldInject(parameters, "current_season_yyyymm")) {
+                Object scope = parameters.get("siege_view_scope");
+                if (scope == null || !"A".equals(scope.toString())) {
+                    parameters.put("current_season_yyyymm", currentSeasonCache.getCurrentSeasonYyyymm());
+                }
+            }
+            // NumberFormatException 방지: 숫자 파라미터·몬스터ID 컬렉션 검증
+            sanitizeNumericParams(parameters);
+            sanitizeMonsterIdCollections(parameters);
+            // ParamMap 등 래핑된 Map 내부도 검증
+            for (Object v : parameters.values()) {
+                if (v instanceof Map) {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> nested = (Map<String, Object>) v;
+                    sanitizeNumericParams(nested);
+                    sanitizeMonsterIdCollections(nested);
+                }
+            }
             
             Object postSiegeViewScope = parameters.containsKey("siege_view_scope") ? parameters.get("siege_view_scope") : null;
             if (log.isDebugEnabled()) {
@@ -117,10 +148,7 @@ public class MybatisInterceptor implements Interceptor {
 
         long startedAt = System.currentTimeMillis();
 
-        // 원래 실행할 SQL 가져오기
         BoundSql boundSql = ms.getBoundSql(parameter);
-        String originalSQL = boundSql.getSql();
-        
         if (inlineSqlLogEnabled && log.isDebugEnabled()) {
         	try {
         		String inlined = buildInlinedSql(ms, boundSql, parameter);
@@ -129,127 +157,6 @@ public class MybatisInterceptor implements Interceptor {
         		// 인라인 SQL 로깅은 디버깅용이므로 실패해도 흐름에 영향 주지 않음
         		log.debug("SQL(inlined) build failed. mapperId={}", ms.getId(), e);
         	}
-        }
-
-        // 인터셉터 거쳤는지 확인
-        if (originalSQL.contains("COMMON_PAGE_SEARCH")) {
-            Object r = invocation.proceed();
-            logResultTotalIfNeeded(invocation, ms, startedAt, r);
-            return r;
-        }
-
-        if (parameter instanceof Map) {
-            Map<String, Object> parameterMap = (Map<String, Object>) parameter;
-            if (parameterMap == null || !parameterMap.containsKey("COMMON_SEARCH_PAGE_INFO")) {
-                return invocation.proceed();
-            } else if ("N".equals(parameterMap.get("COMMON_AUTO_CONDITION"))) {
-                return invocation.proceed();
-            }
-
-            parameterMap.replaceAll((key, value) -> value != null ? String.valueOf(value).replaceAll("[';\"\\\\/#/*]", "") : null);
-
-            List<Map<String, Object>> pageSearchList = PageSearchResult.PAGE_ITEM_LIST.get(parameterMap.get("COMMON_SEARCH_PAGE_INFO"));
-
-            StringBuilder wrapperSQL = new StringBuilder();
-            wrapperSQL
-                    .append("SELECT * ")
-                    .append("  FROM ( ")
-                    .append(originalSQL)
-                    .append("  ) COMMON_PAGE_SEARCH ")
-                    .append(" WHERE 1 = 1 ");
-
-            String[] EQUAL_ELEMENT = {"WKPL", "DEPT", "YEAR", "USER", "SELECT", "CMPY", "LOC", "CALENDAR"};
-            List<String> EQUAL_ELEMENT_LIST = new ArrayList<>(Arrays.asList(EQUAL_ELEMENT));
-
-            String[] PRCS_ELEMENT = {"PRCS"};
-            List<String> PRCS_ELEMENT_LIST = new ArrayList<>(Arrays.asList(PRCS_ELEMENT));
-
-            // like 조건?�로 ?�어�?Element
-            String[] LIKE_ELEMENT = {"TEXT"};
-            List<String> LIKE_ELEMENT_LIST = new ArrayList<>(Arrays.asList(LIKE_ELEMENT));
-
-            // calendar 조건?�로 ?�어�?Element
-//            String[] BETWEEN_ELEMENT = {"calendar"};
-//            List<String> BETWEEN_ELEMENT_LIST = new ArrayList<>(Arrays.asList(BETWEEN_ELEMENT));
-
-
-            if (pageSearchList != null) {
-                for (Map<String, Object> pageSearchParam : pageSearchList) {
-                    String ELEMENT_TYPE = (String) pageSearchParam.get("element_cd");
-
-                    String BIND_COLUMN_NM = (String) pageSearchParam.get("bind_column_nm");
-                    String BIND_COLUMN_VALUE = null;
-                    if (parameterMap.get(BIND_COLUMN_NM) != null) {
-                        BIND_COLUMN_VALUE = parameterMap.get(BIND_COLUMN_NM).toString();
-                    }
-
-    //                String BIND_CALENDAR_S_COLUMN_NM = (String) pageSearchParam.get("calendar_from_model_id");
-    //                String BIND_CALENDAR_S_COLUMN_VALUE = parameterMap.get(BIND_CALENDAR_S_COLUMN_NM);
-    //
-    //                String BIND_CALENDAR_E_COLUMN_NM = (String) pageSearchParam.get("calendar_to_model_id");
-    //                String BIND_CALENDAR_E_COLUMN_VALUE = parameterMap.get(BIND_CALENDAR_E_COLUMN_NM);
-
-                    if (EQUAL_ELEMENT_LIST.contains(ELEMENT_TYPE) && BIND_COLUMN_VALUE != null && !"".equals(BIND_COLUMN_VALUE)) {
-                        // '=' 조건?�로 가?�한 ?�리먼트 ?�??
-                        wrapperSQL.append(" AND COMMON_PAGE_SEARCH." + BIND_COLUMN_NM).append(" = UPPER('").append(BIND_COLUMN_VALUE).append("')");
-                    } else if (LIKE_ELEMENT_LIST.contains(ELEMENT_TYPE) && BIND_COLUMN_VALUE != null && !"".equals(BIND_COLUMN_VALUE)) {
-                        // LIKE 조건?�로 가?�한 ?�리먼트 ?�??
-                        wrapperSQL.append(" AND UPPER(COMMON_PAGE_SEARCH." + BIND_COLUMN_NM).append(") LIKE UPPER('%").append(BIND_COLUMN_VALUE).append("%')");
-                    } else if (PRCS_ELEMENT_LIST.contains(ELEMENT_TYPE)) {
-                        int prcsLevelVal = ((BigDecimal) pageSearchParam.get("prcs_level_val")).intValue();
-
-                        for (int i = 1; i < prcsLevelVal + 1; i++) {
-                            BIND_COLUMN_VALUE = null;
-
-                            if (i == 1) {
-                                BIND_COLUMN_NM = "prcs_dept_id";
-                            } else if (i == 2) {
-                                BIND_COLUMN_NM = "prcs_id";
-                            } else if (i == 3) {
-                                BIND_COLUMN_NM = "prcs_dtl_id";
-                            } else if (i == 4) {
-                                BIND_COLUMN_NM = "prcs_dtl_atvt_id";
-                            }
-
-                            if (parameterMap.get(BIND_COLUMN_NM) != null) {
-                                BIND_COLUMN_VALUE = parameterMap.get(BIND_COLUMN_NM).toString();
-                            }
-                            if (BIND_COLUMN_VALUE != null && !"".equals(BIND_COLUMN_VALUE)) {
-                                wrapperSQL.append(" AND COMMON_PAGE_SEARCH." + BIND_COLUMN_NM).append(" = '").append(BIND_COLUMN_VALUE).append("'");
-                            }
-                        }
-                    }
-                }
-            }
-
-            if ("Y".equals(parameterMap.get("COMMON_ROLE_WKPL_CONDITION"))) {
-                List<String> wkplRoleList = null;
-                if (userInfo != null) {
-                    if (userInfo.get("sess_wkpl_role") != null) {
-                        wkplRoleList = (List<String>) userInfo.get("sess_wkpl_role");
-                    } else if (userInfo.get("sess_wkpl_id") != null) {
-                        wkplRoleList = Arrays.asList(userInfo.get("sess_wkpl_id").toString());
-                    }
-                }
-
-                if (wkplRoleList != null && !wkplRoleList.isEmpty()) {
-                    wrapperSQL.append(" AND COMMON_PAGE_SEARCH.WKPL_ID IN (");
-                    wrapperSQL.append("'" + String.join("','", wkplRoleList) + "'");
-                    wrapperSQL.append(")");
-                }
-            }
-
-            String searchSQL = wrapperSQL.toString();
-
-            // ??쿼리 주입
-            BoundSql newBoundSql = new BoundSql(
-                    ms.getConfiguration(),
-                    searchSQL,
-                    boundSql.getParameterMappings(),
-                    boundSql.getParameterObject()
-            );
-            MappedStatement newMs = copyFromMappedStatement(ms, new BoundSqlSqlSource(newBoundSql));
-            invocation.getArgs()[0] = newMs;
         }
 
         Object result = invocation.proceed();
@@ -266,6 +173,55 @@ public class MybatisInterceptor implements Interceptor {
         if (current == null) return true;
         if (current instanceof String && ((String) current).trim().isEmpty()) return true;
         return false;
+    }
+
+    /** 숫자 파라미터에 "A" 등 잘못된 값이 들어가 NumberFormatException 발생 방지 */
+    private void sanitizeNumericParams(Map<String, Object> parameters) {
+        String[] numericKeys = {"paging", "offset", "limit", "page", "historyLimit", "historyOffset", "recommendedLimit", "recommendedOffset", "recommendedPaging", "min_lose_count", "http_status", "elapsed_ms"};
+        int[] defaults = {10, 1, 20, 1, 10, 1, 5, 1, 5, 0, 200, 0};
+        for (int i = 0; i < numericKeys.length; i++) {
+            String key = numericKeys[i];
+            if (!parameters.containsKey(key)) continue;
+            Object v = parameters.get(key);
+            if (v == null) {
+                parameters.put(key, defaults[i]);
+                continue;
+            }
+            if (v instanceof Number) {
+                int n = ((Number) v).intValue();
+                if (n < 0) parameters.put(key, defaults[i]);
+                continue;
+            }
+            try {
+                int n = Integer.parseInt(v.toString().trim());
+                parameters.put(key, n < 0 ? defaults[i] : n);
+            } catch (NumberFormatException e) {
+                parameters.put(key, defaults[i]);
+            }
+        }
+    }
+    
+    /** monster_id*_ids 컬렉션에서 비숫자 값 제거 (NumberFormatException 방지) */
+    private void sanitizeMonsterIdCollections(Map<String, Object> parameters) {
+        String[] keys = {"monster_id1_ids", "monster_id2_ids", "monster_id3_ids"};
+        for (String key : keys) {
+            Object val = parameters.get(key);
+            if (!(val instanceof List)) continue;
+            List<?> list = (List<?>) val;
+            List<String> filtered = new ArrayList<>();
+            for (Object item : list) {
+                if (item == null) continue;
+                String s = item.toString().trim();
+                if (s.isEmpty()) continue;
+                try {
+                    Long.parseLong(s);
+                    filtered.add(s);
+                } catch (NumberFormatException ignored) {
+                    // 비숫자 ID 제외
+                }
+            }
+            parameters.put(key, filtered);
+        }
     }
     
     private String buildInlinedSql(MappedStatement ms, BoundSql boundSql, Object parameterObject) {
@@ -373,37 +329,6 @@ public class MybatisInterceptor implements Interceptor {
     	}
     }
 
-    private static class BoundSqlSqlSource implements SqlSource {
-        private final BoundSql boundSql;
-
-        public BoundSqlSqlSource(BoundSql boundSql) {
-            this.boundSql = boundSql;
-        }
-
-        @Override
-        public BoundSql getBoundSql(Object parameterObject) {
-            return boundSql;
-        }
-    }
-
-    private MappedStatement copyFromMappedStatement(MappedStatement ms, BoundSqlSqlSource newSqlSource) {
-        MappedStatement.Builder builder = new MappedStatement.Builder(
-                ms.getConfiguration(),
-                ms.getId(),
-                newSqlSource,
-                ms.getSqlCommandType()
-        );
-
-        builder.resource(ms.getResource());
-        builder.fetchSize(ms.getFetchSize());
-        builder.statementType(ms.getStatementType());
-        builder.timeout(ms.getTimeout());
-        builder.parameterMap(ms.getParameterMap());
-        builder.resultMaps(ms.getResultMaps());
-        builder.cache(ms.getCache());
-
-        return builder.build();
-    }
 }
 
 

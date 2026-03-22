@@ -8,6 +8,10 @@ public interface LogService {
 	public List<Map<String, ?>> selectLoginHisList(Map<String, Object> param);
 	
 	public List<Map<String, ?>> selectApiHisList(Map<String, Object> param);
+
+	public int selectApiHisCount(Map<String, Object> param);
+
+	public Map<String, Object> getRecentApiDiagnostics(Map<String, Object> param);
 	
 	public List<Map<String, ?>> selectBatHisList(Map<String, Object> param);
 	

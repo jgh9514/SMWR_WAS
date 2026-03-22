@@ -89,6 +89,11 @@
         FROM public.skill
         WHERE swarfarm_id = #{swarfarm_id}
     </select>
+
+    <select id="selectAllSwarfarmIds" resultType="Integer">
+        SELECT swarfarm_id
+        FROM public.skill
+    </select>
     
     <!-- Swarfarm ID로 skill_id 찾기 -->
     <select id="findSkillIdBySwarfarmId" parameterType="Integer" resultType="String">
@@ -119,6 +124,26 @@
             #{amount},
             CURRENT_TIMESTAMP
         )
+        ON CONFLICT (skill_id, upgrade_level) DO NOTHING
+    </insert>
+
+    <insert id="insertSkillUpgradesBatch">
+        INSERT INTO public.skill_upgrades (
+            skill_id,
+            upgrade_level,
+            effect,
+            amount,
+            crt_date
+        ) VALUES
+        <foreach collection="items" item="item" separator=",">
+            (
+                #{item.skill_id},
+                #{item.upgrade_level},
+                #{item.effect},
+                #{item.amount},
+                CURRENT_TIMESTAMP
+            )
+        </foreach>
         ON CONFLICT (skill_id, upgrade_level) DO NOTHING
     </insert>
 
@@ -178,6 +203,58 @@
         ON CONFLICT (skill_id, effect_id, effect_order) DO NOTHING
     </insert>
 
+    <insert id="insertSkillEffectsBatch">
+        INSERT INTO public.skill_effects (
+            skill_id,
+            effect_id,
+            effect_name,
+            effect_type,
+            effect_description,
+            is_buff,
+            aoe,
+            single_target,
+            self_effect,
+            chance,
+            on_crit,
+            on_death,
+            random,
+            quantity,
+            all,
+            self_hp,
+            target_hp,
+            damage,
+            note,
+            effect_order,
+            crt_date
+        ) VALUES
+        <foreach collection="items" item="item" separator=",">
+            (
+                #{item.skill_id},
+                #{item.effect_id},
+                #{item.effect_name},
+                #{item.effect_type},
+                #{item.effect_description},
+                #{item.is_buff},
+                COALESCE(#{item.aoe}, false),
+                COALESCE(#{item.single_target}, false),
+                COALESCE(#{item.self_effect}, false),
+                COALESCE(#{item.chance}, 0),
+                COALESCE(#{item.on_crit}, false),
+                COALESCE(#{item.on_death}, false),
+                COALESCE(#{item.random}, false),
+                #{item.quantity},
+                COALESCE(#{item.all}, false),
+                COALESCE(#{item.self_hp}, false),
+                COALESCE(#{item.target_hp}, false),
+                COALESCE(#{item.damage}, false),
+                #{item.note},
+                #{item.effect_order},
+                CURRENT_TIMESTAMP
+            )
+        </foreach>
+        ON CONFLICT (skill_id, effect_id, effect_order) DO NOTHING
+    </insert>
+
     <!-- 스킬 사용 몬스터 매핑 삭제 -->
     <delete id="deleteSkillUsedOn" parameterType="String">
         DELETE FROM public.skill_used_on
@@ -195,6 +272,22 @@
             #{monster_swarfarm_id},
             CURRENT_TIMESTAMP
         )
+        ON CONFLICT (skill_id, monster_swarfarm_id) DO NOTHING
+    </insert>
+
+    <insert id="insertSkillUsedOnBatch">
+        INSERT INTO public.skill_used_on (
+            skill_id,
+            monster_swarfarm_id,
+            crt_date
+        ) VALUES
+        <foreach collection="items" item="item" separator=",">
+            (
+                #{item.skill_id},
+                #{item.monster_swarfarm_id},
+                CURRENT_TIMESTAMP
+            )
+        </foreach>
         ON CONFLICT (skill_id, monster_swarfarm_id) DO NOTHING
     </insert>
 

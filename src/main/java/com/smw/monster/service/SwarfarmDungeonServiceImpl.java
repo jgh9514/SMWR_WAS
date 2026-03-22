@@ -1,22 +1,21 @@
 package com.smw.monster.service;
 
-import java.io.InputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.function.Consumer;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestTemplate;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smw.monster.dto.SwarfarmDungeonResponse;
 import com.smw.monster.mapper.SwarfarmDungeonMapper;
-import com.sysconf.util.S3Service;
 
+import io.micrometer.core.instrument.Timer;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
@@ -32,18 +31,36 @@ public class SwarfarmDungeonServiceImpl implements SwarfarmDungeonService {
     private SwarfarmDungeonMapper swarfarmDungeonMapper;
     
     @Autowired
-    private RestTemplate restTemplate;
-    
+    private SwarfarmApiClient swarfarmApiClient;
+
     @Autowired
-    private ObjectMapper objectMapper;
-    
-    @Autowired
-    private S3Service s3Service;
+    private SwarfarmSyncMetrics swarfarmSyncMetrics;
+
+    @Value("${smw.swarfarm.request-delay-ms:250}")
+    private long requestDelayMs;
+
+    private Consumer<String> logCallback;
+
+    @Override
+    public void setLogCallback(Consumer<String> logCallback) {
+        this.logCallback = logCallback;
+    }
+
+    private void addBatchLog(String message, Object... args) {
+        String logMessage = args != null && args.length > 0 ? String.format(message, args) : message;
+        if (logCallback != null) {
+            logCallback.accept(logMessage);
+        } else {
+            log.info(logMessage);
+        }
+    }
     
     @Override
     public int syncAllDungeons() {
-        log.info("===== Swarfarm 던전 동기화 시작 =====");
+        addBatchLog("===== Swarfarm 던전 동기화 시작 =====");
         int totalSynced = 0;
+        SwarfarmSyncMetrics.SyncStats stats = swarfarmSyncMetrics.newStats();
+        Timer.Sample syncTimerSample = swarfarmSyncMetrics.startTimer();
         
         try {
             // 첫 페이지로 전체 개수 확인
@@ -58,30 +75,40 @@ public class SwarfarmDungeonServiceImpl implements SwarfarmDungeonService {
             int totalCount = firstResponse.getCount();
             int totalPages = calculateTotalPages(totalCount, DEFAULT_PAGE_SIZE);
             
-            log.info("전체 던전 수: {}, 예상 페이지 수: {}", totalCount, totalPages);
+            addBatchLog("전체 던전 수: %d, 예상 페이지 수: %d", totalCount, totalPages);
+            Set<Integer> existingDungeonIds = loadExistingDungeonIds();
             
             // 모든 페이지 처리
             for (int page = 1; page <= totalPages; page++) {
-                log.info("페이지 {} 동기화 시작", page);
-                int synced = syncDungeonsByPage(page);
+                addBatchLog("페이지 %d 동기화 시작", page);
+                int synced = syncDungeonsByPage(page, existingDungeonIds, stats);
                 totalSynced += synced;
                 
                 // API 부하 방지를 위한 짧은 대기
                 if (page < totalPages) {
-                    Thread.sleep(500);
+                    pauseBetweenRequests();
                 }
             }
             
-            log.info("===== Swarfarm 던전 동기화 완료. 총 {}개 동기화 =====", totalSynced);
+            addBatchLog("===== Swarfarm 던전 동기화 완료. 총 %d개 동기화 =====", totalSynced);
+            addBatchLog("처리=%d, 저장=%d, 스킵=%d, 실패=%d",
+                    stats.getProcessed(), stats.getSaved(), stats.getSkipped(), stats.getFailed());
+            swarfarmSyncMetrics.recordSummary("dungeon", "SUCCESS", stats, syncTimerSample);
             return totalSynced;
         } catch (Exception e) {
             log.error("던전 동기화 중 오류 발생", e);
+            stats.addFailed(1);
+            swarfarmSyncMetrics.recordSummary("dungeon", "FAILED", stats, syncTimerSample);
             throw new RuntimeException("던전 동기화 실패", e);
         }
     }
     
     @Override
     public int syncDungeonsByPage(int page) {
+        return syncDungeonsByPage(page, new HashSet<>(), swarfarmSyncMetrics.newStats());
+    }
+
+    private int syncDungeonsByPage(int page, Set<Integer> existingDungeonIds, SwarfarmSyncMetrics.SyncStats stats) {
         try {
             String apiUrl = SWARFARM_API_BASE_URL + "?format=json&page=" + page;
             SwarfarmDungeonResponse response = fetchDungeonData(apiUrl);
@@ -92,11 +119,13 @@ public class SwarfarmDungeonServiceImpl implements SwarfarmDungeonService {
             }
             
             int syncedCount = 0;
+            stats.addProcessed(response.getResults().size());
             for (SwarfarmDungeonResponse.DungeonData dungeon : response.getResults()) {
                 try {
                     // 이미 존재하는 던전인지 확인
-                    if (existsDungeon(dungeon.getId())) {
+                    if (existingDungeonIds.contains(dungeon.getId())) {
                         log.debug("던전 ID {}는 이미 존재합니다. 건너뜁니다.", dungeon.getId());
+                        stats.addSkipped(1);
                         continue;
                     }
                     
@@ -117,87 +146,64 @@ public class SwarfarmDungeonServiceImpl implements SwarfarmDungeonService {
                     // DB 저장
                     if (saveDungeon(dungeonData)) {
                         syncedCount++;
+                        stats.addSaved(1);
+                        existingDungeonIds.add(dungeon.getId());
                         
                         // Levels 저장
                         if (dungeon.getLevels() != null && !dungeon.getLevels().isEmpty()) {
                             saveDungeonLevels(dungeon.getId(), dungeon.getLevels());
                         }
+                    } else {
+                        stats.addFailed(1);
                     }
                 } catch (Exception e) {
+                    stats.addFailed(1);
                     log.error("던전 저장 중 오류 발생: {}", dungeon.getId(), e);
                     throw new RuntimeException("던전 저장 실패: " + dungeon.getId(), e);
                 }
             }
             
-            log.info("페이지 {} 동기화 완료. {}개 저장", page, syncedCount);
+            addBatchLog("페이지 %d 동기화 완료: 저장=%d, 누적 처리=%d, 누적 스킵=%d, 누적 실패=%d",
+                    page, syncedCount, stats.getProcessed(), stats.getSkipped(), stats.getFailed());
             return syncedCount;
             
         } catch (Exception e) {
+            stats.addFailed(1);
             log.error("페이지 {} 동기화 중 오류 발생", page, e);
             throw new RuntimeException("페이지 " + page + " 동기화 실패", e);
+        }
+    }
+
+    private Set<Integer> loadExistingDungeonIds() {
+        try {
+            return new HashSet<>(swarfarmDungeonMapper.selectAllDungeonIds());
+        } catch (Exception e) {
+            log.warn("기존 던전 ID 조회 실패, 빈 Set 반환", e);
+            return new HashSet<>();
+        }
+    }
+
+    private void pauseBetweenRequests() {
+        if (requestDelayMs > 0) {
+            try {
+                Thread.sleep(requestDelayMs);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("던전 동기화 대기 중 인터럽트가 발생했습니다.", e);
+            }
         }
     }
     
     @Override
     public String downloadDungeonImage(String iconFilename) {
-        HttpURLConnection connection = null;
-        InputStream inputStream = null;
-        
         try {
             String imageUrl = SWARFARM_IMAGE_BASE_URL + iconFilename;
-            
-            // 이미지 다운로드
-            URL url = new URL(imageUrl);
-            connection = (HttpURLConnection) url.openConnection();
-            connection.setRequestMethod("GET");
-            connection.setConnectTimeout(10000);
-            connection.setReadTimeout(10000);
-            connection.setRequestProperty("User-Agent", "Mozilla/5.0");
-            
-            int responseCode = connection.getResponseCode();
-            if (responseCode == HttpURLConnection.HTTP_OK) {
-                inputStream = connection.getInputStream();
-                
-                // Content-Type 추론
-                String contentType = connection.getContentType();
-                if (contentType == null || contentType.isEmpty()) {
-                    // 파일명에서 추론
-                    String lowerFilename = iconFilename.toLowerCase();
-                    if (lowerFilename.endsWith(".png")) {
-                        contentType = "image/png";
-                    } else if (lowerFilename.endsWith(".jpg") || lowerFilename.endsWith(".jpeg")) {
-                        contentType = "image/jpeg";
-                    } else if (lowerFilename.endsWith(".gif")) {
-                        contentType = "image/gif";
-                    } else {
-                        contentType = "image/png"; // 기본값
-                    }
-                }
-                
-                // S3에 업로드 (monster/ 폴더 아래에 저장)
-                String cloudFrontUrl = s3Service.uploadImage(inputStream, iconFilename, contentType);
-                log.info("던전 이미지 S3 업로드 완료: {} -> {}", iconFilename, cloudFrontUrl);
-                return cloudFrontUrl;
-            } else {
-                log.error("이미지 다운로드 실패. HTTP 응답 코드: {} - URL: {}", responseCode, imageUrl);
-                throw new RuntimeException("이미지 다운로드 실패. HTTP 응답 코드: " + responseCode + " - " + iconFilename);
-            }
-            
+            String cloudFrontUrl = swarfarmApiClient.downloadImageToS3(imageUrl, iconFilename, inferImageContentType(iconFilename));
+            log.info("던전 이미지 S3 업로드 완료: {} -> {}", iconFilename, cloudFrontUrl);
+            return cloudFrontUrl;
         } catch (Exception e) {
             log.error("이미지 다운로드 및 S3 업로드 중 오류 발생: {}", iconFilename, e);
             throw new RuntimeException("이미지 다운로드 실패", e);
-        } finally {
-            // 리소스 정리
-            if (inputStream != null) {
-                try {
-                    inputStream.close();
-                } catch (Exception e) {
-                    log.warn("InputStream 닫기 실패", e);
-                }
-            }
-            if (connection != null) {
-                connection.disconnect();
-            }
         }
     }
     
@@ -246,12 +252,25 @@ public class SwarfarmDungeonServiceImpl implements SwarfarmDungeonService {
     private SwarfarmDungeonResponse fetchDungeonData(String apiUrl) {
         try {
             log.debug("API 호출: {}", apiUrl);
-            String response = restTemplate.getForObject(apiUrl, String.class);
-            return objectMapper.readValue(response, SwarfarmDungeonResponse.class);
+            return swarfarmApiClient.fetchJson(apiUrl, SwarfarmDungeonResponse.class);
         } catch (Exception e) {
             log.error("API 호출 중 오류 발생: {}", apiUrl, e);
             return null;
         }
+    }
+
+    private String inferImageContentType(String fileName) {
+        String lowerFilename = fileName.toLowerCase();
+        if (lowerFilename.endsWith(".png")) {
+            return "image/png";
+        }
+        if (lowerFilename.endsWith(".jpg") || lowerFilename.endsWith(".jpeg")) {
+            return "image/jpeg";
+        }
+        if (lowerFilename.endsWith(".gif")) {
+            return "image/gif";
+        }
+        return "image/png";
     }
     
     /**
@@ -280,13 +299,17 @@ public class SwarfarmDungeonServiceImpl implements SwarfarmDungeonService {
         try {
             // 기존 레벨 삭제
             swarfarmDungeonMapper.deleteDungeonLevels(dungeonId);
-            
-            // 새 레벨 저장
+
+            List<Map<String, Object>> levelRows = new java.util.ArrayList<>();
             for (Integer levelId : levels) {
                 Map<String, Object> levelData = new HashMap<>();
                 levelData.put("dungeon_id", dungeonId);
                 levelData.put("level_id", levelId);
-                swarfarmDungeonMapper.insertDungeonLevel(levelData);
+                levelRows.add(levelData);
+            }
+
+            if (!levelRows.isEmpty()) {
+                swarfarmDungeonMapper.insertDungeonLevelsBatch(levelRows);
             }
         } catch (Exception e) {
             log.error("던전 레벨 저장 중 오류 발생", e);

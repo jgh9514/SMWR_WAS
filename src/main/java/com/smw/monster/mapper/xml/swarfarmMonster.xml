@@ -14,6 +14,8 @@
             monster_elemental,
             kr_name,
             un_name,
+            un_name_status,
+            usg_yn,
             star_type,
             star,
             arousal_type,
@@ -62,6 +64,8 @@
             #{monster_elemental},
             #{kr_name},
             #{un_name},
+            COALESCE(#{un_name_status}, 'BATCH'),
+            COALESCE(#{usg_yn}, 'Y'),
             COALESCE(#{star_type}, 'Normal'),
             #{star},
             COALESCE(#{arousal_type}, 'Normal'),
@@ -109,8 +113,9 @@
             skill_group_id = EXCLUDED.skill_group_id,
             bestiary_slug = EXCLUDED.bestiary_slug,
             monster_elemental = EXCLUDED.monster_elemental,
-            kr_name = EXCLUDED.kr_name,
-            un_name = EXCLUDED.un_name,
+            kr_name = CASE WHEN monster.un_name_status = 'VERIFIED' THEN monster.kr_name ELSE EXCLUDED.kr_name END,
+            un_name = CASE WHEN monster.un_name_status = 'VERIFIED' THEN monster.un_name ELSE EXCLUDED.un_name END,
+            un_name_status = CASE WHEN monster.un_name_status = 'VERIFIED' THEN monster.un_name_status ELSE 'BATCH' END,
             star_type = EXCLUDED.star_type,
             star = EXCLUDED.star,
             arousal_type = EXCLUDED.arousal_type,
@@ -193,6 +198,24 @@
         ON CONFLICT (monster_id, skill_id, skill_order) DO NOTHING
     </insert>
 
+    <insert id="insertMonsterSkillsBatch">
+        INSERT INTO public.monster_skills (
+            monster_id,
+            skill_id,
+            skill_order,
+            crt_date
+        ) VALUES
+        <foreach collection="items" item="item" separator=",">
+            (
+                #{item.monster_id},
+                #{item.skill_id},
+                #{item.skill_order},
+                CURRENT_TIMESTAMP
+            )
+        </foreach>
+        ON CONFLICT (monster_id, skill_id, skill_order) DO NOTHING
+    </insert>
+
     <!-- 몬스터 획득 경로 삭제 (monster_id로) -->
     <delete id="deleteMonsterSourcesByMonsterId" parameterType="String">
         DELETE FROM public.monster_sources
@@ -218,6 +241,30 @@
             #{source_order},
             CURRENT_TIMESTAMP
         )
+        ON CONFLICT (monster_id, source_id, source_order) DO NOTHING
+    </insert>
+
+    <insert id="insertMonsterSourcesBatch">
+        INSERT INTO public.monster_sources (
+            monster_id,
+            source_id,
+            source_name,
+            source_description,
+            farmable_source,
+            source_order,
+            crt_date
+        ) VALUES
+        <foreach collection="items" item="item" separator=",">
+            (
+                #{item.monster_id},
+                #{item.source_id},
+                #{item.source_name},
+                #{item.source_description},
+                COALESCE(#{item.farmable_source}, false),
+                #{item.source_order},
+                CURRENT_TIMESTAMP
+            )
+        </foreach>
         ON CONFLICT (monster_id, source_id, source_order) DO NOTHING
     </insert>
 

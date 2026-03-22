@@ -54,5 +54,10 @@
         WHERE effect_id = #{effect_id}
     </select>
 
+    <select id="selectAllEffectIds" resultType="Integer">
+        SELECT effect_id
+        FROM public.skill_effect_master
+    </select>
+
 </mapper>
 

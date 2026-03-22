@@ -4,6 +4,8 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 
+import jakarta.annotation.PreDestroy;
+
 import org.springframework.stereotype.Service;
 
 import lombok.extern.slf4j.Slf4j;
@@ -23,6 +25,10 @@ public class S3Service {
     private static final String CLOUDFRONT_URL = "https://dyjduzi8vf2k4.cloudfront.net";
     private static final String MONSTER_FOLDER = "monster";
     private static final String FILES_FOLDER = "files"; // 일반 파일 저장 폴더
+    private final S3Client s3Client = S3Client.builder()
+            .region(Region.AP_SOUTHEAST_2)
+            .credentialsProvider(DefaultCredentialsProvider.create())
+            .build();
     
     /**
      * S3 클라이언트 생성
@@ -37,14 +43,8 @@ public class S3Service {
      * Kubernetes 환경에서는 EC2 인스턴스에 부여된 IAM 역할을 자동으로 감지합니다.
      * application.yml의 cloud.aws.credentials.instance-profile: true 설정과 함께 사용됩니다.
      */
-    private S3Client createS3Client() {
-        return S3Client.builder()
-                // 명시적으로 시드니 리전(ap-southeast-2) 설정 - S3 버킷 리전과 일치
-                // 환경 변수 무시 방지 및 301 에러 방지
-                .region(Region.AP_SOUTHEAST_2)
-                // DefaultCredentialsProvider를 명시적으로 설정하여 EC2 IAM 역할 자동 인식
-                .credentialsProvider(DefaultCredentialsProvider.create())
-                .build();
+    private S3Client getS3Client() {
+        return s3Client;
     }
     
     /**
@@ -56,10 +56,7 @@ public class S3Service {
      * @return CloudFront URL
      */
     public String uploadImage(InputStream inputStream, String fileName, String contentType) {
-        S3Client s3Client = null;
         try {
-            s3Client = createS3Client();
-            
             // S3 키 생성 (monster/ 폴더 아래에 저장)
             String s3Key = MONSTER_FOLDER + "/" + fileName;
             
@@ -75,7 +72,7 @@ public class S3Service {
             byte[] imageBytes = inputStreamToByteArray(inputStream);
             
             // S3에 업로드
-            s3Client.putObject(putObjectRequest, RequestBody.fromBytes(imageBytes));
+            getS3Client().putObject(putObjectRequest, RequestBody.fromBytes(imageBytes));
             
             log.info("S3 업로드 완료: {}/{}", BUCKET_NAME, s3Key);
             
@@ -89,10 +86,6 @@ public class S3Service {
         } catch (Exception e) {
             log.error("이미지 업로드 중 오류 발생: {}", fileName, e);
             throw new RuntimeException("이미지 업로드 실패: " + e.getMessage(), e);
-        } finally {
-            if (s3Client != null) {
-                s3Client.close();
-            }
         }
     }
     
@@ -105,10 +98,7 @@ public class S3Service {
      * @return CloudFront URL
      */
     public String uploadImage(byte[] imageBytes, String fileName, String contentType) {
-        S3Client s3Client = null;
         try {
-            s3Client = createS3Client();
-            
             // S3 키 생성 (monster/ 폴더 아래에 저장)
             String s3Key = MONSTER_FOLDER + "/" + fileName;
             
@@ -121,7 +111,7 @@ public class S3Service {
                     .build();
             
             // S3에 업로드
-            s3Client.putObject(putObjectRequest, RequestBody.fromBytes(imageBytes));
+            getS3Client().putObject(putObjectRequest, RequestBody.fromBytes(imageBytes));
             
             log.info("S3 업로드 완료: {}/{}", BUCKET_NAME, s3Key);
             
@@ -135,10 +125,6 @@ public class S3Service {
         } catch (Exception e) {
             log.error("이미지 업로드 중 오류 발생: {}", fileName, e);
             throw new RuntimeException("이미지 업로드 실패: " + e.getMessage(), e);
-        } finally {
-            if (s3Client != null) {
-                s3Client.close();
-            }
         }
     }
     
@@ -199,10 +185,7 @@ public class S3Service {
      * @return CloudFront URL
      */
     public String uploadFile(byte[] fileBytes, String fileName, String contentType, String folder) {
-        S3Client s3Client = null;
         try {
-            s3Client = createS3Client();
-            
             // 폴더가 없으면 기본값 사용
             if (folder == null || folder.isEmpty()) {
                 folder = FILES_FOLDER;
@@ -220,7 +203,7 @@ public class S3Service {
                     .build();
             
             // S3에 업로드
-            s3Client.putObject(putObjectRequest, RequestBody.fromBytes(fileBytes));
+            getS3Client().putObject(putObjectRequest, RequestBody.fromBytes(fileBytes));
             
             log.info("S3 파일 업로드 완료: {}/{}", BUCKET_NAME, s3Key);
             
@@ -234,11 +217,12 @@ public class S3Service {
         } catch (Exception e) {
             log.error("파일 업로드 중 오류 발생: {}", fileName, e);
             throw new RuntimeException("파일 업로드 실패: " + e.getMessage(), e);
-        } finally {
-            if (s3Client != null) {
-                s3Client.close();
-            }
         }
+    }
+
+    @PreDestroy
+    public void close() {
+        s3Client.close();
     }
     
     /**

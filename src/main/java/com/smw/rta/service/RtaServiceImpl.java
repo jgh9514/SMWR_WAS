@@ -2,6 +2,7 @@ package com.smw.rta.service;
 
 import com.smw.rta.mapper.RtaMapper;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
 
@@ -27,11 +28,13 @@ public class RtaServiceImpl implements RtaService {
     }
 
     @Override
+    @Cacheable(cacheNames = "rtaMatchesCount", cacheManager = "shortLivedCacheManager", key = "'all'")
     public long getRtaMatchesCount() {
         return rtaMapper.getTotalRtaMatches();
     }
 
     @Override
+    @Cacheable(cacheNames = "rtaStats", cacheManager = "shortLivedCacheManager", key = "'all'")
     public Object getRtaStats() {
         Map<String, Object> stats = new HashMap<>();
         
@@ -53,6 +56,11 @@ public class RtaServiceImpl implements RtaService {
     }
     
     @Override
+    @Cacheable(
+            cacheNames = "rtaMonsterStats",
+            cacheManager = "shortLivedCacheManager",
+            key = "#limit + ':' + #offset"
+    )
     public Map<String, Object> getRtaMonsterStats(int limit, int offset) {
         // 전체 매치 수 조회
         long totalMatches = rtaMapper.getTotalRtaMatches();
@@ -72,6 +80,7 @@ public class RtaServiceImpl implements RtaService {
     }
     
     @Override
+    @Cacheable(cacheNames = "rtaMonsterDetail", cacheManager = "shortLivedCacheManager", key = "#monsterId")
     public Map<String, Object> getRtaMonsterDetail(int monsterId) {
         Map<String, Object> response = new HashMap<>();
         

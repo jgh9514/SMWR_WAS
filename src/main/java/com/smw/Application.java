@@ -1,7 +1,7 @@
 package com.smw;
 
 
-import javax.servlet.http.HttpSessionListener;
+import jakarta.servlet.http.HttpSessionListener;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -24,10 +24,6 @@ public class Application extends SpringBootServletInitializer {
 
 	public static void main(String[] args) {
 		logger.info("=== SMW Application Starting ===");
-		logger.debug("Debug message test");
-		logger.info("Info message test");
-		logger.warn("Warning message test");
-		logger.error("Error message test");
 		SpringApplication.run(Application.class, args);
 		logger.info("=== SMW Application Started Successfully ===");
 	}

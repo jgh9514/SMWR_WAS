@@ -4,6 +4,8 @@ import java.util.List;
 import java.util.Map;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.Caching;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
 
@@ -32,6 +34,10 @@ public class AdminMonsterServiceImpl implements AdminMonsterService {
 	}
 
 	@Override
+	@Caching(evict = {
+			@CacheEvict(cacheNames = "monsterInfo", key = "#param['monster_id']"),
+			@CacheEvict(cacheNames = "monsterList", allEntries = true)
+	})
 	public int updateMonster(Map<String, Object> param) {
 		return adminMonsterMapper.updateMonster(param);
 	}

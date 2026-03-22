@@ -48,5 +48,10 @@
         WHERE leader_skill_id = #{leader_skill_id}
     </select>
 
+    <select id="selectAllLeaderSkillIds" resultType="Integer">
+        SELECT leader_skill_id
+        FROM public.leader_skill_master
+    </select>
+
 </mapper>
 

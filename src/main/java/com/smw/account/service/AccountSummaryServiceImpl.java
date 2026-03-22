@@ -7,6 +7,9 @@ import java.util.List;
 import java.util.Map;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -33,6 +36,15 @@ public class AccountSummaryServiceImpl implements AccountSummaryService {
 
 	@Override
 	@Transactional
+	@Caching(evict = {
+			@CacheEvict(cacheNames = "accountSummaryLatest", allEntries = true, cacheManager = "shortLivedCacheManager"),
+			@CacheEvict(cacheNames = "accountSummaryImportList", allEntries = true, cacheManager = "shortLivedCacheManager"),
+			@CacheEvict(cacheNames = "accountSummaryImportDetail", allEntries = true, cacheManager = "shortLivedCacheManager"),
+			@CacheEvict(cacheNames = "accountSummaryMonsterList", allEntries = true, cacheManager = "shortLivedCacheManager"),
+			@CacheEvict(cacheNames = "accountSummaryMonsterCatalog", allEntries = true, cacheManager = "shortLivedCacheManager"),
+			@CacheEvict(cacheNames = "accountSummaryRuneList", allEntries = true, cacheManager = "shortLivedCacheManager"),
+			@CacheEvict(cacheNames = "accountSummaryRuneScoreSummary", allEntries = true, cacheManager = "shortLivedCacheManager")
+	})
 	public Map<String, Object> uploadAndSave(MultipartFile jsonFile, String sessUserId) throws Exception {
 		if (jsonFile == null) {
 			throw new IllegalArgumentException("json_file이 없습니다.");
@@ -108,6 +120,7 @@ public class AccountSummaryServiceImpl implements AccountSummaryService {
 	}
 
 	@Override
+	@Cacheable(cacheNames = "accountSummaryLatest", cacheManager = "shortLivedCacheManager", keyGenerator = "stableMapKeyGenerator")
 	public Map<String, Object> selectLatestImport(Map<String, Object> param) {
 		Map<String, ?> latest = mapper.selectLatestImport(param);
 		Map<String, Object> result = new HashMap<>();
@@ -121,11 +134,13 @@ public class AccountSummaryServiceImpl implements AccountSummaryService {
 	}
 
 	@Override
+	@Cacheable(cacheNames = "accountSummaryImportList", cacheManager = "shortLivedCacheManager", keyGenerator = "stableMapKeyGenerator")
 	public List<Map<String, ?>> selectImportList(Map<String, Object> param) {
 		return mapper.selectImportList(param);
 	}
 
 	@Override
+	@Cacheable(cacheNames = "accountSummaryImportDetail", cacheManager = "shortLivedCacheManager", keyGenerator = "stableMapKeyGenerator")
 	public Map<String, Object> selectImportDetail(Map<String, Object> param) {
 		Map<String, Object> result = new HashMap<>();
 		Map<String, ?> detail = mapper.selectImportDetail(param);
@@ -139,6 +154,7 @@ public class AccountSummaryServiceImpl implements AccountSummaryService {
 	}
 
 	@Override
+	@Cacheable(cacheNames = "accountSummaryMonsterList", cacheManager = "shortLivedCacheManager", keyGenerator = "stableMapKeyGenerator")
 	public Map<String, Object> selectMonsterList(Map<String, Object> param) {
 		ensurePagingDefaults(param);
 		ensureImportId(param);
@@ -153,6 +169,7 @@ public class AccountSummaryServiceImpl implements AccountSummaryService {
 	}
 
 	@Override
+	@Cacheable(cacheNames = "accountSummaryMonsterCatalog", cacheManager = "shortLivedCacheManager", keyGenerator = "stableMapKeyGenerator")
 	public Map<String, Object> selectMonsterCatalog(Map<String, Object> param) {
 		ensurePagingDefaults(param);
 		ensureImportId(param);
@@ -167,6 +184,7 @@ public class AccountSummaryServiceImpl implements AccountSummaryService {
 	}
 
 	@Override
+	@Cacheable(cacheNames = "accountSummaryRuneList", cacheManager = "shortLivedCacheManager", keyGenerator = "stableMapKeyGenerator")
 	public Map<String, Object> selectRuneList(Map<String, Object> param) {
 		ensurePagingDefaults(param);
 		ensureImportId(param);
@@ -181,6 +199,7 @@ public class AccountSummaryServiceImpl implements AccountSummaryService {
 	}
 
 	@Override
+	@Cacheable(cacheNames = "accountSummaryRuneScoreSummary", cacheManager = "shortLivedCacheManager", keyGenerator = "stableMapKeyGenerator")
 	public Map<String, Object> selectRuneScoreSummary(Map<String, Object> param) {
 		ensureImportId(param);
 

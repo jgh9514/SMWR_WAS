@@ -4,6 +4,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import jakarta.servlet.http.HttpServletRequest;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
 import org.springframework.http.HttpStatus;
@@ -39,16 +41,65 @@ public class BatchController {
 	@Autowired
 	private BatchMapper batchMapper;
 
+	@SuppressWarnings("unchecked")
+	private Map<String, Object> getSessUserInfo(HttpServletRequest request) {
+		Object attr = request != null ? request.getAttribute("userInfo") : null;
+		if (attr instanceof Map) {
+			return (Map<String, Object>) attr;
+		}
+		return null;
+	}
+
+	@SuppressWarnings("unchecked")
+	private boolean isAdminUser(HttpServletRequest request) {
+		Map<String, Object> userInfo = getSessUserInfo(request);
+		if (userInfo == null) return false;
+		Object rolesObj = userInfo.get("sess_role");
+		if (rolesObj == null) rolesObj = userInfo.get("roles");
+		if (!(rolesObj instanceof List)) return false;
+		List<?> roles = (List<?>) rolesObj;
+		for (Object r : roles) {
+			if (!(r instanceof Map)) continue;
+			Map<String, ?> role = (Map<String, ?>) r;
+			Object roleId = role.get("role_id");
+			Object usgYn = role.get("usg_yn");
+			boolean enabled = (usgYn == null) || "Y".equalsIgnoreCase(String.valueOf(usgYn));
+			if (enabled && Constant.ROLE_ADMIN.equals(String.valueOf(roleId))) return true;
+		}
+		return false;
+	}
+
+	private ResponseEntity<?> requireAdmin(HttpServletRequest request) {
+		Map<String, Object> userInfo = getSessUserInfo(request);
+		if (userInfo == null || userInfo.get("sess_user_id") == null) {
+			Map<String, Object> body = new HashMap<>();
+			body.put("result", Constant.FAIL);
+			body.put("message", "로그인이 필요합니다.");
+			return new ResponseEntity<>(body, HttpStatus.UNAUTHORIZED);
+		}
+		if (!isAdminUser(request)) {
+			Map<String, Object> body = new HashMap<>();
+			body.put("result", Constant.FAIL);
+			body.put("message", "관리자 권한이 필요합니다.");
+			return new ResponseEntity<>(body, HttpStatus.FORBIDDEN);
+		}
+		return null;
+	}
+
 	@Operation(summary = "배치 설정 목록 조회", description = "배치 스케줄 설정 값을 조회합니다.")
 	@PostMapping("/config")
-	public ResponseEntity<?> selectBatchConfig(@RequestBody(required = false) Map<String, Object> param) {
+	public ResponseEntity<?> selectBatchConfig(@RequestBody(required = false) Map<String, Object> param, HttpServletRequest request) {
+		ResponseEntity<?> guard = requireAdmin(request);
+		if (guard != null) return guard;
 		List<Map<String, String>> list = logService.selectBatchConfig(param == null ? new HashMap<>() : param);
 		return new ResponseEntity<>(list, HttpStatus.OK);
 	}
 
 	@Operation(summary = "배치 재시작", description = "배치 스케줄러를 재시작합니다.")
 	@PostMapping("/restart")
-	public ResponseEntity<?> restartBatch(@RequestBody(required = false) Map<String, Object> param) {
+	public ResponseEntity<?> restartBatch(@RequestBody(required = false) Map<String, Object> param, HttpServletRequest request) {
+		ResponseEntity<?> guard = requireAdmin(request);
+		if (guard != null) return guard;
 		if (!applicationContext.containsBean("batchConfig")) {
 			Map<String, Object> error = new HashMap<>();
 			error.put("result", Constant.FAIL);
@@ -65,10 +116,12 @@ public class BatchController {
 
 	@Operation(summary = "배치 수동 실행", description = "선택한 배치 작업을 즉시 한 번 실행합니다.")
 	@PostMapping("/run")
-	public ResponseEntity<?> runBatch(@RequestBody Map<String, Object> param) {
-		Map<String, Object> request = param != null ? param : new HashMap<>();
+	public ResponseEntity<?> runBatch(@RequestBody Map<String, Object> param, HttpServletRequest request) {
+		ResponseEntity<?> guard = requireAdmin(request);
+		if (guard != null) return guard;
+		Map<String, Object> requestBody = param != null ? param : new HashMap<>();
 
-		Object rawJobKey = request.containsKey("job_key") ? request.get("job_key") : request.get("cd");
+		Object rawJobKey = requestBody.containsKey("job_key") ? requestBody.get("job_key") : requestBody.get("cd");
 		String jobKey = rawJobKey != null ? String.valueOf(rawJobKey) : null;
 		if (jobKey == null || jobKey.trim().isEmpty()) {
 			Map<String, Object> error = new HashMap<>();
@@ -78,7 +131,7 @@ public class BatchController {
 		}
 
 		Map<String, Object> jobData = null;
-		Object rawJobData = request.get("job_data");
+		Object rawJobData = requestBody.get("job_data");
 		if (rawJobData instanceof Map<?, ?>) {
 			Map<?, ?> rawMap = (Map<?, ?>) rawJobData;
 			Map<String, Object> parsedJobData = new HashMap<>();
@@ -103,7 +156,9 @@ public class BatchController {
 
 	@Operation(summary = "배치 실행 이력 목록", description = "배치 실행 이력을 조회합니다.")
 	@PostMapping("/run-his")
-	public ResponseEntity<?> selectBatchRunHis(@RequestBody(required = false) Map<String, Object> param) {
+	public ResponseEntity<?> selectBatchRunHis(@RequestBody(required = false) Map<String, Object> param, HttpServletRequest request) {
+		ResponseEntity<?> guard = requireAdmin(request);
+		if (guard != null) return guard;
 		Map<String, Object> query = param == null ? new HashMap<>() : param;
 		List<Map<String, ?>> list = batchMapper.selectBatchRunHisList(query);
 		return new ResponseEntity<>(list, HttpStatus.OK);
@@ -111,7 +166,9 @@ public class BatchController {
 
 	@Operation(summary = "배치 실행 이력 상세", description = "특정 실행 이력 상세를 조회합니다.")
 	@GetMapping("/run-his/{runSn}")
-	public ResponseEntity<?> selectBatchRunHisDetail(@PathVariable Long runSn) {
+	public ResponseEntity<?> selectBatchRunHisDetail(@PathVariable Long runSn, HttpServletRequest request) {
+		ResponseEntity<?> guard = requireAdmin(request);
+		if (guard != null) return guard;
 		Map<String, ?> detail = batchMapper.selectBatchRunHisDetail(runSn);
 		return new ResponseEntity<>(detail, HttpStatus.OK);
 	}

@@ -3,8 +3,8 @@ package com.smw.account.rest;
 import java.util.HashMap;
 import java.util.Map;
 
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpSession;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpSession;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 import com.smw.account.service.AccountSummaryService;
+import com.sysconf.annotation.RequireLogin;
 import com.sysconf.util.FileValidationUtil;
 
 import io.swagger.v3.oas.annotations.Operation;
@@ -24,6 +25,7 @@ import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 @Tag(name = "Summoners War Account Summary", description = "SWEX 계정 요약(룬/몬스터) 업로드 및 조회 API")
+@RequireLogin
 @RestController
 @RequestMapping("/api/v1/summonerswar/account-summary")
 public class AccountSummaryController {

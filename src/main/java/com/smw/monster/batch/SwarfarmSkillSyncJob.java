@@ -13,6 +13,7 @@ public class SwarfarmSkillSyncJob extends BaseBatchJob {
     @Override
     protected void executeBatch(JobExecutionContext context) throws Exception {
         SwarfarmSkillService swarfarmSkillService = applicationContext.getBean(SwarfarmSkillService.class);
+        attachServiceLogCallback(swarfarmSkillService);
         
         addLog("===== Swarfarm 스킬 동기화 시작 =====");
         addLog("API 조회 시작...");

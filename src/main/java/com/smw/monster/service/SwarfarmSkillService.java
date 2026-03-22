@@ -2,7 +2,7 @@ package com.smw.monster.service;
 
 import java.util.Map;
 
-public interface SwarfarmSkillService {
+public interface SwarfarmSkillService extends SwarfarmSyncService {
     
     /**
      * Swarfarm API에서 모든 스킬 데이터를 동기화

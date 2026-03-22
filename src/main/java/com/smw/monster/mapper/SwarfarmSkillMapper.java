@@ -1,5 +1,6 @@
 package com.smw.monster.mapper;
 
+import java.util.List;
 import java.util.Map;
 
 import org.apache.ibatis.annotations.Mapper;
@@ -17,6 +18,11 @@ public interface SwarfarmSkillMapper {
      * Swarfarm ID로 스킬 존재 여부 확인
      */
     Integer countBySwarfarmId(@Param("swarfarm_id") Integer swarfarmId);
+
+    /**
+     * 전체 Swarfarm 스킬 ID 조회
+     */
+    List<Integer> selectAllSwarfarmIds();
     
     /**
      * Swarfarm ID로 skill_id 찾기
@@ -32,6 +38,11 @@ public interface SwarfarmSkillMapper {
      * 스킬 업그레이드 저장
      */
     int insertSkillUpgrade(Map<String, Object> param);
+
+    /**
+     * 스킬 업그레이드 일괄 저장
+     */
+    int insertSkillUpgradesBatch(@Param("items") List<Map<String, Object>> items);
     
     /**
      * 스킬 효과 삭제
@@ -42,6 +53,11 @@ public interface SwarfarmSkillMapper {
      * 스킬 효과 저장
      */
     int insertSkillEffect(Map<String, Object> param);
+
+    /**
+     * 스킬 효과 일괄 저장
+     */
+    int insertSkillEffectsBatch(@Param("items") List<Map<String, Object>> items);
     
     /**
      * 스킬 사용 몬스터 매핑 삭제
@@ -52,5 +68,10 @@ public interface SwarfarmSkillMapper {
      * 스킬 사용 몬스터 매핑 저장
      */
     int insertSkillUsedOn(Map<String, Object> param);
+
+    /**
+     * 스킬 사용 몬스터 매핑 일괄 저장
+     */
+    int insertSkillUsedOnBatch(@Param("items") List<Map<String, Object>> items);
 }
 

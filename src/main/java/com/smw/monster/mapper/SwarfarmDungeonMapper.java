@@ -1,5 +1,6 @@
 package com.smw.monster.mapper;
 
+import java.util.List;
 import java.util.Map;
 
 import org.apache.ibatis.annotations.Mapper;
@@ -17,6 +18,11 @@ public interface SwarfarmDungeonMapper {
      * Dungeon ID로 던전 존재 여부 확인
      */
     Integer countByDungeonId(@Param("dungeon_id") Integer dungeonId);
+
+    /**
+     * 전체 Dungeon ID 조회
+     */
+    List<Integer> selectAllDungeonIds();
     
     /**
      * 던전 레벨 삭제
@@ -27,5 +33,10 @@ public interface SwarfarmDungeonMapper {
      * 던전 레벨 저장
      */
     int insertDungeonLevel(Map<String, Object> param);
+
+    /**
+     * 던전 레벨 일괄 저장
+     */
+    int insertDungeonLevelsBatch(@Param("items") List<Map<String, Object>> items);
 }
 

@@ -1,18 +1,22 @@
 package com.smw.monster.service;
 
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.function.Consumer;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestTemplate;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smw.monster.dto.SwarfarmLevelResponse;
 import com.smw.monster.mapper.SwarfarmLevelMapper;
 
+import io.micrometer.core.instrument.Timer;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
@@ -27,15 +31,36 @@ public class SwarfarmLevelServiceImpl implements SwarfarmLevelService {
     private SwarfarmLevelMapper swarfarmLevelMapper;
     
     @Autowired
-    private RestTemplate restTemplate;
-    
+    private SwarfarmApiClient swarfarmApiClient;
+
     @Autowired
-    private ObjectMapper objectMapper;
+    private SwarfarmSyncMetrics swarfarmSyncMetrics;
+
+    @Value("${smw.swarfarm.request-delay-ms:250}")
+    private long requestDelayMs;
+
+    private Consumer<String> logCallback;
+
+    @Override
+    public void setLogCallback(Consumer<String> logCallback) {
+        this.logCallback = logCallback;
+    }
+
+    private void addBatchLog(String message, Object... args) {
+        String logMessage = args != null && args.length > 0 ? String.format(message, args) : message;
+        if (logCallback != null) {
+            logCallback.accept(logMessage);
+        } else {
+            log.info(logMessage);
+        }
+    }
     
     @Override
     public int syncAllLevels() {
-        log.info("===== Swarfarm 레벨 동기화 시작 =====");
+        addBatchLog("===== Swarfarm 레벨 동기화 시작 =====");
         int totalSynced = 0;
+        SwarfarmSyncMetrics.SyncStats stats = swarfarmSyncMetrics.newStats();
+        Timer.Sample syncTimerSample = swarfarmSyncMetrics.startTimer();
         
         try {
             // 첫 페이지로 전체 개수 확인
@@ -43,30 +68,38 @@ public class SwarfarmLevelServiceImpl implements SwarfarmLevelService {
             SwarfarmLevelResponse firstResponse = fetchLevelData(firstPageUrl);
             
             if (firstResponse == null) {
-                log.error("첫 페이지 데이터를 가져올 수 없습니다.");
-                return 0;
+                addBatchLog("오류: 첫 페이지 데이터를 가져올 수 없습니다.");
+                throw new RuntimeException("첫 페이지 데이터를 가져올 수 없습니다.");
             }
             
             int totalCount = firstResponse.getCount();
             int totalPages = calculateTotalPages(totalCount, DEFAULT_PAGE_SIZE);
             
-            log.info("전체 레벨 수: {}, 예상 페이지 수: {}", totalCount, totalPages);
+            addBatchLog("전체 레벨 수: %d, 예상 페이지 수: %d", totalCount, totalPages);
+            Set<Integer> existingLevelIds = loadExistingLevelIds();
             
             // 모든 페이지 처리
             for (int page = 1; page <= totalPages; page++) {
-                log.info("페이지 {} 동기화 시작", page);
-                int synced = syncLevelsByPage(page);
+                addBatchLog("페이지 %d 동기화 시작", page);
+                int synced = syncLevelsByPage(page, existingLevelIds, stats);
                 totalSynced += synced;
                 
                 // API 부하 방지를 위한 짧은 대기
                 if (page < totalPages) {
-                    Thread.sleep(500);
+                    pauseBetweenRequests();
                 }
             }
             
-            log.info("===== Swarfarm 레벨 동기화 완료. 총 {}개 동기화 =====", totalSynced);
+            addBatchLog("===== Swarfarm 레벨 동기화 완료. 총 %d개 동기화 =====", totalSynced);
+            addBatchLog("처리=%d, 저장=%d, 스킵=%d, 실패=%d",
+                    stats.getProcessed(), stats.getSaved(), stats.getSkipped(), stats.getFailed());
+            swarfarmSyncMetrics.recordSummary("level", "SUCCESS", stats, syncTimerSample);
         } catch (Exception e) {
+            addBatchLog("오류 발생: %s", e.getMessage());
             log.error("레벨 동기화 중 오류 발생", e);
+            stats.addFailed(1);
+            swarfarmSyncMetrics.recordSummary("level", "FAILED", stats, syncTimerSample);
+            throw new RuntimeException("레벨 동기화 실패", e);
         }
         
         return totalSynced;
@@ -74,6 +107,10 @@ public class SwarfarmLevelServiceImpl implements SwarfarmLevelService {
     
     @Override
     public int syncLevelsByPage(int page) {
+        return syncLevelsByPage(page, new HashSet<>(), swarfarmSyncMetrics.newStats());
+    }
+
+    private int syncLevelsByPage(int page, Set<Integer> existingLevelIds, SwarfarmSyncMetrics.SyncStats stats) {
         try {
             String apiUrl = SWARFARM_API_BASE_URL + "?format=json&page=" + page;
             SwarfarmLevelResponse response = fetchLevelData(apiUrl);
@@ -84,11 +121,13 @@ public class SwarfarmLevelServiceImpl implements SwarfarmLevelService {
             }
             
             int syncedCount = 0;
+            stats.addProcessed(response.getResults().size());
             for (SwarfarmLevelResponse.LevelData level : response.getResults()) {
                 try {
                     // 이미 존재하는 레벨인지 확인
-                    if (existsLevel(level.getId())) {
+                    if (existingLevelIds.contains(level.getId())) {
                         log.debug("레벨 ID {}는 이미 존재합니다. 건너뜁니다.", level.getId());
+                        stats.addSkipped(1);
                         continue;
                     }
                     
@@ -98,23 +137,50 @@ public class SwarfarmLevelServiceImpl implements SwarfarmLevelService {
                     // DB 저장
                     if (saveLevel(levelData)) {
                         syncedCount++;
+                        stats.addSaved(1);
+                        existingLevelIds.add(level.getId());
                         
                         // Waves 저장
                         if (level.getWaves() != null && !level.getWaves().isEmpty()) {
                             saveLevelWaves(level.getId(), level.getWaves());
                         }
+                    } else {
+                        stats.addFailed(1);
                     }
                 } catch (Exception e) {
+                    stats.addFailed(1);
                     log.error("레벨 저장 중 오류 발생: {}", level.getId(), e);
                 }
             }
             
-            log.info("페이지 {} 동기화 완료. {}개 저장", page, syncedCount);
+            addBatchLog("페이지 %d 동기화 완료: 저장=%d, 누적 처리=%d, 누적 스킵=%d, 누적 실패=%d",
+                    page, syncedCount, stats.getProcessed(), stats.getSkipped(), stats.getFailed());
             return syncedCount;
             
         } catch (Exception e) {
+            stats.addFailed(1);
             log.error("페이지 {} 동기화 중 오류 발생", page, e);
-            return 0;
+            throw new RuntimeException("페이지 " + page + " 동기화 실패", e);
+        }
+    }
+
+    private Set<Integer> loadExistingLevelIds() {
+        try {
+            return new HashSet<>(swarfarmLevelMapper.selectAllLevelIds());
+        } catch (Exception e) {
+            log.warn("기존 레벨 ID 조회 실패, 빈 Set 반환", e);
+            return new HashSet<>();
+        }
+    }
+
+    private void pauseBetweenRequests() {
+        if (requestDelayMs > 0) {
+            try {
+                Thread.sleep(requestDelayMs);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("레벨 동기화 대기 중 인터럽트가 발생했습니다.", e);
+            }
         }
     }
     
@@ -163,8 +229,7 @@ public class SwarfarmLevelServiceImpl implements SwarfarmLevelService {
     private SwarfarmLevelResponse fetchLevelData(String apiUrl) {
         try {
             log.debug("API 호출: {}", apiUrl);
-            String response = restTemplate.getForObject(apiUrl, String.class);
-            return objectMapper.readValue(response, SwarfarmLevelResponse.class);
+            return swarfarmApiClient.fetchJson(apiUrl, SwarfarmLevelResponse.class);
         } catch (Exception e) {
             log.error("API 호출 중 오류 발생: {}", apiUrl, e);
             return null;
@@ -200,19 +265,18 @@ public class SwarfarmLevelServiceImpl implements SwarfarmLevelService {
         try {
             // 기존 웨이브 및 적 삭제
             swarfarmLevelMapper.deleteLevelWaves(levelId);
-            
-            // 새 웨이브 및 적 저장
+
+            List<Map<String, Object>> waveRows = new ArrayList<>();
+            List<Map<String, Object>> enemyRows = new ArrayList<>();
             for (int waveIndex = 0; waveIndex < waves.size(); waveIndex++) {
                 SwarfarmLevelResponse.WaveData wave = waves.get(waveIndex);
                 int waveNumber = waveIndex + 1;
                 
-                // 웨이브 저장
                 Map<String, Object> waveData = new HashMap<>();
                 waveData.put("level_id", levelId);
                 waveData.put("wave_number", waveNumber);
-                swarfarmLevelMapper.insertLevelWave(waveData);
-                
-                // 적 몬스터 저장
+                waveRows.add(waveData);
+
                 if (wave.getEnemies() != null && !wave.getEnemies().isEmpty()) {
                     for (SwarfarmLevelResponse.EnemyData enemy : wave.getEnemies()) {
                         Map<String, Object> enemyData = new HashMap<>();
@@ -230,9 +294,16 @@ public class SwarfarmLevelServiceImpl implements SwarfarmLevelService {
                         enemyData.put("crit_bonus", enemy.getCritBonus());
                         enemyData.put("crit_damage_reduction", enemy.getCritDamageReduction());
                         enemyData.put("accuracy_bonus", enemy.getAccuracyBonus());
-                        swarfarmLevelMapper.insertLevelEnemy(enemyData);
+                        enemyRows.add(enemyData);
                     }
                 }
+            }
+
+            if (!waveRows.isEmpty()) {
+                swarfarmLevelMapper.insertLevelWavesBatch(waveRows);
+            }
+            if (!enemyRows.isEmpty()) {
+                swarfarmLevelMapper.insertLevelEnemiesBatch(enemyRows);
             }
         } catch (Exception e) {
             log.error("레벨 웨이브 저장 중 오류 발생", e);

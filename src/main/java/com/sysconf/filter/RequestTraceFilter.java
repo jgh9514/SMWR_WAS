@@ -3,10 +3,10 @@ package com.sysconf.filter;
 import java.io.IOException;
 import java.util.UUID;
 
-import javax.servlet.FilterChain;
-import javax.servlet.ServletException;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 
 import org.apache.logging.log4j.ThreadContext;
 import org.springframework.stereotype.Component;
@@ -23,6 +23,7 @@ public class RequestTraceFilter extends OncePerRequestFilter {
 			traceId = UUID.randomUUID().toString().replace("-", "");
 		}
 
+		request.setAttribute("__trace_id", traceId);
 		ThreadContext.put("traceId", traceId);
 		response.setHeader("X-Request-Id", traceId);
 		try {

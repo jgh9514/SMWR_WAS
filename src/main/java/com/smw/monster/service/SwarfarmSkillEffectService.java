@@ -2,7 +2,7 @@ package com.smw.monster.service;
 
 import java.util.Map;
 
-public interface SwarfarmSkillEffectService {
+public interface SwarfarmSkillEffectService extends SwarfarmSyncService {
     
     /**
      * Swarfarm API에서 모든 스킬 이펙트 데이터를 동기화

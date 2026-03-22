@@ -1,17 +1,21 @@
 package com.sysconf.security;
 
+import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.SignatureAlgorithm;
+import io.jsonwebtoken.security.Keys;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-import javax.annotation.PostConstruct;
+import jakarta.annotation.PostConstruct;
+import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.Date;
+import javax.crypto.SecretKey;
 
 @Component
 public class JwtTokenProvider {
@@ -19,24 +23,27 @@ public class JwtTokenProvider {
     @Autowired
     private JwtTokenEncryptor jwtTokenEncryptor;
 
-    // toekn secret key
-    private String secretKey = "6D97487E2BB22B4FE55EC793BEFB9";
+    @Value("${smw.security.jwt-signing-secret}")
+    private String secretKey;
 
-    // token valid time 60 minute
-    private long tokenValidTime = 180 * 60 * 1000L;
+    private SecretKey signingKey;
+
+    @Value("${smw.security.access-token-valid-time-ms:10800000}")
+    private long tokenValidTime;
 
     @PostConstruct
-    protected void init(){
+    protected void init() {
         secretKey = Base64.getEncoder().encodeToString(secretKey.getBytes());
+        signingKey = Keys.hmacShaKeyFor(secretKey.getBytes(StandardCharsets.UTF_8));
     }
 
     public String createToken(String userid) throws Exception {
-
+        Claims claims = Jwts.claims().subject(jwtTokenEncryptor.encrypt(userid)).build();
         return Jwts.builder()
-                .setClaims(Jwts.claims().setSubject(jwtTokenEncryptor.encrypt(userid)))
-                .setIssuedAt(new Date())
-                .setExpiration(new Date(System.currentTimeMillis() + tokenValidTime))
-                .signWith(SignatureAlgorithm.HS256, secretKey)
+                .claims(claims)
+                .issuedAt(new Date())
+                .expiration(new Date(System.currentTimeMillis() + tokenValidTime))
+                .signWith(signingKey)
                 .compact();
     }
 
@@ -45,13 +52,21 @@ public class JwtTokenProvider {
     }
 
     public String getUserIdByToken(String token) throws Exception {
-        String encryptUserid = Jwts.parser().setSigningKey(secretKey).parseClaimsJws(token).getBody().getSubject();
+        String encryptUserid = Jwts.parser()
+                .verifyWith(signingKey)
+                .build()
+                .parseSignedClaims(token)
+                .getPayload()
+                .getSubject();
         return jwtTokenEncryptor.decrypt(encryptUserid);
     }
 
     public String isValidToken(String token){
         try {
-            Jwts.parser().setSigningKey(secretKey).parseClaimsJws(token);
+            Jwts.parser()
+                    .verifyWith(signingKey)
+                    .build()
+                    .parseSignedClaims(token);
             return "ACCESS";
         } catch (ExpiredJwtException e) {
             return "EXPIRED";

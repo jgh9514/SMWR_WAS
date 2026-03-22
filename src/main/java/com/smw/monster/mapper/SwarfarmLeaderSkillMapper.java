@@ -1,5 +1,6 @@
 package com.smw.monster.mapper;
 
+import java.util.List;
 import java.util.Map;
 
 import org.apache.ibatis.annotations.Mapper;
@@ -17,5 +18,10 @@ public interface SwarfarmLeaderSkillMapper {
      * Leader Skill ID로 리더 스킬 존재 여부 확인
      */
     Integer countByLeaderSkillId(@Param("leader_skill_id") Integer leaderSkillId);
+
+    /**
+     * 전체 Leader Skill ID 조회
+     */
+    List<Integer> selectAllLeaderSkillIds();
 }
 

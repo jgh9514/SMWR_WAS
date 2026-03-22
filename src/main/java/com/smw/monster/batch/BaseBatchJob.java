@@ -13,7 +13,12 @@ import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.support.DefaultTransactionDefinition;
 
 import com.admin.batch.mapper.BatchMapper;
+import com.smw.monster.service.SwarfarmSyncService;
 
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Tags;
+import io.micrometer.core.instrument.Timer;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -30,12 +35,14 @@ public abstract class BaseBatchJob implements Job {
     protected BatchMapper batchMapper;
     protected PlatformTransactionManager transactionManager;
     protected TransactionStatus transactionStatus;
+    protected MeterRegistry meterRegistry;
     
     @Override
     public void execute(JobExecutionContext context) throws JobExecutionException {
         long startTime = System.currentTimeMillis();
         logContent.setLength(0); // 로그 초기화
         TransactionStatus txStatus = null;
+        Timer.Sample batchTimerSample = null;
         
         try {
             // ApplicationContext 가져오기
@@ -46,6 +53,11 @@ public abstract class BaseBatchJob implements Job {
             
             if (applicationContext == null) {
                 throw new JobExecutionException("ApplicationContext를 찾을 수 없습니다.");
+            }
+
+            meterRegistry = applicationContext.getBeanProvider(MeterRegistry.class).getIfAvailable();
+            if (meterRegistry != null) {
+                batchTimerSample = Timer.start(meterRegistry);
             }
             
             // BatchMapper 가져오기
@@ -105,6 +117,7 @@ public abstract class BaseBatchJob implements Job {
             addLog("소요 시간: %.2f초", elapsedTime / 1000.0);
             
             updateBatchRunHis("SUCCESS", getLogContent());
+            recordBatchMetrics("SUCCESS", batchTimerSample);
             
         } catch (Exception e) {
             // 트랜잭션 롤백
@@ -134,6 +147,7 @@ public abstract class BaseBatchJob implements Job {
             }
             
             updateBatchRunHis("FAILED", errorLog);
+            recordBatchMetrics("FAILED", batchTimerSample);
             
             log.error("배치 실행 중 오류 발생", e);
             throw new JobExecutionException("배치 실행 실패: " + e.getMessage(), e);
@@ -198,6 +212,17 @@ public abstract class BaseBatchJob implements Job {
     protected String getLogContent() {
         return logContent.toString();
     }
+
+    protected void attachServiceLogCallback(SwarfarmSyncService service) {
+        if (service == null) {
+            return;
+        }
+        service.setLogCallback((msg) -> {
+            String timestamp = java.time.LocalDateTime.now().format(
+                    java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+            logContent.append("[").append(timestamp).append("] ").append(msg).append("\n");
+        });
+    }
     
     /**
      * 배치 실행 이력 업데이트
@@ -261,6 +286,30 @@ public abstract class BaseBatchJob implements Job {
         java.io.PrintWriter pw = new java.io.PrintWriter(sw);
         e.printStackTrace(pw);
         return sw.toString();
+    }
+
+    private void recordBatchMetrics(String result, Timer.Sample sample) {
+        if (meterRegistry == null) {
+            return;
+        }
+
+        Tags tags = Tags.of(
+                "batch_name", getBatchName(),
+                "result", result
+        );
+
+        Counter.builder("smw.batch.execution.count")
+                .description("Batch execution count")
+                .tags(tags)
+                .register(meterRegistry)
+                .increment();
+
+        if (sample != null) {
+            sample.stop(Timer.builder("smw.batch.execution.duration")
+                    .description("Batch execution duration")
+                    .tags(tags)
+                    .register(meterRegistry));
+        }
     }
 }
 

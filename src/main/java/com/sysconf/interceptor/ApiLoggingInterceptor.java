@@ -1,29 +1,39 @@
 package com.sysconf.interceptor;
 
+import java.io.BufferedReader;
 import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import org.springframework.web.servlet.HandlerInterceptor;
 import org.springframework.web.servlet.HandlerMapping;
 import org.springframework.web.servlet.ModelAndView;
-import org.springframework.web.servlet.handler.HandlerInterceptorAdapter;
 
 import com.admin.log.service.LogService;
-import java.util.Objects;
 
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Tags;
+import io.micrometer.core.instrument.Timer;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 @Component
-public class ApiLoggingInterceptor extends HandlerInterceptorAdapter {
+public class ApiLoggingInterceptor implements HandlerInterceptor {
+
+	private static final int MAX_INPUT_PARAM_LENGTH = 2000;
 
 	@Autowired
 	LogService logService;
+
+	@Autowired(required = false)
+	MeterRegistry meterRegistry;
 
 	@SuppressWarnings("unchecked")
 	@Override
@@ -34,11 +44,14 @@ public class ApiLoggingInterceptor extends HandlerInterceptorAdapter {
 
 		// 처리시간 측정용
 		request.setAttribute("__api_start_ms", System.currentTimeMillis());
+		if (meterRegistry != null) {
+			request.setAttribute("__api_timer_sample", Timer.start(meterRegistry));
+		}
 
 		// API 로깅 파라미터 준비
 		Map<String, Object> param = new HashMap<>();
 
-		// SessionInterceptor가 주입한 userInfo를 재사용 (쿠키 파싱/세션 주입 중복 제거)
+		// AuthSessionInterceptor가 주입한 userInfo를 재사용 (쿠키 파싱/세션 주입 중복 제거)
 		Object attr = request.getAttribute("userInfo");
 		Map<String, Object> userMap = (attr instanceof Map) ? (Map<String, Object>) attr : null;
 		
@@ -49,22 +62,10 @@ public class ApiLoggingInterceptor extends HandlerInterceptorAdapter {
 			param.put("sess_user_id", "ANONYMOUS"); // 비로그인 사용자
 		}
 
-		// URL 추출 (Path Variable 처리)
-		Map<String, Object> pathVariableAttribute = (Map<String, Object>) request.getAttribute(HandlerMapping.URI_TEMPLATE_VARIABLES_ATTRIBUTE);
-		
-		StringBuilder pathVariableString = new StringBuilder();
-		if (pathVariableAttribute != null) {
-			for (String pathvariable : pathVariableAttribute.keySet()) {
-				pathVariableString.append(pathVariableAttribute.get(pathvariable).toString()).append(",");
-			}
-		}
-		
-		String lastPart = request.getRequestURI().substring(request.getRequestURI().lastIndexOf("/") + 1);
-		if(pathVariableString.toString().contains(lastPart)) {
-			param.put("url", request.getRequestURI().substring(0, request.getRequestURI().lastIndexOf("/")));
-		} else {
-			param.put("url", request.getRequestURI());
-		}
+		// URL 추출: 가능한 경우 path template 기준으로 정규화
+		String normalizedPath = resolveNormalizedPath(request);
+		param.put("url", normalizedPath);
+		request.setAttribute("__api_metric_path", normalizedPath);
 
 		// IP 정보 추출
 		String userIp = request.getHeader("X-Forwarded-For");
@@ -77,13 +78,14 @@ public class ApiLoggingInterceptor extends HandlerInterceptorAdapter {
 		// API 로깅
 		param.put("method", request.getMethod());
 		param.put("ip", userIp);
+		param.put("trace_id", resolveTraceId(request, response));
 		if(userMap != null && userMap.get("sess_lang_cd") != null) {
 			param.put("sess_lang_cd", userMap.get("sess_lang_cd").toString());
 		} else {
 			param.put("sess_lang_cd", "ko"); // 기본값
 		}
 		param.put("server_ip", request.getRemoteHost());
-		param.put("input_param", getParameter(request));
+		param.put("input_param", resolveInputParam(request));
 
 		// 요청 thread에서 DB insert를 하지 않음 (afterCompletion에서 비동기로 처리)
 		request.setAttribute("__api_log_param", param);
@@ -98,6 +100,8 @@ public class ApiLoggingInterceptor extends HandlerInterceptorAdapter {
 	
 	@Override
 	public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex) throws Exception {
+		recordApiMetrics(request, response, ex);
+
 		// 비동기 API 로그 적재 (등록된 API만 저장됨)
 		Object p = request.getAttribute("__api_log_param");
 		if (p instanceof Map) {
@@ -106,10 +110,88 @@ public class ApiLoggingInterceptor extends HandlerInterceptorAdapter {
 			Object st = request.getAttribute("__api_start_ms");
 			if (st instanceof Long) {
 				long elapsed = System.currentTimeMillis() - (Long) st;
-				param.put("elapsed_ms", elapsed); // (현재 DB 컬럼 없음) 추후 확장용
+				param.put("elapsed_ms", elapsed);
 			}
-			param.put("http_status", Objects.toString(response.getStatus(), "")); // (현재 DB 컬럼 없음) 추후 확장용
+			param.put("trace_id", resolveTraceId(request, response));
+			param.put("http_status", response.getStatus());
 			logService.insertApiLogAsync(param);
+		}
+	}
+
+	private String resolveTraceId(HttpServletRequest request, HttpServletResponse response) {
+		Object traceIdAttr = request.getAttribute("__trace_id");
+		if (traceIdAttr != null && !String.valueOf(traceIdAttr).trim().isEmpty()) {
+			return String.valueOf(traceIdAttr);
+		}
+
+		String traceIdHeader = request.getHeader("X-Request-Id");
+		if (traceIdHeader != null && !traceIdHeader.trim().isEmpty()) {
+			return traceIdHeader;
+		}
+
+		return Objects.toString(response.getHeader("X-Request-Id"), "");
+	}
+
+	@SuppressWarnings("unchecked")
+	private String resolveNormalizedPath(HttpServletRequest request) {
+		Object bestMatchingPattern = request.getAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE);
+		if (bestMatchingPattern instanceof String && !((String) bestMatchingPattern).trim().isEmpty()) {
+			return (String) bestMatchingPattern;
+		}
+
+		Map<String, Object> pathVariableAttribute =
+				(Map<String, Object>) request.getAttribute(HandlerMapping.URI_TEMPLATE_VARIABLES_ATTRIBUTE);
+
+		StringBuilder pathVariableString = new StringBuilder();
+		if (pathVariableAttribute != null) {
+			for (String pathvariable : pathVariableAttribute.keySet()) {
+				pathVariableString.append(pathVariableAttribute.get(pathvariable).toString()).append(",");
+			}
+		}
+
+		String requestUri = request.getRequestURI();
+		String lastPart = requestUri.substring(requestUri.lastIndexOf("/") + 1);
+		if (pathVariableString.toString().contains(lastPart)) {
+			return requestUri.substring(0, requestUri.lastIndexOf("/")) + "/{id}";
+		}
+		return requestUri;
+	}
+
+	private void recordApiMetrics(HttpServletRequest request, HttpServletResponse response, Exception ex) {
+		if (meterRegistry == null) {
+			return;
+		}
+
+		String method = request.getMethod();
+		String uri = Objects.toString(request.getAttribute("__api_metric_path"), request.getRequestURI());
+		String status = String.valueOf(response.getStatus());
+		String outcome = response.getStatus() >= 500 ? "SERVER_ERROR"
+				: response.getStatus() >= 400 ? "CLIENT_ERROR"
+				: "SUCCESS";
+		String exception = ex == null ? "None" : ex.getClass().getSimpleName();
+
+		Tags tags = Tags.of(
+				"method", method,
+				"uri", uri,
+				"status", status,
+				"outcome", outcome,
+				"exception", exception
+		);
+
+		Counter.builder("smw.api.request.count")
+				.description("API request count")
+				.tags(tags)
+				.register(meterRegistry)
+				.increment();
+
+		Object timerSample = request.getAttribute("__api_timer_sample");
+		if (timerSample instanceof Timer.Sample) {
+			((Timer.Sample) timerSample).stop(
+					Timer.builder("smw.api.request.duration")
+							.description("API request duration")
+							.tags(tags)
+							.register(meterRegistry)
+			);
 		}
 	}
 	
@@ -124,6 +206,45 @@ public class ApiLoggingInterceptor extends HandlerInterceptorAdapter {
 		}
 		
 		return strParam;
+	}
+
+	private String resolveInputParam(HttpServletRequest request) {
+		String queryParams = getParameter(request);
+		if (queryParams != null && !queryParams.trim().isEmpty()) {
+			return truncate(queryParams);
+		}
+
+		String contentType = request.getContentType();
+		if (contentType == null || !contentType.contains("application/json")) {
+			return "";
+		}
+
+		try {
+			StringBuilder body = new StringBuilder();
+			BufferedReader reader = request.getReader();
+			String line;
+			while ((line = reader.readLine()) != null) {
+				body.append(line);
+				if (body.length() >= MAX_INPUT_PARAM_LENGTH) {
+					break;
+				}
+			}
+			return truncate(body.toString());
+		} catch (Exception e) {
+			log.debug("API 요청 바디 읽기 실패", e);
+			return "";
+		}
+	}
+
+	private String truncate(String value) {
+		if (value == null) {
+			return "";
+		}
+		String normalized = value.replace("\r", "").replace("\n", "");
+		if (normalized.length() <= MAX_INPUT_PARAM_LENGTH) {
+			return normalized;
+		}
+		return normalized.substring(0, MAX_INPUT_PARAM_LENGTH) + "...";
 	}
 }
 

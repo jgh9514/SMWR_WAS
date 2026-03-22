@@ -1,28 +1,28 @@
 package com.smw.monster.service;
 
-import java.io.InputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
+
+import jakarta.annotation.PreDestroy;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestTemplate;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smw.monster.dto.SwarfarmMonsterResponse;
 import com.smw.monster.mapper.SwarfarmMonsterMapper;
-import com.sysconf.util.S3Service;
 
+import io.micrometer.core.instrument.Timer;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
@@ -33,27 +33,37 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
     private static final String SWARFARM_API_BASE_URL = "https://swarfarm.com/api/v2/monsters/";
     private static final String SWARFARM_IMAGE_BASE_URL = "https://swarfarm.com/static/herders/images/monsters/";
     private static final int DEFAULT_PAGE_SIZE = 100; // Swarfarm API 기본 페이지 크기
+    private static final int DEFAULT_IMAGE_DOWNLOAD_CONCURRENCY = 4;
     @Autowired
     private SwarfarmMonsterMapper swarfarmMonsterMapper;
     
     @Autowired
-    private RestTemplate restTemplate;
-    
+    private SwarfarmApiClient swarfarmApiClient;
+
     @Autowired
-    private ObjectMapper objectMapper;
-    
-    @Autowired
-    private S3Service s3Service;
+    private SwarfarmSyncMetrics swarfarmSyncMetrics;
     
     @Value("${server.servlet.context-path:}")
     private String contextPath;
+
+    @Value("${smw.swarfarm.image-download-concurrency:4}")
+    private int imageDownloadConcurrency;
     
     // 로그 콜백 (배치 실행 시 상세 로그 수집용)
     private Consumer<String> logCallback = null;
+
+    private ExecutorService imageDownloadExecutor;
     
     @Override
     public void setLogCallback(Consumer<String> logCallback) {
         this.logCallback = logCallback;
+    }
+
+    @PreDestroy
+    public void shutdownExecutors() {
+        if (imageDownloadExecutor != null) {
+            imageDownloadExecutor.shutdown();
+        }
     }
     
     /**
@@ -73,6 +83,8 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
         addBatchLog("===== Swarfarm 몬스터 동기화 시작 =====");
         long startTime = System.currentTimeMillis();
         int totalSynced = 0;
+        SwarfarmSyncMetrics.SyncStats stats = swarfarmSyncMetrics.newStats();
+        Timer.Sample syncTimerSample = swarfarmSyncMetrics.startTimer();
         
         try {
             // 첫 페이지로 전체 개수 확인
@@ -99,7 +111,7 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
             addBatchLog("페이지 순차 처리 시작 (에러 발생 시 즉시 중단)...");
             for (int page = 1; page <= totalPages; page++) {
                 addBatchLog("페이지 %d 처리 시작...", page);
-                int synced = syncMonstersByPage(page, existingSwarfarmIds);
+                int synced = syncMonstersByPage(page, existingSwarfarmIds, stats);
                 totalSynced += synced;
                 addBatchLog("페이지 %d 처리 완료: %d개 저장", page, synced);
             }
@@ -107,10 +119,15 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
             long elapsedTime = System.currentTimeMillis() - startTime;
             addBatchLog("===== Swarfarm 몬스터 동기화 완료 =====");
             addBatchLog("총 동기화된 몬스터 수: %d개", totalSynced);
+            addBatchLog("처리=%d, 저장=%d, 스킵=%d, 실패=%d",
+                    stats.getProcessed(), stats.getSaved(), stats.getSkipped(), stats.getFailed());
             addBatchLog("소요 시간: %.2f초", elapsedTime / 1000.0);
+            swarfarmSyncMetrics.recordSummary("monster", "SUCCESS", stats, syncTimerSample);
         } catch (Exception e) {
             addBatchLog("오류 발생: %s", e.getMessage());
             log.error("몬스터 동기화 중 오류 발생", e);
+            stats.addFailed(1);
+            swarfarmSyncMetrics.recordSummary("monster", "FAILED", stats, syncTimerSample);
             throw e; // 예외를 다시 던져서 트랜잭션 롤백 유도
         }
         
@@ -133,10 +150,10 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
     
     @Override
     public int syncMonstersByPage(int page) {
-        return syncMonstersByPage(page, new HashSet<>());
+        return syncMonstersByPage(page, new HashSet<>(), swarfarmSyncMetrics.newStats());
     }
     
-    private int syncMonstersByPage(int page, Set<Integer> existingSwarfarmIds) {
+    private int syncMonstersByPage(int page, Set<Integer> existingSwarfarmIds, SwarfarmSyncMetrics.SyncStats stats) {
         try {
             String apiUrl = SWARFARM_API_BASE_URL + "?format=json&page=" + page;
             SwarfarmMonsterResponse response = fetchMonsterData(apiUrl);
@@ -147,9 +164,11 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
             }
             
             // 새로 추가할 몬스터만 필터링
+            stats.addProcessed(response.getResults().size());
             List<SwarfarmMonsterResponse.MonsterData> newMonsters = response.getResults().stream()
                     .filter(monster -> !existingSwarfarmIds.contains(monster.getId()))
                     .collect(Collectors.toList());
+            stats.addSkipped(response.getResults().size() - newMonsters.size());
             
             if (newMonsters.isEmpty()) {
                 log.debug("페이지 {}: 모든 몬스터가 이미 존재합니다.", page);
@@ -158,67 +177,76 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
             
             log.info("페이지 {}: {}개 중 {}개 새 몬스터 발견", page, response.getResults().size(), newMonsters.size());
             
-            // 몬스터 데이터 변환 및 이미지 다운로드 (이미지가 있는 경우만 처리)
-            List<Map<String, Object>> monsterDataList = new ArrayList<>();
-            int skippedCount = 0;
-            for (SwarfarmMonsterResponse.MonsterData monster : newMonsters) {
-                try {
-                    // 이미지 정보 확인
-                    if (monster.getImageFilename() == null || monster.getElement() == null) {
-                        addBatchLog("이미지 정보 없음으로 패스: swarfarm_id=%d, name=%s, image_filename=%s, element=%s", 
-                                monster.getId(), monster.getName(), monster.getImageFilename(), monster.getElement());
-                        skippedCount++;
-                        continue;
-                    }
-                    
-                    Map<String, Object> monsterData = convertToMap(monster);
-                    
-                    // 이미지 다운로드 및 S3 업로드 (순차 처리)
-                    // 이미지 다운로드 실패 시 패스
-                    try {
-                        String imageUrl = downloadMonsterImage(monster.getImageFilename(), monster.getElement());
-                        if (imageUrl == null || imageUrl.isEmpty()) {
-                            addBatchLog("이미지 다운로드 실패로 패스: swarfarm_id=%d, name=%s, image_filename=%s", 
-                                    monster.getId(), monster.getName(), monster.getImageFilename());
-                            skippedCount++;
-                            continue;
-                        }
-                        monsterData.put("image_url", imageUrl);
-                    } catch (Exception imageEx) {
-                        addBatchLog("이미지 다운로드 중 오류로 패스: swarfarm_id=%d, name=%s, image_filename=%s, 오류=%s", 
-                                monster.getId(), monster.getName(), monster.getImageFilename(), imageEx.getMessage());
-                        skippedCount++;
-                        continue;
-                    }
-                    
-                    // Skills와 Sources 정보도 함께 저장
-                    monsterData.put("_skills", monster.getSkills());
-                    monsterData.put("_sources", monster.getSource());
-                    monsterData.put("_swarfarm_id", monster.getId());
-                    
-                    monsterDataList.add(monsterData);
-                } catch (Exception e) {
-                    addBatchLog("몬스터 데이터 변환 중 오류로 패스: swarfarm_id=%d, name=%s, 오류=%s", 
-                            monster.getId(), monster.getName(), e.getMessage());
-                    skippedCount++;
-                    // 개별 몬스터 오류는 패스하고 계속 진행
-                    continue;
-                }
-            }
+            List<Map<String, Object>> monsterDataList = buildMonsterDataList(newMonsters);
+            int skippedCount = newMonsters.size() - monsterDataList.size();
             
             if (skippedCount > 0) {
                 addBatchLog("이미지 없음 또는 오류로 인해 %d개 몬스터 패스됨", skippedCount);
+                stats.addSkipped(skippedCount);
             }
             
             // 배치로 DB 저장
             int syncedCount = saveMonstersBatch(monsterDataList);
+            stats.addSaved(syncedCount);
             
-            log.info("페이지 {} 동기화 완료. {}개 저장", page, syncedCount);
+            addBatchLog("페이지 %d 처리 요약: 저장=%d, 누적 처리=%d, 누적 스킵=%d, 누적 실패=%d",
+                    page, syncedCount, stats.getProcessed(), stats.getSkipped(), stats.getFailed());
             return syncedCount;
             
         } catch (Exception e) {
+            stats.addFailed(1);
             log.error("페이지 {} 동기화 중 오류 발생", page, e);
             throw new RuntimeException("페이지 " + page + " 동기화 실패", e);
+        }
+    }
+
+    private List<Map<String, Object>> buildMonsterDataList(List<SwarfarmMonsterResponse.MonsterData> newMonsters) {
+        List<CompletableFuture<Map<String, Object>>> futures = new ArrayList<>();
+        ExecutorService executor = getImageDownloadExecutor();
+
+        for (SwarfarmMonsterResponse.MonsterData monster : newMonsters) {
+            futures.add(CompletableFuture.supplyAsync(() -> prepareMonsterData(monster), executor));
+        }
+
+        List<Map<String, Object>> monsterDataList = new ArrayList<>();
+        for (CompletableFuture<Map<String, Object>> future : futures) {
+            try {
+                Map<String, Object> monsterData = future.join();
+                if (monsterData != null) {
+                    monsterDataList.add(monsterData);
+                }
+            } catch (Exception e) {
+                log.warn("병렬 이미지 처리 결과 수집 중 오류 발생", e);
+            }
+        }
+        return monsterDataList;
+    }
+
+    private Map<String, Object> prepareMonsterData(SwarfarmMonsterResponse.MonsterData monster) {
+        try {
+            if (monster.getImageFilename() == null || monster.getElement() == null) {
+                addBatchLog("이미지 정보 없음으로 패스: swarfarm_id=%d, name=%s, image_filename=%s, element=%s",
+                        monster.getId(), monster.getName(), monster.getImageFilename(), monster.getElement());
+                return null;
+            }
+
+            Map<String, Object> monsterData = convertToMap(monster);
+            String imageUrl = downloadMonsterImage(monster.getImageFilename(), monster.getElement());
+            if (imageUrl == null || imageUrl.isEmpty()) {
+                addBatchLog("이미지 다운로드 실패로 패스: swarfarm_id=%d, name=%s, image_filename=%s",
+                        monster.getId(), monster.getName(), monster.getImageFilename());
+                return null;
+            }
+
+            monsterData.put("image_url", imageUrl);
+            monsterData.put("_skills", monster.getSkills());
+            monsterData.put("_sources", monster.getSource());
+            monsterData.put("_swarfarm_id", monster.getId());
+            return monsterData;
+        } catch (Exception e) {
+            addBatchLog("몬스터 데이터 변환/이미지 처리 중 오류로 패스: swarfarm_id=%d, name=%s, 오류=%s",
+                    monster.getId(), monster.getName(), e.getMessage());
+            return null;
         }
     }
     
@@ -230,16 +258,15 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
         int savedCount = 0;
         for (Map<String, Object> monsterData : monsterDataList) {
             try {
-                // 각 몬스터 저장은 독립적인 작업으로 처리하여 커넥션을 빠르게 반환
-                if (saveMonster(monsterData)) {
+                String monsterId = saveMonsterInternal(monsterData);
+                if (monsterId != null) {
                     savedCount++;
                     
                     // Skills 저장
                     @SuppressWarnings("unchecked")
                     List<Integer> skills = (List<Integer>) monsterData.get("_skills");
                     if (skills != null && !skills.isEmpty()) {
-                        Integer swarfarmId = (Integer) monsterData.get("_swarfarm_id");
-                        saveMonsterSkills(swarfarmId, skills);
+                        saveMonsterSkills(monsterId, skills);
                     }
                     
                     // Sources 저장
@@ -247,8 +274,7 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
                     List<SwarfarmMonsterResponse.SourceData> sources = 
                             (List<SwarfarmMonsterResponse.SourceData>) monsterData.get("_sources");
                     if (sources != null && !sources.isEmpty()) {
-                        Integer swarfarmId = (Integer) monsterData.get("_swarfarm_id");
-                        saveMonsterSources(swarfarmId, sources);
+                        saveMonsterSources(monsterId, sources);
                     }
                 }
             } catch (Exception e) {
@@ -261,84 +287,29 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
     
     @Override
     public String downloadMonsterImage(String imageFilename, String element) {
-        HttpURLConnection connection = null;
-        InputStream inputStream = null;
-        
         try {
             String imageUrl = SWARFARM_IMAGE_BASE_URL + imageFilename;
-            
-            // 이미지 다운로드
-            URL url = new URL(imageUrl);
-            connection = (HttpURLConnection) url.openConnection();
-            connection.setRequestMethod("GET");
-            connection.setConnectTimeout(10000);
-            connection.setReadTimeout(30000); // 타임아웃 증가
-            connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
-            connection.setRequestProperty("Accept", "image/*");
-            
-            int responseCode = connection.getResponseCode();
-            log.debug("이미지 다운로드 시도: {} - 응답 코드: {}", imageUrl, responseCode);
-            
-            if (responseCode == HttpURLConnection.HTTP_OK) {
-                inputStream = connection.getInputStream();
-                
-                // Content-Type 추론
-                String contentType = connection.getContentType();
-                if (contentType == null || contentType.isEmpty()) {
-                    // 파일명에서 추론
-                    String lowerFilename = imageFilename.toLowerCase();
-                    if (lowerFilename.endsWith(".png")) {
-                        contentType = "image/png";
-                    } else if (lowerFilename.endsWith(".jpg") || lowerFilename.endsWith(".jpeg")) {
-                        contentType = "image/jpeg";
-                    } else if (lowerFilename.endsWith(".gif")) {
-                        contentType = "image/gif";
-                    } else {
-                        contentType = "image/jpeg"; // 기본값
-                    }
-                }
-                
-                // S3에 업로드 (monster/ 폴더 아래에 저장)
-                String cloudFrontUrl = s3Service.uploadImage(inputStream, imageFilename, contentType);
-                log.info("이미지 S3 업로드 완료: {} -> {}", imageFilename, cloudFrontUrl);
-                return cloudFrontUrl;
-            } else {
-                log.error("이미지 다운로드 실패. HTTP 응답 코드: {} - URL: {}", responseCode, imageUrl);
-                throw new RuntimeException("이미지 다운로드 실패. HTTP 응답 코드: " + responseCode + " - " + imageFilename);
-            }
-            
-        } catch (java.net.SocketTimeoutException e) {
-            log.error("이미지 다운로드 타임아웃: {} - URL: {}", imageFilename, SWARFARM_IMAGE_BASE_URL + imageFilename, e);
-            throw new RuntimeException("이미지 다운로드 타임아웃: " + imageFilename, e);
-        } catch (java.io.FileNotFoundException e) {
-            log.error("이미지 파일을 찾을 수 없음: {} - URL: {}", imageFilename, SWARFARM_IMAGE_BASE_URL + imageFilename, e);
-            throw new RuntimeException("이미지 파일을 찾을 수 없음: " + imageFilename, e);
+            String cloudFrontUrl = swarfarmApiClient.downloadImageToS3(imageUrl, imageFilename, inferImageContentType(imageFilename));
+            log.info("이미지 S3 업로드 완료: {} -> {}", imageFilename, cloudFrontUrl);
+            return cloudFrontUrl;
         } catch (Exception e) {
             log.error("이미지 다운로드 및 S3 업로드 중 오류 발생: {} - URL: {}", imageFilename, SWARFARM_IMAGE_BASE_URL + imageFilename, e);
             throw new RuntimeException("이미지 다운로드 및 S3 업로드 실패: " + imageFilename, e);
-        } finally {
-            // 리소스 정리
-            if (inputStream != null) {
-                try {
-                    inputStream.close();
-                } catch (Exception e) {
-                    log.warn("InputStream 닫기 실패", e);
-                }
-            }
-            if (connection != null) {
-                connection.disconnect();
-            }
         }
     }
     
     @Override
     public boolean saveMonster(Map<String, Object> monsterData) {
+        return saveMonsterInternal(monsterData) != null;
+    }
+
+    private String saveMonsterInternal(Map<String, Object> monsterData) {
         try {
             // monster_id 생성 (com2us_id를 문자열로 변환)
             Integer com2usId = (Integer) monsterData.get("com2us_id");
             if (com2usId == null) {
                 log.warn("com2us_id가 없어서 저장할 수 없습니다.");
-                return false;
+                return null;
             }
             
             String monsterId = String.valueOf(com2usId);
@@ -364,10 +335,10 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
             // 기존 데이터 업데이트 또는 신규 삽입
             int result = swarfarmMonsterMapper.upsertMonster(monsterData);
             
-            return result > 0;
+            return result > 0 ? monsterId : null;
         } catch (Exception e) {
             log.error("몬스터 저장 중 오류 발생", e);
-            return false;
+            return null;
         }
     }
     
@@ -392,12 +363,25 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
     private SwarfarmMonsterResponse fetchMonsterData(String apiUrl) {
         try {
             log.debug("API 호출: {}", apiUrl);
-            String response = restTemplate.getForObject(apiUrl, String.class);
-            return objectMapper.readValue(response, SwarfarmMonsterResponse.class);
+            return swarfarmApiClient.fetchJson(apiUrl, SwarfarmMonsterResponse.class);
         } catch (Exception e) {
             log.error("API 호출 중 오류 발생: {}", apiUrl, e);
             return null;
         }
+    }
+
+    private String inferImageContentType(String fileName) {
+        String lowerFilename = fileName.toLowerCase();
+        if (lowerFilename.endsWith(".png")) {
+            return "image/png";
+        }
+        if (lowerFilename.endsWith(".jpg") || lowerFilename.endsWith(".jpeg")) {
+            return "image/jpeg";
+        }
+        if (lowerFilename.endsWith(".gif")) {
+            return "image/gif";
+        }
+        return "image/jpeg";
     }
     
     /**
@@ -453,6 +437,8 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
         
         // 기본값 설정
         map.put("kr_name", monster.getName()); // 한글명은 일단 영문명과 동일하게
+        map.put("un_name_status", "BATCH"); // 배치 수집 데이터, 영문명 검증 필요
+        map.put("usg_yn", "Y"); // 사용여부 기본값
         map.put("star_type", "Normal"); // 기본값
         map.put("arousal_type", monster.getAwakenLevel() != null && monster.getAwakenLevel() > 0 ? "Awakened" : "Normal");
         // image_url은 이미지 다운로드 후 설정됨 (downloadMonsterImage에서 반환된 경로 사용)
@@ -465,48 +451,37 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
     /**
      * 몬스터 스킬 저장
      */
-    private void saveMonsterSkills(Integer swarfarmId, List<Integer> skills) {
+    private void saveMonsterSkills(String monsterId, List<Integer> skills) {
         try {
-            // 먼저 monster_id를 찾아야 함
-            String monsterId = swarfarmMonsterMapper.findMonsterIdBySwarfarmId(swarfarmId);
-            if (monsterId == null) {
-                log.warn("Swarfarm ID {}에 해당하는 몬스터를 찾을 수 없습니다.", swarfarmId);
-                return;
-            }
-            
             // 기존 스킬 삭제
             swarfarmMonsterMapper.deleteMonsterSkillsByMonsterId(monsterId);
-            
-            // 새 스킬 저장
+
+            List<Map<String, Object>> skillRows = new ArrayList<>();
             for (int i = 0; i < skills.size(); i++) {
                 Map<String, Object> skillData = new HashMap<>();
                 skillData.put("monster_id", monsterId);
                 skillData.put("skill_id", skills.get(i));
                 skillData.put("skill_order", i + 1);
-                swarfarmMonsterMapper.insertMonsterSkill(skillData);
+                skillRows.add(skillData);
+            }
+            if (!skillRows.isEmpty()) {
+                swarfarmMonsterMapper.insertMonsterSkillsBatch(skillRows);
             }
         } catch (Exception e) {
             log.error("스킬 저장 중 오류 발생", e);
-            throw new RuntimeException("몬스터 스킬 저장 실패: swarfarmId=" + swarfarmId, e);
+            throw new RuntimeException("몬스터 스킬 저장 실패: monsterId=" + monsterId, e);
         }
     }
     
     /**
      * 몬스터 획득 경로 저장
      */
-    private void saveMonsterSources(Integer swarfarmId, List<SwarfarmMonsterResponse.SourceData> sources) {
+    private void saveMonsterSources(String monsterId, List<SwarfarmMonsterResponse.SourceData> sources) {
         try {
-            // 먼저 monster_id를 찾아야 함
-            String monsterId = swarfarmMonsterMapper.findMonsterIdBySwarfarmId(swarfarmId);
-            if (monsterId == null) {
-                log.warn("Swarfarm ID {}에 해당하는 몬스터를 찾을 수 없습니다.", swarfarmId);
-                return;
-            }
-            
             // 기존 획득 경로 삭제
             swarfarmMonsterMapper.deleteMonsterSourcesByMonsterId(monsterId);
-            
-            // 새 획득 경로 저장
+
+            List<Map<String, Object>> sourceRows = new ArrayList<>();
             for (int i = 0; i < sources.size(); i++) {
                 SwarfarmMonsterResponse.SourceData source = sources.get(i);
                 Map<String, Object> sourceData = new HashMap<>();
@@ -516,12 +491,29 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
                 sourceData.put("source_description", source.getDescription());
                 sourceData.put("farmable_source", source.getFarmableSource());
                 sourceData.put("source_order", i + 1);
-                swarfarmMonsterMapper.insertMonsterSource(sourceData);
+                sourceRows.add(sourceData);
+            }
+            if (!sourceRows.isEmpty()) {
+                swarfarmMonsterMapper.insertMonsterSourcesBatch(sourceRows);
             }
         } catch (Exception e) {
             log.error("획득 경로 저장 중 오류 발생", e);
-            throw new RuntimeException("몬스터 획득 경로 저장 실패: swarfarmId=" + swarfarmId, e);
+            throw new RuntimeException("몬스터 획득 경로 저장 실패: monsterId=" + monsterId, e);
         }
+    }
+
+    private ExecutorService getImageDownloadExecutor() {
+        if (imageDownloadExecutor == null) {
+            synchronized (this) {
+                if (imageDownloadExecutor == null) {
+                    int poolSize = Math.max(1, imageDownloadConcurrency > 0
+                            ? imageDownloadConcurrency
+                            : DEFAULT_IMAGE_DOWNLOAD_CONCURRENCY);
+                    imageDownloadExecutor = Executors.newFixedThreadPool(poolSize);
+                }
+            }
+        }
+        return imageDownloadExecutor;
     }
     
     /**

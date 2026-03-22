@@ -38,6 +38,11 @@ public interface SwarfarmMonsterMapper {
      * 몬스터 스킬 저장
      */
     int insertMonsterSkill(Map<String, Object> param);
+
+    /**
+     * 몬스터 스킬 일괄 저장
+     */
+    int insertMonsterSkillsBatch(@Param("items") List<Map<String, Object>> items);
     
     /**
      * 몬스터 획득 경로 삭제 (monster_id로)
@@ -48,5 +53,10 @@ public interface SwarfarmMonsterMapper {
      * 몬스터 획득 경로 저장
      */
     int insertMonsterSource(Map<String, Object> param);
+
+    /**
+     * 몬스터 획득 경로 일괄 저장
+     */
+    int insertMonsterSourcesBatch(@Param("items") List<Map<String, Object>> items);
 }
 

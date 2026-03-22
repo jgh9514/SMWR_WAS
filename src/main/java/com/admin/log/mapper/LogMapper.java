@@ -11,6 +11,8 @@ public interface LogMapper {
 	public List<Map<String, ?>> selectLoginHisList(Map<String, Object> param);
 	
 	public List<Map<String, ?>> selectApiHisList(Map<String, Object> param);
+
+	public int selectApiHisCount(Map<String, Object> param);
 	
 	public List<Map<String, ?>> selectBatHisList(Map<String, Object> param);
 	
@@ -21,4 +23,16 @@ public interface LogMapper {
 	public void insertApiExecutionLog(Map<String, Object> param);
 	
 	public Map<String, Object> selectApiByUrl(Map<String, Object> param);
+
+	public List<Map<String, Object>> selectApiExecutionLogColumns();
+
+	public Map<String, Object> selectRecentApiLogSummary(Map<String, Object> param);
+
+	public List<Map<String, Object>> selectTopErrorApiLogs(Map<String, Object> param);
+
+	public List<Map<String, Object>> selectTopSlowApiLogs(Map<String, Object> param);
+
+	public List<Map<String, Object>> selectRecentErrorApiLogSamples(Map<String, Object> param);
+
+	public List<Map<String, Object>> selectRecentSlowApiLogSamples(Map<String, Object> param);
 }

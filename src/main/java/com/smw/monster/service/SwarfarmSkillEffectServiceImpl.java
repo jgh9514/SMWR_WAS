@@ -1,21 +1,20 @@
 package com.smw.monster.service;
 
-import java.io.InputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
+import java.util.function.Consumer;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestTemplate;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smw.monster.dto.SwarfarmSkillEffectResponse;
 import com.smw.monster.mapper.SwarfarmSkillEffectMapper;
-import com.sysconf.util.S3Service;
 
+import io.micrometer.core.instrument.Timer;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
@@ -31,18 +30,36 @@ public class SwarfarmSkillEffectServiceImpl implements SwarfarmSkillEffectServic
     private SwarfarmSkillEffectMapper swarfarmSkillEffectMapper;
     
     @Autowired
-    private RestTemplate restTemplate;
-    
+    private SwarfarmApiClient swarfarmApiClient;
+
     @Autowired
-    private ObjectMapper objectMapper;
-    
-    @Autowired
-    private S3Service s3Service;
+    private SwarfarmSyncMetrics swarfarmSyncMetrics;
+
+    @Value("${smw.swarfarm.request-delay-ms:250}")
+    private long requestDelayMs;
+
+    private Consumer<String> logCallback;
+
+    @Override
+    public void setLogCallback(Consumer<String> logCallback) {
+        this.logCallback = logCallback;
+    }
+
+    private void addBatchLog(String message, Object... args) {
+        String logMessage = args != null && args.length > 0 ? String.format(message, args) : message;
+        if (logCallback != null) {
+            logCallback.accept(logMessage);
+        } else {
+            log.info(logMessage);
+        }
+    }
     
     @Override
     public int syncAllSkillEffects() {
-        log.info("===== Swarfarm 스킬 이펙트 동기화 시작 =====");
+        addBatchLog("===== Swarfarm 스킬 이펙트 동기화 시작 =====");
         int totalSynced = 0;
+        SwarfarmSyncMetrics.SyncStats stats = swarfarmSyncMetrics.newStats();
+        Timer.Sample syncTimerSample = swarfarmSyncMetrics.startTimer();
         
         try {
             // 첫 페이지로 전체 개수 확인
@@ -57,30 +74,40 @@ public class SwarfarmSkillEffectServiceImpl implements SwarfarmSkillEffectServic
             int totalCount = firstResponse.getCount();
             int totalPages = calculateTotalPages(totalCount, DEFAULT_PAGE_SIZE);
             
-            log.info("전체 스킬 이펙트 수: {}, 예상 페이지 수: {}", totalCount, totalPages);
+            addBatchLog("전체 스킬 이펙트 수: %d, 예상 페이지 수: %d", totalCount, totalPages);
+            Set<Integer> existingEffectIds = loadExistingEffectIds();
             
             // 모든 페이지 처리
             for (int page = 1; page <= totalPages; page++) {
-                log.info("페이지 {} 동기화 시작", page);
-                int synced = syncSkillEffectsByPage(page);
+                addBatchLog("페이지 %d 동기화 시작", page);
+                int synced = syncSkillEffectsByPage(page, existingEffectIds, stats);
                 totalSynced += synced;
                 
                 // API 부하 방지를 위한 짧은 대기
                 if (page < totalPages) {
-                    Thread.sleep(500);
+                    pauseBetweenRequests();
                 }
             }
             
-            log.info("===== Swarfarm 스킬 이펙트 동기화 완료. 총 {}개 동기화 =====", totalSynced);
+            addBatchLog("===== Swarfarm 스킬 이펙트 동기화 완료. 총 %d개 동기화 =====", totalSynced);
+            addBatchLog("처리=%d, 저장=%d, 스킵=%d, 실패=%d",
+                    stats.getProcessed(), stats.getSaved(), stats.getSkipped(), stats.getFailed());
+            swarfarmSyncMetrics.recordSummary("skill_effect", "SUCCESS", stats, syncTimerSample);
             return totalSynced;
         } catch (Exception e) {
             log.error("스킬 이펙트 동기화 중 오류 발생", e);
+            stats.addFailed(1);
+            swarfarmSyncMetrics.recordSummary("skill_effect", "FAILED", stats, syncTimerSample);
             throw new RuntimeException("스킬 이펙트 동기화 실패", e);
         }
     }
     
     @Override
     public int syncSkillEffectsByPage(int page) {
+        return syncSkillEffectsByPage(page, new HashSet<>(), swarfarmSyncMetrics.newStats());
+    }
+
+    private int syncSkillEffectsByPage(int page, Set<Integer> existingEffectIds, SwarfarmSyncMetrics.SyncStats stats) {
         try {
             String apiUrl = SWARFARM_API_BASE_URL + "?format=json&page=" + page;
             SwarfarmSkillEffectResponse response = fetchSkillEffectData(apiUrl);
@@ -91,11 +118,13 @@ public class SwarfarmSkillEffectServiceImpl implements SwarfarmSkillEffectServic
             }
             
             int syncedCount = 0;
+            stats.addProcessed(response.getResults().size());
             for (SwarfarmSkillEffectResponse.SkillEffectData effect : response.getResults()) {
                 try {
                     // 이미 존재하는 이펙트인지 확인
-                    if (existsSkillEffect(effect.getId())) {
+                    if (existingEffectIds.contains(effect.getId())) {
                         log.debug("스킬 이펙트 ID {}는 이미 존재합니다. 건너뜁니다.", effect.getId());
+                        stats.addSkipped(1);
                         continue;
                     }
                     
@@ -115,27 +144,51 @@ public class SwarfarmSkillEffectServiceImpl implements SwarfarmSkillEffectServic
                     // DB 저장
                     if (saveSkillEffect(effectData)) {
                         syncedCount++;
+                        stats.addSaved(1);
+                        existingEffectIds.add(effect.getId());
+                    } else {
+                        stats.addFailed(1);
                     }
                 } catch (Exception e) {
+                    stats.addFailed(1);
                     log.error("스킬 이펙트 저장 중 오류 발생: {}", effect.getId(), e);
                     throw new RuntimeException("스킬 이펙트 저장 실패: " + effect.getId(), e);
                 }
             }
             
-            log.info("페이지 {} 동기화 완료. {}개 저장", page, syncedCount);
+            addBatchLog("페이지 %d 동기화 완료: 저장=%d, 누적 처리=%d, 누적 스킵=%d, 누적 실패=%d",
+                    page, syncedCount, stats.getProcessed(), stats.getSkipped(), stats.getFailed());
             return syncedCount;
             
         } catch (Exception e) {
+            stats.addFailed(1);
             log.error("페이지 {} 동기화 중 오류 발생", page, e);
             throw new RuntimeException("페이지 " + page + " 동기화 실패", e);
+        }
+    }
+
+    private Set<Integer> loadExistingEffectIds() {
+        try {
+            return new HashSet<>(swarfarmSkillEffectMapper.selectAllEffectIds());
+        } catch (Exception e) {
+            log.warn("기존 스킬 이펙트 ID 조회 실패, 빈 Set 반환", e);
+            return new HashSet<>();
+        }
+    }
+
+    private void pauseBetweenRequests() {
+        if (requestDelayMs > 0) {
+            try {
+                Thread.sleep(requestDelayMs);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("스킬 이펙트 동기화 대기 중 인터럽트가 발생했습니다.", e);
+            }
         }
     }
     
     @Override
     public String downloadSkillEffectImage(String iconFilename) {
-        HttpURLConnection connection = null;
-        InputStream inputStream = null;
-        
         try {
             // icon_filename이 이미 전체 경로를 포함할 수 있으므로 확인
             String imageUrl;
@@ -147,59 +200,12 @@ public class SwarfarmSkillEffectServiceImpl implements SwarfarmSkillEffectServic
                                iconFilename.startsWith("debuff_") ? "debuffs" : "skill-effects";
                 imageUrl = SWARFARM_IMAGE_BASE_URL + folder + "/" + iconFilename;
             }
-            
-            // 이미지 다운로드
-            URL url = new URL(imageUrl);
-            connection = (HttpURLConnection) url.openConnection();
-            connection.setRequestMethod("GET");
-            connection.setConnectTimeout(10000);
-            connection.setReadTimeout(10000);
-            connection.setRequestProperty("User-Agent", "Mozilla/5.0");
-            
-            int responseCode = connection.getResponseCode();
-            if (responseCode == HttpURLConnection.HTTP_OK) {
-                inputStream = connection.getInputStream();
-                
-                // Content-Type 추론
-                String contentType = connection.getContentType();
-                if (contentType == null || contentType.isEmpty()) {
-                    // 파일명에서 추론
-                    String lowerFilename = iconFilename.toLowerCase();
-                    if (lowerFilename.endsWith(".png")) {
-                        contentType = "image/png";
-                    } else if (lowerFilename.endsWith(".jpg") || lowerFilename.endsWith(".jpeg")) {
-                        contentType = "image/jpeg";
-                    } else if (lowerFilename.endsWith(".gif")) {
-                        contentType = "image/gif";
-                    } else {
-                        contentType = "image/png"; // 기본값
-                    }
-                }
-                
-                // S3에 업로드 (monster/ 폴더 아래에 저장)
-                String cloudFrontUrl = s3Service.uploadImage(inputStream, iconFilename, contentType);
-                log.info("스킬 이펙트 이미지 S3 업로드 완료: {} -> {}", iconFilename, cloudFrontUrl);
-                return cloudFrontUrl;
-            } else {
-                log.error("이미지 다운로드 실패. HTTP 응답 코드: {} - URL: {}", responseCode, imageUrl);
-                throw new RuntimeException("이미지 다운로드 실패. HTTP 응답 코드: " + responseCode + " - " + iconFilename);
-            }
-            
+            String cloudFrontUrl = swarfarmApiClient.downloadImageToS3(imageUrl, iconFilename, inferImageContentType(iconFilename));
+            log.info("스킬 이펙트 이미지 S3 업로드 완료: {} -> {}", iconFilename, cloudFrontUrl);
+            return cloudFrontUrl;
         } catch (Exception e) {
             log.error("이미지 다운로드 및 S3 업로드 중 오류 발생: {}", iconFilename, e);
             throw new RuntimeException("이미지 다운로드 실패", e);
-        } finally {
-            // 리소스 정리
-            if (inputStream != null) {
-                try {
-                    inputStream.close();
-                } catch (Exception e) {
-                    log.warn("InputStream 닫기 실패", e);
-                }
-            }
-            if (connection != null) {
-                connection.disconnect();
-            }
         }
     }
     
@@ -248,12 +254,25 @@ public class SwarfarmSkillEffectServiceImpl implements SwarfarmSkillEffectServic
     private SwarfarmSkillEffectResponse fetchSkillEffectData(String apiUrl) {
         try {
             log.debug("API 호출: {}", apiUrl);
-            String response = restTemplate.getForObject(apiUrl, String.class);
-            return objectMapper.readValue(response, SwarfarmSkillEffectResponse.class);
+            return swarfarmApiClient.fetchJson(apiUrl, SwarfarmSkillEffectResponse.class);
         } catch (Exception e) {
             log.error("API 호출 중 오류 발생: {}", apiUrl, e);
             return null;
         }
+    }
+
+    private String inferImageContentType(String fileName) {
+        String lowerFilename = fileName.toLowerCase();
+        if (lowerFilename.endsWith(".png")) {
+            return "image/png";
+        }
+        if (lowerFilename.endsWith(".jpg") || lowerFilename.endsWith(".jpeg")) {
+            return "image/jpeg";
+        }
+        if (lowerFilename.endsWith(".gif")) {
+            return "image/gif";
+        }
+        return "image/png";
     }
     
     /**

@@ -85,6 +85,18 @@ spec:
               name: smw-mail-secret
               key: from
               optional: true
+        - name: SMW_JWT_SIGNING_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: smw-app-secret
+              key: jwt-signing-secret
+              optional: true
+        - name: SMW_JWT_ENCRYPTION_KEY
+          valueFrom:
+            secretKeyRef:
+              name: smw-app-secret
+              key: jwt-encryption-key
+              optional: true
         # AWS 자격 증명은 IAM 역할을 통해 자동으로 제공되므로 환경 변수 설정 불필요
         # AWS SDK가 EC2 인스턴스에 부여된 IAM 역할을 자동으로 감지합니다.
         resources:
@@ -94,19 +106,27 @@ spec:
           limits:
             memory: "1Gi"
             cpu: "500m"
-        livenessProbe:
+        startupProbe:
           httpGet:
             path: /actuator/health
             port: 8080
-          initialDelaySeconds: 90
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 18
+        livenessProbe:
+          httpGet:
+            path: /actuator/health/liveness
+            port: 8080
+          initialDelaySeconds: 0
           periodSeconds: 10
           timeoutSeconds: 5
           failureThreshold: 3
         readinessProbe:
           httpGet:
-            path: /actuator/health
+            path: /actuator/health/readiness
             port: 8080
-          initialDelaySeconds: 80
+          initialDelaySeconds: 0
           periodSeconds: 5
           timeoutSeconds: 3
           failureThreshold: 3

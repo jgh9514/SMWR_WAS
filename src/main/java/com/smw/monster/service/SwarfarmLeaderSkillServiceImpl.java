@@ -1,17 +1,20 @@
 package com.smw.monster.service;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
+import java.util.function.Consumer;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestTemplate;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smw.monster.dto.SwarfarmLeaderSkillResponse;
 import com.smw.monster.mapper.SwarfarmLeaderSkillMapper;
 
+import io.micrometer.core.instrument.Timer;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
@@ -26,15 +29,36 @@ public class SwarfarmLeaderSkillServiceImpl implements SwarfarmLeaderSkillServic
     private SwarfarmLeaderSkillMapper swarfarmLeaderSkillMapper;
     
     @Autowired
-    private RestTemplate restTemplate;
-    
+    private SwarfarmApiClient swarfarmApiClient;
+
     @Autowired
-    private ObjectMapper objectMapper;
+    private SwarfarmSyncMetrics swarfarmSyncMetrics;
+
+    @Value("${smw.swarfarm.request-delay-ms:250}")
+    private long requestDelayMs;
+
+    private Consumer<String> logCallback;
+
+    @Override
+    public void setLogCallback(Consumer<String> logCallback) {
+        this.logCallback = logCallback;
+    }
+
+    private void addBatchLog(String message, Object... args) {
+        String logMessage = args != null && args.length > 0 ? String.format(message, args) : message;
+        if (logCallback != null) {
+            logCallback.accept(logMessage);
+        } else {
+            log.info(logMessage);
+        }
+    }
     
     @Override
     public int syncAllLeaderSkills() {
-        log.info("===== Swarfarm 리더 스킬 동기화 시작 =====");
+        addBatchLog("===== Swarfarm 리더 스킬 동기화 시작 =====");
         int totalSynced = 0;
+        SwarfarmSyncMetrics.SyncStats stats = swarfarmSyncMetrics.newStats();
+        Timer.Sample syncTimerSample = swarfarmSyncMetrics.startTimer();
         
         try {
             // 첫 페이지로 전체 개수 확인
@@ -42,30 +66,38 @@ public class SwarfarmLeaderSkillServiceImpl implements SwarfarmLeaderSkillServic
             SwarfarmLeaderSkillResponse firstResponse = fetchLeaderSkillData(firstPageUrl);
             
             if (firstResponse == null) {
-                log.error("첫 페이지 데이터를 가져올 수 없습니다.");
-                return 0;
+                addBatchLog("오류: 첫 페이지 데이터를 가져올 수 없습니다.");
+                throw new RuntimeException("첫 페이지 데이터를 가져올 수 없습니다.");
             }
             
             int totalCount = firstResponse.getCount();
             int totalPages = calculateTotalPages(totalCount, DEFAULT_PAGE_SIZE);
             
-            log.info("전체 리더 스킬 수: {}, 예상 페이지 수: {}", totalCount, totalPages);
+            addBatchLog("전체 리더 스킬 수: %d, 예상 페이지 수: %d", totalCount, totalPages);
+            Set<Integer> existingLeaderSkillIds = loadExistingLeaderSkillIds();
             
             // 모든 페이지 처리
             for (int page = 1; page <= totalPages; page++) {
-                log.info("페이지 {} 동기화 시작", page);
-                int synced = syncLeaderSkillsByPage(page);
+                addBatchLog("페이지 %d 동기화 시작", page);
+                int synced = syncLeaderSkillsByPage(page, existingLeaderSkillIds, stats);
                 totalSynced += synced;
                 
                 // API 부하 방지를 위한 짧은 대기
                 if (page < totalPages) {
-                    Thread.sleep(500);
+                    pauseBetweenRequests();
                 }
             }
             
-            log.info("===== Swarfarm 리더 스킬 동기화 완료. 총 {}개 동기화 =====", totalSynced);
+            addBatchLog("===== Swarfarm 리더 스킬 동기화 완료. 총 %d개 동기화 =====", totalSynced);
+            addBatchLog("처리=%d, 저장=%d, 스킵=%d, 실패=%d",
+                    stats.getProcessed(), stats.getSaved(), stats.getSkipped(), stats.getFailed());
+            swarfarmSyncMetrics.recordSummary("leader_skill", "SUCCESS", stats, syncTimerSample);
         } catch (Exception e) {
+            addBatchLog("오류 발생: %s", e.getMessage());
             log.error("리더 스킬 동기화 중 오류 발생", e);
+            stats.addFailed(1);
+            swarfarmSyncMetrics.recordSummary("leader_skill", "FAILED", stats, syncTimerSample);
+            throw new RuntimeException("리더 스킬 동기화 실패", e);
         }
         
         return totalSynced;
@@ -73,6 +105,10 @@ public class SwarfarmLeaderSkillServiceImpl implements SwarfarmLeaderSkillServic
     
     @Override
     public int syncLeaderSkillsByPage(int page) {
+        return syncLeaderSkillsByPage(page, new HashSet<>(), swarfarmSyncMetrics.newStats());
+    }
+
+    private int syncLeaderSkillsByPage(int page, Set<Integer> existingLeaderSkillIds, SwarfarmSyncMetrics.SyncStats stats) {
         try {
             String apiUrl = SWARFARM_API_BASE_URL + "?format=json&page=" + page;
             SwarfarmLeaderSkillResponse response = fetchLeaderSkillData(apiUrl);
@@ -83,11 +119,13 @@ public class SwarfarmLeaderSkillServiceImpl implements SwarfarmLeaderSkillServic
             }
             
             int syncedCount = 0;
+            stats.addProcessed(response.getResults().size());
             for (SwarfarmLeaderSkillResponse.LeaderSkillData leaderSkill : response.getResults()) {
                 try {
                     // 이미 존재하는 리더 스킬인지 확인
-                    if (existsLeaderSkill(leaderSkill.getId())) {
+                    if (existingLeaderSkillIds.contains(leaderSkill.getId())) {
                         log.debug("리더 스킬 ID {}는 이미 존재합니다. 건너뜁니다.", leaderSkill.getId());
+                        stats.addSkipped(1);
                         continue;
                     }
                     
@@ -97,18 +135,45 @@ public class SwarfarmLeaderSkillServiceImpl implements SwarfarmLeaderSkillServic
                     // DB 저장
                     if (saveLeaderSkill(leaderSkillData)) {
                         syncedCount++;
+                        stats.addSaved(1);
+                        existingLeaderSkillIds.add(leaderSkill.getId());
+                    } else {
+                        stats.addFailed(1);
                     }
                 } catch (Exception e) {
+                    stats.addFailed(1);
                     log.error("리더 스킬 저장 중 오류 발생: {}", leaderSkill.getId(), e);
                 }
             }
             
-            log.info("페이지 {} 동기화 완료. {}개 저장", page, syncedCount);
+            addBatchLog("페이지 %d 동기화 완료: 저장=%d, 누적 처리=%d, 누적 스킵=%d, 누적 실패=%d",
+                    page, syncedCount, stats.getProcessed(), stats.getSkipped(), stats.getFailed());
             return syncedCount;
             
         } catch (Exception e) {
+            stats.addFailed(1);
             log.error("페이지 {} 동기화 중 오류 발생", page, e);
-            return 0;
+            throw new RuntimeException("페이지 " + page + " 동기화 실패", e);
+        }
+    }
+
+    private Set<Integer> loadExistingLeaderSkillIds() {
+        try {
+            return new HashSet<>(swarfarmLeaderSkillMapper.selectAllLeaderSkillIds());
+        } catch (Exception e) {
+            log.warn("기존 리더 스킬 ID 조회 실패, 빈 Set 반환", e);
+            return new HashSet<>();
+        }
+    }
+
+    private void pauseBetweenRequests() {
+        if (requestDelayMs > 0) {
+            try {
+                Thread.sleep(requestDelayMs);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("리더 스킬 동기화 대기 중 인터럽트가 발생했습니다.", e);
+            }
         }
     }
     
@@ -157,8 +222,7 @@ public class SwarfarmLeaderSkillServiceImpl implements SwarfarmLeaderSkillServic
     private SwarfarmLeaderSkillResponse fetchLeaderSkillData(String apiUrl) {
         try {
             log.debug("API 호출: {}", apiUrl);
-            String response = restTemplate.getForObject(apiUrl, String.class);
-            return objectMapper.readValue(response, SwarfarmLeaderSkillResponse.class);
+            return swarfarmApiClient.fetchJson(apiUrl, SwarfarmLeaderSkillResponse.class);
         } catch (Exception e) {
             log.error("API 호출 중 오류 발생: {}", apiUrl, e);
             return null;

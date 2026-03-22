@@ -1,22 +1,22 @@
 package com.smw.monster.service;
 
-import java.io.InputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.function.Consumer;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestTemplate;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smw.monster.dto.SwarfarmSkillResponse;
 import com.smw.monster.mapper.SwarfarmSkillMapper;
-import com.sysconf.util.S3Service;
 
+import io.micrometer.core.instrument.Timer;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
@@ -32,18 +32,39 @@ public class SwarfarmSkillServiceImpl implements SwarfarmSkillService {
     private SwarfarmSkillMapper swarfarmSkillMapper;
     
     @Autowired
-    private RestTemplate restTemplate;
+    private SwarfarmApiClient swarfarmApiClient;
+
+    @Autowired
+    private SwarfarmSyncMetrics swarfarmSyncMetrics;
     
     @Autowired
     private ObjectMapper objectMapper;
-    
-    @Autowired
-    private S3Service s3Service;
+
+    @Value("${smw.swarfarm.request-delay-ms:250}")
+    private long requestDelayMs;
+
+    private Consumer<String> logCallback;
+
+    @Override
+    public void setLogCallback(Consumer<String> logCallback) {
+        this.logCallback = logCallback;
+    }
+
+    private void addBatchLog(String message, Object... args) {
+        String logMessage = args != null && args.length > 0 ? String.format(message, args) : message;
+        if (logCallback != null) {
+            logCallback.accept(logMessage);
+        } else {
+            log.info(logMessage);
+        }
+    }
     
     @Override
     public int syncAllSkills() {
-        log.info("===== Swarfarm 스킬 동기화 시작 =====");
+        addBatchLog("===== Swarfarm 스킬 동기화 시작 =====");
         int totalSynced = 0;
+        SwarfarmSyncMetrics.SyncStats stats = swarfarmSyncMetrics.newStats();
+        Timer.Sample syncTimerSample = swarfarmSyncMetrics.startTimer();
         
         try {
             // 첫 페이지로 전체 개수 확인
@@ -58,32 +79,42 @@ public class SwarfarmSkillServiceImpl implements SwarfarmSkillService {
             int totalCount = firstResponse.getCount();
             int totalPages = calculateTotalPages(totalCount, DEFAULT_PAGE_SIZE);
             
-            log.info("전체 스킬 수: {}, 예상 페이지 수: {}", totalCount, totalPages);
+            addBatchLog("전체 스킬 수: %d, 예상 페이지 수: %d", totalCount, totalPages);
+            Set<Integer> existingSwarfarmIds = loadExistingSwarfarmIds();
             
             // 첫 페이지 처리
-            int synced = syncSkillsByPage(1);
+            int synced = syncSkillsByPage(1, existingSwarfarmIds, stats);
             totalSynced += synced;
             
             // 나머지 페이지 처리
             for (int page = 2; page <= totalPages; page++) {
-                log.info("페이지 {} 동기화 시작", page);
-                synced = syncSkillsByPage(page);
+                addBatchLog("페이지 %d 동기화 시작", page);
+                synced = syncSkillsByPage(page, existingSwarfarmIds, stats);
                 totalSynced += synced;
                 
                 // API 부하 방지를 위한 짧은 대기
-                Thread.sleep(500);
+                pauseBetweenRequests();
             }
             
-            log.info("===== Swarfarm 스킬 동기화 완료. 총 {}개 동기화 =====", totalSynced);
+            addBatchLog("===== Swarfarm 스킬 동기화 완료. 총 %d개 동기화 =====", totalSynced);
+            addBatchLog("처리=%d, 저장=%d, 스킵=%d, 실패=%d",
+                    stats.getProcessed(), stats.getSaved(), stats.getSkipped(), stats.getFailed());
+            swarfarmSyncMetrics.recordSummary("skill", "SUCCESS", stats, syncTimerSample);
             return totalSynced;
         } catch (Exception e) {
             log.error("스킬 동기화 중 오류 발생", e);
+            stats.addFailed(1);
+            swarfarmSyncMetrics.recordSummary("skill", "FAILED", stats, syncTimerSample);
             throw new RuntimeException("스킬 동기화 실패", e);
         }
     }
     
     @Override
     public int syncSkillsByPage(int page) {
+        return syncSkillsByPage(page, new HashSet<>(), swarfarmSyncMetrics.newStats());
+    }
+
+    private int syncSkillsByPage(int page, Set<Integer> existingSwarfarmIds, SwarfarmSyncMetrics.SyncStats stats) {
         try {
             String apiUrl = SWARFARM_API_BASE_URL + "?format=json&page=" + page;
             SwarfarmSkillResponse response = fetchSkillData(apiUrl);
@@ -94,11 +125,13 @@ public class SwarfarmSkillServiceImpl implements SwarfarmSkillService {
             }
             
             int syncedCount = 0;
+            stats.addProcessed(response.getResults().size());
             for (SwarfarmSkillResponse.SkillData skill : response.getResults()) {
                 try {
                     // 이미 존재하는 스킬인지 확인
-                    if (existsSkill(skill.getId())) {
+                    if (existingSwarfarmIds.contains(skill.getId())) {
                         log.debug("스킬 ID {}는 이미 존재합니다. 건너뜁니다.", skill.getId());
+                        stats.addSkipped(1);
                         continue;
                     }
                     
@@ -117,110 +150,92 @@ public class SwarfarmSkillServiceImpl implements SwarfarmSkillService {
                     }
                     
                     // DB 저장
-                    if (saveSkill(skillData)) {
+                    String skillId = saveSkillInternal(skillData);
+                    if (skillId != null) {
                         syncedCount++;
+                        stats.addSaved(1);
+                        existingSwarfarmIds.add(skill.getId());
                         
                         // Upgrades 저장
                         if (skill.getUpgrades() != null && !skill.getUpgrades().isEmpty()) {
-                            saveSkillUpgrades(skill.getId(), skill.getUpgrades());
+                            saveSkillUpgrades(skillId, skill.getUpgrades());
                         }
                         
                         // Effects 저장
                         if (skill.getEffects() != null && !skill.getEffects().isEmpty()) {
-                            saveSkillEffects(skill.getId(), skill.getEffects());
+                            saveSkillEffects(skillId, skill.getEffects());
                         }
                         
                         // Used On 저장
                         if (skill.getUsedOn() != null && !skill.getUsedOn().isEmpty()) {
-                            saveSkillUsedOn(skill.getId(), skill.getUsedOn());
+                            saveSkillUsedOn(skillId, skill.getUsedOn());
                         }
+                    } else {
+                        stats.addFailed(1);
                     }
                 } catch (Exception e) {
+                    stats.addFailed(1);
                     log.error("스킬 저장 중 오류 발생: {}", skill.getId(), e);
                     throw new RuntimeException("스킬 저장 실패: " + skill.getId(), e);
                 }
             }
             
-            log.info("페이지 {} 동기화 완료. {}개 저장", page, syncedCount);
+            addBatchLog("페이지 %d 동기화 완료: 저장=%d, 누적 처리=%d, 누적 스킵=%d, 누적 실패=%d",
+                    page, syncedCount, stats.getProcessed(), stats.getSkipped(), stats.getFailed());
             return syncedCount;
             
         } catch (Exception e) {
+            stats.addFailed(1);
             log.error("페이지 {} 동기화 중 오류 발생", page, e);
             throw new RuntimeException("페이지 " + page + " 동기화 실패", e);
+        }
+    }
+
+    private Set<Integer> loadExistingSwarfarmIds() {
+        try {
+            return new HashSet<>(swarfarmSkillMapper.selectAllSwarfarmIds());
+        } catch (Exception e) {
+            log.warn("기존 스킬 ID 조회 실패, 빈 Set 반환", e);
+            return new HashSet<>();
+        }
+    }
+
+    private void pauseBetweenRequests() {
+        if (requestDelayMs > 0) {
+            try {
+                Thread.sleep(requestDelayMs);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("스킬 동기화 대기 중 인터럽트가 발생했습니다.", e);
+            }
         }
     }
     
     @Override
     public String downloadSkillImage(String iconFilename) {
-        HttpURLConnection connection = null;
-        InputStream inputStream = null;
-        
         try {
             String imageUrl = SWARFARM_IMAGE_BASE_URL + iconFilename;
-            
-            // 이미지 다운로드
-            URL url = new URL(imageUrl);
-            connection = (HttpURLConnection) url.openConnection();
-            connection.setRequestMethod("GET");
-            connection.setConnectTimeout(10000);
-            connection.setReadTimeout(10000);
-            connection.setRequestProperty("User-Agent", "Mozilla/5.0");
-            
-            int responseCode = connection.getResponseCode();
-            if (responseCode == HttpURLConnection.HTTP_OK) {
-                inputStream = connection.getInputStream();
-                
-                // Content-Type 추론
-                String contentType = connection.getContentType();
-                if (contentType == null || contentType.isEmpty()) {
-                    // 파일명에서 추론
-                    String lowerFilename = iconFilename.toLowerCase();
-                    if (lowerFilename.endsWith(".png")) {
-                        contentType = "image/png";
-                    } else if (lowerFilename.endsWith(".jpg") || lowerFilename.endsWith(".jpeg")) {
-                        contentType = "image/jpeg";
-                    } else if (lowerFilename.endsWith(".gif")) {
-                        contentType = "image/gif";
-                    } else {
-                        contentType = "image/png"; // 기본값
-                    }
-                }
-                
-                // S3에 업로드 (monster/ 폴더 아래에 저장)
-                String cloudFrontUrl = s3Service.uploadImage(inputStream, iconFilename, contentType);
-                log.info("스킬 이미지 S3 업로드 완료: {} -> {}", iconFilename, cloudFrontUrl);
-                return cloudFrontUrl;
-            } else {
-                log.error("이미지 다운로드 실패. HTTP 응답 코드: {} - URL: {}", responseCode, imageUrl);
-                throw new RuntimeException("이미지 다운로드 실패. HTTP 응답 코드: " + responseCode + " - " + iconFilename);
-            }
-            
+            String cloudFrontUrl = swarfarmApiClient.downloadImageToS3(imageUrl, iconFilename, inferImageContentType(iconFilename));
+            log.info("스킬 이미지 S3 업로드 완료: {} -> {}", iconFilename, cloudFrontUrl);
+            return cloudFrontUrl;
         } catch (Exception e) {
             log.error("이미지 다운로드 및 S3 업로드 중 오류 발생: {}", iconFilename, e);
             throw new RuntimeException("이미지 다운로드 실패", e);
-        } finally {
-            // 리소스 정리
-            if (inputStream != null) {
-                try {
-                    inputStream.close();
-                } catch (Exception e) {
-                    log.warn("InputStream 닫기 실패", e);
-                }
-            }
-            if (connection != null) {
-                connection.disconnect();
-            }
         }
     }
     
     @Override
     public boolean saveSkill(Map<String, Object> skillData) {
+        return saveSkillInternal(skillData) != null;
+    }
+
+    private String saveSkillInternal(Map<String, Object> skillData) {
         try {
             // skill_id 생성 (com2us_id를 문자열로 변환)
             Integer com2usId = (Integer) skillData.get("com2us_id");
             if (com2usId == null) {
                 log.warn("com2us_id가 없어서 저장할 수 없습니다.");
-                return false;
+                return null;
             }
             
             String skillId = String.valueOf(com2usId);
@@ -229,10 +244,10 @@ public class SwarfarmSkillServiceImpl implements SwarfarmSkillService {
             // 기존 데이터 업데이트 또는 신규 삽입
             int result = swarfarmSkillMapper.upsertSkill(skillData);
             
-            return result > 0;
+            return result > 0 ? skillId : null;
         } catch (Exception e) {
             log.error("스킬 저장 중 오류 발생", e);
-            return false;
+            return null;
         }
     }
     
@@ -261,12 +276,25 @@ public class SwarfarmSkillServiceImpl implements SwarfarmSkillService {
     private SwarfarmSkillResponse fetchSkillData(String apiUrl) {
         try {
             log.debug("API 호출: {}", apiUrl);
-            String response = restTemplate.getForObject(apiUrl, String.class);
-            return objectMapper.readValue(response, SwarfarmSkillResponse.class);
+            return swarfarmApiClient.fetchJson(apiUrl, SwarfarmSkillResponse.class);
         } catch (Exception e) {
             log.error("API 호출 중 오류 발생: {}", apiUrl, e);
             return null;
         }
+    }
+
+    private String inferImageContentType(String fileName) {
+        String lowerFilename = fileName.toLowerCase();
+        if (lowerFilename.endsWith(".png")) {
+            return "image/png";
+        }
+        if (lowerFilename.endsWith(".jpg") || lowerFilename.endsWith(".jpeg")) {
+            return "image/jpeg";
+        }
+        if (lowerFilename.endsWith(".gif")) {
+            return "image/gif";
+        }
+        return "image/png";
     }
     
     /**
@@ -318,18 +346,12 @@ public class SwarfarmSkillServiceImpl implements SwarfarmSkillService {
     /**
      * 스킬 업그레이드 저장
      */
-    private void saveSkillUpgrades(Integer swarfarmId, List<SwarfarmSkillResponse.UpgradeData> upgrades) {
+    private void saveSkillUpgrades(String skillId, List<SwarfarmSkillResponse.UpgradeData> upgrades) {
         try {
-            String skillId = swarfarmSkillMapper.findSkillIdBySwarfarmId(swarfarmId);
-            if (skillId == null) {
-                log.warn("Swarfarm ID {}에 해당하는 스킬을 찾을 수 없습니다.", swarfarmId);
-                return;
-            }
-            
             // 기존 업그레이드 삭제
             swarfarmSkillMapper.deleteSkillUpgrades(skillId);
-            
-            // 새 업그레이드 저장
+
+            List<Map<String, Object>> upgradeRows = new java.util.ArrayList<>();
             for (int i = 0; i < upgrades.size(); i++) {
                 SwarfarmSkillResponse.UpgradeData upgrade = upgrades.get(i);
                 Map<String, Object> upgradeData = new HashMap<>();
@@ -337,29 +359,26 @@ public class SwarfarmSkillServiceImpl implements SwarfarmSkillService {
                 upgradeData.put("upgrade_level", i + 1);
                 upgradeData.put("effect", upgrade.getEffect());
                 upgradeData.put("amount", upgrade.getAmount());
-                swarfarmSkillMapper.insertSkillUpgrade(upgradeData);
+                upgradeRows.add(upgradeData);
+            }
+            if (!upgradeRows.isEmpty()) {
+                swarfarmSkillMapper.insertSkillUpgradesBatch(upgradeRows);
             }
         } catch (Exception e) {
             log.error("스킬 업그레이드 저장 중 오류 발생", e);
-            throw new RuntimeException("스킬 업그레이드 저장 실패: swarfarmId=" + swarfarmId, e);
+            throw new RuntimeException("스킬 업그레이드 저장 실패: skillId=" + skillId, e);
         }
     }
     
     /**
      * 스킬 효과 저장
      */
-    private void saveSkillEffects(Integer swarfarmId, List<SwarfarmSkillResponse.EffectData> effects) {
+    private void saveSkillEffects(String skillId, List<SwarfarmSkillResponse.EffectData> effects) {
         try {
-            String skillId = swarfarmSkillMapper.findSkillIdBySwarfarmId(swarfarmId);
-            if (skillId == null) {
-                log.warn("Swarfarm ID {}에 해당하는 스킬을 찾을 수 없습니다.", swarfarmId);
-                return;
-            }
-            
             // 기존 효과 삭제
             swarfarmSkillMapper.deleteSkillEffects(skillId);
-            
-            // 새 효과 저장
+
+            List<Map<String, Object>> effectRows = new java.util.ArrayList<>();
             for (int i = 0; i < effects.size(); i++) {
                 SwarfarmSkillResponse.EffectData effect = effects.get(i);
                 if (effect.getEffect() == null) {
@@ -387,38 +406,38 @@ public class SwarfarmSkillServiceImpl implements SwarfarmSkillService {
                 effectData.put("damage", effect.getDamage());
                 effectData.put("note", effect.getNote());
                 effectData.put("effect_order", i + 1);
-                swarfarmSkillMapper.insertSkillEffect(effectData);
+                effectRows.add(effectData);
+            }
+            if (!effectRows.isEmpty()) {
+                swarfarmSkillMapper.insertSkillEffectsBatch(effectRows);
             }
         } catch (Exception e) {
             log.error("스킬 효과 저장 중 오류 발생", e);
-            throw new RuntimeException("스킬 효과 저장 실패: swarfarmId=" + swarfarmId, e);
+            throw new RuntimeException("스킬 효과 저장 실패: skillId=" + skillId, e);
         }
     }
     
     /**
      * 스킬 사용 몬스터 저장
      */
-    private void saveSkillUsedOn(Integer swarfarmId, List<Integer> usedOn) {
+    private void saveSkillUsedOn(String skillId, List<Integer> usedOn) {
         try {
-            String skillId = swarfarmSkillMapper.findSkillIdBySwarfarmId(swarfarmId);
-            if (skillId == null) {
-                log.warn("Swarfarm ID {}에 해당하는 스킬을 찾을 수 없습니다.", swarfarmId);
-                return;
-            }
-            
             // 기존 매핑 삭제
             swarfarmSkillMapper.deleteSkillUsedOn(skillId);
-            
-            // 새 매핑 저장
+
+            List<Map<String, Object>> usedOnRows = new java.util.ArrayList<>();
             for (Integer monsterSwarfarmId : usedOn) {
                 Map<String, Object> usedOnData = new HashMap<>();
                 usedOnData.put("skill_id", skillId);
                 usedOnData.put("monster_swarfarm_id", monsterSwarfarmId);
-                swarfarmSkillMapper.insertSkillUsedOn(usedOnData);
+                usedOnRows.add(usedOnData);
+            }
+            if (!usedOnRows.isEmpty()) {
+                swarfarmSkillMapper.insertSkillUsedOnBatch(usedOnRows);
             }
         } catch (Exception e) {
             log.error("스킬 사용 몬스터 저장 중 오류 발생", e);
-            throw new RuntimeException("스킬 사용 몬스터 저장 실패: swarfarmId=" + swarfarmId, e);
+            throw new RuntimeException("스킬 사용 몬스터 저장 실패: skillId=" + skillId, e);
         }
     }
 }

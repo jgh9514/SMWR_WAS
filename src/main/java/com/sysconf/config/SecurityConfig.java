@@ -1,75 +1,84 @@
 package com.sysconf.config;
 
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.security.config.annotation.authentication.builders.AuthenticationManagerBuilder;
-import org.springframework.security.config.annotation.method.configuration.EnableGlobalMethodSecurity;
+import org.springframework.boot.autoconfigure.security.servlet.PathRequest;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
-import org.springframework.security.config.annotation.web.builders.WebSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
-import org.springframework.security.config.annotation.web.configuration.WebSecurityConfigurerAdapter;
+import org.springframework.security.config.annotation.web.configuration.WebSecurityCustomizer;
 import org.springframework.security.core.session.SessionRegistry;
 import org.springframework.security.core.session.SessionRegistryImpl;
+import org.springframework.security.core.userdetails.User;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.provisioning.InMemoryUserDetailsManager;
+import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfFilter;
 import org.springframework.security.web.firewall.StrictHttpFirewall;
+import org.springframework.security.web.header.writers.StaticHeadersWriter;
+import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
 
 import com.sysconf.filter.SimpleCorsFilter;
 
 @Configuration
 @EnableWebSecurity
-@EnableGlobalMethodSecurity(prePostEnabled = true, securedEnabled = true)
-public class SecurityConfig extends WebSecurityConfigurerAdapter {
-	
-	@Autowired
-    SimpleCorsFilter simpleCorsFilter;
+@EnableMethodSecurity(prePostEnabled = true, securedEnabled = true)
+public class SecurityConfig {
+
+    private final SimpleCorsFilter simpleCorsFilter;
+
+    public SecurityConfig(SimpleCorsFilter simpleCorsFilter) {
+        this.simpleCorsFilter = simpleCorsFilter;
+    }
 
 //	@Autowired
 //	MsSuccessHandler msSuccessHandler;
 
-    @Override
-    public void configure(WebSecurity web) throws Exception {
-		web.ignoring()
-//		   .antMatchers(HttpMethod.OPTIONS, "/**/*")
-		   .antMatchers("/**/*.{js, html, css, json, ico}")
-		;
-	} 
-
-    @Override
-    protected void configure(HttpSecurity http) throws Exception {
-
-		http
-			.addFilterBefore(simpleCorsFilter, CsrfFilter.class)
-			.csrf()
-	          .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
-	          .ignoringAntMatchers("/api/v1/**")
-	        .and()
-	          .authorizeRequests()
-	          .anyRequest().permitAll()                      // 접근을 전부 허용
-//	          .antMatchers("/").permitAll()
-	        .and()
-	          .headers().xssProtection().block(true)
-	        .and()
-	          .frameOptions()
-	          .disable()
-	          .httpStrictTransportSecurity()
-	              .includeSubDomains(true)
-	              .maxAgeInSeconds(31536)
-	    ;
-
-//		http.addFilter(simpleCorsFilter);
-//		http.addFilterBefore(simpleCorsFilter, WaffleConfig.class);
-	}
-    
-    @Autowired
-    public void configureGlobal(AuthenticationManagerBuilder auth) throws Exception {
-        auth.inMemoryAuthentication()
-            .withUser("admin")
-            .password("{noop}password")
-            .roles("USER");
+    @Bean
+    public WebSecurityCustomizer webSecurityCustomizer(StrictHttpFirewall httpFirewall) {
+        return web -> {
+            web.httpFirewall(httpFirewall);
+            web.ignoring()
+                .requestMatchers(PathRequest.toStaticResources().atCommonLocations())
+                .requestMatchers(
+                    AntPathRequestMatcher.antMatcher("/**/*.js"),
+                    AntPathRequestMatcher.antMatcher("/**/*.html"),
+                    AntPathRequestMatcher.antMatcher("/**/*.css"),
+                    AntPathRequestMatcher.antMatcher("/**/*.json"),
+                    AntPathRequestMatcher.antMatcher("/**/*.ico"));
+        };
     }
-    
+
+    @Bean
+    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+        http
+            .addFilterBefore(simpleCorsFilter, CsrfFilter.class)
+            .csrf(csrf -> csrf
+                .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
+                .ignoringRequestMatchers("/api/v1/**"))
+            .authorizeHttpRequests(auth -> auth
+                .anyRequest().permitAll())
+            .headers(headers -> headers
+                .addHeaderWriter(new StaticHeadersWriter("X-XSS-Protection", "1; mode=block"))
+                .frameOptions(frameOptions -> frameOptions.disable())
+                .httpStrictTransportSecurity(hsts -> hsts
+                    .includeSubDomains(true)
+                    .maxAgeInSeconds(31536)));
+
+        return http.build();
+    }
+
+    @Bean
+    public UserDetailsService userDetailsService() {
+        return new InMemoryUserDetailsManager(
+            User.withUsername("admin")
+                .password("{noop}password")
+                .roles("USER")
+                .build()
+        );
+    }
+
     @Bean
     public SessionRegistry sessionRegistry() {
         return new SessionRegistryImpl();
@@ -82,7 +91,6 @@ public class SecurityConfig extends WebSecurityConfigurerAdapter {
 		firewall.setAllowUrlEncodedDoubleSlash(true);
 		return firewall;
 	}
-
 
 }
 

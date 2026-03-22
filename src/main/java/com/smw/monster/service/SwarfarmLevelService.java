@@ -2,7 +2,7 @@ package com.smw.monster.service;
 
 import java.util.Map;
 
-public interface SwarfarmLevelService {
+public interface SwarfarmLevelService extends SwarfarmSyncService {
     
     /**
      * Swarfarm API에서 모든 레벨 데이터를 동기화

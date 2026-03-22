@@ -13,16 +13,7 @@ public class SwarfarmMonsterSyncJob extends BaseBatchJob {
     @Override
     protected void executeBatch(JobExecutionContext context) throws Exception {
         SwarfarmMonsterService swarfarmMonsterService = applicationContext.getBean(SwarfarmMonsterService.class);
-        
-        // 로그 콜백 설정 (서비스에서 로그를 받을 수 있도록)
-        // 서비스의 addBatchLog가 호출되면 BaseBatchJob의 addLog를 통해 로그 수집
-        swarfarmMonsterService.setLogCallback((msg) -> {
-            // 서비스에서 받은 로그를 BaseBatchJob의 로그에 추가
-            // addLog는 이미 타임스탬프를 추가하므로 메시지만 전달
-            String timestamp = java.time.LocalDateTime.now().format(
-                java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
-            logContent.append("[").append(timestamp).append("] ").append(msg).append("\n");
-        });
+        attachServiceLogCallback(swarfarmMonsterService);
         
         // 서비스 메서드 호출 (서비스 내부에서 로그를 남김)
         int syncedCount = swarfarmMonsterService.syncAllMonsters();

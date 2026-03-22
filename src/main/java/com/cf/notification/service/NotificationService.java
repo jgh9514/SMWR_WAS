@@ -2,7 +2,7 @@ package com.cf.notification.service;
 
 import java.util.Map;
 
-import javax.servlet.http.HttpSession;
+import jakarta.servlet.http.HttpSession;
 
 public interface NotificationService {
 	

@@ -5,6 +5,9 @@ import java.util.List;
 import java.util.Map;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,6 +22,7 @@ public class NoticeServiceImpl implements NoticeService {
 	private NoticeMapper mapper;
 
 	@Override
+	@Cacheable(cacheNames = "noticeList", cacheManager = "shortLivedCacheManager", keyGenerator = "stableMapKeyGenerator")
 	public Map<String, Object> getNoticeList(Map<String, Object> param) {
 		Map<String, Object> result = new HashMap<>();
 		
@@ -40,12 +44,18 @@ public class NoticeServiceImpl implements NoticeService {
 	}
 
 	@Override
+	@Cacheable(cacheNames = "noticeDetail", cacheManager = "shortLivedCacheManager", keyGenerator = "stableMapKeyGenerator")
 	public Map<String, ?> getNoticeDetail(Map<String, Object> param) {
 		return mapper.selectNoticeDtl(param);
 	}
 
 	@Override
 	@Transactional
+	@Caching(evict = {
+			@CacheEvict(cacheNames = "noticeList", allEntries = true, cacheManager = "shortLivedCacheManager"),
+			@CacheEvict(cacheNames = "noticeDetail", allEntries = true, cacheManager = "shortLivedCacheManager"),
+			@CacheEvict(cacheNames = "popupNoticeList", allEntries = true, cacheManager = "shortLivedCacheManager")
+	})
 	public Map<String, Object> saveNotice(Map<String, Object> param) {
 		Map<String, Object> result = new HashMap<>();
 		
@@ -69,6 +79,11 @@ public class NoticeServiceImpl implements NoticeService {
 
 	@Override
 	@Transactional
+	@Caching(evict = {
+			@CacheEvict(cacheNames = "noticeList", allEntries = true, cacheManager = "shortLivedCacheManager"),
+			@CacheEvict(cacheNames = "noticeDetail", allEntries = true, cacheManager = "shortLivedCacheManager"),
+			@CacheEvict(cacheNames = "popupNoticeList", allEntries = true, cacheManager = "shortLivedCacheManager")
+	})
 	public Map<String, Object> deleteNotice(Map<String, Object> param) {
 		Map<String, Object> result = new HashMap<>();
 		
@@ -85,6 +100,11 @@ public class NoticeServiceImpl implements NoticeService {
 
 	@Override
 	@Transactional
+	@Caching(evict = {
+			@CacheEvict(cacheNames = "noticeList", allEntries = true, cacheManager = "shortLivedCacheManager"),
+			@CacheEvict(cacheNames = "noticeDetail", allEntries = true, cacheManager = "shortLivedCacheManager"),
+			@CacheEvict(cacheNames = "popupNoticeList", allEntries = true, cacheManager = "shortLivedCacheManager")
+	})
 	public Map<String, Object> increaseNoticeView(Map<String, Object> param) {
 		Map<String, Object> result = new HashMap<>();
 		
@@ -99,12 +119,18 @@ public class NoticeServiceImpl implements NoticeService {
 	}
 
 	@Override
+	@Cacheable(cacheNames = "popupNoticeList", cacheManager = "shortLivedCacheManager", keyGenerator = "stableMapKeyGenerator")
 	public List<Map<String, ?>> getPopupNoticeList(Map<String, Object> param) {
 		return mapper.selectPopupNoticeList(param);
 	}
 
 	@Override
 	@Transactional
+	@Caching(evict = {
+			@CacheEvict(cacheNames = "noticeList", allEntries = true, cacheManager = "shortLivedCacheManager"),
+			@CacheEvict(cacheNames = "noticeDetail", allEntries = true, cacheManager = "shortLivedCacheManager"),
+			@CacheEvict(cacheNames = "popupNoticeList", allEntries = true, cacheManager = "shortLivedCacheManager")
+	})
 	public Map<String, Object> savePopupNoticeView(Map<String, Object> param) {
 		Map<String, Object> result = new HashMap<>();
 		

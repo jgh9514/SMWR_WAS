@@ -60,6 +60,11 @@
         WHERE level_id = #{level_id}
     </select>
 
+    <select id="selectAllLevelIds" resultType="Integer">
+        SELECT level_id
+        FROM public.level_master
+    </select>
+
     <!-- 레벨 웨이브 삭제 (CASCADE로 적도 함께 삭제됨) -->
     <delete id="deleteLevelWaves" parameterType="Integer">
         DELETE FROM public.level_waves
@@ -77,6 +82,22 @@
             #{wave_number},
             CURRENT_TIMESTAMP
         )
+        ON CONFLICT (level_id, wave_number) DO NOTHING
+    </insert>
+
+    <insert id="insertLevelWavesBatch">
+        INSERT INTO public.level_waves (
+            level_id,
+            wave_number,
+            crt_date
+        ) VALUES
+        <foreach collection="items" item="item" separator=",">
+            (
+                #{item.level_id},
+                #{item.wave_number},
+                CURRENT_TIMESTAMP
+            )
+        </foreach>
         ON CONFLICT (level_id, wave_number) DO NOTHING
     </insert>
 
@@ -115,6 +136,46 @@
             COALESCE(#{accuracy_bonus}, 0),
             CURRENT_TIMESTAMP
         )
+        ON CONFLICT (enemy_id) DO NOTHING
+    </insert>
+
+    <insert id="insertLevelEnemiesBatch">
+        INSERT INTO public.level_enemies (
+            enemy_id,
+            level_id,
+            wave_number,
+            monster_swarfarm_id,
+            stars,
+            level,
+            hp,
+            attack,
+            defense,
+            speed,
+            resist,
+            crit_bonus,
+            crit_damage_reduction,
+            accuracy_bonus,
+            crt_date
+        ) VALUES
+        <foreach collection="items" item="item" separator=",">
+            (
+                #{item.enemy_id},
+                #{item.level_id},
+                #{item.wave_number},
+                #{item.monster_swarfarm_id},
+                #{item.stars},
+                #{item.level},
+                #{item.hp},
+                #{item.attack},
+                #{item.defense},
+                #{item.speed},
+                #{item.resist},
+                COALESCE(#{item.crit_bonus}, 0),
+                COALESCE(#{item.crit_damage_reduction}, 0),
+                COALESCE(#{item.accuracy_bonus}, 0),
+                CURRENT_TIMESTAMP
+            )
+        </foreach>
         ON CONFLICT (enemy_id) DO NOTHING
     </insert>
 
