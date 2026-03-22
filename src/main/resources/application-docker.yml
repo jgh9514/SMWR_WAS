@@ -1,9 +1,7 @@
-# Docker 환경 설정
+# Docker 환경 설정 (SPRING_PROFILES_ACTIVE=docker 로 활성화)
 spring:
   application:
     name: smw
-  profiles:
-    active: docker
   batch:
     job:
       enabled: true
