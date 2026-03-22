@@ -101,11 +101,11 @@ spec:
         # AWS SDK가 EC2 인스턴스에 부여된 IAM 역할을 자동으로 감지합니다.
         resources:
           requests:
-            memory: "512Mi"
-            cpu: "250m"
-          limits:
-            memory: "1Gi"
+            memory: "768Mi"
             cpu: "500m"
+          limits:
+            memory: "1.5Gi"
+            cpu: "1000m"
         startupProbe:
           httpGet:
             path: /actuator/health
