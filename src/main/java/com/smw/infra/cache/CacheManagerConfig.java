@@ -42,7 +42,9 @@ public class CacheManagerConfig {
                 "rtaMonsterStats",
                 "rtaMonsterDetail",
                 "guildSiegeHistory",
-                "guildSiegeHistoryCount"
+                "guildSiegeHistoryCount",
+                "monsterList",
+                "monsterInfo"
         ));
         cacheManager.setCaffeine(Caffeine.newBuilder()
                 .maximumSize(shortLivedMaximumSize)
