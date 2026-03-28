@@ -60,7 +60,7 @@ spec:
               name: smw-db-secret
               key: password
         # 메일 설정 (선택)
-        # - Secret(smws-mail-secret)이 없으면 메일 발송은 비활성화되며, 개발용 dev_code 응답을 사용할 수 있습니다.
+        # - Secret(smw-mail-secret)이 없으면 메일 발송은 비활성화되며, 개발용 dev_code 응답을 사용할 수 있습니다.
         - name: SPRING_MAIL_ENABLED
           valueFrom:
             secretKeyRef:

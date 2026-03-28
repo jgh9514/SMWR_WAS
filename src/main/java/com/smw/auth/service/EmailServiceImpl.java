@@ -161,29 +161,17 @@ public class EmailServiceImpl implements EmailService {
 			} catch (MailException e) {
 				log.error("이메일 발송 실패 (MailException) - To: {}, From: {}, Error: {}", email, fromEmail, e.getMessage(), e);
 				log.error("예외 상세: ", e);
-				// 이메일 발송 실패 시 콘솔에 출력 (개발 편의)
-				log.info("=== 이메일 인증 코드 (발송 실패, 콘솔 출력) ===");
-				log.info("이메일: {}", email);
-				log.info("인증 코드: {}", code);
-				log.info("만료 시간: {}분 후", CODE_EXPIRY_TIME / 60000);
-				log.info("================================");
-				
-				result.put("result", "SUCCESS");
-				result.put("message", "인증 코드가 발송되었습니다. (발송 실패로 콘솔 확인)");
-				result.put("dev_code", code); // 개발 환경에서만 반환
+				logFailureCodeHint(email, code);
+				verificationCodes.remove(email);
+				result.put("result", "FAIL");
+				result.put("message", "메일 발송에 실패했습니다. 잠시 후 다시 시도해주세요.");
 			} catch (Exception e) {
 				log.error("이메일 발송 실패 (Exception) - To: {}, From: {}, Error: {}", email, fromEmail, e.getMessage(), e);
 				log.error("예외 상세: ", e);
-				// 이메일 발송 실패 시 콘솔에 출력 (개발 편의)
-				log.info("=== 이메일 인증 코드 (발송 실패, 콘솔 출력) ===");
-				log.info("이메일: {}", email);
-				log.info("인증 코드: {}", code);
-				log.info("만료 시간: {}분 후", CODE_EXPIRY_TIME / 60000);
-				log.info("================================");
-				
-				result.put("result", "SUCCESS");
-				result.put("message", "인증 코드가 발송되었습니다. (발송 실패로 콘솔 확인)");
-				result.put("dev_code", code); // 개발 환경에서만 반환
+				logFailureCodeHint(email, code);
+				verificationCodes.remove(email);
+				result.put("result", "FAIL");
+				result.put("message", "메일 발송에 실패했습니다. 잠시 후 다시 시도해주세요.");
 			}
 		} else {
 			// mailEnabled가 false이거나 mailSender가 없는 경우: 콘솔에 출력
@@ -200,6 +188,15 @@ public class EmailServiceImpl implements EmailService {
 		}
 		
 		return result;
+	}
+
+	/** 로컬 개발 시 WAS 로그에서만 코드 확인용 (응답 본문에는 포함하지 않음) */
+	private void logFailureCodeHint(String email, String code) {
+		log.warn("=== 이메일 인증 코드 (발송 실패, 서버 로그 전용) ===");
+		log.warn("이메일: {}", email);
+		log.warn("인증 코드: {}", code);
+		log.warn("만료 시간: {}분 후", CODE_EXPIRY_TIME / 60000);
+		log.warn("================================");
 	}
 
 	/**
