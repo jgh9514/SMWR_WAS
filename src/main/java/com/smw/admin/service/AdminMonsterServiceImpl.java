@@ -35,8 +35,8 @@ public class AdminMonsterServiceImpl implements AdminMonsterService {
 
 	@Override
 	@Caching(evict = {
-			@CacheEvict(cacheNames = "monsterInfo", key = "#param['monster_id']"),
-			@CacheEvict(cacheNames = "monsterList", allEntries = true)
+			@CacheEvict(cacheNames = "monsterInfo", cacheManager = "shortLivedCacheManager", key = "#param['monster_id']"),
+			@CacheEvict(cacheNames = "monsterList", cacheManager = "shortLivedCacheManager", allEntries = true)
 	})
 	public int updateMonster(Map<String, Object> param) {
 		return adminMonsterMapper.updateMonster(param);

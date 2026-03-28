@@ -21,6 +21,7 @@ public class summonerswarServiceImpl implements summonerswarService {
 	@Override
 	@Cacheable(
 		cacheNames = "monsterList",
+		cacheManager = "shortLivedCacheManager",
 		key = "'all'",
 		condition = "#root.args[0] == null || #root.args[0].isEmpty()"
 	)
@@ -391,7 +392,7 @@ public class summonerswarServiceImpl implements summonerswarService {
 	}
 	
 	@Override
-	@Cacheable(cacheNames = "monsterInfo", key = "#monsterId")
+	@Cacheable(cacheNames = "monsterInfo", cacheManager = "shortLivedCacheManager", key = "#monsterId")
 	public Map<String, ?> selectMonsterInfo(String monsterId) {
 		// 몬스터 기본 정보 조회
 		Map<String, ?> monsterInfo = swMapper.selectMonsterInfo(monsterId);
