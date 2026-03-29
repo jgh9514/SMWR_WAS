@@ -5,6 +5,7 @@ import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
 
+import jakarta.mail.AuthenticationFailedException;
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
 
@@ -317,6 +318,7 @@ public class EmailServiceImpl implements EmailService {
 				return true;
 			} catch (Exception e) {
 				log.error("SMTP 연결 테스트 실패: {}", e.getMessage(), e);
+				logSmtpAuthFailureHint(e);
 				return false;
 			}
 		}
@@ -324,6 +326,32 @@ public class EmailServiceImpl implements EmailService {
 		// JavaMailSenderImpl이 아닌 경우 연결 테스트 불가
 		log.warn("JavaMailSenderImpl이 아니어서 연결 테스트를 수행할 수 없습니다.");
 		return true; // 테스트 불가하지만 발송은 시도
+	}
+
+	/**
+	 * Gmail 535 등 인증 실패 시 설정 점검 힌트 (비밀번호는 로그에 남기지 않음)
+	 */
+	private void logSmtpAuthFailureHint(Throwable e) {
+		StringBuilder acc = new StringBuilder();
+		for (Throwable t = e; t != null; t = t.getCause()) {
+			String m = t.getMessage();
+			if (m != null) {
+				acc.append(m).append(' ');
+			}
+		}
+		String blob = acc.toString();
+		boolean authRelated = e instanceof AuthenticationFailedException
+				|| blob.contains("535")
+				|| blob.contains("BadCredentials")
+				|| blob.contains("Authentication failed");
+		if (!authRelated) {
+			return;
+		}
+		log.warn(
+				"SMTP 인증 실패로 보입니다. Gmail(smtp.gmail.com)인 경우: 일반 비밀번호가 아니라 "
+						+ "Google 계정 → 보안 → 2단계 인증 활성화 후 발급한 '앱 비밀번호'(16자, 공백 없이)를 사용하세요. "
+						+ "spring.mail.username은 발급한 Gmail 전체 주소, spring.mail.password는 앱 비밀번호, "
+						+ "spring.mail.from은 가능하면 동일 계정(또는 Gmail에서 허용한 발신 주소)으로 맞추세요.");
 	}
 	
 	/**

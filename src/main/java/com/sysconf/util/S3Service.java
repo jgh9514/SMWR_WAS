@@ -4,12 +4,17 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 
+import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
 import lombok.extern.slf4j.Slf4j;
+import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -24,25 +29,45 @@ public class S3Service {
     private static final String BUCKET_NAME = "summonerswar-community";
     private static final String CLOUDFRONT_URL = "https://dyjduzi8vf2k4.cloudfront.net";
     private static final String MONSTER_FOLDER = "monster";
+    /** Swarfarm 스킬 아이콘 등 스킬 이미지 S3 경로 접두어 */
+    public static final String SKILLS_FOLDER = "skills";
+    /** Swarfarm 스킬 이펙트(buff/debuff 등) 아이콘 */
+    public static final String SKILL_EFFECTS_FOLDER = "skill-effects";
+    /** 리더 스킬 이미지를 올릴 때 사용 (현재 동기화는 텍스트만 저장, 확장용) */
+    public static final String LEADER_SKILLS_FOLDER = "leader-skills";
     private static final String FILES_FOLDER = "files"; // 일반 파일 저장 폴더
-    private final S3Client s3Client = S3Client.builder()
-            .region(Region.AP_SOUTHEAST_2)
-            .credentialsProvider(DefaultCredentialsProvider.create())
-            .build();
-    
+
+    @Value("${smw.aws.access-key-id:}")
+    private String accessKeyId;
+
+    @Value("${smw.aws.secret-access-key:}")
+    private String secretAccessKey;
+
+    @Value("${smw.aws.region:ap-southeast-2}")
+    private String awsRegion;
+
+    private S3Client s3Client;
+
     /**
-     * S3 클라이언트 생성
-     * DefaultCredentialsProvider를 사용하여 EC2 IAM 역할(인스턴스 프로파일)을 자동으로 인식합니다.
-     * 
-     * AWS SDK v2의 DefaultCredentialsProvider는 다음 순서로 자격 증명을 찾습니다:
-     * 1. 환경 변수 (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY) - Kubernetes 환경에서는 설정하지 않음
-     * 2. Java 시스템 속성
-     * 3. 자격 증명 파일 (~/.aws/credentials)
-     * 4. EC2 인스턴스 메타데이터 서비스 (IAM 역할) <- Kubernetes Pod에서 이 방법 사용
-     * 
-     * Kubernetes 환경에서는 EC2 인스턴스에 부여된 IAM 역할을 자동으로 감지합니다.
-     * application.yml의 cloud.aws.credentials.instance-profile: true 설정과 함께 사용됩니다.
+     * smw.aws.access-key-id / secret-access-key(또는 환경변수 AWS_*)가 있으면 정적 키로 S3 접속.
+     * 없으면 DefaultCredentialsProvider(환경변수, ~/.aws/credentials, EC2/ECS IAM 역할 순).
+     * 로컬에서 SdkClientException: Unable to load credentials 이면 IAM 사용자 키를 환경변수로 넣거나 aws configure.
      */
+    @PostConstruct
+    public void initS3Client() {
+        var builder = S3Client.builder().region(Region.of(awsRegion.trim()));
+        if (StringUtils.hasText(accessKeyId) && StringUtils.hasText(secretAccessKey)) {
+            builder.credentialsProvider(StaticCredentialsProvider.create(
+                    AwsBasicCredentials.create(accessKeyId.trim(), secretAccessKey.trim())));
+            log.info("S3 클라이언트: 정적 자격 증명 사용 (smw.aws / AWS_ACCESS_KEY_ID), region={}", awsRegion);
+        } else {
+            builder.credentialsProvider(DefaultCredentialsProvider.create());
+            log.info("S3 클라이언트: DefaultCredentialsProvider, region={}. 로컬 실패 시 AWS_ACCESS_KEY_ID·AWS_SECRET_ACCESS_KEY 또는 %s",
+                    awsRegion, System.getProperty("user.home") + "/.aws/credentials");
+        }
+        this.s3Client = builder.build();
+    }
+
     private S3Client getS3Client() {
         return s3Client;
     }
@@ -56,9 +81,18 @@ public class S3Service {
      * @return CloudFront URL
      */
     public String uploadImage(InputStream inputStream, String fileName, String contentType) {
+        return uploadImage(inputStream, fileName, contentType, MONSTER_FOLDER);
+    }
+
+    /**
+     * 이미지를 S3 지정 폴더에 업로드 (Swarfarm 스킬 아이콘은 {@link #SKILLS_FOLDER} 등)
+     *
+     * @param s3Folder S3 키 접두어 (예: {@code monster}, {@code skills}). null/빈 문자열이면 {@code monster}
+     */
+    public String uploadImage(InputStream inputStream, String fileName, String contentType, String s3Folder) {
         try {
-            // S3 키 생성 (monster/ 폴더 아래에 저장)
-            String s3Key = MONSTER_FOLDER + "/" + fileName;
+            String folder = (s3Folder != null && !s3Folder.isEmpty()) ? s3Folder : MONSTER_FOLDER;
+            String s3Key = folder + "/" + fileName;
             
             // PutObjectRequest 생성 (PublicRead ACL 설정으로 CloudFront에서 읽을 수 있도록)
             PutObjectRequest putObjectRequest = PutObjectRequest.builder()
@@ -98,9 +132,17 @@ public class S3Service {
      * @return CloudFront URL
      */
     public String uploadImage(byte[] imageBytes, String fileName, String contentType) {
+        return uploadImage(imageBytes, fileName, contentType, MONSTER_FOLDER);
+    }
+
+    /**
+     * @param s3Folder S3 키 접두어. null/빈 문자열이면 {@code monster}
+     * @see #uploadImage(InputStream, String, String, String)
+     */
+    public String uploadImage(byte[] imageBytes, String fileName, String contentType, String s3Folder) {
         try {
-            // S3 키 생성 (monster/ 폴더 아래에 저장)
-            String s3Key = MONSTER_FOLDER + "/" + fileName;
+            String folder = (s3Folder != null && !s3Folder.isEmpty()) ? s3Folder : MONSTER_FOLDER;
+            String s3Key = folder + "/" + fileName;
             
             // PutObjectRequest 생성 (PublicRead ACL 설정으로 CloudFront에서 읽을 수 있도록)
             PutObjectRequest putObjectRequest = PutObjectRequest.builder()
@@ -222,7 +264,9 @@ public class S3Service {
 
     @PreDestroy
     public void close() {
-        s3Client.close();
+        if (s3Client != null) {
+            s3Client.close();
+        }
     }
     
     /**

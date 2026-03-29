@@ -13,6 +13,7 @@
             icon_filename,
             icon_path,
             swarfarm_url,
+            remark,
             last_sync_date,
             crt_user_id,
             crt_date,
@@ -27,6 +28,7 @@
             #{icon_filename},
             #{icon_path},
             #{swarfarm_url},
+            #{remark},
             CURRENT_TIMESTAMP,
             'SYSTEM',
             CURRENT_TIMESTAMP,
@@ -42,6 +44,7 @@
             icon_filename = EXCLUDED.icon_filename,
             icon_path = EXCLUDED.icon_path,
             swarfarm_url = EXCLUDED.swarfarm_url,
+            remark = EXCLUDED.remark,
             last_sync_date = CURRENT_TIMESTAMP,
             upt_user_id = 'SYSTEM',
             upt_date = CURRENT_TIMESTAMP

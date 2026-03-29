@@ -27,11 +27,22 @@ spec:
         - containerPort: 8080
           name: http
         env:
-        # AWS SDK가 EC2 인스턴스 메타데이터 서비스를 사용하도록 명시적으로 설정
-        # K3s 환경에서 Pod가 EC2 인스턴스의 IAM 역할을 사용할 수 있도록 설정
-        # S3 버킷이 시드니 리전에 있으므로 일치시킴
+        # S3: Kubernetes 시크릿 s3-credentials (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION)
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: s3-credentials
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: s3-credentials
+              key: AWS_SECRET_ACCESS_KEY
         - name: AWS_REGION
-          value: "ap-southeast-2"
+          valueFrom:
+            secretKeyRef:
+              name: s3-credentials
+              key: AWS_REGION
         - name: SPRING_PROFILES_ACTIVE
           value: "docker"
         - name: SPRING_DATASOURCE_URL
@@ -97,8 +108,6 @@ spec:
               name: smw-app-secret
               key: jwt-encryption-key
               optional: true
-        # AWS 자격 증명은 IAM 역할을 통해 자동으로 제공되므로 환경 변수 설정 불필요
-        # AWS SDK가 EC2 인스턴스에 부여된 IAM 역할을 자동으로 감지합니다.
         resources:
           requests:
             memory: "768Mi"

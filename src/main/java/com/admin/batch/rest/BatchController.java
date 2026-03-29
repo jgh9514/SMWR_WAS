@@ -1,5 +1,6 @@
 package com.admin.batch.rest;
 
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -9,6 +10,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -16,8 +18,10 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import com.admin.batch.mapper.BatchMapper;
+import com.admin.batch.sse.BatchLogBroadcaster;
 import com.admin.log.service.LogService;
 import com.sysconf.config.BatchConfig;
 import com.sysconf.constants.Constant;
@@ -40,6 +44,9 @@ public class BatchController {
 	
 	@Autowired
 	private BatchMapper batchMapper;
+
+	@Autowired
+	private BatchLogBroadcaster batchLogBroadcaster;
 
 	@SuppressWarnings("unchecked")
 	private Map<String, Object> getSessUserInfo(HttpServletRequest request) {
@@ -84,6 +91,33 @@ public class BatchController {
 			return new ResponseEntity<>(body, HttpStatus.FORBIDDEN);
 		}
 		return null;
+	}
+
+	@Operation(summary = "배치 수동 실행 로그 스트림(SSE)", description = "수동 실행 전에 연결한 뒤, 같은 stream_id로 /batch/run을 호출하면 로그가 실시간으로 전달됩니다.")
+	@GetMapping(value = "/logs/stream/{streamId}")
+	public ResponseEntity<?> streamBatchLogs(@PathVariable String streamId, HttpServletRequest request) {
+		ResponseEntity<?> guard = requireAdmin(request);
+		if (guard != null) {
+			return guard;
+		}
+		if (streamId == null || streamId.length() > 80 || !streamId.matches("[a-fA-F0-9\\-]{8,80}")) {
+			Map<String, Object> body = new HashMap<>();
+			body.put("result", Constant.FAIL);
+			body.put("message", "stream_id가 유효하지 않습니다.");
+			return new ResponseEntity<>(body, HttpStatus.BAD_REQUEST);
+		}
+		SseEmitter emitter = batchLogBroadcaster.register(streamId);
+		try {
+			emitter.send(SseEmitter.event().comment("ok"));
+		} catch (IOException e) {
+			Map<String, Object> body = new HashMap<>();
+			body.put("result", Constant.FAIL);
+			body.put("message", "스트림을 열 수 없습니다.");
+			return new ResponseEntity<>(body, HttpStatus.SERVICE_UNAVAILABLE);
+		}
+		return ResponseEntity.ok()
+				.contentType(MediaType.TEXT_EVENT_STREAM)
+				.body(emitter);
 	}
 
 	@Operation(summary = "배치 설정 목록 조회", description = "배치 스케줄 설정 값을 조회합니다.")
@@ -139,6 +173,14 @@ public class BatchController {
 			jobData = parsedJobData;
 		}
 
+		Object rawStreamId = requestBody.get("stream_id");
+		if (rawStreamId != null && !String.valueOf(rawStreamId).isBlank()) {
+			if (jobData == null) {
+				jobData = new HashMap<>();
+			}
+			jobData.put("stream_id", String.valueOf(rawStreamId).trim());
+		}
+
 		if (!applicationContext.containsBean("batchConfig")) {
 			Map<String, Object> error = new HashMap<>();
 			error.put("result", Constant.FAIL);
@@ -151,6 +193,11 @@ public class BatchController {
 
 		Map<String, Object> result = new HashMap<>();
 		result.put("result", executed ? Constant.SUCCESS : Constant.FAIL);
+		if (executed) {
+			result.put("message", "배치가 백그라운드에서 시작되었습니다. 완료 후 아래 실행 이력에서 결과(로그)를 확인하세요.");
+		} else {
+			result.put("message", "배치 트리거에 실패했습니다. job_key·배치 설정(job_class)을 확인하세요.");
+		}
 		return new ResponseEntity<>(result, executed ? HttpStatus.OK : HttpStatus.BAD_REQUEST);
 	}
 

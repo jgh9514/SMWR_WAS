@@ -595,6 +595,7 @@ CREATE TABLE public.skill_effect_master (
 	icon_filename varchar(200) NULL, -- 아이콘 파일명
 	icon_path varchar(500) NULL, -- 아이콘 저장 경로
 	swarfarm_url varchar(500) NULL, -- Swarfarm API URL
+	remark varchar(1000) NULL, -- 비고 (예: 아이콘 다운로드 실패 사유)
 	last_sync_date timestamp NULL, -- 마지막 동기화 일시
 	crt_user_id varchar(50) DEFAULT 'SYSTEM'::character varying NULL,
 	crt_date timestamp DEFAULT CURRENT_TIMESTAMP NOT NULL,
@@ -617,7 +618,104 @@ COMMENT ON COLUMN public.skill_effect_master.description IS '이펙트 설명';
 COMMENT ON COLUMN public.skill_effect_master.icon_filename IS '아이콘 파일명';
 COMMENT ON COLUMN public.skill_effect_master.icon_path IS '아이콘 저장 경로';
 COMMENT ON COLUMN public.skill_effect_master.swarfarm_url IS 'Swarfarm API URL';
+COMMENT ON COLUMN public.skill_effect_master.remark IS '비고 (예: 아이콘 다운로드 실패 사유)';
 COMMENT ON COLUMN public.skill_effect_master.last_sync_date IS '마지막 동기화 일시';
+
+
+-- public.skill_master definition (스킬 정의 마스터; 단독 테이블명 skill 사용 안 함)
+
+-- DROP TABLE public.skill_master;
+
+CREATE TABLE public.skill_master (
+	skill_id int4 NOT NULL,
+	swarfarm_id int4 NULL,
+	com2us_id int4 NULL,
+	name varchar(500) NULL,
+	description text NULL,
+	slot int4 NULL,
+	cooltime int4 NULL,
+	hits int4 DEFAULT 1 NULL,
+	passive bool DEFAULT false NULL,
+	aoe bool DEFAULT false NULL,
+	random bool DEFAULT false NULL,
+	max_level int4 NULL,
+	multiplier_formula text NULL,
+	multiplier_formula_raw text NULL,
+	scales_with text NULL,
+	icon_filename varchar(300) NULL,
+	icon_path varchar(500) NULL,
+	level_progress_description text NULL,
+	other_skill_id int4 NULL,
+	swarfarm_url varchar(500) NULL,
+	remark varchar(1000) NULL,
+	last_sync_date timestamp NULL,
+	crt_user_id varchar(50) DEFAULT 'SYSTEM'::character varying NULL,
+	crt_date timestamp DEFAULT CURRENT_TIMESTAMP NOT NULL,
+	upt_user_id varchar(50) DEFAULT 'SYSTEM'::character varying NULL,
+	upt_date timestamp DEFAULT CURRENT_TIMESTAMP NOT NULL,
+	CONSTRAINT pk_skill_master PRIMARY KEY (skill_id)
+);
+CREATE INDEX idx_skill_master_swarfarm_id ON public.skill_master USING btree (swarfarm_id);
+CREATE INDEX idx_skill_master_com2us_id ON public.skill_master USING btree (com2us_id);
+CREATE INDEX idx_skill_master_last_sync_date ON public.skill_master USING btree (last_sync_date);
+COMMENT ON TABLE public.skill_master IS '스킬 마스터 (이름·설명·쿨타임 등 Swarfarm 동기화)';
+COMMENT ON COLUMN public.skill_master.skill_id IS '스킬 PK (내부/동기화 ID)';
+COMMENT ON COLUMN public.skill_master.swarfarm_id IS 'Swarfarm 스킬 ID';
+COMMENT ON COLUMN public.skill_master.remark IS '비고 (예: 아이콘 다운로드 실패 사유)';
+
+-- 스킬의 used_on(Swarfarm 몬스터 id) ↔ 몬스터 매핑은 public.monster_skill_link 로만 둔다 (중복 테이블 skill_used_on 없음).
+
+
+-- public.skill_upgrades (Swarfarm 스킬 업그레이드 단계)
+
+-- DROP TABLE public.skill_upgrades;
+
+CREATE TABLE public.skill_upgrades (
+	skill_id int4 NOT NULL,
+	upgrade_level int4 NOT NULL,
+	effect text NULL,
+	amount int4 NULL,
+	crt_date timestamp DEFAULT CURRENT_TIMESTAMP NOT NULL,
+	CONSTRAINT pk_skill_upgrades PRIMARY KEY (skill_id, upgrade_level),
+	CONSTRAINT fk_skill_upgrades_skill FOREIGN KEY (skill_id) REFERENCES public.skill_master(skill_id) ON DELETE CASCADE
+);
+CREATE INDEX idx_skill_upgrades_skill_id ON public.skill_upgrades USING btree (skill_id);
+COMMENT ON TABLE public.skill_upgrades IS '스킬 업그레이드(레벨별 효과/수치, Swarfarm skills API upgrades)';
+COMMENT ON COLUMN public.skill_upgrades.upgrade_level IS '1부터 순번 (동기화 루프 순서)';
+
+
+-- public.skill_effects (스킬에 붙은 이펙트 인스턴스 — skill_effect_master와 별개, 스킬 동기화 시 저장)
+
+-- DROP TABLE public.skill_effects;
+
+CREATE TABLE public.skill_effects (
+	skill_id int4 NOT NULL,
+	effect_id int4 NOT NULL,
+	effect_name varchar(500) NULL,
+	effect_type varchar(100) NULL,
+	effect_description text NULL,
+	is_buff bool NULL,
+	aoe bool NULL,
+	single_target bool NULL,
+	self_effect bool NULL,
+	chance int4 NULL,
+	on_crit bool NULL,
+	on_death bool NULL,
+	random bool NULL,
+	quantity int4 NULL,
+	"all" bool NULL,
+	self_hp bool NULL,
+	target_hp bool NULL,
+	damage bool NULL,
+	note text NULL,
+	effect_order int4 NOT NULL,
+	crt_date timestamp DEFAULT CURRENT_TIMESTAMP NOT NULL,
+	CONSTRAINT pk_skill_effects PRIMARY KEY (skill_id, effect_id, effect_order),
+	CONSTRAINT fk_skill_effects_skill FOREIGN KEY (skill_id) REFERENCES public.skill_master(skill_id) ON DELETE CASCADE
+);
+CREATE INDEX idx_skill_effects_skill_id ON public.skill_effects USING btree (skill_id);
+COMMENT ON TABLE public.skill_effects IS '스킬별 이펙트 행(Swarfarm skill.effects 중첩)';
+COMMENT ON COLUMN public.skill_effects.effect_id IS '해당 스킬 내 이펙트 정의 id(스킬 JSON effect.id)';
 
 
 -- public.sys_api definition
@@ -1432,29 +1530,25 @@ COMMENT ON COLUMN public.level_waves.level_id IS '레벨 ID';
 COMMENT ON COLUMN public.level_waves.wave_number IS '웨이브 번호';
 
 
--- public.monster_skills definition
+-- public.monster_skill_link definition (몬스터–스킬 매핑)
 
--- Drop table
+-- DROP TABLE public.monster_skill_link;
 
--- DROP TABLE public.monster_skills;
-
-CREATE TABLE public.monster_skills (
-	monster_id varchar(100) NOT NULL, -- 몬스터 ID
-	skill_id int4 NOT NULL, -- 스킬 ID
-	skill_order int4 NOT NULL, -- 스킬 순서
+CREATE TABLE public.monster_skill_link (
+	monster_id varchar(100) NOT NULL,
+	skill_id int4 NOT NULL,
+	skill_order int4 NOT NULL,
 	crt_date timestamp DEFAULT CURRENT_TIMESTAMP NOT NULL,
-	CONSTRAINT pk_monster_skills PRIMARY KEY (monster_id, skill_id, skill_order),
-	CONSTRAINT fk_monster_skills_monster FOREIGN KEY (monster_id) REFERENCES public.monster(monster_id) ON DELETE CASCADE
+	CONSTRAINT pk_monster_skill_link PRIMARY KEY (monster_id, skill_id, skill_order),
+	CONSTRAINT fk_monster_skill_link_monster FOREIGN KEY (monster_id) REFERENCES public.monster(monster_id) ON DELETE CASCADE,
+	CONSTRAINT fk_monster_skill_link_skill FOREIGN KEY (skill_id) REFERENCES public.skill_master(skill_id) ON DELETE RESTRICT
 );
-CREATE INDEX idx_monster_skills_monster_id ON public.monster_skills USING btree (monster_id);
-CREATE INDEX idx_monster_skills_skill_id ON public.monster_skills USING btree (skill_id);
-COMMENT ON TABLE public.monster_skills IS '몬스터 스킬 정보';
-
--- Column comments
-
-COMMENT ON COLUMN public.monster_skills.monster_id IS '몬스터 ID';
-COMMENT ON COLUMN public.monster_skills.skill_id IS '스킬 ID';
-COMMENT ON COLUMN public.monster_skills.skill_order IS '스킬 순서';
+CREATE INDEX idx_monster_skill_link_monster_id ON public.monster_skill_link USING btree (monster_id);
+CREATE INDEX idx_monster_skill_link_skill_id ON public.monster_skill_link USING btree (skill_id);
+COMMENT ON TABLE public.monster_skill_link IS '몬스터–스킬 매핑 (monster_id + skill_master.skill_id)';
+COMMENT ON COLUMN public.monster_skill_link.monster_id IS '몬스터 ID';
+COMMENT ON COLUMN public.monster_skill_link.skill_id IS 'skill_master.skill_id';
+COMMENT ON COLUMN public.monster_skill_link.skill_order IS '슬롯/표시 순서';
 
 
 -- public.monster_sources definition

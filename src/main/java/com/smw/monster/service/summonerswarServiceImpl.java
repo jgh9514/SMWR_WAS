@@ -1,8 +1,13 @@
 package com.smw.monster.service;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.Cacheable;
@@ -10,6 +15,8 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
 
 import com.smw.monster.mapper.summonerswarMapper;
+import com.smw.monster.util.MonsterDetailContextBuilder;
+import com.smw.monster.util.MonsterIdEvolutionUtil;
 
 @Service
 @Primary
@@ -114,12 +121,27 @@ public class summonerswarServiceImpl implements summonerswarService {
 	public int insertEnemyTeamSave(Map<String, Object> param) {
 		return swMapper.insertEnemyTeamSave(param);
 	}
+
+	@Override
+	public int upsertSiegeDefenseDeckManual(Map<String, Object> param) {
+		return swMapper.upsertSiegeDefenseDeckManual(param);
+	}
 	
 	@Override
 	public int insertFriendlyteamTeamSave(Map<String, Object> param) {
 		if (param == null) return 0;
 		int n = swMapper.insertFriendlyteamTeamSave(param);
 		if (n <= 0) return n;
+
+		// siege_defense_deck_stats(전투 집계)에 없는 방덱을 목록에도 보이도록 별도 등록
+		Object d1 = param.get("def_monster_1");
+		Object d2 = param.get("def_monster_2");
+		Object d3 = param.get("def_monster_3");
+		if (d1 != null && !String.valueOf(d1).isBlank()
+				&& d2 != null && !String.valueOf(d2).isBlank()
+				&& d3 != null && !String.valueOf(d3).isBlank()) {
+			swMapper.upsertSiegeDefenseDeckManual(param);
+		}
 		
 		// insertFriendlyteamTeamSave에서 selectKey로 deck_id가 채워짐
 		Object deckIdObj = param != null ? param.get("deck_id") : null;
@@ -400,13 +422,200 @@ public class summonerswarServiceImpl implements summonerswarService {
 			return new HashMap<>();
 		}
 		
-		// 몬스터 스킬 목록 조회
-		List<Map<String, ?>> skills = swMapper.selectMonsterSkills(monsterId);
-		
+		// 몬스터 스킬 목록 + 이펙트(아이콘은 skill_effect_master 조인)
+		List<Map<String, ?>> skills = dedupeMonsterSkillsBySkillId(swMapper.selectMonsterSkills(monsterId));
+		List<Map<String, ?>> skillEffectRows = swMapper.selectMonsterSkillEffects(monsterId);
+		Map<Object, List<Map<String, ?>>> effectsBySkillId = new LinkedHashMap<>();
+		if (skillEffectRows != null) {
+			for (Map<String, ?> row : skillEffectRows) {
+				Object skid = row.get("skill_id");
+				if (skid == null) {
+					continue;
+				}
+				effectsBySkillId.computeIfAbsent(skid, k -> new ArrayList<>()).add(row);
+			}
+		}
+		List<Map<String, Object>> skillsWithEffects = new ArrayList<>();
+		if (skills != null) {
+			for (Map<String, ?> s : skills) {
+				Map<String, Object> m = new HashMap<>();
+				for (Map.Entry<String, ?> e : s.entrySet()) {
+					m.put(e.getKey(), e.getValue());
+				}
+				Object skid = m.get("skill_id");
+				m.put("effects", effectsBySkillId.getOrDefault(skid, Collections.emptyList()));
+				skillsWithEffects.add(m);
+			}
+		}
+
 		// 결과에 스킬 정보 추가
 		Map<String, Object> result = new HashMap<>(monsterInfo);
-		result.put("skills", skills != null ? skills : new java.util.ArrayList<>());
-		
+		result.put("skills", skillsWithEffects);
+
+		// 상세 전용: 패밀리 + 진화 라인 + 스킬 그룹을 합쳐 detail_context 구성 (중복 monster_id 제거)
+		List<Map<String, ?>> familyRows = new ArrayList<>();
+		Set<String> seenMonsterIds = new LinkedHashSet<>();
+		Object fidObj = monsterInfo.get("family_id");
+		Long familyId = null;
+		if (fidObj instanceof Number) {
+			familyId = ((Number) fidObj).longValue();
+		} else if (fidObj != null) {
+			try {
+				familyId = Long.parseLong(fidObj.toString().trim());
+			} catch (NumberFormatException ignored) {
+				familyId = null;
+			}
+		}
+		if (familyId != null && familyId > 0) {
+			mergeMonsterRows(familyRows, swMapper.selectMonstersByFamilyId(familyId.longValue()), seenMonsterIds);
+		}
+		Object unObj = monsterInfo.get("un_name");
+		if (unObj != null && !unObj.toString().trim().isEmpty()) {
+			mergeMonsterRows(familyRows, swMapper.selectMonstersByUnName(unObj.toString().trim()), seenMonsterIds);
+		}
+		String evoGroupKey = MonsterIdEvolutionUtil.evolutionGroupKey(monsterId);
+		if (evoGroupKey != null && !evoGroupKey.isEmpty() && !evoGroupKey.startsWith("solo:")) {
+			mergeMonsterRows(familyRows, swMapper.selectMonstersByEvolutionGroupKey(evoGroupKey), seenMonsterIds);
+		}
+		long skillGroupId = 0L;
+		Object sgObj = monsterInfo.get("skill_group_id");
+		if (sgObj instanceof Number) {
+			skillGroupId = ((Number) sgObj).longValue();
+		} else if (sgObj != null) {
+			try {
+				skillGroupId = Long.parseLong(sgObj.toString().trim());
+			} catch (NumberFormatException ignored) {
+				skillGroupId = 0L;
+			}
+		}
+		if (skillGroupId > 0) {
+			mergeMonsterRows(familyRows, swMapper.selectMonstersBySkillGroupId(skillGroupId), seenMonsterIds);
+		}
+		Object elemental = monsterInfo.get("monster_elemental");
+		Map<String, Object> detailContext = MonsterDetailContextBuilder.build(monsterId,
+				elemental != null ? elemental.toString() : null, familyRows);
+
+		int starCount = 0;
+		Object starObj = monsterInfo.get("star");
+		if (starObj instanceof Number) {
+			starCount = ((Number) starObj).intValue();
+		} else if (starObj != null) {
+			try {
+				starCount = Integer.parseInt(starObj.toString().trim());
+			} catch (NumberFormatException ignored) {
+				starCount = 0;
+			}
+		}
+		int awakenDigit = MonsterIdEvolutionUtil.awakenStepDigit(monsterId);
+		if (awakenDigit < 0) {
+			Object al = monsterInfo.get("awaken_level");
+			if (al instanceof Number) {
+				awakenDigit = ((Number) al).intValue();
+			} else if (al != null) {
+				try {
+					awakenDigit = Integer.parseInt(al.toString().trim());
+				} catch (NumberFormatException e) {
+					awakenDigit = 0;
+				}
+			} else {
+				awakenDigit = 0;
+			}
+		}
+		Map<String, ?> cohortBounds = swMapper.selectMonsterStatCohortBounds(starCount, awakenDigit);
+		if (cohortBounds != null && !cohortBounds.isEmpty()) {
+			Map<String, Object> cohortCopy = new HashMap<>();
+			for (Map.Entry<String, ?> e : cohortBounds.entrySet()) {
+				if (e.getValue() != null) {
+					cohortCopy.put(e.getKey(), e.getValue());
+				}
+			}
+			if (!cohortCopy.isEmpty()) {
+				detailContext.put("stat_cohort", cohortCopy);
+			}
+		}
+
+		result.put("detail_context", detailContext);
+
 		return result;
+	}
+
+	/**
+	 * PK가 (monster_id, skill_id, skill_order)라 동일 skill_id가 여러 행일 수 있음.
+	 * slot → skill_order 순으로 정렬 후 skill_id당 첫 행만 유지.
+	 */
+	private List<Map<String, ?>> dedupeMonsterSkillsBySkillId(List<Map<String, ?>> rows) {
+		if (rows == null || rows.isEmpty()) {
+			return rows == null ? Collections.emptyList() : new ArrayList<>(rows);
+		}
+		List<Map<String, ?>> sorted = new ArrayList<>(rows);
+		sorted.sort(this::compareMonsterSkillLinkRows);
+		Map<Object, Map<String, ?>> distinct = new LinkedHashMap<>();
+		for (Map<String, ?> row : sorted) {
+			Object skillId = row.get("skill_id");
+			if (skillId == null) {
+				continue;
+			}
+			distinct.putIfAbsent(skillId, row);
+		}
+		return new ArrayList<>(distinct.values());
+	}
+
+	private int compareMonsterSkillLinkRows(Map<String, ?> a, Map<String, ?> b) {
+		int c = Integer.compare(slotFromSkillRow(a), slotFromSkillRow(b));
+		if (c != 0) {
+			return c;
+		}
+		return Integer.compare(skillOrderFromSkillRow(a), skillOrderFromSkillRow(b));
+	}
+
+	private static int slotFromSkillRow(Map<String, ?> m) {
+		Object v = m.get("slot");
+		if (v instanceof Number n) {
+			return n.intValue();
+		}
+		if (v != null) {
+			try {
+				return Integer.parseInt(v.toString().trim());
+			} catch (NumberFormatException e) {
+				return Integer.MAX_VALUE;
+			}
+		}
+		return Integer.MAX_VALUE;
+	}
+
+	private static int skillOrderFromSkillRow(Map<String, ?> m) {
+		Object v = m.get("skill_order");
+		if (v == null) {
+			v = m.get("skillOrder");
+		}
+		if (v instanceof Number n) {
+			return n.intValue();
+		}
+		if (v != null) {
+			try {
+				return Integer.parseInt(v.toString().trim());
+			} catch (NumberFormatException e) {
+				return Integer.MAX_VALUE;
+			}
+		}
+		return Integer.MAX_VALUE;
+	}
+
+	private static void mergeMonsterRows(List<Map<String, ?>> dest, List<Map<String, ?>> more, Set<String> seen) {
+		if (more == null) {
+			return;
+		}
+		for (Map<String, ?> r : more) {
+			Object idObj = r.get("monster_id");
+			if (idObj == null) {
+				continue;
+			}
+			String sid = idObj.toString().trim();
+			if (sid.isEmpty() || seen.contains(sid)) {
+				continue;
+			}
+			seen.add(sid);
+			dest.add(r);
+		}
 	}
 }

@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 
 import com.smw.monster.dto.SwarfarmSkillEffectResponse;
 import com.smw.monster.mapper.SwarfarmSkillEffectMapper;
+import com.sysconf.util.S3Service;
 
 import io.micrometer.core.instrument.Timer;
 import lombok.extern.slf4j.Slf4j;
@@ -131,24 +132,29 @@ public class SwarfarmSkillEffectServiceImpl implements SwarfarmSkillEffectServic
                     // 이펙트 데이터 변환
                     Map<String, Object> effectData = convertToMap(effect);
                     
-                    // 이미지 다운로드 (icon_filename이 있는 경우만)
+                    // 이미지 다운로드 (icon_filename이 있는 경우만) — 실패 시 remark 기록 후 저장 계속
                     if (effect.getIconFilename() != null && !effect.getIconFilename().isEmpty()) {
                         try {
                             String imagePath = downloadSkillEffectImage(effect.getIconFilename());
                             effectData.put("icon_path", imagePath);
+                            effectData.put("remark", null);
                         } catch (Exception e) {
-                            log.warn("이미지 다운로드 실패: {}", effect.getIconFilename(), e);
+                            log.warn("스킬 이펙트 아이콘 다운로드 실패 (저장은 계속): effect_id={}, file={}",
+                                    effect.getId(), effect.getIconFilename(), e);
+                            effectData.put("icon_path", null);
+                            effectData.put("remark", buildIconDownloadFailureRemark(effect.getIconFilename(), e));
                         }
+                    } else {
+                        effectData.put("icon_path", null);
+                        effectData.put("remark", null);
                     }
                     
-                    // DB 저장
-                    if (saveSkillEffect(effectData)) {
-                        syncedCount++;
-                        stats.addSaved(1);
-                        existingEffectIds.add(effect.getId());
-                    } else {
-                        stats.addFailed(1);
+                    if (!saveSkillEffect(effectData)) {
+                        throw new IllegalStateException("스킬 이펙트 저장 실패 (DB 반환 false): " + effect.getId());
                     }
+                    syncedCount++;
+                    stats.addSaved(1);
+                    existingEffectIds.add(effect.getId());
                 } catch (Exception e) {
                     stats.addFailed(1);
                     log.error("스킬 이펙트 저장 중 오류 발생: {}", effect.getId(), e);
@@ -168,12 +174,7 @@ public class SwarfarmSkillEffectServiceImpl implements SwarfarmSkillEffectServic
     }
 
     private Set<Integer> loadExistingEffectIds() {
-        try {
-            return new HashSet<>(swarfarmSkillEffectMapper.selectAllEffectIds());
-        } catch (Exception e) {
-            log.warn("기존 스킬 이펙트 ID 조회 실패, 빈 Set 반환", e);
-            return new HashSet<>();
-        }
+        return new HashSet<>(swarfarmSkillEffectMapper.selectAllEffectIds());
     }
 
     private void pauseBetweenRequests() {
@@ -195,12 +196,14 @@ public class SwarfarmSkillEffectServiceImpl implements SwarfarmSkillEffectServic
             if (iconFilename.startsWith("http")) {
                 imageUrl = iconFilename;
             } else {
-                // buff 또는 debuff 폴더 확인
-                String folder = iconFilename.startsWith("buff_") ? "buffs" : 
-                               iconFilename.startsWith("debuff_") ? "debuffs" : "skill-effects";
+                // Swarfarm: buff_·debuff_ 접두 파일 모두 /static/herders/images/buffs/ (debuffs/ 경로 아님)
+                String folder = (iconFilename.startsWith("buff_") || iconFilename.startsWith("debuff_"))
+                        ? "buffs"
+                        : "skill-effects";
                 imageUrl = SWARFARM_IMAGE_BASE_URL + folder + "/" + iconFilename;
             }
-            String cloudFrontUrl = swarfarmApiClient.downloadImageToS3(imageUrl, iconFilename, inferImageContentType(iconFilename));
+            String cloudFrontUrl = swarfarmApiClient.downloadImageToS3(imageUrl, iconFilename,
+                    inferImageContentType(iconFilename), S3Service.SKILL_EFFECTS_FOLDER);
             log.info("스킬 이펙트 이미지 S3 업로드 완료: {} -> {}", iconFilename, cloudFrontUrl);
             return cloudFrontUrl;
         } catch (Exception e) {
@@ -254,11 +257,45 @@ public class SwarfarmSkillEffectServiceImpl implements SwarfarmSkillEffectServic
     private SwarfarmSkillEffectResponse fetchSkillEffectData(String apiUrl) {
         try {
             log.debug("API 호출: {}", apiUrl);
-            return swarfarmApiClient.fetchJson(apiUrl, SwarfarmSkillEffectResponse.class);
+            SwarfarmSkillEffectResponse res = swarfarmApiClient.fetchJson(apiUrl, SwarfarmSkillEffectResponse.class);
+            if (res == null) {
+                throw new IllegalStateException("API 응답이 null입니다: " + apiUrl);
+            }
+            return res;
+        } catch (RuntimeException e) {
+            throw e;
         } catch (Exception e) {
             log.error("API 호출 중 오류 발생: {}", apiUrl, e);
+            throw new RuntimeException("Swarfarm 스킬 이펙트 API 호출 실패: " + apiUrl, e);
+        }
+    }
+
+    private static final int REMARK_MAX_LEN = 1000;
+
+    private static String truncateRemark(String s) {
+        if (s == null) {
             return null;
         }
+        if (s.length() <= REMARK_MAX_LEN) {
+            return s;
+        }
+        return s.substring(0, REMARK_MAX_LEN - 1) + "…";
+    }
+
+    /** DB remark 컬럼(varchar 1000) 용 — 스킬 마스터와 동일 규칙 */
+    private static String buildIconDownloadFailureRemark(String iconFilename, Throwable e) {
+        String base = "이미지 다운로드 실패: " + iconFilename;
+        if (e != null) {
+            String msg = e.getMessage();
+            if (msg != null && !msg.isBlank()) {
+                String oneLine = msg.replace('\r', ' ').replace('\n', ' ').trim();
+                if (oneLine.length() > 240) {
+                    oneLine = oneLine.substring(0, 240) + "…";
+                }
+                base = base + " (" + oneLine + ")";
+            }
+        }
+        return truncateRemark(base);
     }
 
     private String inferImageContentType(String fileName) {

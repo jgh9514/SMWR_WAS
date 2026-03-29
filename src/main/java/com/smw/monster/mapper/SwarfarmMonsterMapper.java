@@ -33,6 +33,21 @@ public interface SwarfarmMonsterMapper {
      * 몬스터 스킬 삭제 (monster_id로)
      */
     int deleteMonsterSkillsByMonsterId(@Param("monster_id") String monsterId);
+
+    /**
+     * 스킬 ID로 몬스터–스킬 매핑 전부 삭제 (스킬 동기화 시 Swarfarm used_on 재구성용)
+     */
+    int deleteMonsterSkillLinksBySkillId(@Param("skill_id") Integer skillId);
+
+    /**
+     * 스킬 ID 목록에 해당하는 몬스터–스킬 링크 일괄 삭제 (페이지 배치 동기화용)
+     */
+    int deleteMonsterSkillLinksBySkillIds(@Param("skillIds") List<Integer> skillIds);
+
+    /**
+     * Swarfarm ID 목록에 대한 monster_id 일괄 조회 (used_on 캐시용, 키: swarfarm_id, monster_id)
+     */
+    List<Map<String, Object>> selectMonsterIdsBySwarfarmIds(@Param("ids") List<Integer> ids);
     
     /**
      * 몬스터 스킬 저장

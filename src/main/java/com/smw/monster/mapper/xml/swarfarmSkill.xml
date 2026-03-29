@@ -4,7 +4,7 @@
 
     <!-- 스킬 정보 저장 또는 업데이트 -->
     <insert id="upsertSkill" parameterType="sqlMap">
-        INSERT INTO public.skill (
+        INSERT INTO public.skill_master (
             skill_id,
             swarfarm_id,
             com2us_id,
@@ -25,6 +25,7 @@
             level_progress_description,
             other_skill_id,
             swarfarm_url,
+            remark,
             last_sync_date,
             crt_user_id,
             crt_date,
@@ -51,6 +52,7 @@
             #{level_progress_description},
             #{other_skill_id},
             #{swarfarm_url},
+            #{remark},
             CURRENT_TIMESTAMP,
             'SYSTEM',
             CURRENT_TIMESTAMP,
@@ -78,33 +80,133 @@
             level_progress_description = EXCLUDED.level_progress_description,
             other_skill_id = EXCLUDED.other_skill_id,
             swarfarm_url = EXCLUDED.swarfarm_url,
+            remark = EXCLUDED.remark,
             last_sync_date = CURRENT_TIMESTAMP,
             upt_user_id = COALESCE(EXCLUDED.upt_user_id, 'SYSTEM'),
             upt_date = CURRENT_TIMESTAMP
     </insert>
 
+    <!-- 스킬 마스터 다건 upsert (페이지 배치) -->
+    <insert id="upsertSkillsBatch">
+        INSERT INTO public.skill_master (
+            skill_id,
+            swarfarm_id,
+            com2us_id,
+            name,
+            description,
+            slot,
+            cooltime,
+            hits,
+            passive,
+            aoe,
+            random,
+            max_level,
+            multiplier_formula,
+            multiplier_formula_raw,
+            scales_with,
+            icon_filename,
+            icon_path,
+            level_progress_description,
+            other_skill_id,
+            swarfarm_url,
+            remark,
+            last_sync_date,
+            crt_user_id,
+            crt_date,
+            upt_user_id,
+            upt_date
+        ) VALUES
+        <foreach collection="items" item="row" separator=",">
+        (
+            #{row.skill_id},
+            #{row.swarfarm_id},
+            #{row.com2us_id},
+            #{row.name},
+            #{row.description},
+            #{row.slot},
+            #{row.cooltime},
+            COALESCE(#{row.hits}, 1),
+            COALESCE(#{row.passive}, false),
+            COALESCE(#{row.aoe}, false),
+            COALESCE(#{row.random}, false),
+            #{row.max_level},
+            #{row.multiplier_formula},
+            #{row.multiplier_formula_raw},
+            #{row.scales_with},
+            #{row.icon_filename},
+            #{row.icon_path},
+            #{row.level_progress_description},
+            #{row.other_skill_id},
+            #{row.swarfarm_url},
+            #{row.remark},
+            CURRENT_TIMESTAMP,
+            'SYSTEM',
+            CURRENT_TIMESTAMP,
+            'SYSTEM',
+            CURRENT_TIMESTAMP
+        )
+        </foreach>
+        ON CONFLICT (skill_id)
+        DO UPDATE SET
+            swarfarm_id = EXCLUDED.swarfarm_id,
+            com2us_id = EXCLUDED.com2us_id,
+            name = EXCLUDED.name,
+            description = EXCLUDED.description,
+            slot = EXCLUDED.slot,
+            cooltime = EXCLUDED.cooltime,
+            hits = EXCLUDED.hits,
+            passive = EXCLUDED.passive,
+            aoe = EXCLUDED.aoe,
+            random = EXCLUDED.random,
+            max_level = EXCLUDED.max_level,
+            multiplier_formula = EXCLUDED.multiplier_formula,
+            multiplier_formula_raw = EXCLUDED.multiplier_formula_raw,
+            scales_with = EXCLUDED.scales_with,
+            icon_filename = EXCLUDED.icon_filename,
+            icon_path = EXCLUDED.icon_path,
+            level_progress_description = EXCLUDED.level_progress_description,
+            other_skill_id = EXCLUDED.other_skill_id,
+            swarfarm_url = EXCLUDED.swarfarm_url,
+            remark = EXCLUDED.remark,
+            last_sync_date = CURRENT_TIMESTAMP,
+            upt_user_id = COALESCE(EXCLUDED.upt_user_id, 'SYSTEM'),
+            upt_date = CURRENT_TIMESTAMP
+    </insert>
+
+    <delete id="deleteSkillUpgradesBySkillIds">
+        DELETE FROM public.skill_upgrades
+        WHERE skill_id IN
+        <foreach collection="skillIds" item="id" open="(" separator="," close=")">#{id}</foreach>
+    </delete>
+
+    <delete id="deleteSkillEffectsBySkillIds">
+        DELETE FROM public.skill_effects
+        WHERE skill_id IN
+        <foreach collection="skillIds" item="id" open="(" separator="," close=")">#{id}</foreach>
+    </delete>
+
     <!-- Swarfarm ID로 스킬 존재 여부 확인 -->
     <select id="countBySwarfarmId" parameterType="Integer" resultType="Integer">
         SELECT COUNT(*)
-        FROM public.skill
+        FROM public.skill_master
         WHERE swarfarm_id = #{swarfarm_id}
     </select>
 
     <select id="selectAllSwarfarmIds" resultType="Integer">
         SELECT swarfarm_id
-        FROM public.skill
+        FROM public.skill_master
     </select>
     
     <!-- Swarfarm ID로 skill_id 찾기 -->
-    <select id="findSkillIdBySwarfarmId" parameterType="Integer" resultType="String">
+    <select id="findSkillIdBySwarfarmId" parameterType="Integer" resultType="Integer">
         SELECT skill_id
-        FROM public.skill
+        FROM public.skill_master
         WHERE swarfarm_id = #{swarfarm_id}
         LIMIT 1
     </select>
 
     <!-- 스킬 업그레이드 삭제 -->
-    <delete id="deleteSkillUpgrades" parameterType="String">
+    <delete id="deleteSkillUpgrades" parameterType="Integer">
         DELETE FROM public.skill_upgrades
         WHERE skill_id = #{skill_id}
     </delete>
@@ -148,7 +250,7 @@
     </insert>
 
     <!-- 스킬 효과 삭제 -->
-    <delete id="deleteSkillEffects" parameterType="String">
+    <delete id="deleteSkillEffects" parameterType="Integer">
         DELETE FROM public.skill_effects
         WHERE skill_id = #{skill_id}
     </delete>
@@ -170,7 +272,7 @@
             on_death,
             random,
             quantity,
-            all,
+            "all",
             self_hp,
             target_hp,
             damage,
@@ -219,7 +321,7 @@
             on_death,
             random,
             quantity,
-            all,
+            "all",
             self_hp,
             target_hp,
             damage,
@@ -253,42 +355,6 @@
             )
         </foreach>
         ON CONFLICT (skill_id, effect_id, effect_order) DO NOTHING
-    </insert>
-
-    <!-- 스킬 사용 몬스터 매핑 삭제 -->
-    <delete id="deleteSkillUsedOn" parameterType="String">
-        DELETE FROM public.skill_used_on
-        WHERE skill_id = #{skill_id}
-    </delete>
-
-    <!-- 스킬 사용 몬스터 매핑 저장 -->
-    <insert id="insertSkillUsedOn" parameterType="sqlMap">
-        INSERT INTO public.skill_used_on (
-            skill_id,
-            monster_swarfarm_id,
-            crt_date
-        ) VALUES (
-            #{skill_id},
-            #{monster_swarfarm_id},
-            CURRENT_TIMESTAMP
-        )
-        ON CONFLICT (skill_id, monster_swarfarm_id) DO NOTHING
-    </insert>
-
-    <insert id="insertSkillUsedOnBatch">
-        INSERT INTO public.skill_used_on (
-            skill_id,
-            monster_swarfarm_id,
-            crt_date
-        ) VALUES
-        <foreach collection="items" item="item" separator=",">
-            (
-                #{item.skill_id},
-                #{item.monster_swarfarm_id},
-                CURRENT_TIMESTAMP
-            )
-        </foreach>
-        ON CONFLICT (skill_id, monster_swarfarm_id) DO NOTHING
     </insert>
 
 </mapper>

@@ -35,8 +35,9 @@ out/
 .DS_Store
 Thumbs.db
 
-# Spring Boot
+# Spring Boot — 로컬 전용 키 (application-local.example.yml 만 커밋)
 src/main/resources/application-local.yml
+src/main/resources/application-local.properties
 
 # Kubernetes Secrets (민감한 정보 포함)
 k8s/secret.yaml
@@ -50,3 +51,4 @@ k8s/*-secret.yaml
 *.log
 *.sql
 /log/test.log
+not_ddl.sql

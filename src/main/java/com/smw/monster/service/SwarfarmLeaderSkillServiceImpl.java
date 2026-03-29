@@ -132,17 +132,16 @@ public class SwarfarmLeaderSkillServiceImpl implements SwarfarmLeaderSkillServic
                     // 리더 스킬 데이터 변환
                     Map<String, Object> leaderSkillData = convertToMap(leaderSkill);
                     
-                    // DB 저장
-                    if (saveLeaderSkill(leaderSkillData)) {
-                        syncedCount++;
-                        stats.addSaved(1);
-                        existingLeaderSkillIds.add(leaderSkill.getId());
-                    } else {
-                        stats.addFailed(1);
+                    if (!saveLeaderSkill(leaderSkillData)) {
+                        throw new IllegalStateException("리더 스킬 저장 실패 (DB 반환 false): " + leaderSkill.getId());
                     }
+                    syncedCount++;
+                    stats.addSaved(1);
+                    existingLeaderSkillIds.add(leaderSkill.getId());
                 } catch (Exception e) {
                     stats.addFailed(1);
                     log.error("리더 스킬 저장 중 오류 발생: {}", leaderSkill.getId(), e);
+                    throw new RuntimeException("리더 스킬 저장 실패: " + leaderSkill.getId(), e);
                 }
             }
             
@@ -158,12 +157,7 @@ public class SwarfarmLeaderSkillServiceImpl implements SwarfarmLeaderSkillServic
     }
 
     private Set<Integer> loadExistingLeaderSkillIds() {
-        try {
-            return new HashSet<>(swarfarmLeaderSkillMapper.selectAllLeaderSkillIds());
-        } catch (Exception e) {
-            log.warn("기존 리더 스킬 ID 조회 실패, 빈 Set 반환", e);
-            return new HashSet<>();
-        }
+        return new HashSet<>(swarfarmLeaderSkillMapper.selectAllLeaderSkillIds());
     }
 
     private void pauseBetweenRequests() {
@@ -222,10 +216,16 @@ public class SwarfarmLeaderSkillServiceImpl implements SwarfarmLeaderSkillServic
     private SwarfarmLeaderSkillResponse fetchLeaderSkillData(String apiUrl) {
         try {
             log.debug("API 호출: {}", apiUrl);
-            return swarfarmApiClient.fetchJson(apiUrl, SwarfarmLeaderSkillResponse.class);
+            SwarfarmLeaderSkillResponse res = swarfarmApiClient.fetchJson(apiUrl, SwarfarmLeaderSkillResponse.class);
+            if (res == null) {
+                throw new IllegalStateException("API 응답이 null입니다: " + apiUrl);
+            }
+            return res;
+        } catch (RuntimeException e) {
+            throw e;
         } catch (Exception e) {
             log.error("API 호출 중 오류 발생: {}", apiUrl, e);
-            return null;
+            throw new RuntimeException("Swarfarm 리더 스킬 API 호출 실패: " + apiUrl, e);
         }
     }
     

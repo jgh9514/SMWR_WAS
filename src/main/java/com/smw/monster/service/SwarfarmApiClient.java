@@ -60,6 +60,13 @@ public class SwarfarmApiClient {
     }
 
     public String downloadImageToS3(String imageUrl, String fileName, String fallbackContentType) {
+        return downloadImageToS3(imageUrl, fileName, fallbackContentType, null);
+    }
+
+    /**
+     * @param s3Folder S3 객체 키 접두어 (예: {@code skills}, {@code monster}). null이면 몬스터와 동일 기본값(monster)
+     */
+    public String downloadImageToS3(String imageUrl, String fileName, String fallbackContentType, String s3Folder) {
         return executeWithRetry("image", imageUrl, () -> restTemplate.execute(
                 imageUrl,
                 HttpMethod.GET,
@@ -68,11 +75,12 @@ public class SwarfarmApiClient {
                     headers.set(HttpHeaders.USER_AGENT, DEFAULT_USER_AGENT);
                     headers.set(HttpHeaders.ACCEPT, "image/*");
                 },
-                response -> uploadResponseBody(response, fileName, fallbackContentType)
+                response -> uploadResponseBody(response, fileName, fallbackContentType, s3Folder)
         ));
     }
 
-    private String uploadResponseBody(ClientHttpResponse response, String fileName, String fallbackContentType)
+    private String uploadResponseBody(ClientHttpResponse response, String fileName, String fallbackContentType,
+            String s3Folder)
             throws IOException {
         if (!response.getStatusCode().is2xxSuccessful()) {
             throw new IllegalStateException("HTTP 응답 코드: " + response.getStatusCode().value());
@@ -86,7 +94,7 @@ public class SwarfarmApiClient {
         MediaType mediaType = response.getHeaders().getContentType();
         String contentType = mediaType != null ? mediaType.toString() : fallbackContentType;
 
-        return s3Service.uploadImage(body, fileName, contentType);
+        return s3Service.uploadImage(body, fileName, contentType, s3Folder);
     }
 
     private <T> T executeWithRetry(String operation, String target, CheckedSupplier<T> supplier) {

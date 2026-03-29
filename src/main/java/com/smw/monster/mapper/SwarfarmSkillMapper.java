@@ -13,6 +13,21 @@ public interface SwarfarmSkillMapper {
      * 스킬 정보 저장 또는 업데이트
      */
     int upsertSkill(Map<String, Object> param);
+
+    /**
+     * 스킬 마스터 다건 upsert (페이지 단위 배치)
+     */
+    int upsertSkillsBatch(@Param("items") List<Map<String, Object>> items);
+
+    /**
+     * 스킬 ID 목록에 해당하는 업그레이드 행 일괄 삭제
+     */
+    int deleteSkillUpgradesBySkillIds(@Param("skillIds") List<Integer> skillIds);
+
+    /**
+     * 스킬 ID 목록에 해당하는 이펙트 행 일괄 삭제
+     */
+    int deleteSkillEffectsBySkillIds(@Param("skillIds") List<Integer> skillIds);
     
     /**
      * Swarfarm ID로 스킬 존재 여부 확인
@@ -27,12 +42,12 @@ public interface SwarfarmSkillMapper {
     /**
      * Swarfarm ID로 skill_id 찾기
      */
-    String findSkillIdBySwarfarmId(@Param("swarfarm_id") Integer swarfarmId);
+    Integer findSkillIdBySwarfarmId(@Param("swarfarm_id") Integer swarfarmId);
     
     /**
-     * 스킬 업그레이드 삭제
+     * 스킬 업그레이드 삭제 (단일 스킬)
      */
-    int deleteSkillUpgrades(@Param("skill_id") String skillId);
+    int deleteSkillUpgrades(@Param("skill_id") Integer skillId);
     
     /**
      * 스킬 업그레이드 저장
@@ -47,7 +62,7 @@ public interface SwarfarmSkillMapper {
     /**
      * 스킬 효과 삭제
      */
-    int deleteSkillEffects(@Param("skill_id") String skillId);
+    int deleteSkillEffects(@Param("skill_id") Integer skillId);
     
     /**
      * 스킬 효과 저장
@@ -58,20 +73,5 @@ public interface SwarfarmSkillMapper {
      * 스킬 효과 일괄 저장
      */
     int insertSkillEffectsBatch(@Param("items") List<Map<String, Object>> items);
-    
-    /**
-     * 스킬 사용 몬스터 매핑 삭제
-     */
-    int deleteSkillUsedOn(@Param("skill_id") String skillId);
-    
-    /**
-     * 스킬 사용 몬스터 매핑 저장
-     */
-    int insertSkillUsedOn(Map<String, Object> param);
-
-    /**
-     * 스킬 사용 몬스터 매핑 일괄 저장
-     */
-    int insertSkillUsedOnBatch(@Param("items") List<Map<String, Object>> items);
 }
 

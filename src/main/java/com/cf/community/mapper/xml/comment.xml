@@ -18,9 +18,9 @@
 			c.mdf_date,
 			c.crt_user_id,
 			c.mdf_user_id
-		FROM COMMENT c
+		FROM board_comment c
 		WHERE c.board_type = #{board_type}
-		  AND c.board_id = #{board_id}
+		  AND c.board_id = cast(#{board_id} as varchar)
 		  AND c.del_yn = 'N'
 		ORDER BY 
 			CASE WHEN c.parent_comment_id IS NULL THEN c.crt_date END ASC,
@@ -43,14 +43,14 @@
 			c.mdf_date,
 			c.crt_user_id,
 			c.mdf_user_id
-		FROM COMMENT c
+		FROM board_comment c
 		WHERE c.comment_id = #{comment_id}
 		  AND c.del_yn = 'N'
 	</select>
 
 	<!-- 댓글 등록 -->
 	<insert id="insertComment">
-		INSERT INTO COMMENT (
+		INSERT INTO board_comment (
 			comment_id,
 			board_type,
 			board_id,
@@ -66,7 +66,7 @@
 		) VALUES (
 			#{comment_id},
 			#{board_type},
-			#{board_id},
+			cast(#{board_id} as varchar),
 			#{parent_comment_id},
 			#{sess_user_id},
 			(SELECT user_nm FROM SYS_USER WHERE user_id = #{sess_user_id}),
@@ -81,7 +81,7 @@
 
 	<!-- 댓글 수정 -->
 	<update id="updateComment">
-		UPDATE COMMENT
+		UPDATE board_comment
 		SET 
 			content = #{content},
 			mdf_date = CURRENT_TIMESTAMP,
@@ -93,7 +93,7 @@
 
 	<!-- 댓글 삭제 -->
 	<update id="deleteComment">
-		UPDATE COMMENT
+		UPDATE board_comment
 		SET 
 			del_yn = #{del_yn},
 			mdf_date = CURRENT_TIMESTAMP,

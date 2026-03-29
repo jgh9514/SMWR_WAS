@@ -195,19 +195,8 @@ public class BatchConfig {
 				jobDataMap.putAll(jobData);
 			}
 
-			// 실행 이력 등록 (트리거 기준)
-			Map<String, Object> runHis = new HashMap<>();
-			runHis.put("bat_id", batId);
-			runHis.put("rslt_cd", "TRIGGERED");
-			runHis.put("rslt_txt", "Manual trigger");
-			
-			try {
-				mapper.insertBatchRunHis(runHis);
-				Long runSn = (Long) runHis.get("run_sn");
-				log.debug("배치 실행 이력 등록 완료. run_sn={}", runSn);
-			} catch (Exception e) {
-				log.warn("배치 실행 이력 등록 실패 (계속 진행): {}", e.getMessage());
-			}
+			// 실행 이력은 BaseBatchJob.execute 에서만 등록한다 (RUNNING → SUCCESS/FAIL).
+			// 여기서 선INSERT 하면 TRIGGERED/Manual trigger 행이 먼저 쌓여 혼란을 준다.
 
 			// 이미 스케줄러에 등록된 경우에는 즉시 트리거만 발행
 			if (scheduler.checkExists(quartzJobKey)) {

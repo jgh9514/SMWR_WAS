@@ -1,6 +1,8 @@
 package com.smw.monster.dto;
 
 import java.util.List;
+
+import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
@@ -19,7 +21,16 @@ public class SwarfarmSkillResponse {
     @Data
     @JsonIgnoreProperties(ignoreUnknown = true)
     public static class SkillData {
+        /** 목록 API는 {@code id} (예: 2654). 구형/일부 응답은 {@code pk} */
+        @JsonProperty("id")
+        @JsonAlias("pk")
         private Integer id;
+        /**
+         * 스킬 리소스 URL. JSON에 있으면 그대로 DB {@code swarfarm_url}에 넣는다.
+         * 목록 응답에는 종종 생략됨 → 서비스에서 {@code /api/v2/skills/{id}/} 로 보정.
+         * ({@code effects[].effect.url} 은 이펙트 URL이므로 스킬과 별개)
+         */
+        @JsonProperty("url")
         private String url;
         
         @JsonProperty("com2us_id")

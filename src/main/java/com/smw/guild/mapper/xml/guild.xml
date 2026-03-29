@@ -452,6 +452,9 @@
 		  left outer join SYS_USER tu on ugh.user_id = tu.user_id
 		 where ugh.guild_id = #{guild_id}
 		   and ugh.leave_date is null
+		<if test='role != null and role != ""'>
+		   and ugh.role = #{role}
+		</if>
 		 order by 
 		   case ugh.role
 		     when 'LEADER' then 1

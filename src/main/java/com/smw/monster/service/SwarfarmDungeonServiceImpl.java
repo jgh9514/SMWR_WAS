@@ -143,18 +143,14 @@ public class SwarfarmDungeonServiceImpl implements SwarfarmDungeonService {
                         }
                     }
                     
-                    // DB 저장
-                    if (saveDungeon(dungeonData)) {
-                        syncedCount++;
-                        stats.addSaved(1);
-                        existingDungeonIds.add(dungeon.getId());
-                        
-                        // Levels 저장
-                        if (dungeon.getLevels() != null && !dungeon.getLevels().isEmpty()) {
-                            saveDungeonLevels(dungeon.getId(), dungeon.getLevels());
-                        }
-                    } else {
-                        stats.addFailed(1);
+                    if (!saveDungeon(dungeonData)) {
+                        throw new IllegalStateException("던전 저장 실패 (DB 반환 false): " + dungeon.getId());
+                    }
+                    syncedCount++;
+                    stats.addSaved(1);
+                    existingDungeonIds.add(dungeon.getId());
+                    if (dungeon.getLevels() != null && !dungeon.getLevels().isEmpty()) {
+                        saveDungeonLevels(dungeon.getId(), dungeon.getLevels());
                     }
                 } catch (Exception e) {
                     stats.addFailed(1);
@@ -175,12 +171,7 @@ public class SwarfarmDungeonServiceImpl implements SwarfarmDungeonService {
     }
 
     private Set<Integer> loadExistingDungeonIds() {
-        try {
-            return new HashSet<>(swarfarmDungeonMapper.selectAllDungeonIds());
-        } catch (Exception e) {
-            log.warn("기존 던전 ID 조회 실패, 빈 Set 반환", e);
-            return new HashSet<>();
-        }
+        return new HashSet<>(swarfarmDungeonMapper.selectAllDungeonIds());
     }
 
     private void pauseBetweenRequests() {
@@ -252,10 +243,16 @@ public class SwarfarmDungeonServiceImpl implements SwarfarmDungeonService {
     private SwarfarmDungeonResponse fetchDungeonData(String apiUrl) {
         try {
             log.debug("API 호출: {}", apiUrl);
-            return swarfarmApiClient.fetchJson(apiUrl, SwarfarmDungeonResponse.class);
+            SwarfarmDungeonResponse res = swarfarmApiClient.fetchJson(apiUrl, SwarfarmDungeonResponse.class);
+            if (res == null) {
+                throw new IllegalStateException("API 응답이 null입니다: " + apiUrl);
+            }
+            return res;
+        } catch (RuntimeException e) {
+            throw e;
         } catch (Exception e) {
             log.error("API 호출 중 오류 발생: {}", apiUrl, e);
-            return null;
+            throw new RuntimeException("Swarfarm 던전 API 호출 실패: " + apiUrl, e);
         }
     }
 

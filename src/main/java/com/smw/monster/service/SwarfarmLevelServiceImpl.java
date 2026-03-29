@@ -134,22 +134,19 @@ public class SwarfarmLevelServiceImpl implements SwarfarmLevelService {
                     // 레벨 데이터 변환
                     Map<String, Object> levelData = convertToMap(level);
                     
-                    // DB 저장
-                    if (saveLevel(levelData)) {
-                        syncedCount++;
-                        stats.addSaved(1);
-                        existingLevelIds.add(level.getId());
-                        
-                        // Waves 저장
-                        if (level.getWaves() != null && !level.getWaves().isEmpty()) {
-                            saveLevelWaves(level.getId(), level.getWaves());
-                        }
-                    } else {
-                        stats.addFailed(1);
+                    if (!saveLevel(levelData)) {
+                        throw new IllegalStateException("레벨 저장 실패 (DB 반환 false): " + level.getId());
+                    }
+                    syncedCount++;
+                    stats.addSaved(1);
+                    existingLevelIds.add(level.getId());
+                    if (level.getWaves() != null && !level.getWaves().isEmpty()) {
+                        saveLevelWaves(level.getId(), level.getWaves());
                     }
                 } catch (Exception e) {
                     stats.addFailed(1);
                     log.error("레벨 저장 중 오류 발생: {}", level.getId(), e);
+                    throw new RuntimeException("레벨 저장 실패: " + level.getId(), e);
                 }
             }
             
@@ -165,12 +162,7 @@ public class SwarfarmLevelServiceImpl implements SwarfarmLevelService {
     }
 
     private Set<Integer> loadExistingLevelIds() {
-        try {
-            return new HashSet<>(swarfarmLevelMapper.selectAllLevelIds());
-        } catch (Exception e) {
-            log.warn("기존 레벨 ID 조회 실패, 빈 Set 반환", e);
-            return new HashSet<>();
-        }
+        return new HashSet<>(swarfarmLevelMapper.selectAllLevelIds());
     }
 
     private void pauseBetweenRequests() {
@@ -229,10 +221,16 @@ public class SwarfarmLevelServiceImpl implements SwarfarmLevelService {
     private SwarfarmLevelResponse fetchLevelData(String apiUrl) {
         try {
             log.debug("API 호출: {}", apiUrl);
-            return swarfarmApiClient.fetchJson(apiUrl, SwarfarmLevelResponse.class);
+            SwarfarmLevelResponse res = swarfarmApiClient.fetchJson(apiUrl, SwarfarmLevelResponse.class);
+            if (res == null) {
+                throw new IllegalStateException("API 응답이 null입니다: " + apiUrl);
+            }
+            return res;
+        } catch (RuntimeException e) {
+            throw e;
         } catch (Exception e) {
             log.error("API 호출 중 오류 발생: {}", apiUrl, e);
-            return null;
+            throw new RuntimeException("Swarfarm 레벨 API 호출 실패: " + apiUrl, e);
         }
     }
     
@@ -307,6 +305,7 @@ public class SwarfarmLevelServiceImpl implements SwarfarmLevelService {
             }
         } catch (Exception e) {
             log.error("레벨 웨이브 저장 중 오류 발생", e);
+            throw new RuntimeException("레벨 웨이브 저장 실패: levelId=" + levelId, e);
         }
     }
 }

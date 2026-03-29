@@ -20,6 +20,11 @@ public interface summonerswarMapper {
 	public int insertFriendlyteamTeamSave(Map<String, Object> param);
 
 	/**
+	 * 전투 집계에 없는 방덱을 목록에 보이도록 등록(추천 공덱 저장 시)
+	 */
+	public int upsertSiegeDefenseDeckManual(Map<String, Object> param);
+
+	/**
 	 * 공덱 수정일 갱신
 	 */
 	public int touchRecommendedAttackDeck(Map<String, Object> param);
@@ -94,4 +99,28 @@ public interface summonerswarMapper {
 	 * 몬스터 스킬 목록 조회
 	 */
 	public List<Map<String, ?>> selectMonsterSkills(@Param("monster_id") String monsterId);
+
+	/**
+	 * 몬스터에 연결된 스킬의 이펙트 행 + 이펙트 마스터 아이콘 경로
+	 */
+	List<Map<String, ?>> selectMonsterSkillEffects(@Param("monster_id") String monsterId);
+
+	/** 상세 전용: 같은 family_id 몬스터 전부 (monster-list 조건과 무관) */
+	List<Map<String, ?>> selectMonstersByFamilyId(@Param("family_id") long familyId);
+
+	/** family_id 없을 때 같은 영문명(un_name) 패밀리 보완 */
+	List<Map<String, ?>> selectMonstersByUnName(@Param("un_name") String unName);
+
+	/**
+	 * monster_id 앞부분+마지막 속성 자리가 같은 진화 라인 (노말/1각/2각) — family_id 없어도 조회
+	 */
+	List<Map<String, ?>> selectMonstersByEvolutionGroupKey(@Param("evolution_group_key") String evolutionGroupKey);
+
+	/** 같은 스킬 그룹(속성 다른 패밀리) 보완 */
+	List<Map<String, ?>> selectMonstersBySkillGroupId(@Param("skill_group_id") long skillGroupId);
+
+	/**
+	 * 같은 별(star) + 같은 각성 단계(monster_id 끝에서 두 번째 숫자) 몬스터 집단에서 스탯별 MIN/MAX (상세 Max 막대용)
+	 */
+	Map<String, ?> selectMonsterStatCohortBounds(@Param("star") int star, @Param("awaken_digit") int awakenDigit);
 }

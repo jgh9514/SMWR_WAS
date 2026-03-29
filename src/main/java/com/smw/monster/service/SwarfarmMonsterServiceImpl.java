@@ -138,14 +138,8 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
      * 이미 존재하는 Swarfarm ID 목록을 한번에 조회 (성능 최적화)
      */
     private Set<Integer> loadExistingSwarfarmIds() {
-        try {
-            // 모든 swarfarm_id를 한번에 조회
-            List<Integer> existingIds = swarfarmMonsterMapper.selectAllSwarfarmIds();
-            return new HashSet<>(existingIds);
-        } catch (Exception e) {
-            log.warn("기존 몬스터 ID 조회 실패, 빈 Set 반환", e);
-            return new HashSet<>();
-        }
+        List<Integer> existingIds = swarfarmMonsterMapper.selectAllSwarfarmIds();
+        return new HashSet<>(existingIds);
     }
     
     @Override
@@ -244,9 +238,8 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
             monsterData.put("_swarfarm_id", monster.getId());
             return monsterData;
         } catch (Exception e) {
-            addBatchLog("몬스터 데이터 변환/이미지 처리 중 오류로 패스: swarfarm_id=%d, name=%s, 오류=%s",
-                    monster.getId(), monster.getName(), e.getMessage());
-            return null;
+            addBatchLog("몬스터 데이터 변환/이미지 처리 실패: swarfarm_id=%d, name=%s", monster.getId(), monster.getName());
+            throw new RuntimeException("몬스터 데이터 준비 실패: swarfarm_id=" + monster.getId(), e);
         }
     }
     
@@ -257,29 +250,20 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
     private int saveMonstersBatch(List<Map<String, Object>> monsterDataList) {
         int savedCount = 0;
         for (Map<String, Object> monsterData : monsterDataList) {
-            try {
-                String monsterId = saveMonsterInternal(monsterData);
-                if (monsterId != null) {
-                    savedCount++;
-                    
-                    // Skills 저장
-                    @SuppressWarnings("unchecked")
-                    List<Integer> skills = (List<Integer>) monsterData.get("_skills");
-                    if (skills != null && !skills.isEmpty()) {
-                        saveMonsterSkills(monsterId, skills);
-                    }
-                    
-                    // Sources 저장
-                    @SuppressWarnings("unchecked")
-                    List<SwarfarmMonsterResponse.SourceData> sources = 
-                            (List<SwarfarmMonsterResponse.SourceData>) monsterData.get("_sources");
-                    if (sources != null && !sources.isEmpty()) {
-                        saveMonsterSources(monsterId, sources);
-                    }
-                }
-            } catch (Exception e) {
-                log.error("몬스터 배치 저장 중 오류 발생", e);
-                throw new RuntimeException("몬스터 배치 저장 실패", e);
+            String monsterId = saveMonsterInternal(monsterData);
+            savedCount++;
+
+            @SuppressWarnings("unchecked")
+            List<Integer> skills = (List<Integer>) monsterData.get("_skills");
+            if (skills != null && !skills.isEmpty()) {
+                saveMonsterSkills(monsterId, skills);
+            }
+
+            @SuppressWarnings("unchecked")
+            List<SwarfarmMonsterResponse.SourceData> sources =
+                    (List<SwarfarmMonsterResponse.SourceData>) monsterData.get("_sources");
+            if (sources != null && !sources.isEmpty()) {
+                saveMonsterSources(monsterId, sources);
             }
         }
         return savedCount;
@@ -305,13 +289,10 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
 
     private String saveMonsterInternal(Map<String, Object> monsterData) {
         try {
-            // monster_id 생성 (com2us_id를 문자열로 변환)
             Integer com2usId = (Integer) monsterData.get("com2us_id");
             if (com2usId == null) {
-                log.warn("com2us_id가 없어서 저장할 수 없습니다.");
-                return null;
+                throw new IllegalStateException("com2us_id가 없어서 저장할 수 없습니다.");
             }
-            
             String monsterId = String.valueOf(com2usId);
             monsterData.put("monster_id", monsterId);
             
@@ -332,13 +313,16 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
                 }
             }
             
-            // 기존 데이터 업데이트 또는 신규 삽입
             int result = swarfarmMonsterMapper.upsertMonster(monsterData);
-            
-            return result > 0 ? monsterId : null;
+            if (result <= 0) {
+                throw new IllegalStateException("몬스터 upsert 결과가 0입니다. monster_id=" + monsterId);
+            }
+            return monsterId;
+        } catch (RuntimeException e) {
+            throw e;
         } catch (Exception e) {
             log.error("몬스터 저장 중 오류 발생", e);
-            return null;
+            throw new RuntimeException("몬스터 저장 실패", e);
         }
     }
     
@@ -363,10 +347,16 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
     private SwarfarmMonsterResponse fetchMonsterData(String apiUrl) {
         try {
             log.debug("API 호출: {}", apiUrl);
-            return swarfarmApiClient.fetchJson(apiUrl, SwarfarmMonsterResponse.class);
+            SwarfarmMonsterResponse res = swarfarmApiClient.fetchJson(apiUrl, SwarfarmMonsterResponse.class);
+            if (res == null) {
+                throw new IllegalStateException("API 응답이 null입니다: " + apiUrl);
+            }
+            return res;
+        } catch (RuntimeException e) {
+            throw e;
         } catch (Exception e) {
             log.error("API 호출 중 오류 발생: {}", apiUrl, e);
-            return null;
+            throw new RuntimeException("Swarfarm 몬스터 API 호출 실패: " + apiUrl, e);
         }
     }
 

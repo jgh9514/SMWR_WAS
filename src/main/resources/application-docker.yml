@@ -164,9 +164,8 @@ smw:
       # 조회 쿼리 결과(total row count) 로그는 기본 비활성화
       result-total: ${SMW_MYBATIS_RESULT_TOTAL:false}
 
-# AWS S3 설정
-# IAM 역할을 사용하므로 Access Key와 Secret Key를 설정하지 않습니다.
-# AWS SDK가 자동으로 EC2 인스턴스에 부여된 IAM 역할을 감지합니다.
+# AWS S3: smw.aws.* 는 application.yml 에서 ${AWS_ACCESS_KEY_ID} 등으로 주입
+# K8s에서는 Deployment가 시크릿 s3-credentials 를 환경변수로 마운트함
 cloud:
   aws:
     s3:

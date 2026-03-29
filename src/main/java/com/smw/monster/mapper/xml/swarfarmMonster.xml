@@ -178,13 +178,31 @@
 
     <!-- 몬스터 스킬 삭제 (monster_id로) -->
     <delete id="deleteMonsterSkillsByMonsterId" parameterType="String">
-        DELETE FROM public.monster_skills
+        DELETE FROM public.monster_skill_link
         WHERE monster_id = #{monster_id}
     </delete>
 
+    <delete id="deleteMonsterSkillLinksBySkillId" parameterType="Integer">
+        DELETE FROM public.monster_skill_link
+        WHERE skill_id = #{skill_id}
+    </delete>
+
+    <delete id="deleteMonsterSkillLinksBySkillIds">
+        DELETE FROM public.monster_skill_link
+        WHERE skill_id IN
+        <foreach collection="skillIds" item="id" open="(" separator="," close=")">#{id}</foreach>
+    </delete>
+
+    <select id="selectMonsterIdsBySwarfarmIds" resultType="map">
+        SELECT swarfarm_id AS "swarfarm_id", monster_id AS "monster_id"
+        FROM public.monster
+        WHERE swarfarm_id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+    </select>
+
     <!-- 몬스터 스킬 저장 -->
     <insert id="insertMonsterSkill" parameterType="sqlMap">
-        INSERT INTO public.monster_skills (
+        INSERT INTO public.monster_skill_link (
             monster_id,
             skill_id,
             skill_order,
@@ -199,7 +217,7 @@
     </insert>
 
     <insert id="insertMonsterSkillsBatch">
-        INSERT INTO public.monster_skills (
+        INSERT INTO public.monster_skill_link (
             monster_id,
             skill_id,
             skill_order,

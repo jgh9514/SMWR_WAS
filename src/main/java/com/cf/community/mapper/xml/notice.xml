@@ -54,7 +54,7 @@
 			  ,tu.user_nm as user_name
 		  from NOTICE n
 		  left outer join SYS_USER tu on n.crt_user_id = tu.user_id
-		 where n.notice_id = #{notice_id}
+		 where n.notice_id = cast(#{notice_id} as bigint)
 		   and n.del_yn = 'N'
 	</select>
 	
@@ -99,7 +99,7 @@
 			,is_popup = COALESCE(#{is_popup}, false)
 			,upt_user_id = #{sess_user_id}
 			,upt_date = CURRENT_TIMESTAMP
-		where notice_id = #{notice_id}
+		where notice_id = cast(#{notice_id} as bigint)
 		  and del_yn = 'N'
 	</update>
 	
@@ -110,7 +110,7 @@
 			del_yn = 'Y'
 			,upt_user_id = #{sess_user_id}
 			,upt_date = CURRENT_TIMESTAMP
-		where notice_id = #{notice_id}
+		where notice_id = cast(#{notice_id} as bigint)
 		  and del_yn = 'N'
 	</update>
 	
@@ -120,7 +120,7 @@
 		update NOTICE set
 			view_count = view_count + 1
 			,upt_date = CURRENT_TIMESTAMP
-		where notice_id = #{notice_id}
+		where notice_id = cast(#{notice_id} as bigint)
 		  and del_yn = 'N'
 	</update>
 	
@@ -150,7 +150,7 @@
 		/* selectPopupNoticeViewCount */
 		select count(1)
 		  from NOTICE_VIEW nv
-		 where nv.notice_id = #{notice_id}
+		 where nv.notice_id = cast(#{notice_id} as bigint)
 		   and nv.user_id = #{sess_user_id}
 		   and nv.del_yn = 'N'
 	</select>
@@ -167,7 +167,7 @@
 			,upt_user_id
 			,upt_date
 		) values(
-			#{notice_id}
+			cast(#{notice_id} as bigint)
 			,#{sess_user_id}
 			,'N'
 			,#{sess_user_id}

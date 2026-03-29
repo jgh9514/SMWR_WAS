@@ -14,6 +14,11 @@ public interface summonerswarService {
 	public int insertEnemyTeamSave(Map<String, Object> param);
 		
 	public int insertFriendlyteamTeamSave(Map<String, Object> param);
+
+	/**
+	 * 전투 집계에 없는 방덱을 siege_defense_deck_manual에 등록해 목록에 노출합니다.
+	 */
+	public int upsertSiegeDefenseDeckManual(Map<String, Object> param);
 	
 	public Map<String, ?> selectMonsterDetailList(Map<String, Object> param);
 	

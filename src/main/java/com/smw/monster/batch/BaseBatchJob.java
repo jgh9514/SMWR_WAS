@@ -13,6 +13,7 @@ import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.support.DefaultTransactionDefinition;
 
 import com.admin.batch.mapper.BatchMapper;
+import com.admin.batch.sse.BatchLogBroadcaster;
 import com.smw.monster.service.SwarfarmSyncService;
 
 import io.micrometer.core.instrument.Counter;
@@ -36,13 +37,20 @@ public abstract class BaseBatchJob implements Job {
     protected PlatformTransactionManager transactionManager;
     protected TransactionStatus transactionStatus;
     protected MeterRegistry meterRegistry;
+
+    /** 수동 실행 시 SSE로 실시간 로그를 보낼 때 사용하는 스트림 ID (없으면 null) */
+    private String streamId;
+    private BatchLogBroadcaster logBroadcaster;
     
     @Override
     public void execute(JobExecutionContext context) throws JobExecutionException {
         long startTime = System.currentTimeMillis();
         logContent.setLength(0); // 로그 초기화
+        streamId = null;
+        logBroadcaster = null;
         TransactionStatus txStatus = null;
         Timer.Sample batchTimerSample = null;
+        boolean completedOk = false;
         
         try {
             // ApplicationContext 가져오기
@@ -53,6 +61,15 @@ public abstract class BaseBatchJob implements Job {
             
             if (applicationContext == null) {
                 throw new JobExecutionException("ApplicationContext를 찾을 수 없습니다.");
+            }
+
+            streamId = resolveStreamId(context);
+            if (streamId != null && !streamId.isEmpty()) {
+                try {
+                    logBroadcaster = applicationContext.getBean(BatchLogBroadcaster.class);
+                } catch (Exception e) {
+                    log.debug("BatchLogBroadcaster 사용 불가", e);
+                }
             }
 
             meterRegistry = applicationContext.getBeanProvider(MeterRegistry.class).getIfAvailable();
@@ -118,13 +135,14 @@ public abstract class BaseBatchJob implements Job {
             
             updateBatchRunHis("SUCCESS", getLogContent());
             recordBatchMetrics("SUCCESS", batchTimerSample);
+            completedOk = true;
             
         } catch (Exception e) {
-            // 트랜잭션 롤백
+            // 트랜잭션 롤백 (배치 로직 중 오류 시 즉시 중단, 이후 커밋 없음)
             if (txStatus != null && !txStatus.isCompleted()) {
                 try {
                     transactionManager.rollback(txStatus);
-                    addLog("트랜잭션 롤백 완료");
+                    addLog("트랜잭션 롤백 완료 (오류로 배치 처리 중단)");
                 } catch (Exception rollbackEx) {
                     log.error("트랜잭션 롤백 중 오류 발생", rollbackEx);
                 }
@@ -151,7 +169,36 @@ public abstract class BaseBatchJob implements Job {
             
             log.error("배치 실행 중 오류 발생", e);
             throw new JobExecutionException("배치 실행 실패: " + e.getMessage(), e);
+        } finally {
+            completeLogStream(completedOk);
         }
+    }
+
+    private String resolveStreamId(JobExecutionContext context) {
+        Object v = context.getMergedJobDataMap().get("stream_id");
+        if (v == null) {
+            return null;
+        }
+        String s = String.valueOf(v).trim();
+        return s.isEmpty() ? null : s;
+    }
+
+    private void completeLogStream(boolean success) {
+        if (streamId == null || logBroadcaster == null) {
+            return;
+        }
+        try {
+            logBroadcaster.complete(streamId, success ? "SUCCESS" : "FAIL");
+        } catch (Exception e) {
+            log.debug("SSE 완료 처리 실패", e);
+        }
+    }
+
+    private void pushStreamLine(String line) {
+        if (streamId == null || logBroadcaster == null) {
+            return;
+        }
+        logBroadcaster.sendLog(streamId, line);
     }
     
     /**
@@ -204,6 +251,7 @@ public abstract class BaseBatchJob implements Job {
             java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
         logContent.append("[").append(timestamp).append("] ").append(logMessage).append("\n");
         log.info(logMessage);
+        pushStreamLine("[" + timestamp + "] " + logMessage);
     }
     
     /**
@@ -220,7 +268,9 @@ public abstract class BaseBatchJob implements Job {
         service.setLogCallback((msg) -> {
             String timestamp = java.time.LocalDateTime.now().format(
                     java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
-            logContent.append("[").append(timestamp).append("] ").append(msg).append("\n");
+            String line = "[" + timestamp + "] " + msg;
+            logContent.append(line).append("\n");
+            pushStreamLine(line);
         });
     }
     

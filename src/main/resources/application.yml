@@ -127,6 +127,16 @@ management:
 smw:
   globalDblinkNm: SMW_DBLINK
   cookie-live-time: 600
+  # S3: smw.aws.* → S3Service 정적 키 사용
+  # - 로컬: src/main/resources/application-local.yml (Git 제외, application-local.example.yml 참고)
+  # - K8s(docker): Deployment에서 s3-credentials 시크릿 → AWS_* 환경변수로 주입
+  aws:
+    access-key-id: ${AWS_ACCESS_KEY_ID:}
+    secret-access-key: ${AWS_SECRET_ACCESS_KEY:}
+    region: ${AWS_REGION:ap-southeast-2}
+  # S3 업로드 후 공개 URL(CloudFront) 접두 — API 응답의 상대 icon_path 등을 절대 URL로 붙일 때 사용
+  cdn:
+    public-base-url: ${SMW_CDN_PUBLIC_BASE_URL:https://dyjduzi8vf2k4.cloudfront.net}
   security:
     jwt-signing-secret: ${SMW_JWT_SIGNING_SECRET}
     jwt-encryption-key: ${SMW_JWT_ENCRYPTION_KEY}
@@ -140,6 +150,10 @@ smw:
   swarfarm:
     image-download-concurrency: ${SMW_SWARFARM_IMAGE_DOWNLOAD_CONCURRENCY:4}
     request-delay-ms: ${SMW_SWARFARM_REQUEST_DELAY_MS:250}
+    # 스킬 동기화: 자식 행 INSERT·버퍼 플러시 시 한 번에 넣는 행 수
+    db-batch-size: ${SMW_SWARFARM_DB_BATCH_SIZE:250}
+    # 스킬 동기화: 이 개수마다 DB 커밋 (트랜잭션 분리, 타임아웃·롤백 범위 축소)
+    commit-chunk-size: ${SMW_SWARFARM_COMMIT_CHUNK_SIZE:100}
     http:
       max-attempts: ${SMW_SWARFARM_HTTP_MAX_ATTEMPTS:3}
       retry-backoff-ms: ${SMW_SWARFARM_HTTP_RETRY_BACKOFF_MS:400}

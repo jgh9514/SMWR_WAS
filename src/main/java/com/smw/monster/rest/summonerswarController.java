@@ -170,6 +170,29 @@ public class summonerswarController {
     	String result = n > -1 ? "SUCCESS" : "FAIL";
         return new ResponseEntity<>(result, HttpStatus.OK);
     }
+
+    @Operation(summary = "방덱 수동 등록", description = "전투 로그 집계에 없어도 방덱을 시즌에 등록해 enemyTeam 목록에 표시합니다. (siege_defense_deck_manual)")
+    @PostMapping("/siege-defense-deck-manual")
+    public ResponseEntity<?> upsertSiegeDefenseDeckManual(@RequestBody Map<String, Object> param, HttpSession session, HttpServletRequest request) {
+    	ResponseEntity<?> guard = requireLoginAndGuild(request, param);
+    	if (guard != null) return guard;
+
+    	Object d1 = param != null ? param.get("def_monster_1") : null;
+    	Object d2 = param != null ? param.get("def_monster_2") : null;
+    	Object d3 = param != null ? param.get("def_monster_3") : null;
+    	if (d1 == null || String.valueOf(d1).isBlank()
+    			|| d2 == null || String.valueOf(d2).isBlank()
+    			|| d3 == null || String.valueOf(d3).isBlank()) {
+    		Map<String, Object> error = new HashMap<>();
+    		error.put("result", "FAIL");
+    		error.put("message", "def_monster_1, def_monster_2, def_monster_3는 필수입니다.");
+    		return new ResponseEntity<>(error, HttpStatus.BAD_REQUEST);
+    	}
+
+    	int n = swService.upsertSiegeDefenseDeckManual(param);
+    	String result = n > 0 ? "SUCCESS" : "FAIL";
+    	return new ResponseEntity<>(result, HttpStatus.OK);
+    }
 	
     @Operation(summary = "몬스터 기본 정보 조회", description = "특정 몬스터의 기본 정보(스탯, 스킬, 리더)를 조회합니다.")
     @PostMapping("/monster/info")
