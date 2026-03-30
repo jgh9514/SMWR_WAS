@@ -43,7 +43,7 @@
 /src/main/resources/
 /src/main/resources/application.yml
 /src/main/resources/db/migration/*.sql
-/src/main/resources/log4j2.xml
+/src/main/resources/log4j2-spring.xml
 /src/main/resources/log4jdbc.log4j2.properties
 /src/main/resources/mybatis/*.xml
 /src/main/resources/static/**

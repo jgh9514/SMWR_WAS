@@ -1,10 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!-- Spring Boot: log4j2-spring.xml 우선 로드 (프로필별 Spring 확장 사용 가능) -->
 <Configuration status="WARN">
     <Properties>
         <Property name="LOG_PATTERN">%d{yyyy-MM-dd HH:mm:ss.SSS} [%t] %-5level %logger{36} [%X{traceId}] - %msg%n</Property>
         <Property name="LOG_FILE_PATH">${sys:user.dir}/log/test.log</Property>
-        <!-- SQL 로그 레벨: 기본 DEBUG, 필요 시 -DSQL_LOG_LEVEL=INFO -->
-        <Property name="SQL_LOG_LEVEL">${sys:SQL_LOG_LEVEL:-DEBUG}</Property>
+        <!-- SQL 로그: log4jdbc → SLF4J → Log4j2. 기본은 application.yml jdbc.sqltiming(INFO)과 맞춤. 필요 시 -DSQL_LOG_LEVEL=DEBUG -->
+        <Property name="SQL_LOG_LEVEL">${sys:SQL_LOG_LEVEL:-INFO}</Property>
         <!-- MyBatis 인터셉터 로그 레벨: 기본 WARN, 필요 시 -DMYBATIS_LOG_LEVEL=DEBUG -->
         <Property name="MYBATIS_LOG_LEVEL">${sys:MYBATIS_LOG_LEVEL:-WARN}</Property>
     </Properties>
@@ -102,12 +103,11 @@
             <AppenderRef ref="FileAppender"/>
         </Logger>
         
-        <!-- SQL Loggers - WARN으로 변경하여 불필요한 로그 제거 -->
-        <!-- sqlonly는 sqltiming과 중복되기 쉬워 기본 OFF -->
-        <Logger name="jdbc.sqlonly" level="OFF" additivity="false">
+        <!-- log4jdbc: sqlonly(문장), sqltiming(실행시간) — application.yml 에서 레벨 조정 -->
+        <Logger name="jdbc.sqlonly" level="${SQL_LOG_LEVEL}" additivity="false">
+            <AppenderRef ref="Console"/>
             <AppenderRef ref="SqlAppender"/>
         </Logger>
-        <!-- sqltiming: 실행된 SQL + timing (필요 시 INFO로 올려서 쿼리 확인) -->
         <Logger name="jdbc.sqltiming" level="${SQL_LOG_LEVEL}" additivity="false">
             <AppenderRef ref="Console"/>
             <AppenderRef ref="SqlAppender"/>
@@ -158,4 +158,4 @@
             <AppenderRef ref="FileAppender"/>
         </Logger>
     </Loggers>
-</Configuration> 
+</Configuration>

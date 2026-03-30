@@ -74,6 +74,7 @@ server:
       cookie:
         http-only: true
 
+# log4jdbc(local/dev/docker 프로필) 사용 시 jdbc.* 로거 — log4j2-spring.xml 의 jdbc.sqltiming 과 함께 Spring 이 부트 시 레벨 적용
 logging:
   level:
     org.springframework.boot.autoconfigure: WARN
