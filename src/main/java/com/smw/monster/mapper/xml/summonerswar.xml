@@ -67,12 +67,20 @@
 		     )
 		   )
 		   </if>
+		 <choose>
+		   <!-- 점령전 등: 목록은 monster_id 순이 직관적 -->
+		   <when test="siegeDedupeSecondAwakening != null and (siegeDedupeSecondAwakening == true or siegeDedupeSecondAwakening == 'true')">
+		 ORDER BY m.monster_id ASC
+		   </when>
+		   <otherwise>
 		 ORDER BY
 		   -- Normal 먼저, Awakened 다음 (NULL·빈값은 Normal 취급)
 		   CASE WHEN LOWER(TRIM(COALESCE(m.arousal_type, ''))) = 'awakened' THEN 1 ELSE 0 END ASC,
 		   COALESCE(CAST(m.awaken_level AS INTEGER), 0) ASC,
 		   CAST(m.star AS INTEGER) ASC,
 		   m.monster_id ASC
+		   </otherwise>
+		 </choose>
 	</select>
 	
 	<select id="selectEnemyTeamList" parameterType="sqlMap" resultType="sqlMap">
