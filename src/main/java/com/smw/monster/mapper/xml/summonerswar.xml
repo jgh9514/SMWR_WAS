@@ -32,6 +32,41 @@
 		     AND m.awakens_from_id IS NULL
 		     AND m.awakens_to_id IS NULL
 		   )
+		   <!-- 점령전 등: 같은 패밀리·속성에 2각(awaken_level>=2)이 있으면 1각 행 제외. family_id 불일치 시 awakens_to_id→com2us 로 연결 -->
+		   <if test="siegeDedupeSecondAwakening != null and (siegeDedupeSecondAwakening == true or siegeDedupeSecondAwakening == 'true')">
+		   AND NOT (
+		     COALESCE(CAST(m.awaken_level AS INTEGER), 0) = 1
+		     AND (
+		       EXISTS (
+		         SELECT 1 FROM monster m2
+		          WHERE m2.usg_yn = 'Y'
+		            AND m2.obtainable IS TRUE
+		            AND NOT (
+		              m2.transforms_to_id IS NOT NULL
+		              AND m2.awakens_from_id IS NULL
+		              AND m2.awakens_to_id IS NULL
+		            )
+		            AND COALESCE(CAST(m2.awaken_level AS INTEGER), 0) &gt;= 2
+		            AND m.family_id IS NOT NULL
+		            AND m2.family_id = m.family_id
+		            AND m2.monster_elemental IS NOT DISTINCT FROM m.monster_elemental
+		       )
+		       OR EXISTS (
+		         SELECT 1 FROM monster m2
+		          WHERE m2.usg_yn = 'Y'
+		            AND m2.obtainable IS TRUE
+		            AND NOT (
+		              m2.transforms_to_id IS NOT NULL
+		              AND m2.awakens_from_id IS NULL
+		              AND m2.awakens_to_id IS NULL
+		            )
+		            AND COALESCE(CAST(m2.awaken_level AS INTEGER), 0) &gt;= 2
+		            AND m.awakens_to_id IS NOT NULL
+		            AND m2.com2us_id = m.awakens_to_id
+		       )
+		     )
+		   )
+		   </if>
 		 ORDER BY
 		   -- Normal 먼저, Awakened 다음 (NULL·빈값은 Normal 취급)
 		   CASE WHEN LOWER(TRIM(COALESCE(m.arousal_type, ''))) = 'awakened' THEN 1 ELSE 0 END ASC,
