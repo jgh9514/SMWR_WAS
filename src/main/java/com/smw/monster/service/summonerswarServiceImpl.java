@@ -383,6 +383,66 @@ public class summonerswarServiceImpl implements summonerswarService {
 	public int deleteDeckDetail(Map<String, Object> param) {
 		return swMapper.deleteDeckDetail(param);
 	}
+
+	@Override
+	public int setDeckVote(Map<String, Object> param) {
+		if (param == null) {
+			return 0;
+		}
+		normalizeDeckVoteDefParams(param);
+		Object v = param.get("vote");
+		String vote = v != null ? String.valueOf(v).trim().toUpperCase() : "";
+		if ("CLEAR".equals(vote) || vote.isEmpty()) {
+			validateDeckVoteAgainstRow(param);
+			return swMapper.deleteDeckVote(param);
+		}
+		if (!"UP".equals(vote) && !"DOWN".equals(vote)) {
+			throw new IllegalArgumentException("vote는 UP, DOWN, CLEAR만 허용됩니다.");
+		}
+		param.put("vote_type", vote);
+		validateDeckVoteAgainstRow(param);
+		return swMapper.upsertDeckVote(param);
+	}
+
+	/** 요청 JSON camelCase → MyBatis용 snake_case */
+	private void normalizeDeckVoteDefParams(Map<String, Object> param) {
+		if (param.get("def_monster_1") == null && param.get("defMonster1") != null) {
+			param.put("def_monster_1", param.get("defMonster1"));
+		}
+		if (param.get("def_monster_2") == null && param.get("defMonster2") != null) {
+			param.put("def_monster_2", param.get("defMonster2"));
+		}
+		if (param.get("def_monster_3") == null && param.get("defMonster3") != null) {
+			param.put("def_monster_3", param.get("defMonster3"));
+		}
+	}
+
+	/** deck_id 행의 방덱(def)과 요청 방덱이 일치하는지 검증 (특정 방덱의 특정 공덱만 투표) */
+	private void validateDeckVoteAgainstRow(Map<String, Object> param) {
+		Map<String, Object> q = new HashMap<>();
+		q.put("deck_id", param.get("deck_id"));
+		Map<String, ?> deck = swMapper.selectDeckDetail(q);
+		if (deck == null || deck.isEmpty()) {
+			throw new IllegalArgumentException("공덱을 찾을 수 없습니다.");
+		}
+		String e1 = mapStr(deck, "def_monster_1", "defMonster1");
+		String e2 = mapStr(deck, "def_monster_2", "defMonster2");
+		String e3 = mapStr(deck, "def_monster_3", "defMonster3");
+		String p1 = String.valueOf(param.get("def_monster_1") != null ? param.get("def_monster_1") : "");
+		String p2 = String.valueOf(param.get("def_monster_2") != null ? param.get("def_monster_2") : "");
+		String p3 = String.valueOf(param.get("def_monster_3") != null ? param.get("def_monster_3") : "");
+		if (!e1.equals(p1) || !e2.equals(p2) || !e3.equals(p3)) {
+			throw new IllegalArgumentException("방덱(수비) 정보가 해당 공덱과 일치하지 않습니다.");
+		}
+	}
+
+	private static String mapStr(Map<String, ?> m, String snake, String camel) {
+		Object v = m.get(snake);
+		if (v == null) {
+			v = m.get(camel);
+		}
+		return v != null ? String.valueOf(v) : "";
+	}
 	
 	@Override
 	public Map<String, ?> selectCurrentSeason(Map<String, Object> param) {

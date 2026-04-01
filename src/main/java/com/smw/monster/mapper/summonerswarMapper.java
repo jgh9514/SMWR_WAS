@@ -79,6 +79,12 @@ public interface summonerswarMapper {
 	public Map<String, ?> selectDeckDetail(Map<String, Object> param);
 	
 	public int deleteDeckDetail(Map<String, Object> param);
+
+	/** 공덱 추천/비추천 upsert (사용자당 1건) */
+	public int upsertDeckVote(Map<String, Object> param);
+
+	/** 공덱 추천/비추천 삭제(취소) */
+	public int deleteDeckVote(Map<String, Object> param);
 	
 	public Map<String, ?> selectCurrentSeason(Map<String, Object> param);
 

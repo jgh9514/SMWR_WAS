@@ -691,6 +691,47 @@ public class summonerswarController {
     	String result = n > 0 ? "SUCCESS" : "FAIL";
     	return new ResponseEntity<>(result, HttpStatus.OK);
     }
+
+    @Operation(summary = "공덱 추천/비추천", description = "vote: UP, DOWN, CLEAR — 특정 방덱(def_monster_1~3) + 공덱(deck_id)당 사용자 1건")
+    @PostMapping("/deck-vote")
+    public ResponseEntity<?> setDeckVote(@RequestBody Map<String, Object> param, HttpSession session, HttpServletRequest request) {
+    	Map<String, Object> p = param != null ? param : new HashMap<>();
+    	ResponseEntity<?> guard = requireLoginAndGuild(request, p);
+    	if (guard != null) return guard;
+
+    	Object deckIdObj = p.get("deck_id");
+    	if (deckIdObj == null || String.valueOf(deckIdObj).trim().isEmpty()) {
+    		Map<String, Object> body = new HashMap<>();
+    		body.put("result", "FAIL");
+    		body.put("message", "deck_id가 필요합니다.");
+    		return new ResponseEntity<>(body, HttpStatus.BAD_REQUEST);
+    	}
+    	Object d1 = p.get("def_monster_1") != null ? p.get("def_monster_1") : p.get("defMonster1");
+    	Object d2 = p.get("def_monster_2") != null ? p.get("def_monster_2") : p.get("defMonster2");
+    	Object d3 = p.get("def_monster_3") != null ? p.get("def_monster_3") : p.get("defMonster3");
+    	if (d1 == null || String.valueOf(d1).trim().isEmpty()
+    			|| d2 == null || String.valueOf(d2).trim().isEmpty()
+    			|| d3 == null || String.valueOf(d3).trim().isEmpty()) {
+    		Map<String, Object> body = new HashMap<>();
+    		body.put("result", "FAIL");
+    		body.put("message", "방덱(수비) def_monster_1, def_monster_2, def_monster_3이 필요합니다.");
+    		return new ResponseEntity<>(body, HttpStatus.BAD_REQUEST);
+    	}
+    	p.put("def_monster_1", d1);
+    	p.put("def_monster_2", d2);
+    	p.put("def_monster_3", d3);
+    	try {
+    		swService.setDeckVote(p);
+    		Map<String, Object> ok = new HashMap<>();
+    		ok.put("result", "SUCCESS");
+    		return new ResponseEntity<>(ok, HttpStatus.OK);
+    	} catch (IllegalArgumentException e) {
+    		Map<String, Object> body = new HashMap<>();
+    		body.put("result", "FAIL");
+    		body.put("message", e.getMessage());
+    		return new ResponseEntity<>(body, HttpStatus.BAD_REQUEST);
+    	}
+    }
     
     @Operation(summary = "현재 시즌 조회", description = "현재 진행 중인 점령전 시즌 정보를 조회합니다.")
     @PostMapping("/current-season")

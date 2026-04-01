@@ -1098,8 +1098,8 @@
 		     , m1.image_url AS image_url1
 		     , m2.image_url AS image_url2
 		     , m3.image_url AS image_url3
-		     , srad.recommend_count
-		     , srad.not_recommend_count
+		     , (SELECT COUNT(*)::int FROM siege_deck_user_vote v WHERE v.deck_id = srad.id AND v.def_monster_1 = srad.def_monster_1 AND v.def_monster_2 = srad.def_monster_2 AND v.def_monster_3 = srad.def_monster_3 AND v.vote_type = 'UP') AS recommend_count
+		     , (SELECT COUNT(*)::int FROM siege_deck_user_vote v WHERE v.deck_id = srad.id AND v.def_monster_1 = srad.def_monster_1 AND v.def_monster_2 = srad.def_monster_2 AND v.def_monster_3 = srad.def_monster_3 AND v.vote_type = 'DOWN') AS not_recommend_count
 		  from siege_recommended_attack_deck srad
 	 LEFT JOIN monster m1 ON srad.atk_monster_1 = m1.monster_id
 	 LEFT JOIN monster m2 ON srad.atk_monster_2 = m2.monster_id
@@ -1484,8 +1484,18 @@
 			srad.atk_monster_1,
 			srad.atk_monster_2,
 			srad.atk_monster_3,
-			srad.recommend_count,
-			srad.not_recommend_count,
+			(SELECT COUNT(*)::int FROM siege_deck_user_vote v WHERE v.deck_id = srad.id AND v.def_monster_1 = srad.def_monster_1 AND v.def_monster_2 = srad.def_monster_2 AND v.def_monster_3 = srad.def_monster_3 AND v.vote_type = 'UP') AS recommend_count,
+			(SELECT COUNT(*)::int FROM siege_deck_user_vote v WHERE v.deck_id = srad.id AND v.def_monster_1 = srad.def_monster_1 AND v.def_monster_2 = srad.def_monster_2 AND v.def_monster_3 = srad.def_monster_3 AND v.vote_type = 'DOWN') AS not_recommend_count,
+			(
+				SELECT v.vote_type FROM siege_deck_user_vote v
+				 WHERE v.deck_id = srad.id
+				   AND v.def_monster_1 = srad.def_monster_1
+				   AND v.def_monster_2 = srad.def_monster_2
+				   AND v.def_monster_3 = srad.def_monster_3
+				   AND #{sess_user_id} IS NOT NULL
+				   AND v.user_id = #{sess_user_id}::text
+				 LIMIT 1
+			) AS my_vote,
 			-- 몬스터1 정보
 			m1.kr_name as m1_kr_name,
 			m1.image_url as image_url1,
@@ -1553,6 +1563,26 @@
 		</if>
 		LIMIT 1
 	</select>
+
+	<insert id="upsertDeckVote" parameterType="sqlMap">
+		/* upsertDeckVote - 특정 방덱(def)+특정 공덱(deck_id)당 사용자 1행 */
+		INSERT INTO siege_deck_user_vote (def_monster_1, def_monster_2, def_monster_3, deck_id, user_id, vote_type, crt_date, upt_date)
+		VALUES (#{def_monster_1}, #{def_monster_2}, #{def_monster_3}, #{deck_id}::int, #{sess_user_id}, #{vote_type}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		ON CONFLICT (user_id, def_monster_1, def_monster_2, def_monster_3, deck_id)
+		DO UPDATE SET
+			vote_type = EXCLUDED.vote_type,
+			upt_date = CURRENT_TIMESTAMP
+	</insert>
+
+	<delete id="deleteDeckVote" parameterType="sqlMap">
+		/* deleteDeckVote - 추천/비추천 취소 */
+		DELETE FROM siege_deck_user_vote
+		 WHERE deck_id = #{deck_id}::int
+		   AND user_id = #{sess_user_id}
+		   AND def_monster_1 = #{def_monster_1}
+		   AND def_monster_2 = #{def_monster_2}
+		   AND def_monster_3 = #{def_monster_3}
+	</delete>
 	
 	<delete id="deleteDeckDetail" parameterType="sqlMap">
 		/* deleteDeckDetail - 공덱 삭제 */

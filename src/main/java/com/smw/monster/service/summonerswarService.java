@@ -68,6 +68,11 @@ public interface summonerswarService {
 	public int deleteDeckDetail(Map<String, Object> param);
 
 	/**
+	 * 공덱 추천/비추천. vote: UP, DOWN, CLEAR(또는 빈값) — 사용자당 deck_id당 1행
+	 */
+	public int setDeckVote(Map<String, Object> param);
+
+	/**
 	 * 추천 공덱 스탯 수정 (몬스터는 변경 불가)
 	 */
 	public int updateRecommendedAttackDeckStats(Map<String, Object> param);
