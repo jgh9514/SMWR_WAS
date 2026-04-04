@@ -36,8 +36,8 @@ public class RtaExporterProperties {
 	/** 감시 파일명 접두사 (예: full_log.txt, full_log_1.txt) */
 	private String fileNamePrefix = "full_log";
 
-	/** 이전 폴링 완료 후 다음 실행까지 대기(ms) */
-	private long pollIntervalMs = 30_000L;
+	/** 이전 폴링 완료 후 다음 실행까지 대기(ms). 기본 1분. */
+	private long pollIntervalMs = 60_000L;
 
 	/** 한 파일 최대 크기(MB). 초과 시 건너뜀 */
 	private int maxFileSizeMb = 128;

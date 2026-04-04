@@ -176,7 +176,7 @@ smw:
       watch-directory: ${SMW_RTA_EXPORTER_WATCH_DIR:}
       temp-subdir: ${SMW_RTA_EXPORTER_TEMP_SUBDIR:temp}
       file-name-prefix: ${SMW_RTA_EXPORTER_FILE_PREFIX:full_log}
-      poll-interval-ms: ${SMW_RTA_EXPORTER_POLL_MS:30000}
+      poll-interval-ms: ${SMW_RTA_EXPORTER_POLL_MS:60000}
       max-file-size-mb: ${SMW_RTA_EXPORTER_MAX_MB:128}
       stable-millis: ${SMW_RTA_EXPORTER_STABLE_MS:2000}
     raw-apply:

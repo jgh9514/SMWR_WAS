@@ -67,6 +67,11 @@ public interface summonerswarService {
 	 * 재업로드 시 고아 PK가 ‘이미 존재’로 잡혀 replay 가 안 들어가는 현상 방지.
 	 */
 	int deleteArenaRtaOrphanChildrenByRids(Collection<Long> rids);
+
+	/**
+	 * 부모 {@code replay_list} 행이 없는 user/pick/unit 고아 행 전수 삭제. 배치({@code RtaReplayRawApplyJob})에서 호출.
+	 */
+	int deleteArenaRtaOrphanChildrenGlobal();
 	
 	public int insertArenaInfo(Map<String, ?> param);
 	

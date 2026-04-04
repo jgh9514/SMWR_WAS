@@ -16,6 +16,10 @@ public class RtaReplayRawApplyJob extends BaseBatchJob {
 	protected void executeBatch(JobExecutionContext context) throws Exception {
 		summonerswarMapper mapper = applicationContext.getBean(summonerswarMapper.class);
 		summonerswarService service = applicationContext.getBean(summonerswarService.class);
+		int orphans = service.deleteArenaRtaOrphanChildrenGlobal();
+		if (orphans > 0) {
+			addLog("replay_list 부모 없는 고아 행 정리: %d행 삭제 (unit→pick→user)", orphans);
+		}
 		int notApplied = mapper.selectRtaReplayRawNotAppliedCount();
 		addLog("미적용 raw 건수 (apply_status <> applied): %d", notApplied);
 		if (notApplied <= 0) {

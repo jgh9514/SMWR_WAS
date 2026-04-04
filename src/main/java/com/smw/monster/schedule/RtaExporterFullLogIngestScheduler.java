@@ -38,7 +38,7 @@ public class RtaExporterFullLogIngestScheduler {
 
 	private final Object ingestLock = new Object();
 
-	@Scheduled(fixedDelayString = "${smw.rta.exporter.poll-interval-ms:30000}")
+	@Scheduled(fixedDelayString = "${smw.rta.exporter.poll-interval-ms:60000}")
 	public void pollAndIngest() {
 		synchronized (ingestLock) {
 			String dir = props.getWatchDirectory();

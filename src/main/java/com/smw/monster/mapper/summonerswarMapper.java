@@ -108,6 +108,13 @@ public interface summonerswarMapper {
 	/** RTA raw: pending/failed 건 조회 (배치 정규화용) */
 	List<Map<String, ?>> selectRtaReplayRawPending(@Param("limit") int limit);
 
+	/** replay_list 부모 없는 고아 행 전수 삭제 (배치용, unit → pick → user 순) */
+	int deleteArenaRtaOrphanUnitsGlobal();
+
+	int deleteArenaRtaOrphanPicksGlobal();
+
+	int deleteArenaRtaOrphanUsersGlobal();
+
 	public List<Map<String, ?>> selectRecordList(Map<String, Object> param);
 
 	public List<Map<String, ?>> selectRecordUserDetail(Map<String, Object> param);

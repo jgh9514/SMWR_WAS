@@ -449,6 +449,14 @@ public class summonerswarServiceImpl implements summonerswarService {
 		return total;
 	}
 
+	@Override
+	public int deleteArenaRtaOrphanChildrenGlobal() {
+		int n = swMapper.deleteArenaRtaOrphanUnitsGlobal();
+		n += swMapper.deleteArenaRtaOrphanPicksGlobal();
+		n += swMapper.deleteArenaRtaOrphanUsersGlobal();
+		return n;
+	}
+
 	private static Long normalizeLong(Object o) {
 		if (o == null) {
 			return null;
@@ -829,7 +837,8 @@ public class summonerswarServiceImpl implements summonerswarService {
 	}
 
 	/**
-	 * rta-upload: 선행 필터·고아 정리 후 한 트랜잭션에서 원본 JSON(rid) → replay → user → pick → unit 순 벌크 INSERT.
+	 * rta-upload: 선행 필터 후 한 트랜잭션에서 원본 JSON(rid) → replay → user → pick → unit 순 벌크 INSERT.
+	 * replay_list 없이 남은 고아 행은 {@link #deleteArenaRtaOrphanChildrenGlobal()} 배치에서 정리.
 	 */
 	@Override
 	public ArenaRtaUploadApplyResult applyArenaRtaUploadPersistence(
@@ -882,12 +891,6 @@ public class summonerswarServiceImpl implements summonerswarService {
 				newArenaRids.add(r);
 			}
 		}
-		final int[] orphanHolder = new int[1];
-		transactionTemplate.executeWithoutResult(status -> orphanHolder[0] = deleteArenaRtaOrphanChildrenByRids(newArenaRids));
-		int orphanRemoved = orphanHolder[0];
-		if (orphanRemoved > 0) {
-			log.info("[rta-upload] 부모 없는 고아 행 제거: {}행 (rid 수={})", orphanRemoved, newArenaRids.size());
-		}
 		Set<String> existingUserPkInDb = selectArenaUserPkKeysExisting(newArenaRids);
 		filterArenaRtaRowsAlreadyInDb(existingUserPkInDb, userBatch, pickBatch, unitBatch);
 		pruneArenaBatchWithoutUserRows(arenaBatch, userBatch);
@@ -919,7 +922,7 @@ public class summonerswarServiceImpl implements summonerswarService {
 			transactionTemplate.executeWithoutResult(status ->
 					insertArenaRtaBulkInChunks(arenaRows, userBatch, pickBatch, unitBatch, mode));
 		}
-		return new ArenaRtaUploadApplyResult(orphanRemoved, dupSkipped);
+		return new ArenaRtaUploadApplyResult(0, dupSkipped);
 	}
 
 	@Override

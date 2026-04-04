@@ -1238,6 +1238,21 @@
 		</foreach>
 		AND NOT EXISTS (SELECT 1 FROM ranker_rtpvp_replay_list r WHERE r.rid = ul.rid)
 	</delete>
+
+	<delete id="deleteArenaRtaOrphanUnitsGlobal">
+		DELETE FROM ranker_rtpvp_replay_unit_list u
+		WHERE NOT EXISTS (SELECT 1 FROM ranker_rtpvp_replay_list r WHERE r.rid = u.rid)
+	</delete>
+
+	<delete id="deleteArenaRtaOrphanPicksGlobal">
+		DELETE FROM ranker_rtpvp_replay_pick_list p
+		WHERE NOT EXISTS (SELECT 1 FROM ranker_rtpvp_replay_list r WHERE r.rid = p.rid)
+	</delete>
+
+	<delete id="deleteArenaRtaOrphanUsersGlobal">
+		DELETE FROM ranker_rtpvp_replay_user_list ul
+		WHERE NOT EXISTS (SELECT 1 FROM ranker_rtpvp_replay_list r WHERE r.rid = ul.rid)
+	</delete>
 	
 	<insert id="insertArenaInfo" parameterType="sqlMap">
 		/* insertArenaInfo — 중복 rid 는 예외 없이 무시 (누적 로그·재요청·레이스) */
