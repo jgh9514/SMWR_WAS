@@ -1016,8 +1016,10 @@ public class summonerswarServiceImpl implements summonerswarService {
 				int to = Math.min(from + ARENA_RTA_BULK_CHUNK, arenaRows.size());
 				List<Map<String, ?>> chunk = arenaRows.subList(from, to);
 				for (Map<String, ?> row : chunk) {
-					if (row instanceof Map<String, Object>) {
-						normalizeArenaReplayDateAdd((Map<String, Object>) row);
+					if (row != null) {
+						@SuppressWarnings("unchecked")
+						Map<String, Object> mo = (Map<String, Object>) (Map<?, ?>) row;
+						normalizeArenaReplayDateAdd(mo);
 					}
 				}
 				swMapper.insertArenaInfoBulk(chunk);
