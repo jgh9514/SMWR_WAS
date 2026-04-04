@@ -109,6 +109,49 @@ public class RtaController {
         }
     }
 
+    @Operation(summary = "RTA 소환사 랭킹", description = "수집된 리플레이 기준 소환사별 최신 경기 점수 순 랭킹 (페이지네이션)")
+    @PostMapping("/summoner-ranking")
+    public ResponseEntity<Map<String, Object>> getRtaSummonerRanking(@RequestBody(required = false) Map<String, Object> param) {
+        try {
+            int limit = 50;
+            int offset = 0;
+            if (param != null) {
+                if (param.get("limit") != null) {
+                    limit = Integer.parseInt(param.get("limit").toString());
+                }
+                if (param.get("offset") != null) {
+                    offset = Integer.parseInt(param.get("offset").toString());
+                }
+            }
+            if (limit < 1) {
+                limit = 50;
+            }
+            if (limit > 200) {
+                limit = 200;
+            }
+            if (offset < 0) {
+                offset = 0;
+            }
+            Map<String, Object> response = rtaService.getRtaSummonerRanking(limit, offset);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("RTA summoner ranking 조회 실패", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    @Operation(summary = "RTA 대시보드", description = "일별×티어 집계 전체 + 날짜 범위 (기간 필터는 클라이언트에서 합산)")
+    @PostMapping("/dashboard")
+    public ResponseEntity<Map<String, Object>> getRtaDashboard() {
+        try {
+            Map<String, Object> response = rtaService.getRtaDashboard();
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("RTA dashboard 조회 실패", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
     @Operation(summary = "RTA 몬스터별 통계 조회", description = "RTA 몬스터별 통계 데이터를 조회합니다. (픽횟수, 픽률, 승률, 선픽율, 벤율)")
     @PostMapping("/monster-stats")
     public ResponseEntity<Map<String, Object>> getRtaMonsterStats(@RequestBody Map<String, Object> param) {

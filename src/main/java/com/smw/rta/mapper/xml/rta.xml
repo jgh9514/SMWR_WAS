@@ -10,6 +10,7 @@
                 u.wizard_id,
                 u.wizard_name,
                 u.country,
+                u.channel_uid,
                 u.score,
                 u.rating_id,
                 u.win_lose,
@@ -51,6 +52,7 @@
             m.date_add,
             m.winner_position,
             u1.wizard_id as p1_wizard_id,
+            u1.channel_uid as p1_channel_uid,
             u1.wizard_name as p1_name,
             u1.country as p1_country,
             u1.score as p1_score,
@@ -65,6 +67,7 @@
             COALESCE(un1.unit_names, ARRAY[]::text[]) as p1_unit_names,
             COALESCE(un1.picked_units_str, '') as p1_units_str,
             u2.wizard_id as p2_wizard_id,
+            u2.channel_uid as p2_channel_uid,
             u2.wizard_name as p2_name,
             u2.country as p2_country,
             u2.score as p2_score,
@@ -97,6 +100,7 @@
                 u.wizard_id,
                 u.wizard_name,
                 u.country,
+                u.channel_uid,
                 u.score,
                 u.rating_id,
                 u.win_lose,
@@ -138,6 +142,7 @@
             m.date_add,
             m.winner_position,
             u1.wizard_id as p1_wizard_id,
+            u1.channel_uid as p1_channel_uid,
             u1.wizard_name as p1_name,
             u1.country as p1_country,
             u1.score as p1_score,
@@ -152,6 +157,7 @@
             COALESCE(un1.unit_names, ARRAY[]::text[]) as p1_unit_names,
             COALESCE(un1.picked_units_str, '') as p1_units_str,
             u2.wizard_id as p2_wizard_id,
+            u2.channel_uid as p2_channel_uid,
             u2.wizard_name as p2_name,
             u2.country as p2_country,
             u2.score as p2_score,
@@ -312,6 +318,115 @@
         WHERE ps.pick_count > 0
         ORDER BY ps.pick_count DESC
         LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <!-- RTA 2마리 필드 조합 (5픽 중 벤 제외 → 실제 4마리, C(4,2)=6쌍/팀·매치) -->
+    <select id="getRtaDuoComboStats" resultType="map">
+        WITH field_units AS (
+            SELECT DISTINCT
+                u.rid,
+                u.wizard_id,
+                TRIM(BOTH FROM u.unit_master_id::text) AS unit_master_id
+            FROM ranker_rtpvp_replay_unit_list u
+            INNER JOIN ranker_rtpvp_replay_pick_list p
+                ON u.rid = p.rid AND u.wizard_id = p.wizard_id
+            WHERE TRIM(BOTH FROM COALESCE(u.unit_master_id::text, '')) ~ '^[0-9]+$'
+              AND (
+                  p.banned_slot_id IS NULL
+                  OR u.pick_slot_id &lt;&gt; p.banned_slot_id
+              )
+        ),
+        duo AS (
+            SELECT
+                u1.unit_master_id AS id1,
+                u2.unit_master_id AS id2,
+                COUNT(*) AS match_count,
+                SUM(CASE WHEN ul.win_lose = r.win_lose THEN 1 ELSE 0 END) AS win_count
+            FROM field_units u1
+            INNER JOIN field_units u2
+                ON u1.rid = u2.rid AND u1.wizard_id = u2.wizard_id
+                AND u1.unit_master_id::bigint &lt; u2.unit_master_id::bigint
+            INNER JOIN ranker_rtpvp_replay_user_list ul ON u1.rid = ul.rid AND u1.wizard_id = ul.wizard_id
+            INNER JOIN ranker_rtpvp_replay_list r ON u1.rid = r.rid
+            GROUP BY u1.unit_master_id, u2.unit_master_id
+            HAVING COUNT(*) &gt;= 2
+        )
+        SELECT
+            d.id1::text AS monster_id_1,
+            d.id2::text AS monster_id_2,
+            m1.kr_name AS monster_name_1,
+            m2.kr_name AS monster_name_2,
+            COALESCE(m1.image_url, '/images/' || m1.monster_elemental || '/' || replace(m1.un_name, ' ', '_') || '_' || m1.monster_elemental || '_Icon.png') AS monster_image_1,
+            COALESCE(m2.image_url, '/images/' || m2.monster_elemental || '/' || replace(m2.un_name, ' ', '_') || '_' || m2.monster_elemental || '_Icon.png') AS monster_image_2,
+            m1.monster_elemental AS monster_elemental_1,
+            m2.monster_elemental AS monster_elemental_2,
+            d.match_count,
+            ROUND((d.win_count::numeric / NULLIF(d.match_count, 0) * 100)::numeric, 2) AS win_rate
+        FROM duo d
+        LEFT JOIN monster m1 ON d.id1 = m1.monster_id
+        LEFT JOIN monster m2 ON d.id2 = m2.monster_id
+        WHERE m1.kr_name IS NOT NULL AND m2.kr_name IS NOT NULL
+        ORDER BY (d.win_count::numeric / NULLIF(d.match_count, 0)) DESC NULLS LAST, d.match_count DESC
+        LIMIT #{limit}
+    </select>
+
+    <!-- RTA 3마리 필드 조합 (벤 제외 4마리 중 C(4,3)=4조합/팀·매치) -->
+    <select id="getRtaTrioComboStats" resultType="map">
+        WITH field_units AS (
+            SELECT DISTINCT
+                u.rid,
+                u.wizard_id,
+                TRIM(BOTH FROM u.unit_master_id::text) AS unit_master_id
+            FROM ranker_rtpvp_replay_unit_list u
+            INNER JOIN ranker_rtpvp_replay_pick_list p
+                ON u.rid = p.rid AND u.wizard_id = p.wizard_id
+            WHERE TRIM(BOTH FROM COALESCE(u.unit_master_id::text, '')) ~ '^[0-9]+$'
+              AND (
+                  p.banned_slot_id IS NULL
+                  OR u.pick_slot_id &lt;&gt; p.banned_slot_id
+              )
+        ),
+        trio AS (
+            SELECT
+                u1.unit_master_id AS id1,
+                u2.unit_master_id AS id2,
+                u3.unit_master_id AS id3,
+                COUNT(*) AS match_count,
+                SUM(CASE WHEN ul.win_lose = r.win_lose THEN 1 ELSE 0 END) AS win_count
+            FROM field_units u1
+            INNER JOIN field_units u2
+                ON u1.rid = u2.rid AND u1.wizard_id = u2.wizard_id
+                AND u1.unit_master_id::bigint &lt; u2.unit_master_id::bigint
+            INNER JOIN field_units u3
+                ON u2.rid = u3.rid AND u2.wizard_id = u3.wizard_id
+                AND u2.unit_master_id::bigint &lt; u3.unit_master_id::bigint
+            INNER JOIN ranker_rtpvp_replay_user_list ul ON u1.rid = ul.rid AND u1.wizard_id = ul.wizard_id
+            INNER JOIN ranker_rtpvp_replay_list r ON u1.rid = r.rid
+            GROUP BY u1.unit_master_id, u2.unit_master_id, u3.unit_master_id
+            HAVING COUNT(*) &gt;= 2
+        )
+        SELECT
+            t.id1::text AS monster_id_1,
+            t.id2::text AS monster_id_2,
+            t.id3::text AS monster_id_3,
+            m1.kr_name AS monster_name_1,
+            m2.kr_name AS monster_name_2,
+            m3.kr_name AS monster_name_3,
+            COALESCE(m1.image_url, '/images/' || m1.monster_elemental || '/' || replace(m1.un_name, ' ', '_') || '_' || m1.monster_elemental || '_Icon.png') AS monster_image_1,
+            COALESCE(m2.image_url, '/images/' || m2.monster_elemental || '/' || replace(m2.un_name, ' ', '_') || '_' || m2.monster_elemental || '_Icon.png') AS monster_image_2,
+            COALESCE(m3.image_url, '/images/' || m3.monster_elemental || '/' || replace(m3.un_name, ' ', '_') || '_' || m3.monster_elemental || '_Icon.png') AS monster_image_3,
+            m1.monster_elemental AS monster_elemental_1,
+            m2.monster_elemental AS monster_elemental_2,
+            m3.monster_elemental AS monster_elemental_3,
+            t.match_count,
+            ROUND((t.win_count::numeric / NULLIF(t.match_count, 0) * 100)::numeric, 2) AS win_rate
+        FROM trio t
+        LEFT JOIN monster m1 ON t.id1 = m1.monster_id
+        LEFT JOIN monster m2 ON t.id2 = m2.monster_id
+        LEFT JOIN monster m3 ON t.id3 = m3.monster_id
+        WHERE m1.kr_name IS NOT NULL AND m2.kr_name IS NOT NULL AND m3.kr_name IS NOT NULL
+        ORDER BY (t.win_count::numeric / NULLIF(t.match_count, 0)) DESC NULLS LAST, t.match_count DESC
+        LIMIT #{limit}
     </select>
 
     <!-- RTA 몬스터 기본 정보 조회 -->
@@ -575,5 +690,156 @@
         LEFT JOIN my_team_json mt ON mm.rid = mt.rid AND mm.wizard_id = mt.wizard_id
         LEFT JOIN opponent_team_json ot ON mm.rid = ot.rid
         ORDER BY mm.date_add DESC
+    </select>
+
+    <!-- RTA 대시보드: 일자×티어별 집계 (클라이언트에서 기간 슬라이더로 합산) -->
+    <select id="getRtaTierDistributionDaily" resultType="map">
+        SELECT
+            bucket_date,
+            tier_key,
+            COUNT(*)::bigint AS player_count,
+            MIN(sort_order)::int AS sort_order
+        FROM (
+            SELECT
+                r.date_add::date AS bucket_date,
+                (
+                    CASE
+                        WHEN rating_rows.rid >= 5000 THEN 'G'
+                        WHEN rating_rows.rid >= 4000 THEN 'P'
+                        WHEN rating_rows.rid >= 3000 THEN 'C'
+                        WHEN rating_rows.rid >= 2000 THEN 'F'
+                        ELSE 'Ch'
+                    END
+                )
+                ||
+                CASE
+                    WHEN (rating_rows.rid % 10) IN (1, 2, 3) THEN (rating_rows.rid % 10)::text
+                    ELSE '2'
+                END AS tier_key,
+                (
+                    CASE
+                        WHEN rating_rows.rid >= 5000 THEN 50
+                        WHEN rating_rows.rid >= 4000 THEN 40
+                        WHEN rating_rows.rid >= 3000 THEN 30
+                        WHEN rating_rows.rid >= 2000 THEN 20
+                        ELSE 10
+                    END
+                    + CASE WHEN (rating_rows.rid % 10) IN (1, 2, 3) THEN (rating_rows.rid % 10) ELSE 2 END
+                ) AS sort_order
+            FROM (
+                SELECT CAST(TRIM(u.rating_id::text) AS INT) AS rid
+                FROM ranker_rtpvp_replay_user_list u
+                INNER JOIN ranker_rtpvp_replay_list r ON u.rid = r.rid
+                WHERE TRIM(COALESCE(u.rating_id::text, '')) ~ '^[0-9]+$'
+                  AND CAST(TRIM(u.rating_id::text) AS INT) &gt;= 1000
+            ) rating_rows
+            INNER JOIN ranker_rtpvp_replay_list r ON rating_rows.rid = r.rid
+        ) x
+        GROUP BY bucket_date, tier_key
+        ORDER BY bucket_date, MIN(sort_order)
+    </select>
+
+    <select id="getRtaReplayDateRange" resultType="map">
+        SELECT
+            MIN(r.date_add)::date AS min_date,
+            MAX(r.date_add)::date AS max_date
+        FROM ranker_rtpvp_replay_list r
+    </select>
+
+    <!-- P2·P3·G1~G3 일자별 최저 점수 (해당 티어에 찍힌 리플레이 중 최저점 ≈ 컷 추정) -->
+    <select id="getRtaRankCutoffDaily" resultType="map">
+        SELECT
+            bucket_date,
+            tier_key,
+            MIN(score_val)::bigint AS cutoff_score
+        FROM (
+            SELECT
+                r.date_add::date AS bucket_date,
+                CAST(TRIM(u.score::text) AS INT) AS score_val,
+                (
+                    CASE
+                        WHEN CAST(TRIM(u.rating_id::text) AS INT) >= 5000 THEN 'G'
+                        WHEN CAST(TRIM(u.rating_id::text) AS INT) >= 4000 THEN 'P'
+                        WHEN CAST(TRIM(u.rating_id::text) AS INT) >= 3000 THEN 'C'
+                        WHEN CAST(TRIM(u.rating_id::text) AS INT) >= 2000 THEN 'F'
+                        ELSE 'Ch'
+                    END
+                )
+                ||
+                CASE
+                    WHEN (CAST(TRIM(u.rating_id::text) AS INT) % 10) IN (1, 2, 3)
+                    THEN (CAST(TRIM(u.rating_id::text) AS INT) % 10)::text
+                    ELSE '2'
+                END AS tier_key
+            FROM ranker_rtpvp_replay_user_list u
+            INNER JOIN ranker_rtpvp_replay_list r ON u.rid = r.rid
+            WHERE TRIM(COALESCE(u.rating_id::text, '')) ~ '^[0-9]+$'
+              AND CAST(TRIM(u.rating_id::text) AS INT) &gt;= 1000
+              AND TRIM(COALESCE(u.score::text, '')) ~ '^[0-9]+$'
+              AND CAST(TRIM(u.score::text) AS INT) &gt; 0
+              AND r.date_add::date &gt;= (
+                  SELECT (MAX(r2.date_add::date) - INTERVAL '120 days')::date
+                  FROM ranker_rtpvp_replay_list r2
+              )
+        ) t
+        WHERE tier_key IN ('P2', 'P3', 'G1', 'G2', 'G3')
+        GROUP BY bucket_date, tier_key
+        ORDER BY bucket_date DESC, tier_key
+    </select>
+
+    <!-- 소환사별: 수집 리플레이 중 가장 최근 경기의 점수·레이팅으로 랭킹 (공식 랭킹과 다를 수 있음) -->
+    <select id="getRtaSummonerRankingCount" resultType="int">
+        SELECT COUNT(*)::int
+        FROM (
+            SELECT DISTINCT ON (u.wizard_id) u.wizard_id
+            FROM ranker_rtpvp_replay_user_list u
+            INNER JOIN ranker_rtpvp_replay_list r ON u.rid = r.rid
+            WHERE TRIM(COALESCE(u.score::text, '')) ~ '^[0-9]+$'
+              AND CAST(TRIM(u.score::text) AS INT) &gt; 0
+            ORDER BY u.wizard_id, r.date_add DESC
+        ) t
+    </select>
+
+    <select id="getRtaSummonerRanking" resultType="map">
+        WITH latest AS (
+            SELECT DISTINCT ON (u.wizard_id)
+                u.wizard_id,
+                u.wizard_name,
+                u.country,
+                CAST(TRIM(u.score::text) AS INT) AS score,
+                CASE
+                    WHEN TRIM(COALESCE(u.rating_id::text, '')) ~ '^[0-9]+$'
+                    THEN CAST(TRIM(u.rating_id::text) AS INT)
+                    ELSE NULL
+                END AS rating_id,
+                r.date_add AS last_match_at
+            FROM ranker_rtpvp_replay_user_list u
+            INNER JOIN ranker_rtpvp_replay_list r ON u.rid = r.rid
+            WHERE TRIM(COALESCE(u.score::text, '')) ~ '^[0-9]+$'
+              AND CAST(TRIM(u.score::text) AS INT) &gt; 0
+            ORDER BY u.wizard_id, r.date_add DESC
+        ),
+        ranked AS (
+            SELECT
+                latest.wizard_id,
+                latest.wizard_name,
+                latest.country,
+                latest.score,
+                latest.rating_id,
+                latest.last_match_at,
+                ROW_NUMBER() OVER (ORDER BY latest.score DESC, latest.wizard_id ASC) AS rank_position
+            FROM latest
+        )
+        SELECT
+            rank_position,
+            wizard_id,
+            wizard_name,
+            country,
+            score,
+            rating_id,
+            last_match_at
+        FROM ranked
+        ORDER BY rank_position
+        LIMIT #{limit} OFFSET #{offset}
     </select>
 </mapper>

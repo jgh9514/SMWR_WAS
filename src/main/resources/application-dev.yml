@@ -1,4 +1,8 @@
 # 로컬/개발 프로필 — Log4j2 설정 고정 (application.yml 의 jdbc.sqlonly:OFF 덮어씀)
+#
+# Quartz 배치: application.yml 의 spring.batch.job.enabled 가 true 이면 기동 시 DB sys_batch_config 를 읽어 스케줄 등록.
+# 개발(dev)에서도 기본은 활성. 끄려면: spring.batch.job.enabled: false 또는 환경변수 SPRING_BATCH_JOB_ENABLED=false
+#
 logging:
   config: classpath:log4j2-spring.xml
   level:

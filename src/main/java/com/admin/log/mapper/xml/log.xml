@@ -391,13 +391,10 @@
 		WHERE lower(table_name) = 'sys_api_exe_log'
 	</select>
 
-	<!-- API URL로 조회 -->
+	<!-- API URL로 조회 (sys_api 테이블 제거 후: 매칭 없음 → insertApiLog 에서 스킵) -->
 	<select id="selectApiByUrl" parameterType="sqlMap" resultType="sqlMap">
 		/* selectApiByUrl */
-		SELECT api_id
-		FROM SYS_API
-		WHERE api_url = #{url}
-		LIMIT 1
+		SELECT NULL::varchar AS api_id WHERE FALSE
 	</select>
 
 </mapper>

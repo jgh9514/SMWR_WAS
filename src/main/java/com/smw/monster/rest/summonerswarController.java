@@ -1,8 +1,11 @@
 package com.smw.monster.rest;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
@@ -19,7 +22,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.smw.monster.service.summonerswarService;
 import com.sysconf.constants.Constant;
-
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.extern.slf4j.Slf4j;
@@ -32,7 +34,15 @@ public class summonerswarController {
 
 	@Autowired
 	summonerswarService swService;
-	
+
+	/** selectBattleMatchCheck 와 동일한 복합 키 (match_id 는 매치 단위로 이미 고정) */
+	private static String battleDedupKey(Map<String, ?> battleOrRow) {
+		Object ts = battleOrRow.get("log_timestamp");
+		Object w = battleOrRow.get("wizard_id");
+		Object o = battleOrRow.get("opp_wizard_id");
+		return String.valueOf(ts) + "|" + String.valueOf(w) + "|" + String.valueOf(o);
+	}
+
 	private Map<String, Object> getSessUserInfo(HttpServletRequest request) {
 		Object attr = request != null ? request.getAttribute("userInfo") : null;
 		if (attr instanceof Map) {
@@ -424,19 +434,37 @@ public class summonerswarController {
     		if (siegeInserted) {
     			insertedSiegeCount++;
     		}
-    		
+
+    		List<Map<String, ?>> pendingBattles = new ArrayList<>();
+    		List<Map<String, String>> pendingDecks = new ArrayList<>();
+    		Set<String> existingBattleKeys = new HashSet<>();
+    		Set<String> pendingBattleKeys = new HashSet<>();
+    		if (!safeBattleLogList.isEmpty()) {
+    			Object midObj = safeBattleLogList.get(0).get("match_id");
+    			if (midObj != null) {
+    				List<Map<String, ?>> existRows = swService.selectBattleLogKeysForMatch(midObj.toString());
+    				if (existRows != null) {
+    					for (Map<String, ?> r : existRows) {
+    						existingBattleKeys.add(battleDedupKey(r));
+    					}
+    				}
+    			}
+    		}
     		for (int j = 0; j < safeBattleLogList.size(); j++) {
     			Map<String, ?> battle_log = safeBattleLogList.get(j);
-				Map<String, ?> matchCheck = swService.selectBattleMatchCheck(battle_log);
-				if (!"0".equals(matchCheck.get("count").toString())) {
-					// 중복이고 옵션이 없으면 건너뛰기
-					if (siegeOptions == null || !siegeOptions.containsKey(String.valueOf(i)) || 
-					    !"overwrite".equals(siegeOptions.get(String.valueOf(i)))) {
-						continue;
-					}
-				}
-        		swService.insertGuildSiegeBattleLog(battle_log);
-        		insertedBattleCount++;
+    			String dedupKey = battleDedupKey(battle_log);
+    			if (pendingBattleKeys.contains(dedupKey)) {
+    				continue;
+    			}
+    			boolean dupDb = existingBattleKeys.contains(dedupKey);
+    			if (dupDb) {
+    				if (siegeOptions == null || !siegeOptions.containsKey(String.valueOf(i))
+    						|| !"overwrite".equals(siegeOptions.get(String.valueOf(i)))) {
+    					continue;
+    				}
+    			}
+        		pendingBattles.add(battle_log);
+        		pendingBattleKeys.add(dedupKey);
         		
         		List<Map<String, ?>> view_battle_deck_info = (List<Map<String, ?>>) battle_log.get("view_battle_deck_info");
         		if (view_battle_deck_info != null) {
@@ -450,9 +478,18 @@ public class summonerswarController {
 	        			deckParam.put("monster_id_2", String.valueOf(view_battle_deck.get(1)));
 	        			deckParam.put("monster_id_3", String.valueOf(view_battle_deck.get(2)));
 	        			deckParam.put("type", k == 0 ? "attack" : "defense");
-	            		swService.insertGuildSiegeBattleDeck(deckParam);
+	            		pendingDecks.add(deckParam);
 	        		}
         		}
+    		}
+    		if (!pendingBattles.isEmpty()) {
+    			log.info("[siege-upload] insertGuildSiegeBattleLogBatch rows={} (단건 insertGuildSiegeBattleLog 아님)", pendingBattles.size());
+    			swService.insertGuildSiegeBattleLogBatch(pendingBattles);
+    			insertedBattleCount += pendingBattles.size();
+    		}
+    		if (!pendingDecks.isEmpty()) {
+    			log.info("[siege-upload] insertGuildSiegeBattleDeckBatch rows={} (단건 insertGuildSiegeBattleDeck 아님)", pendingDecks.size());
+    			swService.insertGuildSiegeBattleDeckBatch(pendingDecks);
     		}
     	}
     	
@@ -520,47 +557,15 @@ public class summonerswarController {
     @Operation(summary = "아레나 JSON 저장", description = "아레나 대전 로그 데이터를 저장합니다.")
     @SuppressWarnings("unchecked")
 	@PostMapping("/rta-upload")
-    @Transactional
     public ResponseEntity<?> saveArenaData(@RequestBody Map<String, Object> param, HttpSession session) {
-    	int success = 0;
-    	int fail = 0;
     	List<Map<String, ?>> log_list = (List<Map<String, ?>>) param.get("arenaJson");
-    	for (int i = 0; i < log_list.size(); i++) {
-    		Map<String, ?> list = log_list.get(i);
-			int matchCheck = swService.selectArenaKeyCheck(list);
-			if (matchCheck == 0) {
-				success += swService.insertArenaInfo(list);
-				
-				Map<Integer, Map<String, Object>> user_list = (Map<Integer, Map<String, Object>>) list.get("user_list");
-		        for (Map.Entry<Integer, Map<String, Object>> entry : user_list.entrySet()) {
-		            Map<String, Object> user_info = entry.getValue();
-	    			user_info.put("rid", list.get("rid"));
-	        		swService.insertArenaUserInfo(user_info);
-	        		
-	        		Map<String, Object> pick_info = (Map<String, Object>) user_info.get("pick_info");
-	        		pick_info.put("rid", list.get("rid"));
-	        		pick_info.put("wizard_id", user_info.get("wizard_id"));
-	        		List<Integer> banList = (List<Integer>) pick_info.get("banned_slot_ids");
-	        		pick_info.put("banned_slot_id", banList.get(0));
-	        		
-	        		swService.insertArenaPickInfo(pick_info);
-
-	            	List<Map<String, ?>> unit_list = (List<Map<String, ?>>) pick_info.get("unit_list");
-	            	for (int k = 0; k < unit_list.size(); k++) {
-	            		Map<String, Object> unit = (Map<String, Object>) unit_list.get(k);
-		        		unit.put("rid", list.get("rid"));
-		        		unit.put("wizard_id", user_info.get("wizard_id"));
-		        		swService.insertArenaUnitInfo(unit);
-	            	}
-	    		}
-	    		
-			} else {
-				fail += 1;
-			}
+    	if (log_list == null || log_list.isEmpty()) {
+    		Map<String, Integer> empty = new HashMap<>();
+    		empty.put("success", 0);
+    		empty.put("fail", 0);
+    		return new ResponseEntity<>(empty, HttpStatus.OK);
     	}
-    	Map<String, Integer> result = new HashMap<>();
-    	result.put("success", success);
-    	result.put("fail", fail);
+    	Map<String, Integer> result = swService.applyArenaRtaUploadFromParsedItems(log_list);
         return new ResponseEntity<>(result, HttpStatus.OK);
     }
 	
@@ -692,20 +697,13 @@ public class summonerswarController {
     	return new ResponseEntity<>(result, HttpStatus.OK);
     }
 
-    @Operation(summary = "공덱 추천/비추천", description = "vote: UP, DOWN, CLEAR — 특정 방덱(def_monster_1~3) + 공덱(deck_id)당 사용자 1건")
+    @Operation(summary = "공덱 추천/비추천", description = "vote: UP, DOWN, CLEAR — 방덱(def)+등록 공덱(deck_id) 또는 방덱+공격(atk) 자유 투표")
     @PostMapping("/deck-vote")
     public ResponseEntity<?> setDeckVote(@RequestBody Map<String, Object> param, HttpSession session, HttpServletRequest request) {
     	Map<String, Object> p = param != null ? param : new HashMap<>();
     	ResponseEntity<?> guard = requireLoginAndGuild(request, p);
     	if (guard != null) return guard;
 
-    	Object deckIdObj = p.get("deck_id");
-    	if (deckIdObj == null || String.valueOf(deckIdObj).trim().isEmpty()) {
-    		Map<String, Object> body = new HashMap<>();
-    		body.put("result", "FAIL");
-    		body.put("message", "deck_id가 필요합니다.");
-    		return new ResponseEntity<>(body, HttpStatus.BAD_REQUEST);
-    	}
     	Object d1 = p.get("def_monster_1") != null ? p.get("def_monster_1") : p.get("defMonster1");
     	Object d2 = p.get("def_monster_2") != null ? p.get("def_monster_2") : p.get("defMonster2");
     	Object d3 = p.get("def_monster_3") != null ? p.get("def_monster_3") : p.get("defMonster3");
@@ -720,6 +718,32 @@ public class summonerswarController {
     	p.put("def_monster_1", d1);
     	p.put("def_monster_2", d2);
     	p.put("def_monster_3", d3);
+
+    	Object deckIdObj = p.get("deck_id");
+    	String deckIdStr = deckIdObj != null ? String.valueOf(deckIdObj).trim() : "";
+    	Object a1 = p.get("atk_monster_1") != null ? p.get("atk_monster_1") : p.get("atkMonster1");
+    	Object a2 = p.get("atk_monster_2") != null ? p.get("atk_monster_2") : p.get("atkMonster2");
+    	Object a3 = p.get("atk_monster_3") != null ? p.get("atk_monster_3") : p.get("atkMonster3");
+    	if (a1 != null) {
+    		p.put("atk_monster_1", a1);
+    	}
+    	if (a2 != null) {
+    		p.put("atk_monster_2", a2);
+    	}
+    	if (a3 != null) {
+    		p.put("atk_monster_3", a3);
+    	}
+    	if (deckIdStr.isEmpty() || "0".equals(deckIdStr)) {
+    		boolean atkOk = a1 != null && !String.valueOf(a1).trim().isEmpty()
+    				&& a2 != null && !String.valueOf(a2).trim().isEmpty()
+    				&& a3 != null && !String.valueOf(a3).trim().isEmpty();
+    		if (!atkOk) {
+    			Map<String, Object> body = new HashMap<>();
+    			body.put("result", "FAIL");
+    			body.put("message", "deck_id가 없으면 atk_monster_1, atk_monster_2, atk_monster_3이 필요합니다.");
+    			return new ResponseEntity<>(body, HttpStatus.BAD_REQUEST);
+    		}
+    	}
     	try {
     		swService.setDeckVote(p);
     		Map<String, Object> ok = new HashMap<>();

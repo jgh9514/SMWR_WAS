@@ -1,5 +1,6 @@
 package com.cf.comm.service;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -40,12 +41,12 @@ public class CommServiceImpl implements CommService {
 
     @Override
     public List<Map<String, ?>> selectMenuList(Map<String, Object> param) {
-        return mapper.selectMenuList(param);
+        return Collections.emptyList();
     }
     
     @Override
     public List<Map<String, ?>> selectLoginAccessPageList(Map<String, Object> param) {
-        return mapper.selectLoginAccessPageList(param);
+        return Collections.emptyList();
     }
     
     @Override

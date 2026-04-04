@@ -1,7 +1,9 @@
 package com.smw.monster.service;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public interface summonerswarService {
 
@@ -40,12 +42,31 @@ public interface summonerswarService {
 	public int insertGuildSiegeInfo(Map<String, ?> param);
 	
 	public Map<String, ?> selectBattleMatchCheck(Map<String, ?> param);
+
+	/** match_id 기준 기존 전투 로그 키 일괄 조회 */
+	List<Map<String, ?>> selectBattleLogKeysForMatch(String matchId);
 	
 	public int insertGuildSiegeBattleLog(Map<String, ?> param);
 	
 	public int insertGuildSiegeBattleDeck(Map<String, ?> param);
+
+	/** battle_log_list 다건 INSERT */
+	int insertGuildSiegeBattleLogBatch(List<Map<String, ?>> rows);
+
+	/** view_battle_deck_info 다건 INSERT */
+	int insertGuildSiegeBattleDeckBatch(List<Map<String, String>> rows);
 	
-	public int selectArenaKeyCheck(Map<String, ?> param);
+	/** DB에 이미 존하는 rid 집합 (IN 절 분할 조회) */
+	Set<Long> selectArenaRidsExisting(Collection<Long> rids);
+
+	/** 이미 저장된 (rid, wizard_id) PK 문자열 rid|wizard_id (user_list 단독 잔존 등 불일치 대비) */
+	Set<String> selectArenaUserPkKeysExisting(Collection<Long> rids);
+
+	/**
+	 * 업로드 중단 등으로 replay_list 없이 user/pick/unit 만 남은 rid 정리.
+	 * 재업로드 시 고아 PK가 ‘이미 존재’로 잡혀 replay 가 안 들어가는 현상 방지.
+	 */
+	int deleteArenaRtaOrphanChildrenByRids(Collection<Long> rids);
 	
 	public int insertArenaInfo(Map<String, ?> param);
 	
@@ -54,6 +75,30 @@ public interface summonerswarService {
 	public int insertArenaPickInfo(Map<String, ?> param);
 	
 	public int insertArenaUnitInfo(Map<String, ?> param);
+
+	/** rta-upload: 레거시 — 단건 INSERT를 최대 200건 단위로 반복 */
+	int insertArenaInfoBatch(List<Map<String, ?>> rows);
+
+	int insertArenaUserInfoBatch(List<Map<String, ?>> rows);
+
+	int insertArenaPickInfoBatch(List<Map<String, ?>> rows);
+
+	int insertArenaUnitInfoBatch(List<Map<String, ?>> rows);
+
+	/**
+	 * rta-upload: 고아 삭제(짧은 트랜잭션)·필터 후, replay/user/pick/unit 을 VALUES 벌크 INSERT(한 트랜잭션).
+	 */
+	ArenaRtaUploadApplyResult applyArenaRtaUploadPersistence(
+			List<Map<String, ?>> arenaBatch,
+			List<Map<String, ?>> userBatch,
+			List<Map<String, ?>> pickBatch,
+			List<Map<String, ?>> unitBatch);
+
+	/**
+	 * rta-upload API 및 로컬 Exporter full_log 수집과 동일한 검증·적재.
+	 * @return success / fail 건수
+	 */
+	Map<String, Integer> applyArenaRtaUploadFromParsedItems(List<Map<String, ?>> log_list);
 
 	public List<Map<String, ?>> selectRecordList(Map<String, Object> param);
 

@@ -31,6 +31,12 @@ public interface RtaMapper {
      * RTA 몬스터별 통계 조회
      */
     List<Map<String, Object>> getRtaMonsterStats(@Param("limit") int limit, @Param("offset") int offset);
+
+    /** 동일 팀에서 함께 등장한 2마리 조합 승률 (전역 상위) */
+    List<Map<String, Object>> getRtaDuoComboStats(@Param("limit") int limit);
+
+    /** 동일 팀에서 함께 등장한 3마리 조합 승률 (전역 상위) */
+    List<Map<String, Object>> getRtaTrioComboStats(@Param("limit") int limit);
     
     /**
      * RTA 몬스터 기본 정보 조회
@@ -56,4 +62,18 @@ public interface RtaMapper {
      * RTA 몬스터 최근 경기 조회
      */
     List<Map<String, Object>> getRtaMonsterRecentMatches(@Param("monsterId") int monsterId);
+
+    /** 일자×티어별 출현 수 (전체 기간, 대시보드 클라이언트에서 기간 합산) */
+    List<Map<String, Object>> getRtaTierDistributionDaily();
+
+    /** 리플레이 날짜 min/max */
+    Map<String, Object> getRtaReplayDateRange();
+
+    /** 일자×티어별 최저 점수 (P2·P3·G1~G3, 랭크 컷 추정용) */
+    List<Map<String, Object>> getRtaRankCutoffDaily();
+
+    /** 소환사 랭킹 (최근 리플레이 기준 점수 순) */
+    int getRtaSummonerRankingCount();
+
+    List<Map<String, Object>> getRtaSummonerRanking(@Param("limit") int limit, @Param("offset") int offset);
 } 

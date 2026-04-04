@@ -49,12 +49,32 @@ public interface summonerswarMapper {
 	public int insertGuildSiegeInfo(Map<String, ?> param);
 	
 	public Map<String, ?> selectBattleMatchCheck(Map<String, ?> param);
+
+	/** match_id 기준 기존 전투 로그 키 일괄 조회 (중복 검사 N회 → 1회) */
+	List<Map<String, ?>> selectBattleLogKeysForMatch(@Param("match_id") String matchId);
 	
 	public int insertGuildSiegeBattleLog(Map<String, ?> param);
 	
 	public int insertGuildSiegeBattleDeck(Map<String, ?> param);
+
+	/** battle_log_list 다건 INSERT (점령전 업로드 성능) */
+	int insertGuildSiegeBattleLogBatch(@Param("rows") List<Map<String, ?>> rows);
+
+	/** view_battle_deck_info 다건 INSERT */
+	int insertGuildSiegeBattleDeckBatch(@Param("rows") List<Map<String, String>> rows);
 	
-	public int selectArenaKeyCheck(Map<String, ?> param);
+	/** 이미 저장된 rid만 조회 (rta-upload 중복 검사 N회 → 1~N/500회) */
+	List<Long> selectArenaRidsExisting(@Param("rids") List<Long> rids);
+
+	/** user_list PK (rid, wizard_id) 이미 존재 여부 — replay_list 와 불일치 시에도 중복 INSERT 방지 */
+	List<Map<String, ?>> selectArenaUserPairsByRids(@Param("rids") List<Long> rids);
+
+	/** replay_list 에 부모가 없는 rid 에 대해 자식만 남은 행 삭제 (업로드 중단 복구용). unit → pick → user 순 */
+	int deleteArenaRtaOrphanUnitsByRids(@Param("rids") List<Long> rids);
+
+	int deleteArenaRtaOrphanPicksByRids(@Param("rids") List<Long> rids);
+
+	int deleteArenaRtaOrphanUsersByRids(@Param("rids") List<Long> rids);
 	
 	public int insertArenaInfo(Map<String, ?> param);
 	
@@ -63,6 +83,27 @@ public interface summonerswarMapper {
 	public int insertArenaPickInfo(Map<String, ?> param);
 	
 	public int insertArenaUnitInfo(Map<String, ?> param);
+
+	/** rta-upload 벌크: VALUES 다중 행 + ON CONFLICT DO NOTHING */
+	int insertArenaInfoBulk(@Param("rows") List<Map<String, ?>> rows);
+
+	int insertArenaUserInfoBulk(@Param("rows") List<Map<String, ?>> rows);
+
+	int insertArenaPickInfoBulk(@Param("rows") List<Map<String, ?>> rows);
+
+	int insertArenaUnitInfoBulk(@Param("rows") List<Map<String, ?>> rows);
+
+	/** rta-upload: 원본 JSON 벌크 (rid + payload). ON CONFLICT 시 payload 갱신 */
+	int insertArenaReplayRawBulk(@Param("rows") List<Map<String, Object>> rows);
+
+	/** rta-upload: 정규화 반영 완료 표시 */
+	int updateArenaReplayRawAppliedBulk(@Param("rids") List<Long> rids);
+
+	/** rta-upload: 정규화 실패 표시(재시도·점검). retry_count 증가 */
+	int updateArenaReplayRawFailedBulk(@Param("rids") List<Long> rids, @Param("message") String message);
+
+	/** RTA raw: 아직 정규화 반영 전인 건수 (배치 모니터링) */
+	int selectRtaReplayRawNotAppliedCount();
 
 	public List<Map<String, ?>> selectRecordList(Map<String, Object> param);
 
@@ -80,10 +121,13 @@ public interface summonerswarMapper {
 	
 	public int deleteDeckDetail(Map<String, Object> param);
 
-	/** 공덱 추천/비추천 upsert (사용자당 1건) */
-	public int upsertDeckVote(Map<String, Object> param);
+	/** 등록된 공덱(deck_id) 투표 행 삽입 */
+	public int insertDeckVoteRegistered(Map<String, Object> param);
 
-	/** 공덱 추천/비추천 삭제(취소) */
+	/** 추천 공덱 미등록 조합 투표(deck_id NULL, atk만) */
+	public int insertDeckVoteFree(Map<String, Object> param);
+
+	/** 공덱 추천/비추천 삭제(취소) — deck_id 있으면 등록 행, 없으면 atk로 자유 투표 행 */
 	public int deleteDeckVote(Map<String, Object> param);
 	
 	public Map<String, ?> selectCurrentSeason(Map<String, Object> param);

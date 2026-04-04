@@ -10,13 +10,18 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.boot.web.servlet.support.SpringBootServletInitializer;
 import org.mybatis.spring.annotation.MapperScan;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.context.annotation.Bean;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
+import com.smw.monster.config.RtaExporterProperties;
 import com.sysconf.config.SessionListener;
 
 @SpringBootApplication(scanBasePackages = {"com.smw", "com.sysconf", "com.admin", "com.cf"})
 @EnableCaching
+@EnableScheduling
+@EnableConfigurationProperties(RtaExporterProperties.class)
 @MapperScan({"com.smw", "com.admin", "com.cf", "com.sysconf"})
 public class Application extends SpringBootServletInitializer {
 

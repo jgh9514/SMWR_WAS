@@ -6,9 +6,10 @@ import org.springframework.cache.annotation.Cacheable;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
 
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.HashMap;
 
 @Service
 @Primary
@@ -57,7 +58,7 @@ public class RtaServiceImpl implements RtaService {
     
     @Override
     @Cacheable(
-            cacheNames = "rtaMonsterStats",
+            cacheNames = "rtaMonsterStatsV2",
             cacheManager = "shortLivedCacheManager",
             key = "#limit + ':' + #offset"
     )
@@ -67,12 +68,16 @@ public class RtaServiceImpl implements RtaService {
         
         // 몬스터별 통계 조회
         List<Map<String, Object>> stats = rtaMapper.getRtaMonsterStats(limit, offset);
+        List<Map<String, Object>> duoStats = rtaMapper.getRtaDuoComboStats(50);
+        List<Map<String, Object>> trioStats = rtaMapper.getRtaTrioComboStats(50);
         
         // 더 불러올 데이터가 있는지 확인
         boolean hasMore = stats.size() == limit;
         
         Map<String, Object> response = new HashMap<>();
         response.put("stats", stats);
+        response.put("duo_stats", duoStats);
+        response.put("trio_stats", trioStats);
         response.put("total_matches", totalMatches);
         response.put("has_more", hasMore);
         
@@ -104,6 +109,38 @@ public class RtaServiceImpl implements RtaService {
         List<Map<String, Object>> recentMatches = rtaMapper.getRtaMonsterRecentMatches(monsterId);
         response.put("recent_matches", recentMatches);
         
+        return response;
+    }
+
+    @Override
+    @Cacheable(
+            cacheNames = "rtaDashboardV2",
+            cacheManager = "shortLivedCacheManager",
+            key = "'all'"
+    )
+    public Map<String, Object> getRtaDashboard() {
+        List<Map<String, Object>> daily = rtaMapper.getRtaTierDistributionDaily();
+        Map<String, Object> dateRange = rtaMapper.getRtaReplayDateRange();
+        List<Map<String, Object>> rankCutoffDaily = rtaMapper.getRtaRankCutoffDaily();
+        Map<String, Object> response = new HashMap<>();
+        response.put("daily_tiers", daily != null ? daily : Collections.emptyList());
+        response.put("date_range", dateRange != null ? dateRange : new HashMap<>());
+        response.put("rank_cutoff_daily", rankCutoffDaily != null ? rankCutoffDaily : Collections.emptyList());
+        return response;
+    }
+
+    @Override
+    @Cacheable(
+            cacheNames = "rtaSummonerRanking",
+            cacheManager = "shortLivedCacheManager",
+            key = "#limit + ':' + #offset"
+    )
+    public Map<String, Object> getRtaSummonerRanking(int limit, int offset) {
+        int total = rtaMapper.getRtaSummonerRankingCount();
+        List<Map<String, Object>> rows = rtaMapper.getRtaSummonerRanking(limit, offset);
+        Map<String, Object> response = new HashMap<>();
+        response.put("total", total);
+        response.put("rankings", rows != null ? rows : Collections.emptyList());
         return response;
     }
 }

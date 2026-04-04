@@ -27,8 +27,8 @@ spring:
       connection-timeout: 30000
       leak-detection-threshold: ${SPRING_DATASOURCE_HIKARI_LEAK_DETECTION_THRESHOLD:0}
   servlet:
-    multipart.max-file-size: 20MB
-    max-request-size: 25MB
+    multipart.max-file-size: 32MB
+    max-request-size: 40MB
   mail:
     host: smtp.gmail.com
     port: 587
@@ -68,6 +68,8 @@ server:
     mime-types: application/json,application/xml,text/html,text/xml,text/plain,text/css,application/javascript
   tomcat:
     min-spare-threads: 40
+    # JSON @RequestBody(실레나 rta-upload 등) — 기본 2MB 제한 완화
+    max-http-post-size: 32MB
   servlet:
     session:
       timeout: 3600
@@ -163,6 +165,16 @@ smw:
     short-lived:
       maximum-size: ${SMW_SHORT_CACHE_MAXIMUM_SIZE:500}
       expire-after-write-minutes: ${SMW_SHORT_CACHE_EXPIRE_AFTER_WRITE_MINUTES:5}
+  # Summoners War Exporter full_log 로컬 폴더 감시 (로그 수집 PC에서만 켬 — UI 테스트 PC는 enabled: false 유지)
+  rta:
+    exporter:
+      enabled: ${SMW_RTA_EXPORTER_ENABLED:false}
+      watch-directory: ${SMW_RTA_EXPORTER_WATCH_DIR:}
+      temp-subdir: ${SMW_RTA_EXPORTER_TEMP_SUBDIR:temp}
+      file-name-prefix: ${SMW_RTA_EXPORTER_FILE_PREFIX:full_log}
+      poll-interval-ms: ${SMW_RTA_EXPORTER_POLL_MS:30000}
+      max-file-size-mb: ${SMW_RTA_EXPORTER_MAX_MB:128}
+      stable-millis: ${SMW_RTA_EXPORTER_STABLE_MS:2000}
   ops:
     thresholds:
       heap-warning-percent: ${SMW_OPS_HEAP_WARNING_PERCENT:75}

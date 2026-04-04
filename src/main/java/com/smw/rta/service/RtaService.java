@@ -39,4 +39,14 @@ public interface RtaService {
      * Get RTA monster detail information
      */
     Map<String, Object> getRtaMonsterDetail(int monsterId);
+
+    /**
+     * RTA 대시보드: 일별 티어 집계 + 날짜 범위 (클라이언트에서 기간 필터)
+     */
+    Map<String, Object> getRtaDashboard();
+
+    /**
+     * RTA 소환사 랭킹 (수집 리플레이 중 소환사별 최신 경기 점수 기준)
+     */
+    Map<String, Object> getRtaSummonerRanking(int limit, int offset);
 }

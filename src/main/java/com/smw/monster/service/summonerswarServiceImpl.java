@@ -1,8 +1,10 @@
 package com.smw.monster.service;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -13,17 +15,32 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import lombok.extern.slf4j.Slf4j;
 
 import com.smw.monster.mapper.summonerswarMapper;
 import com.smw.monster.util.MonsterDetailContextBuilder;
 import com.smw.monster.util.MonsterIdEvolutionUtil;
+import com.sysconf.exception.RtaUploadValidationException;
 
+@Slf4j
 @Service
 @Primary
 public class summonerswarServiceImpl implements summonerswarService {
 	
 	@Autowired
 	summonerswarMapper swMapper;
+
+	@Autowired
+	private TransactionTemplate transactionTemplate;
+
+	@Autowired
+	private ObjectMapper objectMapper;
 	
 	@Override
 	@Cacheable(
@@ -316,6 +333,14 @@ public class summonerswarServiceImpl implements summonerswarService {
 	public Map<String, ?> selectBattleMatchCheck(Map<String, ?> param) {
 		return swMapper.selectBattleMatchCheck(param);
 	}
+
+	@Override
+	public List<Map<String, ?>> selectBattleLogKeysForMatch(String matchId) {
+		if (matchId == null || matchId.isEmpty()) {
+			return java.util.Collections.emptyList();
+		}
+		return swMapper.selectBattleLogKeysForMatch(matchId);
+	}
 	
 	@Override
 	public int insertGuildSiegeBattleLog(Map<String, ?> param) {
@@ -326,10 +351,125 @@ public class summonerswarServiceImpl implements summonerswarService {
 	public int insertGuildSiegeBattleDeck(Map<String, ?> param) {
 		return swMapper.insertGuildSiegeBattleDeck(param);
 	}
-	
+
 	@Override
-	public int selectArenaKeyCheck(Map<String, ?> param) {
-		return swMapper.selectArenaKeyCheck(param);
+	public int insertGuildSiegeBattleLogBatch(List<Map<String, ?>> rows) {
+		if (rows == null || rows.isEmpty()) {
+			return 0;
+		}
+		final int max = 500;
+		int total = 0;
+		for (int from = 0; from < rows.size(); from += max) {
+			int to = Math.min(from + max, rows.size());
+			total += swMapper.insertGuildSiegeBattleLogBatch(rows.subList(from, to));
+		}
+		return total;
+	}
+
+	@Override
+	public int insertGuildSiegeBattleDeckBatch(List<Map<String, String>> rows) {
+		if (rows == null || rows.isEmpty()) {
+			return 0;
+		}
+		final int max = 500;
+		int total = 0;
+		for (int from = 0; from < rows.size(); from += max) {
+			int to = Math.min(from + max, rows.size());
+			total += swMapper.insertGuildSiegeBattleDeckBatch(rows.subList(from, to));
+		}
+		return total;
+	}
+	
+	private static final int ARENA_RTA_EXISTING_RID_CHUNK = 500;
+
+	@Override
+	public Set<Long> selectArenaRidsExisting(Collection<Long> rids) {
+		if (rids == null || rids.isEmpty()) {
+			return Collections.emptySet();
+		}
+		List<Long> distinct = new ArrayList<>(new LinkedHashSet<>(rids));
+		Set<Long> out = new HashSet<>();
+		for (int from = 0; from < distinct.size(); from += ARENA_RTA_EXISTING_RID_CHUNK) {
+			int to = Math.min(from + ARENA_RTA_EXISTING_RID_CHUNK, distinct.size());
+			List<Long> sub = new ArrayList<>(distinct.subList(from, to));
+			List<Long> found = swMapper.selectArenaRidsExisting(sub);
+			if (found != null) {
+				for (Object x : found) {
+					Long n = normalizeLong(x);
+					if (n != null) {
+						out.add(n);
+					}
+				}
+			}
+		}
+		return out;
+	}
+
+	@Override
+	public Set<String> selectArenaUserPkKeysExisting(Collection<Long> rids) {
+		if (rids == null || rids.isEmpty()) {
+			return Collections.emptySet();
+		}
+		List<Long> distinct = new ArrayList<>(new LinkedHashSet<>(rids));
+		Set<String> out = new HashSet<>();
+		for (int from = 0; from < distinct.size(); from += ARENA_RTA_EXISTING_RID_CHUNK) {
+			int to = Math.min(from + ARENA_RTA_EXISTING_RID_CHUNK, distinct.size());
+			List<Long> sub = new ArrayList<>(distinct.subList(from, to));
+			List<Map<String, ?>> rows = swMapper.selectArenaUserPairsByRids(sub);
+			if (rows == null) {
+				continue;
+			}
+			for (Map<String, ?> row : rows) {
+				Long rid = normalizeLong(row != null ? row.get("rid") : null);
+				Object w = row != null ? row.get("wizard_id") : null;
+				String pk = arenaUserPkKeyString(rid, w);
+				if (pk != null) {
+					out.add(pk);
+				}
+			}
+		}
+		return out;
+	}
+
+	@Override
+	public int deleteArenaRtaOrphanChildrenByRids(Collection<Long> rids) {
+		if (rids == null || rids.isEmpty()) {
+			return 0;
+		}
+		List<Long> distinct = new ArrayList<>(new LinkedHashSet<>(rids));
+		int total = 0;
+		for (int from = 0; from < distinct.size(); from += ARENA_RTA_EXISTING_RID_CHUNK) {
+			int to = Math.min(from + ARENA_RTA_EXISTING_RID_CHUNK, distinct.size());
+			List<Long> sub = new ArrayList<>(distinct.subList(from, to));
+			total += swMapper.deleteArenaRtaOrphanUnitsByRids(sub);
+			total += swMapper.deleteArenaRtaOrphanPicksByRids(sub);
+			total += swMapper.deleteArenaRtaOrphanUsersByRids(sub);
+		}
+		return total;
+	}
+
+	private static Long normalizeLong(Object o) {
+		if (o == null) {
+			return null;
+		}
+		if (o instanceof Long) {
+			return (Long) o;
+		}
+		if (o instanceof Number) {
+			return ((Number) o).longValue();
+		}
+		try {
+			return Long.parseLong(String.valueOf(o).trim());
+		} catch (NumberFormatException e) {
+			return null;
+		}
+	}
+
+	private static String arenaUserPkKeyString(Long rid, Object wizardId) {
+		if (rid == null || wizardId == null) {
+			return null;
+		}
+		return rid + "|" + String.valueOf(wizardId).trim();
 	}
 	
 	@Override
@@ -350,6 +490,534 @@ public class summonerswarServiceImpl implements summonerswarService {
 	@Override
 	public int insertArenaUnitInfo(Map<String, ?> param) {
 		return swMapper.insertArenaUnitInfo(param);
+	}
+
+	/** 레거시 단건 INSERT 반복 시 바깥 루프 단위 (실제로는 행마다 INSERT) */
+	private static final int ARENA_RTA_INSERT_CHUNK = 200;
+	/**
+	 * rta-upload VALUES 다중행 INSERT 시 한 문당 행 수 상한.
+	 * 한 번에 너무 많은 플레이스홀더를 보내면 PostgreSQL JDBC 에서 "An I/O error occurred while sending to the backend" 가 날 수 있음.
+	 */
+	private static final int ARENA_RTA_BULK_CHUNK = 40;
+
+	@Override
+	public int insertArenaInfoBatch(List<Map<String, ?>> rows) {
+		if (rows == null || rows.isEmpty()) {
+			return 0;
+		}
+		int total = 0;
+		for (int from = 0; from < rows.size(); from += ARENA_RTA_INSERT_CHUNK) {
+			int to = Math.min(from + ARENA_RTA_INSERT_CHUNK, rows.size());
+			for (int i = from; i < to; i++) {
+				total += swMapper.insertArenaInfo(rows.get(i));
+			}
+		}
+		return total;
+	}
+
+	@Override
+	public int insertArenaUserInfoBatch(List<Map<String, ?>> rows) {
+		if (rows == null || rows.isEmpty()) {
+			return 0;
+		}
+		int total = 0;
+		for (int from = 0; from < rows.size(); from += ARENA_RTA_INSERT_CHUNK) {
+			int to = Math.min(from + ARENA_RTA_INSERT_CHUNK, rows.size());
+			for (int i = from; i < to; i++) {
+				total += swMapper.insertArenaUserInfo(rows.get(i));
+			}
+		}
+		return total;
+	}
+
+	@Override
+	public int insertArenaPickInfoBatch(List<Map<String, ?>> rows) {
+		if (rows == null || rows.isEmpty()) {
+			return 0;
+		}
+		int total = 0;
+		for (int from = 0; from < rows.size(); from += ARENA_RTA_INSERT_CHUNK) {
+			int to = Math.min(from + ARENA_RTA_INSERT_CHUNK, rows.size());
+			for (int i = from; i < to; i++) {
+				total += swMapper.insertArenaPickInfo(rows.get(i));
+			}
+		}
+		return total;
+	}
+
+	@Override
+	public int insertArenaUnitInfoBatch(List<Map<String, ?>> rows) {
+		if (rows == null || rows.isEmpty()) {
+			return 0;
+		}
+		int total = 0;
+		for (int from = 0; from < rows.size(); from += ARENA_RTA_INSERT_CHUNK) {
+			int to = Math.min(from + ARENA_RTA_INSERT_CHUNK, rows.size());
+			for (int i = from; i < to; i++) {
+				total += swMapper.insertArenaUnitInfo(rows.get(i));
+			}
+		}
+		return total;
+	}
+
+	private static void filterArenaRtaRowsAlreadyInDb(
+			Set<String> existingPk,
+			List<Map<String, ?>> userBatch,
+			List<Map<String, ?>> pickBatch,
+			List<Map<String, ?>> unitBatch) {
+		if (existingPk == null || existingPk.isEmpty()) {
+			return;
+		}
+		List<Map<String, ?>> u2 = new ArrayList<>();
+		List<Map<String, ?>> p2 = new ArrayList<>();
+		for (int i = 0; i < userBatch.size(); i++) {
+			Map<String, ?> u = userBatch.get(i);
+			Long rid = normalizeLong(u.get("rid"));
+			String pk = arenaUserPkKeyString(rid, u.get("wizard_id"));
+			if (pk != null && existingPk.contains(pk)) {
+				log.debug("[rta-upload] DB에 이미 있는 user_list 행 제외 {}", pk);
+				continue;
+			}
+			u2.add(u);
+			p2.add(pickBatch.get(i));
+		}
+		userBatch.clear();
+		userBatch.addAll(u2);
+		pickBatch.clear();
+		pickBatch.addAll(p2);
+		Set<String> kept = new HashSet<>();
+		for (Map<String, ?> u : u2) {
+			String pk = arenaUserPkKeyString(normalizeLong(u.get("rid")), u.get("wizard_id"));
+			if (pk != null) {
+				kept.add(pk);
+			}
+		}
+		List<Map<String, ?>> units2 = new ArrayList<>();
+		for (Map<String, ?> row : unitBatch) {
+			String pk = arenaUserPkKeyString(normalizeLong(row.get("rid")), row.get("wizard_id"));
+			if (pk != null && kept.contains(pk)) {
+				units2.add(row);
+			}
+		}
+		unitBatch.clear();
+		unitBatch.addAll(units2);
+	}
+
+	private static void pruneArenaBatchWithoutUserRows(
+			List<Map<String, ?>> arenaBatch,
+			List<Map<String, ?>> userBatch) {
+		if (arenaBatch.isEmpty() || userBatch.isEmpty()) {
+			if (userBatch.isEmpty()) {
+				arenaBatch.clear();
+			}
+			return;
+		}
+		Set<Long> ridsWithUser = new HashSet<>();
+		for (Map<String, ?> u : userBatch) {
+			Long rid = normalizeLong(u.get("rid"));
+			if (rid != null) {
+				ridsWithUser.add(rid);
+			}
+		}
+		arenaBatch.removeIf((Map<String, ?> a) -> {
+			Long rid = normalizeLong(a.get("rid"));
+			return rid == null || !ridsWithUser.contains(rid);
+		});
+	}
+
+	/**
+	 * 누적 로그 등으로 동일 rid 전투가 여러 번 들어온 경우 첫 행만 유지.
+	 * user/pick 은 (rid, wizard_id), unit 은 동일 (rid, wizard_id) 및 pick_slot 기준 중복 제거.
+	 */
+	private void dedupeArenaRtaUploadBatches(
+			List<Map<String, ?>> arenaBatch,
+			List<Map<String, ?>> userBatch,
+			List<Map<String, ?>> pickBatch,
+			List<Map<String, ?>> unitBatch) {
+		if (arenaBatch == null || arenaBatch.isEmpty()) {
+			return;
+		}
+		LinkedHashMap<Long, Map<String, ?>> arenaByRid = new LinkedHashMap<>();
+		for (Map<String, ?> row : arenaBatch) {
+			Long rid = normalizeLong(row != null ? row.get("rid") : null);
+			if (rid == null) {
+				continue;
+			}
+			arenaByRid.putIfAbsent(rid, row);
+		}
+		if (arenaByRid.size() < arenaBatch.size()) {
+			log.info("[rta-upload] 요청 내 동일 rid 전투 중복 {}건 제거 (첫 행만 유지)", arenaBatch.size() - arenaByRid.size());
+		}
+		arenaBatch.clear();
+		arenaBatch.addAll(arenaByRid.values());
+
+		LinkedHashSet<String> seenUserPk = new LinkedHashSet<>();
+		List<Map<String, ?>> u2 = new ArrayList<>();
+		List<Map<String, ?>> p2 = new ArrayList<>();
+		for (int i = 0; i < userBatch.size(); i++) {
+			Map<String, ?> u = userBatch.get(i);
+			Long rid = normalizeLong(u.get("rid"));
+			String pk = arenaUserPkKeyString(rid, u.get("wizard_id"));
+			if (pk == null || !seenUserPk.add(pk)) {
+				continue;
+			}
+			u2.add(u);
+			p2.add(pickBatch.get(i));
+		}
+		if (u2.size() < userBatch.size()) {
+			log.debug("[rta-upload] 요청 내 (rid, wizard_id) 중복 user/pick 행 제거");
+		}
+		userBatch.clear();
+		userBatch.addAll(u2);
+		pickBatch.clear();
+		pickBatch.addAll(p2);
+
+		Set<String> keptUserPk = new HashSet<>();
+		for (Map<String, ?> u : u2) {
+			String pk = arenaUserPkKeyString(normalizeLong(u.get("rid")), u.get("wizard_id"));
+			if (pk != null) {
+				keptUserPk.add(pk);
+			}
+		}
+		List<Map<String, ?>> unitsFiltered = new ArrayList<>();
+		for (Map<String, ?> row : unitBatch) {
+			String pk = arenaUserPkKeyString(normalizeLong(row.get("rid")), row.get("wizard_id"));
+			if (pk != null && keptUserPk.contains(pk)) {
+				unitsFiltered.add(row);
+			}
+		}
+		LinkedHashSet<String> seenUnitKey = new LinkedHashSet<>();
+		List<Map<String, ?>> units2 = new ArrayList<>();
+		for (Map<String, ?> row : unitsFiltered) {
+			Long rid = normalizeLong(row.get("rid"));
+			Object w = row.get("wizard_id");
+			Object slot = row.get("pick_slot_id");
+			String uk = rid + "|" + String.valueOf(w).trim() + "|" + String.valueOf(slot);
+			if (seenUnitKey.add(uk)) {
+				units2.add(row);
+			}
+		}
+		unitBatch.clear();
+		unitBatch.addAll(units2);
+	}
+
+	private static void removeArenaRtaRowsByRids(
+			Set<Long> dropRids,
+			List<Map<String, ?>> arenaBatch,
+			List<Map<String, ?>> userBatch,
+			List<Map<String, ?>> pickBatch,
+			List<Map<String, ?>> unitBatch) {
+		if (dropRids == null || dropRids.isEmpty()) {
+			return;
+		}
+		arenaBatch.removeIf((Map<String, ?> a) -> {
+			Long rid = normalizeLong(a.get("rid"));
+			return rid != null && dropRids.contains(rid);
+		});
+		List<Map<String, ?>> u2 = new ArrayList<>();
+		List<Map<String, ?>> p2 = new ArrayList<>();
+		for (int i = 0; i < userBatch.size(); i++) {
+			Long rid = normalizeLong(userBatch.get(i).get("rid"));
+			if (rid != null && dropRids.contains(rid)) {
+				continue;
+			}
+			u2.add(userBatch.get(i));
+			p2.add(pickBatch.get(i));
+		}
+		userBatch.clear();
+		userBatch.addAll(u2);
+		pickBatch.clear();
+		pickBatch.addAll(p2);
+		unitBatch.removeIf((Map<String, ?> row) -> {
+			Long rid = normalizeLong(row.get("rid"));
+			return rid != null && dropRids.contains(rid);
+		});
+	}
+
+	/**
+	 * rta-upload: 매치 원본 JSON(rid) → ranker_rtpvp_replay_raw, 이후 정규화 테이블 벌크.
+	 */
+	private List<Map<String, Object>> buildArenaReplayRawRows(List<Map<String, ?>> arenaRows) {
+		List<Map<String, Object>> out = new ArrayList<>();
+		if (arenaRows == null) {
+			return out;
+		}
+		for (Map<String, ?> row : arenaRows) {
+			Long rid = normalizeLong(row != null ? row.get("rid") : null);
+			if (rid == null) {
+				continue;
+			}
+			try {
+				Map<String, Object> m = new HashMap<>();
+				m.put("rid", rid);
+				m.put("payload", objectMapper.writeValueAsString(row));
+				out.add(m);
+			} catch (JsonProcessingException e) {
+				throw new IllegalStateException("RTA 원본 JSON 직렬화 실패 rid=" + rid, e);
+			}
+		}
+		return out;
+	}
+
+	/**
+	 * rta-upload: 테이블별 다중 행 INSERT (VALUES …, …) + ON CONFLICT DO NOTHING.
+	 * rid마다 커밋하던 방식 대비 DB 왕복·트랜잭션 오버헤드 감소.
+	 */
+	private void insertArenaRtaBulkInChunks(
+			List<Map<String, ?>> arenaRows,
+			List<Map<String, ?>> userBatch,
+			List<Map<String, ?>> pickBatch,
+			List<Map<String, ?>> unitBatch) {
+		if (arenaRows == null || arenaRows.isEmpty()) {
+			return;
+		}
+		List<Map<String, Object>> rawRows = buildArenaReplayRawRows(arenaRows);
+		if (!rawRows.isEmpty()) {
+			for (int from = 0; from < rawRows.size(); from += ARENA_RTA_BULK_CHUNK) {
+				int to = Math.min(from + ARENA_RTA_BULK_CHUNK, rawRows.size());
+				swMapper.insertArenaReplayRawBulk(rawRows.subList(from, to));
+			}
+		}
+		for (int from = 0; from < arenaRows.size(); from += ARENA_RTA_BULK_CHUNK) {
+			int to = Math.min(from + ARENA_RTA_BULK_CHUNK, arenaRows.size());
+			swMapper.insertArenaInfoBulk(arenaRows.subList(from, to));
+		}
+		if (userBatch != null && !userBatch.isEmpty()) {
+			for (int from = 0; from < userBatch.size(); from += ARENA_RTA_BULK_CHUNK) {
+				int to = Math.min(from + ARENA_RTA_BULK_CHUNK, userBatch.size());
+				swMapper.insertArenaUserInfoBulk(userBatch.subList(from, to));
+			}
+		}
+		if (pickBatch != null && !pickBatch.isEmpty()) {
+			for (int from = 0; from < pickBatch.size(); from += ARENA_RTA_BULK_CHUNK) {
+				int to = Math.min(from + ARENA_RTA_BULK_CHUNK, pickBatch.size());
+				swMapper.insertArenaPickInfoBulk(pickBatch.subList(from, to));
+			}
+		}
+		if (unitBatch != null && !unitBatch.isEmpty()) {
+			for (int from = 0; from < unitBatch.size(); from += ARENA_RTA_BULK_CHUNK) {
+				int to = Math.min(from + ARENA_RTA_BULK_CHUNK, unitBatch.size());
+				swMapper.insertArenaUnitInfoBulk(unitBatch.subList(from, to));
+			}
+		}
+		List<Long> appliedRids = new ArrayList<>();
+		for (Map<String, ?> row : arenaRows) {
+			Long rid = normalizeLong(row != null ? row.get("rid") : null);
+			if (rid != null) {
+				appliedRids.add(rid);
+			}
+		}
+		if (!appliedRids.isEmpty()) {
+			for (int from = 0; from < appliedRids.size(); from += ARENA_RTA_BULK_CHUNK) {
+				int to = Math.min(from + ARENA_RTA_BULK_CHUNK, appliedRids.size());
+				swMapper.updateArenaReplayRawAppliedBulk(appliedRids.subList(from, to));
+			}
+		}
+	}
+
+	/**
+	 * rta-upload: 선행 필터·고아 정리 후 한 트랜잭션에서 원본 JSON(rid) → replay → user → pick → unit 순 벌크 INSERT.
+	 */
+	@Override
+	public ArenaRtaUploadApplyResult applyArenaRtaUploadPersistence(
+			List<Map<String, ?>> arenaBatch,
+			List<Map<String, ?>> userBatch,
+			List<Map<String, ?>> pickBatch,
+			List<Map<String, ?>> unitBatch) {
+		if (arenaBatch == null || arenaBatch.isEmpty()) {
+			return new ArenaRtaUploadApplyResult(0, 0);
+		}
+		dedupeArenaRtaUploadBatches(arenaBatch, userBatch, pickBatch, unitBatch);
+		if (arenaBatch.isEmpty()) {
+			return new ArenaRtaUploadApplyResult(0, 0);
+		}
+
+		int dupSkipped = 0;
+		LinkedHashSet<Long> candidateRids = new LinkedHashSet<>();
+		for (Map<String, ?> row : arenaBatch) {
+			Long r = normalizeLong(row != null ? row.get("rid") : null);
+			if (r != null) {
+				candidateRids.add(r);
+			}
+		}
+		Set<Long> alreadyInReplay = selectArenaRidsExisting(candidateRids);
+		if (!alreadyInReplay.isEmpty()) {
+			log.warn("[rta-upload] 이미 replay_list 에 있는 rid 제외 (누적 로그·재업로드 등): {}", alreadyInReplay);
+			removeArenaRtaRowsByRids(alreadyInReplay, arenaBatch, userBatch, pickBatch, unitBatch);
+			pruneArenaBatchWithoutUserRows(arenaBatch, userBatch);
+			dupSkipped += alreadyInReplay.size();
+		}
+		if (arenaBatch.isEmpty()) {
+			return new ArenaRtaUploadApplyResult(0, dupSkipped);
+		}
+
+		LinkedHashSet<Long> newArenaRids = new LinkedHashSet<>();
+		for (Map<String, ?> row : arenaBatch) {
+			Long r = normalizeLong(row != null ? row.get("rid") : null);
+			if (r != null) {
+				newArenaRids.add(r);
+			}
+		}
+		final int[] orphanHolder = new int[1];
+		transactionTemplate.executeWithoutResult(status -> orphanHolder[0] = deleteArenaRtaOrphanChildrenByRids(newArenaRids));
+		int orphanRemoved = orphanHolder[0];
+		if (orphanRemoved > 0) {
+			log.info("[rta-upload] 부모 없는 고아 행 제거: {}행 (rid 수={})", orphanRemoved, newArenaRids.size());
+		}
+		Set<String> existingUserPkInDb = selectArenaUserPkKeysExisting(newArenaRids);
+		filterArenaRtaRowsAlreadyInDb(existingUserPkInDb, userBatch, pickBatch, unitBatch);
+		pruneArenaBatchWithoutUserRows(arenaBatch, userBatch);
+		if (!arenaBatch.isEmpty()) {
+			LinkedHashSet<Long> ridsToInsert = new LinkedHashSet<>();
+			for (Map<String, ?> row : arenaBatch) {
+				Long r = normalizeLong(row != null ? row.get("rid") : null);
+				if (r != null) {
+					ridsToInsert.add(r);
+				}
+			}
+			Set<Long> replayExistsNow = selectArenaRidsExisting(ridsToInsert);
+			if (!replayExistsNow.isEmpty()) {
+				log.warn("[rta-upload] INSERT 직전 replay_list 에 이미 존재하는 rid 제외 (동시 업로드 등): {}", replayExistsNow);
+				removeArenaRtaRowsByRids(replayExistsNow, arenaBatch, userBatch, pickBatch, unitBatch);
+				pruneArenaBatchWithoutUserRows(arenaBatch, userBatch);
+				dupSkipped += replayExistsNow.size();
+			}
+		}
+		if (!arenaBatch.isEmpty()) {
+			LinkedHashMap<Long, Map<String, ?>> arenaByRid = new LinkedHashMap<>();
+			for (Map<String, ?> row : arenaBatch) {
+				Long r = normalizeLong(row != null ? row.get("rid") : null);
+				if (r != null) {
+					arenaByRid.put(r, row);
+				}
+			}
+			List<Map<String, ?>> arenaRows = new ArrayList<>(arenaByRid.values());
+			transactionTemplate.executeWithoutResult(status ->
+					insertArenaRtaBulkInChunks(arenaRows, userBatch, pickBatch, unitBatch));
+		}
+		return new ArenaRtaUploadApplyResult(orphanRemoved, dupSkipped);
+	}
+
+	@Override
+	@SuppressWarnings("unchecked")
+	public Map<String, Integer> applyArenaRtaUploadFromParsedItems(List<Map<String, ?>> log_list) {
+		Map<String, Integer> empty = new HashMap<>();
+		empty.put("success", 0);
+		empty.put("fail", 0);
+		if (log_list == null || log_list.isEmpty()) {
+			return empty;
+		}
+		int success = 0;
+		int fail = 0;
+		LinkedHashSet<Long> distinctRids = new LinkedHashSet<>();
+		for (Map<String, ?> row : log_list) {
+			Long rid = normalizeLong(row != null ? row.get("rid") : null);
+			if (rid != null) {
+				distinctRids.add(rid);
+			}
+		}
+		Set<Long> existingInDb = selectArenaRidsExisting(distinctRids);
+		Set<Long> seenInRequest = new HashSet<>();
+		List<Map<String, ?>> arenaBatch = new ArrayList<>();
+		List<Map<String, ?>> userBatch = new ArrayList<>();
+		List<Map<String, ?>> pickBatch = new ArrayList<>();
+		List<Map<String, ?>> unitBatch = new ArrayList<>();
+		Set<String> seenArenaUserPk = new HashSet<>();
+		for (Map<String, ?> list : log_list) {
+			Long rid = normalizeLong(list.get("rid"));
+			if (rid == null) {
+				log.warn("[rta-upload] rid 없음·파싱 불가");
+				fail += 1;
+				continue;
+			}
+			if (existingInDb.contains(rid)) {
+				fail += 1;
+				continue;
+			}
+			if (seenInRequest.contains(rid)) {
+				fail += 1;
+				continue;
+			}
+			Object userListObj = list.get("user_list");
+			if (userListObj == null || !(userListObj instanceof Map)) {
+				log.warn("[rta-upload] user_list 없음·형식 오류 rid={}", list.get("rid"));
+				fail += 1;
+				continue;
+			}
+			Map<String, Object> user_list = (Map<String, Object>) userListObj;
+			for (Map.Entry<String, Object> entry : user_list.entrySet()) {
+				Object val = entry.getValue();
+				if (!(val instanceof Map)) {
+					continue;
+				}
+				Map<String, Object> user_info = (Map<String, Object>) val;
+				if (user_info.get("pick_info") == null) {
+					String msg = "pick_info 없음 rid=" + list.get("rid") + " wizard_id=" + user_info.get("wizard_id");
+					log.warn("[rta-upload] {}", msg);
+					throw new RtaUploadValidationException(msg);
+				}
+			}
+			seenInRequest.add(rid);
+			arenaBatch.add(list);
+			success += 1;
+			for (Map.Entry<String, Object> entry : user_list.entrySet()) {
+				Object val = entry.getValue();
+				if (!(val instanceof Map)) {
+					continue;
+				}
+				Map<String, Object> user_info = (Map<String, Object>) val;
+				user_info.put("rid", list.get("rid"));
+				if (user_info.containsKey("rank")) {
+					if (user_info.get("rank_no") == null) {
+						user_info.put("rank_no", user_info.get("rank"));
+					}
+					user_info.remove("rank");
+				}
+				String userPk = arenaUserPkKeyString(rid, user_info.get("wizard_id"));
+				if (userPk == null) {
+					String msg = "wizard_id 없음 rid=" + list.get("rid");
+					log.warn("[rta-upload] {}", msg);
+					throw new RtaUploadValidationException(msg);
+				}
+				if (!seenArenaUserPk.add(userPk)) {
+					log.debug("[rta-upload] 동일 (rid, wizard_id) 중복 건너뜀 {}", userPk);
+					continue;
+				}
+				userBatch.add(user_info);
+
+				Map<String, Object> pick_info = (Map<String, Object>) user_info.get("pick_info");
+				pick_info.put("rid", list.get("rid"));
+				pick_info.put("wizard_id", user_info.get("wizard_id"));
+				List<?> banList = (List<?>) pick_info.get("banned_slot_ids");
+				if (banList != null && !banList.isEmpty()) {
+					pick_info.put("banned_slot_id", banList.get(0));
+				} else {
+					pick_info.put("banned_slot_id", null);
+				}
+				pickBatch.add(pick_info);
+
+				List<Map<String, ?>> unit_list = (List<Map<String, ?>>) pick_info.get("unit_list");
+				if (unit_list == null) {
+					unit_list = Collections.emptyList();
+				}
+				for (int k = 0; k < unit_list.size(); k++) {
+					Map<String, Object> unit = (Map<String, Object>) unit_list.get(k);
+					unit.put("rid", list.get("rid"));
+					unit.put("wizard_id", user_info.get("wizard_id"));
+					unitBatch.add(unit);
+				}
+			}
+		}
+		if (!arenaBatch.isEmpty()) {
+			ArenaRtaUploadApplyResult applied = applyArenaRtaUploadPersistence(arenaBatch, userBatch, pickBatch, unitBatch);
+			int dup = applied.getDuplicateReplaySkippedCount();
+			fail += dup;
+			success = Math.max(0, success - dup);
+		}
+		Map<String, Integer> result = new HashMap<>();
+		result.put("success", success);
+		result.put("fail", fail);
+		return result;
 	}
 	
 	@Override
@@ -385,23 +1053,79 @@ public class summonerswarServiceImpl implements summonerswarService {
 	}
 
 	@Override
+	@Transactional
 	public int setDeckVote(Map<String, Object> param) {
 		if (param == null) {
 			return 0;
 		}
 		normalizeDeckVoteDefParams(param);
+		normalizeDeckVoteAtkParams(param);
+
+		String deckIdStr = deckIdToString(param.get("deck_id"));
+		if (deckIdStr.isEmpty()) {
+			Map<String, ?> resolved = swMapper.selectDeckDetail(param);
+			if (resolved != null && !resolved.isEmpty() && resolved.get("deck_id") != null) {
+				Object did = resolved.get("deck_id");
+				deckIdStr = String.valueOf(did).trim();
+				param.put("deck_id", did);
+			}
+		}
+
 		Object v = param.get("vote");
 		String vote = v != null ? String.valueOf(v).trim().toUpperCase() : "";
 		if ("CLEAR".equals(vote) || vote.isEmpty()) {
-			validateDeckVoteAgainstRow(param);
-			return swMapper.deleteDeckVote(param);
+			deleteExistingVotesForCombo(param, deckIdStr);
+			return 1;
 		}
 		if (!"UP".equals(vote) && !"DOWN".equals(vote)) {
 			throw new IllegalArgumentException("vote는 UP, DOWN, CLEAR만 허용됩니다.");
 		}
 		param.put("vote_type", vote);
-		validateDeckVoteAgainstRow(param);
-		return swMapper.upsertDeckVote(param);
+
+		if (!deckIdStr.isEmpty()) {
+			validateDeckVoteAgainstRow(param);
+			deleteExistingVotesForCombo(param, deckIdStr);
+			return swMapper.insertDeckVoteRegistered(param);
+		}
+		validateFreeVoteAtk(param);
+		deleteExistingVotesForCombo(param, "");
+		return swMapper.insertDeckVoteFree(param);
+	}
+
+	/** 등록 행 + 동일 조합 자유 투표 행(있으면) 제거 후 재삽입용 */
+	private void deleteExistingVotesForCombo(Map<String, Object> param, String deckIdStr) {
+		Object a1 = param.get("atk_monster_1");
+		boolean hasAtk = a1 != null && !String.valueOf(a1).trim().isEmpty();
+		if (deckIdStr != null && !deckIdStr.isEmpty()) {
+			Map<String, Object> p = new HashMap<>(param);
+			p.put("deck_id", deckIdStr);
+			swMapper.deleteDeckVote(p);
+		}
+		if (hasAtk) {
+			Map<String, Object> p = new HashMap<>(param);
+			p.remove("deck_id");
+			swMapper.deleteDeckVote(p);
+		}
+	}
+
+	private static String deckIdToString(Object o) {
+		if (o == null) {
+			return "";
+		}
+		String s = String.valueOf(o).trim();
+		if (s.isEmpty() || "0".equals(s)) {
+			return "";
+		}
+		return s;
+	}
+
+	private void validateFreeVoteAtk(Map<String, Object> param) {
+		String a1 = String.valueOf(param.get("atk_monster_1") != null ? param.get("atk_monster_1") : "").trim();
+		String a2 = String.valueOf(param.get("atk_monster_2") != null ? param.get("atk_monster_2") : "").trim();
+		String a3 = String.valueOf(param.get("atk_monster_3") != null ? param.get("atk_monster_3") : "").trim();
+		if (a1.isEmpty() || a2.isEmpty() || a3.isEmpty()) {
+			throw new IllegalArgumentException("atk_monster_1, atk_monster_2, atk_monster_3가 필요합니다.");
+		}
 	}
 
 	/** 요청 JSON camelCase → MyBatis용 snake_case */
@@ -414,6 +1138,18 @@ public class summonerswarServiceImpl implements summonerswarService {
 		}
 		if (param.get("def_monster_3") == null && param.get("defMonster3") != null) {
 			param.put("def_monster_3", param.get("defMonster3"));
+		}
+	}
+
+	private void normalizeDeckVoteAtkParams(Map<String, Object> param) {
+		if (param.get("atk_monster_1") == null && param.get("atkMonster1") != null) {
+			param.put("atk_monster_1", param.get("atkMonster1"));
+		}
+		if (param.get("atk_monster_2") == null && param.get("atkMonster2") != null) {
+			param.put("atk_monster_2", param.get("atkMonster2"));
+		}
+		if (param.get("atk_monster_3") == null && param.get("atkMonster3") != null) {
+			param.put("atk_monster_3", param.get("atkMonster3"));
 		}
 	}
 
