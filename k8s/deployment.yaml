@@ -45,6 +45,11 @@ spec:
               key: AWS_REGION
         - name: SPRING_PROFILES_ACTIVE
           value: "docker"
+        # OS·JVM 기본 시간대 (Jackson JSON·로그·DB timestamp 해석 — UTC Pod와 로컬 차이 방지)
+        - name: TZ
+          value: "Asia/Seoul"
+        - name: JAVA_TOOL_OPTIONS
+          value: "-Duser.timezone=Asia/Seoul"
         - name: SPRING_DATASOURCE_URL
           valueFrom:
             secretKeyRef:
