@@ -1527,11 +1527,11 @@
 		WHERE apply_status &lt;&gt; 'applied'
 	</select>
 
-	<select id="selectRtaReplayRawPending" resultType="map">
+	<select id="selectRtaReplayRawPending" resultType="sqlMap">
 		SELECT rid, payload::text AS payload
 		FROM ranker_rtpvp_replay_raw
 		WHERE apply_status IN ('pending', 'failed')
-		ORDER BY inserted_at ASC
+		ORDER BY rid ASC
 		<if test="limit != null and limit > 0">
 			LIMIT #{limit}
 		</if>
