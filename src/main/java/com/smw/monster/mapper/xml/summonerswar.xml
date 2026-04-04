@@ -1527,14 +1527,17 @@
 		WHERE apply_status &lt;&gt; 'applied'
 	</select>
 
+	<select id="countRtaReplayRawPendingPf" resultType="int">
+		SELECT COUNT(*)::int
+		FROM ranker_rtpvp_replay_raw
+		WHERE apply_status IN ('pending', 'failed')
+	</select>
+
 	<select id="selectRtaReplayRawPending" resultType="sqlMap">
 		SELECT rid, payload::text AS payload
 		FROM ranker_rtpvp_replay_raw
 		WHERE apply_status IN ('pending', 'failed')
 		ORDER BY rid ASC
-		<if test="limit != null and limit > 0">
-			LIMIT #{limit}
-		</if>
 	</select>
 		
 	<select id="selectRecommendedAttackDeckList" parameterType="sqlMap" resultType="sqlMap">

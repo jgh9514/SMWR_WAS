@@ -186,8 +186,6 @@ smw:
       stable-millis: ${SMW_RTA_EXPORTER_STABLE_MS:2000}
       stable-max-wait-ms: ${SMW_RTA_EXPORTER_STABLE_MAX_MS:60000}
     raw-apply:
-      # 0 이하: pending 전부 한 번에 SELECT(LIMIT 없음). 양수: 한 번에 가져올 최대 행(메모리 보호용).
-      batch-size: ${SMW_RTA_RAW_APPLY_BATCH_SIZE:0}
       # 한 트랜잭션에 묶어 replay_list 등에 넣는 건수(최소 1). 상한 없음.
       apply-chunk-size: ${SMW_RTA_RAW_APPLY_CHUNK_SIZE:80}
   ops:

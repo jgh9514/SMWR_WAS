@@ -32,19 +32,10 @@ public class RtaReplayRawApplyJob extends BaseBatchJob {
 			}
 			return;
 		}
-		// 0 이하: pending 전부 한 번에 조회(LIMIT 없음). 양수: 한 번에 가져올 최대 행(메모리 보호용).
-		int fetchCap = 0;
-		try {
-			String p = applicationContext.getEnvironment().getProperty("smw.rta.raw-apply.batch-size");
-			if (p != null && !p.isBlank()) {
-				fetchCap = Integer.parseInt(p.trim());
-			}
-		} catch (Exception e) {
-			addLog("batch-size 파싱 실패, 제한 없이 전부 처리");
-		}
-		int done = service.applyPendingArenaReplayRawFromDb(fetchCap);
-		addLog("정규화 반영 완료 rid 수 (이번 실행): %d (fetchLimit=%s)", done,
-				fetchCap > 0 ? String.valueOf(fetchCap) : "전체");
+		int pendingPf = mapper.countRtaReplayRawPendingPf();
+		addLog("정규화 대상 raw 건수 (pending + failed): %d", pendingPf);
+		int done = service.applyPendingArenaReplayRawFromDb();
+		addLog("정규화 반영 완료 rid 수 (이번 실행): %d (상세는 로그 [rta-raw-apply])", done);
 		if (orphans > 0 || done > 0) {
 			rtaCacheEvictor.evictAllRtaCaches();
 			addLog("RTA 조회 캐시 무효화 (정규화·고아 정리 반영)");

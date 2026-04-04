@@ -51,6 +51,7 @@ public class summonerswarServiceImpl implements summonerswarService {
 	/** raw → replay_list 정규화 시 한 트랜잭션에 묶는 건수 (1 미만이면 1). 상한 없음. */
 	@Value("${smw.rta.raw-apply.apply-chunk-size:80}")
 	private int rawApplyApplyChunkSize;
+
 	
 	@Override
 	@Cacheable(
@@ -1173,9 +1174,15 @@ public class summonerswarServiceImpl implements summonerswarService {
 	}
 
 	@Override
-	public int applyPendingArenaReplayRawFromDb(int limit) {
-		Integer fetchLimit = limit > 0 ? limit : null;
-		List<Map<String, ?>> pending = swMapper.selectRtaReplayRawPending(fetchLimit);
+	public int applyPendingArenaReplayRawFromDb() {
+		int pfCount = swMapper.countRtaReplayRawPendingPf();
+		List<Map<String, ?>> pending = swMapper.selectRtaReplayRawPending();
+		log.info("[rta-raw-apply] pending/failed DB 건수(count)={}, 조회 rows={}", pfCount, pending.size());
+		return applyPendingArenaReplayRawRows(pending);
+	}
+
+	/** pending/failed 행 목록에 대해 파싱·이미 replay 존재 시 bulk 적용·정규화 청크 처리. */
+	private int applyPendingArenaReplayRawRows(List<Map<String, ?>> pending) {
 		if (pending.isEmpty()) {
 			return 0;
 		}
