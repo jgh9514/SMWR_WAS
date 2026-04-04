@@ -32,17 +32,19 @@ public class RtaReplayRawApplyJob extends BaseBatchJob {
 			}
 			return;
 		}
-		int batchSize = 100;
+		// 0 이하: pending 전부 한 번에 조회(LIMIT 없음). 양수: 한 번에 가져올 최대 행(메모리 보호용).
+		int fetchCap = 0;
 		try {
 			String p = applicationContext.getEnvironment().getProperty("smw.rta.raw-apply.batch-size");
 			if (p != null && !p.isBlank()) {
-				batchSize = Math.min(500, Math.max(1, Integer.parseInt(p.trim())));
+				fetchCap = Integer.parseInt(p.trim());
 			}
 		} catch (Exception e) {
-			addLog("batch-size 파싱 실패, 기본 100 사용");
+			addLog("batch-size 파싱 실패, 제한 없이 전부 처리");
 		}
-		int done = service.applyPendingArenaReplayRawFromDb(batchSize);
-		addLog("정규화 반영 완료 rid 수 (이번 실행): %d (한 번에 최대 %d건 조회)", done, batchSize);
+		int done = service.applyPendingArenaReplayRawFromDb(fetchCap);
+		addLog("정규화 반영 완료 rid 수 (이번 실행): %d (fetchLimit=%s)", done,
+				fetchCap > 0 ? String.valueOf(fetchCap) : "전체");
 		if (orphans > 0 || done > 0) {
 			rtaCacheEvictor.evictAllRtaCaches();
 			addLog("RTA 조회 캐시 무효화 (정규화·고아 정리 반영)");

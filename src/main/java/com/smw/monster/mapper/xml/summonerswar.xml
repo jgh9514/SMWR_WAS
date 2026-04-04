@@ -1532,7 +1532,9 @@
 		FROM ranker_rtpvp_replay_raw
 		WHERE apply_status IN ('pending', 'failed')
 		ORDER BY inserted_at ASC
-		LIMIT #{limit}
+		<if test="limit != null and limit > 0">
+			LIMIT #{limit}
+		</if>
 	</select>
 		
 	<select id="selectRecommendedAttackDeckList" parameterType="sqlMap" resultType="sqlMap">

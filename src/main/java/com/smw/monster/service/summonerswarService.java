@@ -123,6 +123,7 @@ public interface summonerswarService {
 
 	/**
 	 * {@code ranker_rtpvp_replay_raw} 중 미적용 건을 정규화 테이블로 반영하고 applied 로 표시한다.
+	 * @param limit 양수면 조회 시 해당 건수만큼만 LIMIT, 0 이하이면 pending 전부(메모리·실행시간 주의)
 	 * @return 이번 호출에서 정규화에 성공한 rid 수
 	 */
 	int applyPendingArenaReplayRawFromDb(int limit);

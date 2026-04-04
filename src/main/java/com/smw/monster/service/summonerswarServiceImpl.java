@@ -44,9 +44,7 @@ public class summonerswarServiceImpl implements summonerswarService {
 	@Autowired
 	private ObjectMapper objectMapper;
 
-	/**
-	 * raw → replay_list 정규화 시 한 트랜잭션에 묶을 최대 건수. 단건 반복 대비 처리량 향상 (너무 크면 DB 타임아웃 위험).
-	 */
+	/** raw → replay_list 정규화 시 한 트랜잭션에 묶는 건수 (1 미만이면 1). 상한 없음. */
 	@Value("${smw.rta.raw-apply.apply-chunk-size:80}")
 	private int rawApplyApplyChunkSize;
 	
@@ -1169,12 +1167,12 @@ public class summonerswarServiceImpl implements summonerswarService {
 
 	@Override
 	public int applyPendingArenaReplayRawFromDb(int limit) {
-		int n = Math.min(Math.max(limit, 1), 500);
-		List<Map<String, ?>> pending = swMapper.selectRtaReplayRawPending(n);
+		Integer fetchLimit = limit > 0 ? limit : null;
+		List<Map<String, ?>> pending = swMapper.selectRtaReplayRawPending(fetchLimit);
 		if (pending.isEmpty()) {
 			return 0;
 		}
-		int chunk = Math.min(300, Math.max(5, rawApplyApplyChunkSize));
+		int chunk = Math.max(1, rawApplyApplyChunkSize);
 		int applied = 0;
 
 		List<Map<String, ?>> parsed = new ArrayList<>();

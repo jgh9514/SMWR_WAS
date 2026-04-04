@@ -106,7 +106,8 @@ public interface summonerswarMapper {
 	int selectRtaReplayRawNotAppliedCount();
 
 	/** RTA raw: pending/failed 건 조회 (배치 정규화용) */
-	List<Map<String, ?>> selectRtaReplayRawPending(@Param("limit") int limit);
+	/** {@code limit == null} 또는 {@code limit <= 0} 이면 LIMIT 없이 전부 조회 */
+	List<Map<String, ?>> selectRtaReplayRawPending(@Param("limit") Integer limit);
 
 	/** replay_list 부모 없는 고아 행 전수 삭제 (배치용, unit → pick → user 순) */
 	int deleteArenaRtaOrphanUnitsGlobal();
