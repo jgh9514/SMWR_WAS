@@ -823,17 +823,76 @@ public class summonerswarServiceImpl implements summonerswarService {
 			return "";
 		}
 		if (key.indexOf('_') >= 0) {
-			return key;
+			return mapReplayListJsonKeyAliases(key);
 		}
 		if ("channeluid".equalsIgnoreCase(key)) {
 			return "channel_uid";
 		}
 		for (int i = 0; i < key.length(); i++) {
 			if (Character.isUpperCase(key.charAt(i))) {
-				return camelToSnake(key);
+				return mapReplayListJsonKeyAliases(camelToSnake(key));
 			}
 		}
-		return key;
+		return mapReplayListJsonKeyAliases(key);
+	}
+
+	/**
+	 * camelCase → snake 과정에서 {@code infoCsv} → {@code info_csv} 가 되나 DB 컬럼은 {@code infocsv}.
+	 */
+	private static String mapReplayListJsonKeyAliases(String snakeOrKey) {
+		if (snakeOrKey == null) {
+			return "";
+		}
+		if ("info_csv".equals(snakeOrKey)) {
+			return "infocsv";
+		}
+		return snakeOrKey;
+	}
+
+	/**
+	 * API가 메타 필드를 루트가 아닌 첫 user 쪽에만 줄 때 replay_list 행으로 승격.
+	 */
+	private static void enrichArenaReplayListFromPayload(Map<String, Object> arenaRow) {
+		if (arenaRow == null) {
+			return;
+		}
+		Object ulo = arenaRow.get("user_list");
+		if (!(ulo instanceof Map)) {
+			return;
+		}
+		Map<String, Object> userList = (Map<String, Object>) ulo;
+		Map<String, Object> firstUser = null;
+		for (Object v : userList.values()) {
+			if (v instanceof Map) {
+				firstUser = (Map<String, Object>) v;
+				break;
+			}
+		}
+		if (firstUser == null) {
+			return;
+		}
+		String[] promoteKeys = { "server_id", "slot_id", "replay_rid_ref", "infocsv", "group_id" };
+		for (String k : promoteKeys) {
+			if (isBlank(arenaRow.get(k)) && !isBlank(firstUser.get(k))) {
+				arenaRow.put(k, firstUser.get(k));
+			}
+		}
+		if (isBlank(arenaRow.get("infocsv")) && !isBlank(firstUser.get("info_csv"))) {
+			arenaRow.put("infocsv", firstUser.get("info_csv"));
+		}
+		if (isBlank(arenaRow.get("replay_rid_ref"))) {
+			Object rr = firstUser.get("replay_rid");
+			if (!isBlank(rr)) {
+				arenaRow.put("replay_rid_ref", rr);
+			}
+		}
+	}
+
+	private static boolean isBlank(Object o) {
+		if (o == null) {
+			return true;
+		}
+		return String.valueOf(o).trim().isEmpty();
 	}
 
 	private static String camelToSnake(String s) {
@@ -1226,6 +1285,7 @@ public class summonerswarServiceImpl implements summonerswarService {
 					throw new RtaUploadValidationException(msg);
 				}
 			}
+			enrichArenaReplayListFromPayload(arenaRow);
 			seenInRequest.add(rid);
 			arenaBatch.add(list);
 			success += 1;

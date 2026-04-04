@@ -799,7 +799,7 @@
         INNER JOIN base b
             ON b.date_add::date = (a.ts)::date
             AND b.date_add &lt;= a.ts
-        WHERE b.tier_key IN ('P2', 'P3', 'G1', 'G2', 'G3')
+        WHERE b.tier_key IN ('P1', 'P2', 'P3', 'G1', 'G2', 'G3')
         GROUP BY a.sort_order, a.anchor_key, b.tier_key
         ORDER BY a.sort_order, b.tier_key
     </select>

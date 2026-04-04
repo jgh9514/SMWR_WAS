@@ -1270,6 +1270,7 @@
 			 , replay_rid_ref
 			 , infocsv
 			 , group_id
+			 , crt_date
 		) values (
 			   #{rid}
 			 , #{battle_type}
@@ -1284,6 +1285,7 @@
 			 , #{replay_rid_ref}
 			 , #{infocsv}
 			 , #{group_id}
+			 , COALESCE(#{crt_date}::timestamp, CURRENT_TIMESTAMP)
 		)
 		ON CONFLICT (rid) DO NOTHING
 	</insert>
@@ -1308,6 +1310,7 @@
 			 , server_id
 			 , coin
 			 , last_rating_id
+			 , crt_date
 		) values (
 			   #{rid}
 			 , #{alive_count}
@@ -1326,6 +1329,7 @@
 			 , #{server_id}
 			 , #{coin}
 			 , #{last_rating_id}
+			 , COALESCE(#{crt_date}::timestamp, CURRENT_TIMESTAMP)
 		)
 		ON CONFLICT (rid, wizard_id) DO NOTHING
 	</insert>
@@ -1337,11 +1341,13 @@
 			 , wizard_id
 			 , banned_slot_id
 			 , leader_slot_id
+			 , crt_date
 		) values (
 			   #{rid}
 			 , #{wizard_id}
 			 , #{banned_slot_id}
 			 , #{leader_slot_id}
+			 , COALESCE(#{crt_date}::timestamp, CURRENT_TIMESTAMP)
 		)
 		ON CONFLICT (rid, wizard_id) DO NOTHING
 	</insert>
@@ -1353,11 +1359,13 @@
 			 , pick_slot_id
 			 , unit_master_id
 			 , wizard_id
+			 , crt_date
 		) values (
 			   #{rid}
 			 , #{pick_slot_id}
 			 , #{unit_master_id}
 			 , #{wizard_id}
+			 , COALESCE(#{crt_date}::timestamp, CURRENT_TIMESTAMP)
 		)
 		ON CONFLICT (rid, wizard_id, pick_slot_id) DO NOTHING
 	</insert>
@@ -1378,6 +1386,7 @@
 			 , replay_rid_ref
 			 , infocsv
 			 , group_id
+			 , crt_date
 		) VALUES
 		<foreach collection="rows" item="m" separator=",">
 		(
@@ -1394,6 +1403,7 @@
 			 , #{m.replay_rid_ref}
 			 , #{m.infocsv}
 			 , #{m.group_id}
+			 , COALESCE(#{m.crt_date}::timestamp, CURRENT_TIMESTAMP)
 		)
 		</foreach>
 		ON CONFLICT (rid) DO NOTHING
@@ -1419,6 +1429,7 @@
 			 , server_id
 			 , coin
 			 , last_rating_id
+			 , crt_date
 		) VALUES
 		<foreach collection="rows" item="m" separator=",">
 		(
@@ -1439,6 +1450,7 @@
 			 , #{m.server_id}
 			 , #{m.coin}
 			 , #{m.last_rating_id}
+			 , COALESCE(#{m.crt_date}::timestamp, CURRENT_TIMESTAMP)
 		)
 		</foreach>
 		ON CONFLICT (rid, wizard_id) DO NOTHING
@@ -1451,6 +1463,7 @@
 			 , wizard_id
 			 , banned_slot_id
 			 , leader_slot_id
+			 , crt_date
 		) VALUES
 		<foreach collection="rows" item="m" separator=",">
 		(
@@ -1458,6 +1471,7 @@
 			 , #{m.wizard_id}
 			 , #{m.banned_slot_id}
 			 , #{m.leader_slot_id}
+			 , COALESCE(#{m.crt_date}::timestamp, CURRENT_TIMESTAMP)
 		)
 		</foreach>
 		ON CONFLICT (rid, wizard_id) DO NOTHING
@@ -1470,6 +1484,7 @@
 			 , pick_slot_id
 			 , unit_master_id
 			 , wizard_id
+			 , crt_date
 		) VALUES
 		<foreach collection="rows" item="m" separator=",">
 		(
@@ -1477,6 +1492,7 @@
 			 , #{m.pick_slot_id}
 			 , #{m.unit_master_id}
 			 , #{m.wizard_id}
+			 , COALESCE(#{m.crt_date}::timestamp, CURRENT_TIMESTAMP)
 		)
 		</foreach>
 		ON CONFLICT (rid, wizard_id, pick_slot_id) DO NOTHING
