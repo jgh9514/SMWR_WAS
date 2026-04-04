@@ -121,11 +121,11 @@ public class RtaServiceImpl implements RtaService {
     public Map<String, Object> getRtaDashboard() {
         List<Map<String, Object>> daily = rtaMapper.getRtaTierDistributionDaily();
         Map<String, Object> dateRange = rtaMapper.getRtaReplayDateRange();
-        List<Map<String, Object>> rankCutoffDaily = rtaMapper.getRtaRankCutoffDaily();
+        List<Map<String, Object>> rankCutoffAnchors = rtaMapper.getRtaRankCutoffAnchors();
         Map<String, Object> response = new HashMap<>();
         response.put("daily_tiers", daily != null ? daily : Collections.emptyList());
         response.put("date_range", dateRange != null ? dateRange : new HashMap<>());
-        response.put("rank_cutoff_daily", rankCutoffDaily != null ? rankCutoffDaily : Collections.emptyList());
+        response.put("rank_cutoff_anchors", rankCutoffAnchors != null ? rankCutoffAnchors : Collections.emptyList());
         return response;
     }
 

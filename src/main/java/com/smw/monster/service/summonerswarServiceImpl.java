@@ -1,5 +1,14 @@
 package com.smw.monster.service;
 
+import java.math.BigDecimal;
+import java.sql.Timestamp;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -493,6 +502,11 @@ public class summonerswarServiceImpl implements summonerswarService {
 	
 	@Override
 	public int insertArenaInfo(Map<String, ?> param) {
+		if (param instanceof Map) {
+			@SuppressWarnings("unchecked")
+			Map<String, Object> mo = (Map<String, Object>) param;
+			normalizeArenaReplayDateAdd(mo);
+		}
 		return swMapper.insertArenaInfo(param);
 	}
 	
@@ -706,6 +720,103 @@ public class summonerswarServiceImpl implements summonerswarService {
 		}
 	}
 
+	/**
+	 * 리플레이 일시 — 게임/JSON이 epoch(ms·초), YYYYMMDD 정수, 날짜만 문자열 등 혼재.
+	 * {@code ranker_rtpvp_replay_list.date_add} 는 timestamp without time zone 이므로,
+	 * 한국 서비스 기준으로 해석한 절대시각을 {@link Timestamp} 로 넣어 JDBC/PostgreSQL 오인식을 줄인다.
+	 */
+	private static final ZoneId RTA_REPLAY_ZONE = ZoneId.of("Asia/Seoul");
+	private static final DateTimeFormatter RTA_DT_SPACE = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+	private static final DateTimeFormatter RTA_DT_T = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss");
+
+	private static void normalizeArenaReplayDateAdd(Map<String, Object> arena) {
+		if (arena == null) {
+			return;
+		}
+		Object d = arena.get("date_add");
+		if (d == null) {
+			return;
+		}
+		if (d instanceof String && ((String) d).trim().isEmpty()) {
+			arena.remove("date_add");
+			return;
+		}
+		try {
+			Timestamp ts = parseArenaDateAddToSqlTimestamp(d);
+			if (ts != null) {
+				arena.put("date_add", ts);
+			}
+		} catch (Exception e) {
+			log.warn("[rta-upload] date_add 정규화 실패, 원본 유지: {} — {}", d, e.toString());
+		}
+	}
+
+	/**
+	 * @return null 이면 변환 불가(원본 유지). 파싱 성공 시 항상 non-null.
+	 */
+	private static Timestamp parseArenaDateAddToSqlTimestamp(Object d) {
+		if (d == null) {
+			return null;
+		}
+		if (d instanceof Timestamp) {
+			return (Timestamp) d;
+		}
+		if (d instanceof java.util.Date) {
+			return new Timestamp(((java.util.Date) d).getTime());
+		}
+		if (d instanceof BigDecimal) {
+			return parseArenaDateAddToSqlTimestamp(((BigDecimal) d).longValue());
+		}
+		if (d instanceof Number) {
+			long n = ((Number) d).longValue();
+			double dn = ((Number) d).doubleValue();
+			String ns = String.valueOf(n);
+			// YYYYMMDD (게임이 날짜만 숫자로 줄 때)
+			if (n >= 19000101L && n <= 21001231L && n == (long) dn && ns.length() == 8) {
+				int y = (int) (n / 10000L);
+				int m = (int) ((n % 10000L) / 100L);
+				int day = (int) (n % 100L);
+				LocalDate ld = LocalDate.of(y, m, day);
+				return Timestamp.from(ld.atStartOfDay(RTA_REPLAY_ZONE).toInstant());
+			}
+			if (n >= 1_000_000_000_000L) {
+				return new Timestamp(n);
+			}
+			if (n >= 1_000_000_000L) {
+				return new Timestamp(n * 1000L);
+			}
+		}
+		if (d instanceof String) {
+			String s = ((String) d).trim();
+			if (s.isEmpty()) {
+				return null;
+			}
+			try {
+				return Timestamp.from(OffsetDateTime.parse(s).toInstant());
+			} catch (DateTimeParseException ignored) {
+			}
+			try {
+				return Timestamp.from(Instant.parse(s));
+			} catch (DateTimeParseException ignored) {
+			}
+			if (s.length() == 10 && s.charAt(4) == '-' && s.charAt(7) == '-') {
+				LocalDate ld = LocalDate.parse(s, DateTimeFormatter.ISO_LOCAL_DATE);
+				return Timestamp.from(ld.atStartOfDay(RTA_REPLAY_ZONE).toInstant());
+			}
+			try {
+				LocalDateTime ldt = LocalDateTime.parse(s, RTA_DT_SPACE);
+				return Timestamp.from(ldt.atZone(RTA_REPLAY_ZONE).toInstant());
+			} catch (DateTimeParseException ignored) {
+			}
+			try {
+				LocalDateTime ldt = LocalDateTime.parse(s, RTA_DT_T);
+				return Timestamp.from(ldt.atZone(RTA_REPLAY_ZONE).toInstant());
+			} catch (DateTimeParseException ignored) {
+			}
+		}
+		return null;
+	}
+
 	/** '_' 없음 + 대문자 → camelToSnake; '_' 없음 + channeluid → channel_uid */
 	private static String jsonKeyToSnakeColumn(String key) {
 		if (key == null) {
@@ -903,7 +1014,13 @@ public class summonerswarServiceImpl implements summonerswarService {
 		if (writeNormalized) {
 			for (int from = 0; from < arenaRows.size(); from += ARENA_RTA_BULK_CHUNK) {
 				int to = Math.min(from + ARENA_RTA_BULK_CHUNK, arenaRows.size());
-				swMapper.insertArenaInfoBulk(arenaRows.subList(from, to));
+				List<Map<String, ?>> chunk = arenaRows.subList(from, to);
+				for (Map<String, ?> row : chunk) {
+					if (row instanceof Map<String, Object>) {
+						normalizeArenaReplayDateAdd((Map<String, Object>) row);
+					}
+				}
+				swMapper.insertArenaInfoBulk(chunk);
 			}
 			if (userBatch != null && !userBatch.isEmpty()) {
 				for (int from = 0; from < userBatch.size(); from += ARENA_RTA_BULK_CHUNK) {

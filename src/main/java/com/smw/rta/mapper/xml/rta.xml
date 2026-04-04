@@ -694,6 +694,7 @@
     </select>
 
     <!-- RTA 대시보드: 일자×티어별 집계 (클라이언트에서 기간 슬라이더로 합산) -->
+    <!-- rating_id 를 rid 로 별칭한 뒤 replay_list.rid 와 조인하면 안 됨(서로 다른 값). bucket_date·rating_id 는 한 번의 조인에서만 취한다. -->
     <select id="getRtaTierDistributionDaily" resultType="map">
         SELECT
             bucket_date,
@@ -702,39 +703,40 @@
             MIN(sort_order)::int AS sort_order
         FROM (
             SELECT
-                r.date_add::date AS bucket_date,
+                t.bucket_date,
                 (
                     CASE
-                        WHEN rating_rows.rid >= 5000 THEN 'G'
-                        WHEN rating_rows.rid >= 4000 THEN 'P'
-                        WHEN rating_rows.rid >= 3000 THEN 'C'
-                        WHEN rating_rows.rid >= 2000 THEN 'F'
+                        WHEN t.rating_val >= 5000 THEN 'G'
+                        WHEN t.rating_val >= 4000 THEN 'P'
+                        WHEN t.rating_val >= 3000 THEN 'C'
+                        WHEN t.rating_val >= 2000 THEN 'F'
                         ELSE 'Ch'
                     END
                 )
                 ||
                 CASE
-                    WHEN (rating_rows.rid % 10) IN (1, 2, 3) THEN (rating_rows.rid % 10)::text
+                    WHEN (t.rating_val % 10) IN (1, 2, 3) THEN (t.rating_val % 10)::text
                     ELSE '2'
                 END AS tier_key,
                 (
                     CASE
-                        WHEN rating_rows.rid >= 5000 THEN 50
-                        WHEN rating_rows.rid >= 4000 THEN 40
-                        WHEN rating_rows.rid >= 3000 THEN 30
-                        WHEN rating_rows.rid >= 2000 THEN 20
+                        WHEN t.rating_val >= 5000 THEN 50
+                        WHEN t.rating_val >= 4000 THEN 40
+                        WHEN t.rating_val >= 3000 THEN 30
+                        WHEN t.rating_val >= 2000 THEN 20
                         ELSE 10
                     END
-                    + CASE WHEN (rating_rows.rid % 10) IN (1, 2, 3) THEN (rating_rows.rid % 10) ELSE 2 END
+                    + CASE WHEN (t.rating_val % 10) IN (1, 2, 3) THEN (t.rating_val % 10) ELSE 2 END
                 ) AS sort_order
             FROM (
-                SELECT CAST(TRIM(u.rating_id::text) AS INT) AS rid
+                SELECT
+                    r.date_add::date AS bucket_date,
+                    CAST(TRIM(u.rating_id::text) AS INT) AS rating_val
                 FROM ranker_rtpvp_replay_user_list u
                 INNER JOIN ranker_rtpvp_replay_list r ON u.rid = r.rid
                 WHERE TRIM(COALESCE(u.rating_id::text, '')) ~ '^[0-9]+$'
                   AND CAST(TRIM(u.rating_id::text) AS INT) &gt;= 1000
-            ) rating_rows
-            INNER JOIN ranker_rtpvp_replay_list r ON rating_rows.rid = r.rid
+            ) t
         ) x
         GROUP BY bucket_date, tier_key
         ORDER BY bucket_date, MIN(sort_order)
@@ -747,22 +749,27 @@
         FROM ranker_rtpvp_replay_list r
     </select>
 
-    <!-- P2·P3·G1~G3 일자별 최저 점수 (해당 티어에 찍힌 리플레이 중 최저점 ≈ 컷 추정) -->
-    <select id="getRtaRankCutoffDaily" resultType="map">
-        SELECT
-            bucket_date,
-            tier_key,
-            MIN(score_val)::bigint AS cutoff_score
-        FROM (
+    <!-- P2·P3·G1~G3: 앵커 시각(now−3h 등)이 속한 날짜에서, 해당 시각 이전 리플레이만으로 티어별 최저점(컷 추정) -->
+    <select id="getRtaRankCutoffAnchors" resultType="map">
+        WITH anchors AS (
+            SELECT * FROM (VALUES
+                (1, '3h',  CURRENT_TIMESTAMP - INTERVAL '3 hours'),
+                (2, '6h',  CURRENT_TIMESTAMP - INTERVAL '6 hours'),
+                (3, '12h', CURRENT_TIMESTAMP - INTERVAL '12 hours'),
+                (4, '3d',  CURRENT_TIMESTAMP - INTERVAL '3 days'),
+                (5, '7d',  CURRENT_TIMESTAMP - INTERVAL '7 days')
+            ) AS v(sort_order, anchor_key, ts)
+        ),
+        base AS (
             SELECT
-                r.date_add::date AS bucket_date,
+                r.date_add,
                 CAST(TRIM(u.score::text) AS INT) AS score_val,
                 (
                     CASE
-                        WHEN CAST(TRIM(u.rating_id::text) AS INT) >= 5000 THEN 'G'
-                        WHEN CAST(TRIM(u.rating_id::text) AS INT) >= 4000 THEN 'P'
-                        WHEN CAST(TRIM(u.rating_id::text) AS INT) >= 3000 THEN 'C'
-                        WHEN CAST(TRIM(u.rating_id::text) AS INT) >= 2000 THEN 'F'
+                        WHEN CAST(TRIM(u.rating_id::text) AS INT) &gt;= 5000 THEN 'G'
+                        WHEN CAST(TRIM(u.rating_id::text) AS INT) &gt;= 4000 THEN 'P'
+                        WHEN CAST(TRIM(u.rating_id::text) AS INT) &gt;= 3000 THEN 'C'
+                        WHEN CAST(TRIM(u.rating_id::text) AS INT) &gt;= 2000 THEN 'F'
                         ELSE 'Ch'
                     END
                 )
@@ -782,10 +789,19 @@
                   SELECT (MAX(r2.date_add::date) - INTERVAL '120 days')::date
                   FROM ranker_rtpvp_replay_list r2
               )
-        ) t
-        WHERE tier_key IN ('P2', 'P3', 'G1', 'G2', 'G3')
-        GROUP BY bucket_date, tier_key
-        ORDER BY bucket_date DESC, tier_key
+        )
+        SELECT
+            a.sort_order,
+            a.anchor_key,
+            b.tier_key,
+            MIN(b.score_val)::bigint AS cutoff_score
+        FROM anchors a
+        INNER JOIN base b
+            ON b.date_add::date = (a.ts)::date
+            AND b.date_add &lt;= a.ts
+        WHERE b.tier_key IN ('P2', 'P3', 'G1', 'G2', 'G3')
+        GROUP BY a.sort_order, a.anchor_key, b.tier_key
+        ORDER BY a.sort_order, b.tier_key
     </select>
 
     <!-- 소환사별: 수집 리플레이 중 가장 최근 경기의 점수·레이팅으로 랭킹 (공식 랭킹과 다를 수 있음) -->
@@ -821,6 +837,17 @@
               AND CAST(TRIM(u.score::text) AS INT) &gt; 0
             ORDER BY u.wizard_id, r.date_add DESC
         ),
+        win_agg AS (
+            SELECT
+                u.wizard_id,
+                COUNT(*)::bigint AS match_count,
+                SUM(CASE WHEN u.win_lose = r.win_lose THEN 1 ELSE 0 END)::bigint AS win_count
+            FROM ranker_rtpvp_replay_user_list u
+            INNER JOIN ranker_rtpvp_replay_list r ON u.rid = r.rid
+            WHERE TRIM(COALESCE(u.score::text, '')) ~ '^[0-9]+$'
+              AND CAST(TRIM(u.score::text) AS INT) &gt; 0
+            GROUP BY u.wizard_id
+        ),
         ranked AS (
             SELECT
                 latest.wizard_id,
@@ -832,18 +859,103 @@
                 latest.last_match_at,
                 ROW_NUMBER() OVER (ORDER BY latest.score DESC, latest.wizard_id ASC) AS rank_position
             FROM latest
+        ),
+        page_ranked AS (
+            SELECT * FROM ranked
+            ORDER BY rank_position
+            LIMIT #{limit} OFFSET #{offset}
+        ),
+        field_pick_counts AS (
+            SELECT
+                u.wizard_id,
+                TRIM(BOTH FROM u.unit_master_id::text) AS unit_master_id,
+                COUNT(*)::bigint AS pick_count
+            FROM ranker_rtpvp_replay_unit_list u
+            INNER JOIN ranker_rtpvp_replay_pick_list p
+                ON u.rid = p.rid AND u.wizard_id = p.wizard_id
+            WHERE TRIM(BOTH FROM COALESCE(u.unit_master_id::text, '')) ~ '^[0-9]+$'
+              AND (
+                  p.banned_slot_id IS NULL
+                  OR u.pick_slot_id &lt;&gt; p.banned_slot_id
+              )
+              AND u.wizard_id IN (SELECT wizard_id FROM page_ranked)
+            GROUP BY u.wizard_id, TRIM(BOTH FROM u.unit_master_id::text)
+        ),
+        ranked_monsters AS (
+            SELECT
+                wizard_id,
+                unit_master_id,
+                pick_count,
+                ROW_NUMBER() OVER (
+                    PARTITION BY wizard_id
+                    ORDER BY pick_count DESC, CAST(unit_master_id AS BIGINT) ASC
+                ) AS rn
+            FROM field_pick_counts
+        ),
+        most1 AS (
+            SELECT wizard_id, unit_master_id AS m1_id, pick_count AS m1_pick
+            FROM ranked_monsters WHERE rn = 1
+        ),
+        most2 AS (
+            SELECT wizard_id, unit_master_id AS m2_id, pick_count AS m2_pick
+            FROM ranked_monsters WHERE rn = 2
+        ),
+        most3 AS (
+            SELECT wizard_id, unit_master_id AS m3_id, pick_count AS m3_pick
+            FROM ranked_monsters WHERE rn = 3
         )
         SELECT
-            rank_position,
-            wizard_id,
-            wizard_name,
-            country,
-            channel_uid,
-            score,
-            rating_id,
-            last_match_at
-        FROM ranked
-        ORDER BY rank_position
-        LIMIT #{limit} OFFSET #{offset}
+            pr.rank_position,
+            pr.wizard_id,
+            pr.wizard_name,
+            pr.country,
+            pr.channel_uid,
+            pr.score,
+            pr.rating_id,
+            pr.last_match_at,
+            COALESCE(wa.match_count, 0)::bigint AS match_count,
+            COALESCE(wa.win_count, 0)::bigint AS win_count,
+            m1.m1_id::text AS most_monster_1_id,
+            m1.m1_pick AS most_monster_1_pick_count,
+            COALESCE(mm1.kr_name, '') AS most_monster_1_name,
+            COALESCE(
+                mm1.image_url,
+                CASE
+                    WHEN mm1.kr_name IS NOT NULL THEN
+                        '/images/' || mm1.monster_elemental || '/' || replace(mm1.un_name, ' ', '_') || '_' || mm1.monster_elemental || '_Icon.png'
+                    ELSE ''
+                END
+            ) AS most_monster_1_image,
+            m2.m2_id::text AS most_monster_2_id,
+            m2.m2_pick AS most_monster_2_pick_count,
+            COALESCE(mm2.kr_name, '') AS most_monster_2_name,
+            COALESCE(
+                mm2.image_url,
+                CASE
+                    WHEN mm2.kr_name IS NOT NULL THEN
+                        '/images/' || mm2.monster_elemental || '/' || replace(mm2.un_name, ' ', '_') || '_' || mm2.monster_elemental || '_Icon.png'
+                    ELSE ''
+                END
+            ) AS most_monster_2_image,
+            m3.m3_id::text AS most_monster_3_id,
+            m3.m3_pick AS most_monster_3_pick_count,
+            COALESCE(mm3.kr_name, '') AS most_monster_3_name,
+            COALESCE(
+                mm3.image_url,
+                CASE
+                    WHEN mm3.kr_name IS NOT NULL THEN
+                        '/images/' || mm3.monster_elemental || '/' || replace(mm3.un_name, ' ', '_') || '_' || mm3.monster_elemental || '_Icon.png'
+                    ELSE ''
+                END
+            ) AS most_monster_3_image
+        FROM page_ranked pr
+        LEFT JOIN win_agg wa ON pr.wizard_id = wa.wizard_id
+        LEFT JOIN most1 m1 ON pr.wizard_id = m1.wizard_id
+        LEFT JOIN monster mm1 ON m1.m1_id IS NOT NULL AND mm1.monster_id = m1.m1_id
+        LEFT JOIN most2 m2 ON pr.wizard_id = m2.wizard_id
+        LEFT JOIN monster mm2 ON m2.m2_id IS NOT NULL AND mm2.monster_id = m2.m2_id
+        LEFT JOIN most3 m3 ON pr.wizard_id = m3.wizard_id
+        LEFT JOIN monster mm3 ON m3.m3_id IS NOT NULL AND mm3.monster_id = m3.m3_id
+        ORDER BY pr.rank_position
     </select>
 </mapper>

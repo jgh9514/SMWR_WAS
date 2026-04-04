@@ -69,8 +69,8 @@ public interface RtaMapper {
     /** 리플레이 날짜 min/max */
     Map<String, Object> getRtaReplayDateRange();
 
-    /** 일자×티어별 최저 점수 (P2·P3·G1~G3, 랭크 컷 추정용) */
-    List<Map<String, Object>> getRtaRankCutoffDaily();
+    /** 앵커 시각(3h·6h·12h·3d·7d) 기준 일자 내 최저 점수 (P2·P3·G1~G3, 랭크 컷 추정용) */
+    List<Map<String, Object>> getRtaRankCutoffAnchors();
 
     /** 소환사 랭킹 (최근 리플레이 기준 점수 순) */
     int getRtaSummonerRankingCount();

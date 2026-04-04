@@ -52,4 +52,3 @@ k8s/*-secret.yaml
 *.sql
 /log/test.log
 not_ddl.sql
-not_ddl.sql
