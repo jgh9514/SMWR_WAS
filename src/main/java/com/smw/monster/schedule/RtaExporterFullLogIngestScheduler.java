@@ -117,9 +117,11 @@ public class RtaExporterFullLogIngestScheduler {
 				}
 				@SuppressWarnings("unchecked")
 				List<Map<String, ?>> items = (List<Map<String, ?>>) (List<?>) parsed;
-				Map<String, Integer> counts = summonerswarService.applyArenaRtaUploadFromParsedItems(items);
-				log.info("[rta-exporter] 반영 완료 {} → success={} fail={}", workFile, counts.get("success"),
-						counts.get("fail"));
+				Map<String, Integer> counts = props.isRawOnly()
+						? summonerswarService.applyArenaRtaUploadRawOnlyFromParsedItems(items)
+						: summonerswarService.applyArenaRtaUploadFromParsedItems(items);
+				log.info("[rta-exporter] 반영 완료 {} (rawOnly={}) → success={} fail={}", workFile, props.isRawOnly(),
+						counts.get("success"), counts.get("fail"));
 				Files.deleteIfExists(workFile);
 			} catch (Exception e) {
 				log.error("[rta-exporter] 처리 실패, temp 에 유지: {}", workFile, e);

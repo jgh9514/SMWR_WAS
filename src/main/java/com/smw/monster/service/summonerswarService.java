@@ -95,10 +95,32 @@ public interface summonerswarService {
 			List<Map<String, ?>> unitBatch);
 
 	/**
+	 * {@link ArenaRtaPersistMode} 에 따라 raw / 정규화 적재 범위를 나눈다.
+	 */
+	ArenaRtaUploadApplyResult applyArenaRtaUploadPersistence(
+			List<Map<String, ?>> arenaBatch,
+			List<Map<String, ?>> userBatch,
+			List<Map<String, ?>> pickBatch,
+			List<Map<String, ?>> unitBatch,
+			ArenaRtaPersistMode persistMode);
+
+	/**
 	 * rta-upload API 및 로컬 Exporter full_log 수집과 동일한 검증·적재.
 	 * @return success / fail 건수
 	 */
 	Map<String, Integer> applyArenaRtaUploadFromParsedItems(List<Map<String, ?>> log_list);
+
+	/**
+	 * Exporter {@code watch-directory} 전용: 검증 후 {@code ranker_rtpvp_replay_raw} 만 적재(pending).
+	 * 정규화는 {@code RtaReplayRawApplyJob} 배치가 수행한다.
+	 */
+	Map<String, Integer> applyArenaRtaUploadRawOnlyFromParsedItems(List<Map<String, ?>> log_list);
+
+	/**
+	 * {@code ranker_rtpvp_replay_raw} 중 미적용 건을 정규화 테이블로 반영하고 applied 로 표시한다.
+	 * @return 이번 호출에서 정규화에 성공한 rid 수
+	 */
+	int applyPendingArenaReplayRawFromDb(int limit);
 
 	public List<Map<String, ?>> selectRecordList(Map<String, Object> param);
 

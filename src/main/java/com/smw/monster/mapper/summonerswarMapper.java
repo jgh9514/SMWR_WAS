@@ -105,6 +105,9 @@ public interface summonerswarMapper {
 	/** RTA raw: 아직 정규화 반영 전인 건수 (배치 모니터링) */
 	int selectRtaReplayRawNotAppliedCount();
 
+	/** RTA raw: pending/failed 건 조회 (배치 정규화용) */
+	List<Map<String, ?>> selectRtaReplayRawPending(@Param("limit") int limit);
+
 	public List<Map<String, ?>> selectRecordList(Map<String, Object> param);
 
 	public List<Map<String, ?>> selectRecordUserDetail(Map<String, Object> param);

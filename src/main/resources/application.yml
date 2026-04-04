@@ -171,12 +171,17 @@ smw:
   rta:
     exporter:
       enabled: ${SMW_RTA_EXPORTER_ENABLED:false}
+      # true: full_log → ranker_rtpvp_replay_raw 만 (pending). 정규화는 RtaReplayRawApplyJob 배치.
+      raw-only: ${SMW_RTA_EXPORTER_RAW_ONLY:false}
       watch-directory: ${SMW_RTA_EXPORTER_WATCH_DIR:}
       temp-subdir: ${SMW_RTA_EXPORTER_TEMP_SUBDIR:temp}
       file-name-prefix: ${SMW_RTA_EXPORTER_FILE_PREFIX:full_log}
       poll-interval-ms: ${SMW_RTA_EXPORTER_POLL_MS:30000}
       max-file-size-mb: ${SMW_RTA_EXPORTER_MAX_MB:128}
       stable-millis: ${SMW_RTA_EXPORTER_STABLE_MS:2000}
+    raw-apply:
+      # RtaReplayRawApplyJob 한 번에 꺼내 정규화하는 최대 건수
+      batch-size: ${SMW_RTA_RAW_APPLY_BATCH_SIZE:100}
   ops:
     thresholds:
       heap-warning-percent: ${SMW_OPS_HEAP_WARNING_PERCENT:75}

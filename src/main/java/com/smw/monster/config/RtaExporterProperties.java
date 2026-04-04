@@ -19,6 +19,12 @@ public class RtaExporterProperties {
 	private boolean enabled = false;
 
 	/**
+	 * true 이면 full_log 파싱 후 {@code ranker_rtpvp_replay_raw} 만 적재(pending).
+	 * {@code ranker_rtpvp_replay_list} 등 정규화는 {@code RtaReplayRawApplyJob} 배치가 수행한다.
+	 */
+	private boolean rawOnly = false;
+
+	/**
 	 * Exporter 가 full_log 를 두는 디렉터리 (절대 경로 권장).
 	 * 비어 있으면 스케줄러가 아무 것도 하지 않음.
 	 */

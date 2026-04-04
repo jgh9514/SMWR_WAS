@@ -1511,6 +1511,14 @@
 		FROM ranker_rtpvp_replay_raw
 		WHERE apply_status &lt;&gt; 'applied'
 	</select>
+
+	<select id="selectRtaReplayRawPending" resultType="map">
+		SELECT rid, payload::text AS payload
+		FROM ranker_rtpvp_replay_raw
+		WHERE apply_status IN ('pending', 'failed')
+		ORDER BY inserted_at ASC
+		LIMIT #{limit}
+	</select>
 		
 	<select id="selectRecommendedAttackDeckList" parameterType="sqlMap" resultType="sqlMap">
 		/* selectRecommendedAttackDeckList */

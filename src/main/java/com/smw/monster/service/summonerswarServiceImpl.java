@@ -19,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import lombok.extern.slf4j.Slf4j;
@@ -767,50 +768,62 @@ public class summonerswarServiceImpl implements summonerswarService {
 			List<Map<String, ?>> arenaRows,
 			List<Map<String, ?>> userBatch,
 			List<Map<String, ?>> pickBatch,
-			List<Map<String, ?>> unitBatch) {
+			List<Map<String, ?>> unitBatch,
+			ArenaRtaPersistMode persistMode) {
 		if (arenaRows == null || arenaRows.isEmpty()) {
 			return;
 		}
-		List<Map<String, Object>> rawRows = buildArenaReplayRawRows(arenaRows);
-		if (!rawRows.isEmpty()) {
-			for (int from = 0; from < rawRows.size(); from += ARENA_RTA_BULK_CHUNK) {
-				int to = Math.min(from + ARENA_RTA_BULK_CHUNK, rawRows.size());
-				swMapper.insertArenaReplayRawBulk(rawRows.subList(from, to));
+		ArenaRtaPersistMode mode = persistMode != null ? persistMode : ArenaRtaPersistMode.FULL;
+		boolean writeRaw = mode == ArenaRtaPersistMode.FULL || mode == ArenaRtaPersistMode.RAW_ONLY;
+		boolean writeNormalized = mode == ArenaRtaPersistMode.FULL || mode == ArenaRtaPersistMode.NORMALIZED_ONLY;
+		boolean markRawApplied = mode == ArenaRtaPersistMode.FULL || mode == ArenaRtaPersistMode.NORMALIZED_ONLY;
+
+		if (writeRaw) {
+			List<Map<String, Object>> rawRows = buildArenaReplayRawRows(arenaRows);
+			if (!rawRows.isEmpty()) {
+				for (int from = 0; from < rawRows.size(); from += ARENA_RTA_BULK_CHUNK) {
+					int to = Math.min(from + ARENA_RTA_BULK_CHUNK, rawRows.size());
+					swMapper.insertArenaReplayRawBulk(rawRows.subList(from, to));
+				}
 			}
 		}
-		for (int from = 0; from < arenaRows.size(); from += ARENA_RTA_BULK_CHUNK) {
-			int to = Math.min(from + ARENA_RTA_BULK_CHUNK, arenaRows.size());
-			swMapper.insertArenaInfoBulk(arenaRows.subList(from, to));
-		}
-		if (userBatch != null && !userBatch.isEmpty()) {
-			for (int from = 0; from < userBatch.size(); from += ARENA_RTA_BULK_CHUNK) {
-				int to = Math.min(from + ARENA_RTA_BULK_CHUNK, userBatch.size());
-				swMapper.insertArenaUserInfoBulk(userBatch.subList(from, to));
+		if (writeNormalized) {
+			for (int from = 0; from < arenaRows.size(); from += ARENA_RTA_BULK_CHUNK) {
+				int to = Math.min(from + ARENA_RTA_BULK_CHUNK, arenaRows.size());
+				swMapper.insertArenaInfoBulk(arenaRows.subList(from, to));
+			}
+			if (userBatch != null && !userBatch.isEmpty()) {
+				for (int from = 0; from < userBatch.size(); from += ARENA_RTA_BULK_CHUNK) {
+					int to = Math.min(from + ARENA_RTA_BULK_CHUNK, userBatch.size());
+					swMapper.insertArenaUserInfoBulk(userBatch.subList(from, to));
+				}
+			}
+			if (pickBatch != null && !pickBatch.isEmpty()) {
+				for (int from = 0; from < pickBatch.size(); from += ARENA_RTA_BULK_CHUNK) {
+					int to = Math.min(from + ARENA_RTA_BULK_CHUNK, pickBatch.size());
+					swMapper.insertArenaPickInfoBulk(pickBatch.subList(from, to));
+				}
+			}
+			if (unitBatch != null && !unitBatch.isEmpty()) {
+				for (int from = 0; from < unitBatch.size(); from += ARENA_RTA_BULK_CHUNK) {
+					int to = Math.min(from + ARENA_RTA_BULK_CHUNK, unitBatch.size());
+					swMapper.insertArenaUnitInfoBulk(unitBatch.subList(from, to));
+				}
 			}
 		}
-		if (pickBatch != null && !pickBatch.isEmpty()) {
-			for (int from = 0; from < pickBatch.size(); from += ARENA_RTA_BULK_CHUNK) {
-				int to = Math.min(from + ARENA_RTA_BULK_CHUNK, pickBatch.size());
-				swMapper.insertArenaPickInfoBulk(pickBatch.subList(from, to));
+		if (markRawApplied) {
+			List<Long> appliedRids = new ArrayList<>();
+			for (Map<String, ?> row : arenaRows) {
+				Long rid = normalizeLong(row != null ? row.get("rid") : null);
+				if (rid != null) {
+					appliedRids.add(rid);
+				}
 			}
-		}
-		if (unitBatch != null && !unitBatch.isEmpty()) {
-			for (int from = 0; from < unitBatch.size(); from += ARENA_RTA_BULK_CHUNK) {
-				int to = Math.min(from + ARENA_RTA_BULK_CHUNK, unitBatch.size());
-				swMapper.insertArenaUnitInfoBulk(unitBatch.subList(from, to));
-			}
-		}
-		List<Long> appliedRids = new ArrayList<>();
-		for (Map<String, ?> row : arenaRows) {
-			Long rid = normalizeLong(row != null ? row.get("rid") : null);
-			if (rid != null) {
-				appliedRids.add(rid);
-			}
-		}
-		if (!appliedRids.isEmpty()) {
-			for (int from = 0; from < appliedRids.size(); from += ARENA_RTA_BULK_CHUNK) {
-				int to = Math.min(from + ARENA_RTA_BULK_CHUNK, appliedRids.size());
-				swMapper.updateArenaReplayRawAppliedBulk(appliedRids.subList(from, to));
+			if (!appliedRids.isEmpty()) {
+				for (int from = 0; from < appliedRids.size(); from += ARENA_RTA_BULK_CHUNK) {
+					int to = Math.min(from + ARENA_RTA_BULK_CHUNK, appliedRids.size());
+					swMapper.updateArenaReplayRawAppliedBulk(appliedRids.subList(from, to));
+				}
 			}
 		}
 	}
@@ -824,6 +837,17 @@ public class summonerswarServiceImpl implements summonerswarService {
 			List<Map<String, ?>> userBatch,
 			List<Map<String, ?>> pickBatch,
 			List<Map<String, ?>> unitBatch) {
+		return applyArenaRtaUploadPersistence(arenaBatch, userBatch, pickBatch, unitBatch, ArenaRtaPersistMode.FULL);
+	}
+
+	@Override
+	public ArenaRtaUploadApplyResult applyArenaRtaUploadPersistence(
+			List<Map<String, ?>> arenaBatch,
+			List<Map<String, ?>> userBatch,
+			List<Map<String, ?>> pickBatch,
+			List<Map<String, ?>> unitBatch,
+			ArenaRtaPersistMode persistMode) {
+		ArenaRtaPersistMode mode = persistMode != null ? persistMode : ArenaRtaPersistMode.FULL;
 		if (arenaBatch == null || arenaBatch.isEmpty()) {
 			return new ArenaRtaUploadApplyResult(0, 0);
 		}
@@ -893,7 +917,7 @@ public class summonerswarServiceImpl implements summonerswarService {
 			}
 			List<Map<String, ?>> arenaRows = new ArrayList<>(arenaByRid.values());
 			transactionTemplate.executeWithoutResult(status ->
-					insertArenaRtaBulkInChunks(arenaRows, userBatch, pickBatch, unitBatch));
+					insertArenaRtaBulkInChunks(arenaRows, userBatch, pickBatch, unitBatch, mode));
 		}
 		return new ArenaRtaUploadApplyResult(orphanRemoved, dupSkipped);
 	}
@@ -901,6 +925,20 @@ public class summonerswarServiceImpl implements summonerswarService {
 	@Override
 	@SuppressWarnings("unchecked")
 	public Map<String, Integer> applyArenaRtaUploadFromParsedItems(List<Map<String, ?>> log_list) {
+		return applyArenaRtaUploadFromParsedItemsWithMode(log_list, ArenaRtaPersistMode.FULL);
+	}
+
+	@Override
+	@SuppressWarnings("unchecked")
+	public Map<String, Integer> applyArenaRtaUploadRawOnlyFromParsedItems(List<Map<String, ?>> log_list) {
+		return applyArenaRtaUploadFromParsedItemsWithMode(log_list, ArenaRtaPersistMode.RAW_ONLY);
+	}
+
+	/** Exporter / API 공통: 파싱 로그 → 배치 적재 (FULL 또는 RAW_ONLY). */
+	@SuppressWarnings("unchecked")
+	private Map<String, Integer> applyArenaRtaUploadFromParsedItemsWithMode(
+			List<Map<String, ?>> log_list,
+			ArenaRtaPersistMode persistMode) {
 		Map<String, Integer> empty = new HashMap<>();
 		empty.put("success", 0);
 		empty.put("fail", 0);
@@ -1009,7 +1047,7 @@ public class summonerswarServiceImpl implements summonerswarService {
 			}
 		}
 		if (!arenaBatch.isEmpty()) {
-			ArenaRtaUploadApplyResult applied = applyArenaRtaUploadPersistence(arenaBatch, userBatch, pickBatch, unitBatch);
+			ArenaRtaUploadApplyResult applied = applyArenaRtaUploadPersistence(arenaBatch, userBatch, pickBatch, unitBatch, persistMode);
 			int dup = applied.getDuplicateReplaySkippedCount();
 			fail += dup;
 			success = Math.max(0, success - dup);
@@ -1018,6 +1056,59 @@ public class summonerswarServiceImpl implements summonerswarService {
 		result.put("success", success);
 		result.put("fail", fail);
 		return result;
+	}
+
+	@Override
+	public int applyPendingArenaReplayRawFromDb(int limit) {
+		int n = Math.min(Math.max(limit, 1), 500);
+		List<Map<String, ?>> pending = swMapper.selectRtaReplayRawPending(n);
+		int applied = 0;
+		for (Map<String, ?> row : pending) {
+			Long rid = normalizeLong(row.get("rid"));
+			Object payloadObj = row.get("payload");
+			if (rid == null || payloadObj == null) {
+				log.warn("[rta-raw-apply] rid/payload 없음 row={}", row);
+				continue;
+			}
+			try {
+				Map<String, Object> one = parseReplayPayloadToMap(payloadObj);
+				if (selectArenaRidsExisting(Collections.singleton(rid)).contains(rid)) {
+					swMapper.updateArenaReplayRawAppliedBulk(Collections.singletonList(rid));
+					applied++;
+					continue;
+				}
+				List<Map<String, ?>> logList = Collections.singletonList(one);
+				Map<String, Integer> counts = applyArenaRtaUploadFromParsedItemsWithMode(logList, ArenaRtaPersistMode.NORMALIZED_ONLY);
+				int ok = counts.getOrDefault("success", 0);
+				if (ok > 0) {
+					applied++;
+				} else if (selectArenaRidsExisting(Collections.singleton(rid)).contains(rid)) {
+					swMapper.updateArenaReplayRawAppliedBulk(Collections.singletonList(rid));
+					applied++;
+				} else {
+					swMapper.updateArenaReplayRawFailedBulk(Collections.singletonList(rid),
+							"정규화 스킵 또는 실패 (success=0)");
+				}
+			} catch (RtaUploadValidationException e) {
+				log.warn("[rta-raw-apply] 검증 실패 rid={}", rid, e);
+				swMapper.updateArenaReplayRawFailedBulk(Collections.singletonList(rid), e.getMessage());
+			} catch (Exception e) {
+				log.warn("[rta-raw-apply] 처리 실패 rid={}", rid, e);
+				swMapper.updateArenaReplayRawFailedBulk(Collections.singletonList(rid), String.valueOf(e.getMessage()));
+			}
+		}
+		return applied;
+	}
+
+	@SuppressWarnings("unchecked")
+	private Map<String, Object> parseReplayPayloadToMap(Object payloadObj) throws JsonProcessingException {
+		if (payloadObj instanceof String) {
+			return objectMapper.readValue((String) payloadObj, new TypeReference<Map<String, Object>>() { });
+		}
+		if (payloadObj instanceof Map) {
+			return (Map<String, Object>) payloadObj;
+		}
+		return objectMapper.convertValue(payloadObj, new TypeReference<Map<String, Object>>() { });
 	}
 	
 	@Override
