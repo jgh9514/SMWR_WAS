@@ -807,6 +807,7 @@
                 u.wizard_id,
                 u.wizard_name,
                 u.country,
+                u.channel_uid,
                 CAST(TRIM(u.score::text) AS INT) AS score,
                 CASE
                     WHEN TRIM(COALESCE(u.rating_id::text, '')) ~ '^[0-9]+$'
@@ -825,6 +826,7 @@
                 latest.wizard_id,
                 latest.wizard_name,
                 latest.country,
+                latest.channel_uid,
                 latest.score,
                 latest.rating_id,
                 latest.last_match_at,
@@ -836,6 +838,7 @@
             wizard_id,
             wizard_name,
             country,
+            channel_uid,
             score,
             rating_id,
             last_match_at

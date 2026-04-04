@@ -12,6 +12,7 @@ import java.util.Map;
 import java.util.Set;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
@@ -42,6 +43,12 @@ public class summonerswarServiceImpl implements summonerswarService {
 
 	@Autowired
 	private ObjectMapper objectMapper;
+
+	/**
+	 * raw → replay_list 정규화 시 한 트랜잭션에 묶을 최대 건수. 단건 반복 대비 처리량 향상 (너무 크면 DB 타임아웃 위험).
+	 */
+	@Value("${smw.rta.raw-apply.apply-chunk-size:80}")
+	private int rawApplyApplyChunkSize;
 	
 	@Override
 	@Cacheable(
@@ -1164,7 +1171,13 @@ public class summonerswarServiceImpl implements summonerswarService {
 	public int applyPendingArenaReplayRawFromDb(int limit) {
 		int n = Math.min(Math.max(limit, 1), 500);
 		List<Map<String, ?>> pending = swMapper.selectRtaReplayRawPending(n);
+		if (pending.isEmpty()) {
+			return 0;
+		}
+		int chunk = Math.min(300, Math.max(5, rawApplyApplyChunkSize));
 		int applied = 0;
+
+		List<Map<String, ?>> parsed = new ArrayList<>();
 		for (Map<String, ?> row : pending) {
 			Long rid = normalizeLong(row.get("rid"));
 			Object payloadObj = row.get("payload");
@@ -1173,7 +1186,68 @@ public class summonerswarServiceImpl implements summonerswarService {
 				continue;
 			}
 			try {
-				Map<String, Object> one = parseReplayPayloadToMap(payloadObj);
+				parsed.add(parseReplayPayloadToMap(payloadObj));
+			} catch (Exception e) {
+				log.warn("[rta-raw-apply] rid={} payload 파싱 실패", rid, e);
+				swMapper.updateArenaReplayRawFailedBulk(Collections.singletonList(rid), String.valueOf(e.getMessage()));
+			}
+		}
+		if (parsed.isEmpty()) {
+			return 0;
+		}
+
+		LinkedHashSet<Long> candidateRids = new LinkedHashSet<>();
+		for (Map<String, ?> m : parsed) {
+			Long rid = normalizeLong(m.get("rid"));
+			if (rid != null) {
+				candidateRids.add(rid);
+			}
+		}
+		Set<Long> alreadyInReplay = selectArenaRidsExisting(candidateRids);
+		if (!alreadyInReplay.isEmpty()) {
+			swMapper.updateArenaReplayRawAppliedBulk(new ArrayList<>(alreadyInReplay));
+			applied += alreadyInReplay.size();
+		}
+
+		List<Map<String, ?>> toNormalize = new ArrayList<>();
+		for (Map<String, ?> one : parsed) {
+			Long rid = normalizeLong(one.get("rid"));
+			if (rid != null && !alreadyInReplay.contains(rid)) {
+				toNormalize.add(one);
+			}
+		}
+		if (toNormalize.isEmpty()) {
+			return applied;
+		}
+
+		for (int from = 0; from < toNormalize.size(); from += chunk) {
+			int to = Math.min(from + chunk, toNormalize.size());
+			List<Map<String, ?>> sub = new ArrayList<>(toNormalize.subList(from, to));
+			try {
+				Map<String, Integer> counts = applyArenaRtaUploadFromParsedItemsWithMode(sub, ArenaRtaPersistMode.NORMALIZED_ONLY);
+				applied += counts.getOrDefault("success", 0);
+			} catch (RtaUploadValidationException e) {
+				log.warn("[rta-raw-apply] 청크 검증 실패, 건별 재시도: {}", e.getMessage());
+				applied += applyPendingArenaReplayRawFromDbOneByOne(sub);
+			} catch (Exception e) {
+				log.warn("[rta-raw-apply] 청크 처리 실패, 건별 재시도", e);
+				applied += applyPendingArenaReplayRawFromDbOneByOne(sub);
+			}
+		}
+		return applied;
+	}
+
+	/**
+	 * 청크 단위 정규화가 예외로 실패했을 때만 사용. 기존 rid 단건 로직과 동일.
+	 */
+	private int applyPendingArenaReplayRawFromDbOneByOne(List<Map<String, ?>> rows) {
+		int applied = 0;
+		for (Map<String, ?> one : rows) {
+			Long rid = normalizeLong(one.get("rid"));
+			if (rid == null) {
+				continue;
+			}
+			try {
 				if (selectArenaRidsExisting(Collections.singleton(rid)).contains(rid)) {
 					swMapper.updateArenaReplayRawAppliedBulk(Collections.singletonList(rid));
 					applied++;
