@@ -9,8 +9,6 @@ public interface CommService {
 	
 	public List<Map<String, ?>> selectLoginAccessPageList(Map<String, Object> param);
 	
-	public List<Map<String, ?>> selectCdList(Map<String, Object> param);
-	
 	public int updateConfig(Map<String, Object> param);
 	
 	public List<Map<String, ?>> selectMultiLanguageList(Map<String, Object> param);

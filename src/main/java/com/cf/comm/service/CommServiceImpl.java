@@ -26,9 +26,6 @@ public class CommServiceImpl implements CommService {
     CommMapper mapper;
     
     @Autowired
-    com.admin.code.mapper.CdMapper codeMapper;
-    
-    @Autowired
     MultiLangMapper multiLangMapper;
 
     @Autowired
@@ -49,11 +46,6 @@ public class CommServiceImpl implements CommService {
         return Collections.emptyList();
     }
     
-    @Override
-    public List<Map<String, ?>> selectCdList(Map<String, Object> param) {
-        return codeMapper.selectCdUtilList(param);
-    }
-
     @Override
     public int updateConfig(Map<String, Object> param) {
         return userMapper.updateLangCd(param);

@@ -27,10 +27,10 @@ public class MultiLangServiceImpl implements MultiLangService {
     MultiLangMapper mapper;
 
     @Autowired
-    com.admin.code.mapper.CdMapper codeMapper;
-
-    @Autowired
     CommService commService;
+
+    /** 지원 언어 (기존 CO00000002 그룹과 동일하게 KO/EN/ZH) */
+    private static final String[] MLANG_LANG_CODES = { "KO", "EN", "ZH" };
 
     @Override
     public List<Map<String, ?>> selectMlangList(Map<String, Object> param) {
@@ -40,9 +40,12 @@ public class MultiLangServiceImpl implements MultiLangService {
     @Override
     @Transactional
     public int insertMlang(Map<String, Object> param) {
-        Map<String, Object> codeParam = new HashMap<>();
-        codeParam.put("cd_grp_no", "CO00000002");
-        List<Map<String, ?>> langList = codeMapper.selectCdListByCdGrpNo(codeParam);
+        List<Map<String, ?>> langList = new ArrayList<>();
+        for (String langCd : MLANG_LANG_CODES) {
+            Map<String, Object> row = new HashMap<>();
+            row.put("cd", langCd);
+            langList.add(row);
+        }
 
         for (Map<String, ?> cd : langList) {
             Map<String, Object> mlangParam = new HashMap<>(param);

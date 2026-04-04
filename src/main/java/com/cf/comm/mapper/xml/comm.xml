@@ -13,10 +13,8 @@
     </select>
 
     <select id="selectVersionCheck" parameterType="sqlMap" resultType="sqlMap">
-        /* selectVersionCheck - 로그인 사용자 접근 화면 목록 */
-	    SELECT *
-		  FROM sys_cd sc
-		 WHERE sc.cd_grp_no = 'CO00000026'
+        /* selectVersionCheck — sys_cd 제거 후 빈 목록 */
+        SELECT NULL::varchar AS cd WHERE FALSE
 	</select>
 
 	<insert id="insertErrorLogs" parameterType="sqlMap">

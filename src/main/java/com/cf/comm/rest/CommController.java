@@ -1,6 +1,5 @@
 package com.cf.comm.rest;
 
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -12,7 +11,6 @@ import jakarta.servlet.http.HttpSession;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -60,28 +58,6 @@ public class CommController {
 		return new ResponseEntity<>(list, HttpStatus.OK);
 	}
 
-	@Operation(summary = "공통 코드 목록 조회", description = "공통 코드 목록을 그룹별로 조회합니다.")
-	@PostMapping("/comm-cd")
-	public ResponseEntity<?> selectCdList(@RequestBody Map<String, Object> param, HttpServletRequest request, HttpSession session) {
-		List<Map<String, ?>> res = service.selectCdList(param);
-		Map<String, List<Map<String, ?>>> grouped = new HashMap<>();
-		for (Map<String, ?> item : res) {
-		    String grpNo = (String) item.get("cd_grp_no");
-		    grouped.computeIfAbsent(grpNo, k -> new ArrayList<>()).add(item);
-		}
-		return new ResponseEntity<>(grouped, HttpStatus.OK);
-	}
-
-	@Operation(summary = "그룹별 코드 조회", description = "특정 그룹의 코드 목록을 조회합니다.")
-	@PostMapping("/comm-cd/{id}")
-	public ResponseEntity<?> selectCdListByCdGrpNo(@PathVariable String id, HttpServletRequest request, HttpSession session) {
-		Map<String, Object> param = new HashMap<String, Object>();
-		param.put("cd_grp_no", id);
-		List<Map<String, ?>> searchList = service.selectCdList(param);
-
-		return new ResponseEntity<>(searchList, HttpStatus.OK);
-	}
-	
 	@Operation(summary = "설정 업데이트", description = "사용자 설정을 업데이트합니다.")
 	@PostMapping("/config")
 	public ResponseEntity<?> updateConfig(@RequestBody Map<String, Object> param, HttpSession session, HttpServletRequest request, HttpServletResponse response) throws Exception {
