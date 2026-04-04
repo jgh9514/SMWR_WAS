@@ -39,5 +39,6 @@ COPY --from=build /app/target/app.jar app.jar
 EXPOSE 8080
 
 # 애플리케이션 실행
-ENTRYPOINT ["java", "-XX:+UseG1GC", "-XX:+UseStringDeduplication", "-XX:MaxRAMPercentage=75.0", "-XX:InitialRAMPercentage=25.0", "-Djava.security.egd=file:/dev/./urandom", "-jar", "app.jar"]
+# MaxRAMPercentage: 힙만 제한 — 너무 높이면 메타스페이스·직접 버퍼·스택 대비 컨테이너 limit(OOMKilled) 여유가 없음
+ENTRYPOINT ["java", "-XX:+UseG1GC", "-XX:+UseStringDeduplication", "-XX:MaxRAMPercentage=65.0", "-XX:InitialRAMPercentage=20.0", "-Djava.security.egd=file:/dev/./urandom", "-jar", "app.jar"]
 

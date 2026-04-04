@@ -36,15 +36,20 @@ public class RtaExporterProperties {
 	/** 감시 파일명 접두사 (예: full_log.txt, full_log_1.txt) */
 	private String fileNamePrefix = "full_log";
 
-	/** 이전 폴링 완료 후 다음 실행까지 대기(ms). 기본 1분. */
-	private long pollIntervalMs = 60_000L;
+	/** 이전 폴링 완료 후 다음 실행까지 대기(ms). 기본 5분. */
+	private long pollIntervalMs = 300_000L;
 
 	/** 한 파일 최대 크기(MB). 초과 시 건너뜀 */
 	private int maxFileSizeMb = 128;
 
 	/**
-	 * 파일 크기가 이 시간(ms) 동안 변하지 않으면 "쓰기 완료"로 간주 후 이동.
-	 * Exporter 가 계속 쓰는 동안에는 이동하지 않음.
+	 * 안정화 검사 시 크기 샘플 간격(ms). 이전 크기와 sleep 후 크기가 같으면 한 번의 "안정" 후보.
 	 */
 	private long stableMillis = 2_000L;
+
+	/**
+	 * 안정화 검사 최대 대기(ms). 이 안에 크기가 안정되지 않으면 이번 폴링은 건너뛰고 다음 폴링에서 재시도.
+	 * Exporter 쓰기 구간(~수십 초) + 여유를 두려면 60_000 등.
+	 */
+	private long stableMaxWaitMs = 60_000L;
 }

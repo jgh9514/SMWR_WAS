@@ -38,7 +38,7 @@ public class RtaExporterFullLogIngestScheduler {
 
 	private final Object ingestLock = new Object();
 
-	@Scheduled(fixedDelayString = "${smw.rta.exporter.poll-interval-ms:60000}")
+	@Scheduled(fixedDelayString = "${smw.rta.exporter.poll-interval-ms:300000}")
 	public void pollAndIngest() {
 		synchronized (ingestLock) {
 			String dir = props.getWatchDirectory();
@@ -73,16 +73,17 @@ public class RtaExporterFullLogIngestScheduler {
 				return;
 			}
 
-			// 쓰기 중인 파일은 크기가 변함 → 안정화될 때까지 대기
+			// 쓰기 중인 파일은 크기가 변함 → stableMillis 간격으로 최대 stableMaxWaitMs 동안 반복 검사
 			boolean stable;
 			try {
-				stable = isFileStable(candidate, props.getStableMillis());
+				stable = waitUntilFileStable(candidate, props.getStableMillis(), props.getStableMaxWaitMs());
 			} catch (IOException e) {
 				log.warn("[rta-exporter] 파일 안정화 검사 실패: {}", candidate, e);
 				return;
 			}
 			if (!stable) {
-				log.debug("[rta-exporter] 아직 쓰기 중으로 보임, 건너뜀: {}", candidate);
+				log.info("[rta-exporter] {}ms 안에 크기 안정 없음(아직 쓰기 중 추정), 다음 폴링에서 재시도: {}",
+						props.getStableMaxWaitMs(), candidate);
 				return;
 			}
 
@@ -155,16 +156,26 @@ public class RtaExporterFullLogIngestScheduler {
 		}
 	}
 
-	private static boolean isFileStable(Path file, long stableMillis) throws IOException {
-		long s0 = Files.size(file);
-		long wait = Math.max(200L, stableMillis);
-		try {
-			Thread.sleep(wait);
-		} catch (InterruptedException e) {
-			Thread.currentThread().interrupt();
-			return false;
+	/**
+	 * {@code intervalMs} 마다 크기를 비교해, 연속 두 샘플이 같으면 쓰기 완료로 본다.
+	 * 총 대기 상한은 {@code maxWaitMs} (한 번의 폴링 안에서만 사용).
+	 */
+	private static boolean waitUntilFileStable(Path file, long intervalMs, long maxWaitMs) throws IOException {
+		long interval = Math.max(200L, intervalMs);
+		long deadline = System.currentTimeMillis() + Math.max(interval, maxWaitMs);
+		while (System.currentTimeMillis() < deadline) {
+			long s0 = Files.size(file);
+			try {
+				Thread.sleep(interval);
+			} catch (InterruptedException e) {
+				Thread.currentThread().interrupt();
+				return false;
+			}
+			long s1 = Files.size(file);
+			if (s0 == s1) {
+				return true;
+			}
 		}
-		long s1 = Files.size(file);
-		return s0 == s1;
+		return false;
 	}
 }

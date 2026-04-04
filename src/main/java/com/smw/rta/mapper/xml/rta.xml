@@ -83,7 +83,8 @@
             COALESCE(un2.picked_units_str, '') as p2_units_str
         FROM match_info m
         JOIN user_info u1 ON m.rid = u1.rid
-        JOIN user_info u2 ON m.rid = u2.rid AND u1.wizard_id != u2.wizard_id
+        /* 1v1 매치당 1행: u1!=u2 만 주면 (A,B)·(B,A) 두 행이 생김 → wizard_id 오름차순 한 쌍만 */
+        JOIN user_info u2 ON m.rid = u2.rid AND u1.wizard_id &lt; u2.wizard_id
         JOIN pick_info p1 ON m.rid = p1.rid AND u1.wizard_id = p1.wizard_id
         JOIN pick_info p2 ON m.rid = p2.rid AND u2.wizard_id = p2.wizard_id
         LEFT JOIN unit_info un1 ON m.rid = un1.rid AND u1.wizard_id = un1.wizard_id
@@ -173,7 +174,7 @@
             COALESCE(un2.picked_units_str, '') as p2_units_str
         FROM match_info m
         JOIN user_info u1 ON m.rid = u1.rid
-        JOIN user_info u2 ON m.rid = u2.rid AND u1.wizard_id != u2.wizard_id
+        JOIN user_info u2 ON m.rid = u2.rid AND u1.wizard_id &lt; u2.wizard_id
         JOIN pick_info p1 ON m.rid = p1.rid AND u1.wizard_id = p1.wizard_id
         JOIN pick_info p2 ON m.rid = p2.rid AND u2.wizard_id = p2.wizard_id
         LEFT JOIN unit_info un1 ON m.rid = un1.rid AND u1.wizard_id = un1.wizard_id

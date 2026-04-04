@@ -635,6 +635,101 @@ public class summonerswarServiceImpl implements summonerswarService {
 	}
 
 	/**
+	 * RTA JSON 키를 DB/MyBatis snake_case 컬럼명과 맞춘다 (camelCase, {@code channeluid} 등).
+	 * {@code user_info}·{@code pick_info}·{@code unit_list} 행에 적용.
+	 */
+	private static void normalizeArenaUserInfoJsonKeysForDb(Map<String, Object> userInfo) {
+		if (userInfo == null) {
+			return;
+		}
+		normalizeJsonKeysToSnakeCase(userInfo);
+		Object pickObj = userInfo.get("pick_info");
+		if (pickObj instanceof Map) {
+			@SuppressWarnings("unchecked")
+			Map<String, Object> pick = (Map<String, Object>) pickObj;
+			normalizeJsonKeysToSnakeCase(pick);
+			Object unitsObj = pick.get("unit_list");
+			if (unitsObj instanceof List<?> ul) {
+				for (Object row : ul) {
+					if (row instanceof Map) {
+						@SuppressWarnings("unchecked")
+						Map<String, Object> unit = (Map<String, Object>) row;
+						normalizeJsonKeysToSnakeCase(unit);
+					}
+				}
+			}
+		}
+	}
+
+	/**
+	 * '_' 가 없는 camelCase 키를 snake_case 로 옮기고, 원 키는 제거한다.
+	 * 이미 snake_case 인 키( '_' 포함)는 그대로 둔다.
+	 */
+	private static void normalizeJsonKeysToSnakeCase(Map<String, Object> map) {
+		if (map == null || map.isEmpty()) {
+			return;
+		}
+		List<String> removeKeys = new ArrayList<>();
+		for (Map.Entry<String, Object> e : new ArrayList<>(map.entrySet())) {
+			String k = e.getKey();
+			if (k == null) {
+				continue;
+			}
+			String snake = jsonKeyToSnakeColumn(k);
+			if (snake.equals(k)) {
+				continue;
+			}
+			Object v = e.getValue();
+			if (v == null) {
+				continue;
+			}
+			Object cur = map.get(snake);
+			if (cur != null && !String.valueOf(cur).trim().isEmpty()) {
+				removeKeys.add(k);
+				continue;
+			}
+			map.put(snake, v);
+			removeKeys.add(k);
+		}
+		for (String k : removeKeys) {
+			map.remove(k);
+		}
+	}
+
+	/** '_' 없음 + 대문자 → camelToSnake; '_' 없음 + channeluid → channel_uid */
+	private static String jsonKeyToSnakeColumn(String key) {
+		if (key == null) {
+			return "";
+		}
+		if (key.indexOf('_') >= 0) {
+			return key;
+		}
+		if ("channeluid".equalsIgnoreCase(key)) {
+			return "channel_uid";
+		}
+		for (int i = 0; i < key.length(); i++) {
+			if (Character.isUpperCase(key.charAt(i))) {
+				return camelToSnake(key);
+			}
+		}
+		return key;
+	}
+
+	private static String camelToSnake(String s) {
+		StringBuilder b = new StringBuilder();
+		b.append(Character.toLowerCase(s.charAt(0)));
+		for (int i = 1; i < s.length(); i++) {
+			char c = s.charAt(i);
+			if (Character.isUpperCase(c)) {
+				b.append('_').append(Character.toLowerCase(c));
+			} else {
+				b.append(c);
+			}
+		}
+		return b.toString();
+	}
+
+	/**
 	 * 누적 로그 등으로 동일 rid 전투가 여러 번 들어온 경우 첫 행만 유지.
 	 * user/pick 은 (rid, wizard_id), unit 은 동일 (rid, wizard_id) 및 pick_slot 기준 중복 제거.
 	 */
@@ -979,9 +1074,12 @@ public class summonerswarServiceImpl implements summonerswarService {
 				fail += 1;
 				continue;
 			}
-			Object userListObj = list.get("user_list");
+			@SuppressWarnings("unchecked")
+			Map<String, Object> arenaRow = (Map<String, Object>) list;
+			normalizeJsonKeysToSnakeCase(arenaRow);
+			Object userListObj = arenaRow.get("user_list");
 			if (userListObj == null || !(userListObj instanceof Map)) {
-				log.warn("[rta-upload] user_list 없음·형식 오류 rid={}", list.get("rid"));
+				log.warn("[rta-upload] user_list 없음·형식 오류 rid={}", arenaRow.get("rid"));
 				fail += 1;
 				continue;
 			}
@@ -992,6 +1090,7 @@ public class summonerswarServiceImpl implements summonerswarService {
 					continue;
 				}
 				Map<String, Object> user_info = (Map<String, Object>) val;
+				normalizeArenaUserInfoJsonKeysForDb(user_info);
 				if (user_info.get("pick_info") == null) {
 					String msg = "pick_info 없음 rid=" + list.get("rid") + " wizard_id=" + user_info.get("wizard_id");
 					log.warn("[rta-upload] {}", msg);
