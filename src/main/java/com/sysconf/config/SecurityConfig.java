@@ -17,7 +17,6 @@ import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfFilter;
 import org.springframework.security.web.firewall.StrictHttpFirewall;
 import org.springframework.security.web.header.writers.StaticHeadersWriter;
-import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
 
 import com.sysconf.filter.SimpleCorsFilter;
 
@@ -42,11 +41,11 @@ public class SecurityConfig {
             web.ignoring()
                 .requestMatchers(PathRequest.toStaticResources().atCommonLocations())
                 .requestMatchers(
-                    AntPathRequestMatcher.antMatcher("/**/*.js"),
-                    AntPathRequestMatcher.antMatcher("/**/*.html"),
-                    AntPathRequestMatcher.antMatcher("/**/*.css"),
-                    AntPathRequestMatcher.antMatcher("/**/*.json"),
-                    AntPathRequestMatcher.antMatcher("/**/*.ico"));
+                    "/**/*.js",
+                    "/**/*.html",
+                    "/**/*.css",
+                    "/**/*.json",
+                    "/**/*.ico");
         };
     }
 
