@@ -1,6 +1,7 @@
 package com.admin.user.service;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -9,7 +10,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
 
-import com.admin.role.mapper.RoleMapper;
 import com.admin.user.mapper.UserMapper;
 import com.sysconf.util.DateUtil;
 
@@ -23,9 +23,6 @@ public class UserServiceImpl implements UserService {
 	@Autowired 
 	UserMapper mapper;
 	
-	@Autowired
-	RoleMapper roleMapper;
-
     @Override
     public Map<String, Object> selectUserInfo(Map<String, Object> param) {
     	Map<String, Object> userInfo = mapper.selectUserInfo(param);
@@ -34,11 +31,8 @@ public class UserServiceImpl implements UserService {
     		return null;
     	}
     	
-		// 사용자 권한 정보 추가
-		Map<String, Object> roleParam = new HashMap<>();
-		roleParam.put("usr_id", userInfo.get("user_id"));
-		List<Map<String, ?>> userRoles = roleMapper.selectUserRoleList(roleParam);
-		userInfo.put("roles", userRoles);
+		// 역할 테이블 제거: 세션/인터셉터 호환을 위해 빈 목록 유지
+		userInfo.put("roles", Collections.emptyList());
 
         return userInfo;
     }

@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.admin.log.service.LogService;
 import com.sysconf.constants.Constant;
+import com.sysconf.security.AdminPrivilegeResolver;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -30,6 +31,9 @@ public class LogController {
 	@Autowired
 	private LogService service;
 
+	@Autowired
+	private AdminPrivilegeResolver adminPrivilegeResolver;
+
 	@SuppressWarnings("unchecked")
 	private Map<String, Object> getSessUserInfo(HttpServletRequest request) {
 		Object attr = request != null ? request.getAttribute("userInfo") : null;
@@ -39,23 +43,9 @@ public class LogController {
 		return null;
 	}
 
-	@SuppressWarnings("unchecked")
 	private boolean isAdminUser(HttpServletRequest request) {
 		Map<String, Object> userInfo = getSessUserInfo(request);
-		if (userInfo == null) return false;
-		Object rolesObj = userInfo.get("sess_role");
-		if (rolesObj == null) rolesObj = userInfo.get("roles");
-		if (!(rolesObj instanceof List)) return false;
-		List<?> roles = (List<?>) rolesObj;
-		for (Object r : roles) {
-			if (!(r instanceof Map)) continue;
-			Map<String, ?> role = (Map<String, ?>) r;
-			Object roleId = role.get("role_id");
-			Object usgYn = role.get("usg_yn");
-			boolean enabled = (usgYn == null) || "Y".equalsIgnoreCase(String.valueOf(usgYn));
-			if (enabled && Constant.ROLE_ADMIN.equals(String.valueOf(roleId))) return true;
-		}
-		return false;
+		return userInfo != null && adminPrivilegeResolver.isAdminUser(userInfo);
 	}
 
 	private ResponseEntity<?> requireAdmin(HttpServletRequest request) {

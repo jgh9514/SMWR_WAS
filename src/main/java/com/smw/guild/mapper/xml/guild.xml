@@ -550,24 +550,5 @@
 		select nextval('file_attachment_seq'::regclass) as "key"
 	</select>
 
-	<!-- 역할별 사용자 목록 조회 (관리자 조회용) -->
-	<select id="selectUsersByRole" parameterType="sqlMap" resultType="java.util.HashMap">
-		/* selectUsersByRole */
-		SELECT DISTINCT
-			u.user_id,
-			u.user_nm,
-			u.email
-		FROM SYS_USER u
-		INNER JOIN SYS_USER_ROLE ur ON u.user_id = ur.user_id
-		INNER JOIN SYS_ROLE r ON ur.role_id = r.role_id
-		WHERE u.del_yn = 'N'
-		  AND ur.del_yn = 'N'
-		  AND r.del_yn = 'N'
-		<if test='role_id != null and role_id != ""'>
-		  AND r.role_id = #{role_id}
-		</if>
-		ORDER BY u.user_id
-	</select>
-
 </mapper>
 

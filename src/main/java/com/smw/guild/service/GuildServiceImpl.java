@@ -13,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.smw.guild.mapper.GuildMapper;
 import com.smw.guild.mapper.GuildJoinApplicationMapper;
 import com.cf.notification.service.NotificationService;
+import com.sysconf.security.AdminPrivilegeResolver;
 import com.sysconf.util.DateUtil;
 import com.sysconf.util.S3Service;
 
@@ -37,6 +38,9 @@ public class GuildServiceImpl implements GuildService {
 	
 	@Autowired
 	private S3Service s3Service;
+
+	@Autowired
+	private AdminPrivilegeResolver adminPrivilegeResolver;
 
 	@Override
 	public List<Map<String, ?>> selectGuildList(Map<String, Object> param) {
@@ -332,29 +336,20 @@ public class GuildServiceImpl implements GuildService {
 			}
 		}
 		
-		// 관리자에게 알림 생성
 		if (result > 0) {
-			// 관리자 조회 (role_id가 'RL0001'인 사용자들)
-			Map<String, Object> adminParam = new HashMap<>();
-			adminParam.put("role_id", "RL0001");
-			List<Map<String, ?>> admins = mapper.selectUsersByRole(adminParam);
-			
 			String guildName = (String) param.get("guild_name");
 			String applicationId = param.get("application_id") != null ? param.get("application_id").toString() : null;
 			
-			for (Map<String, ?> admin : admins) {
-				String adminId = (String) admin.get("user_id");
-				if (adminId != null) {
-					notificationService.createNotification(
-						adminId,
-						"GUILD_APPLICATION_PENDING",
-						"새로운 길드 생성 신청이 있습니다",
-						guildName + " 길드 생성 신청이 접수되었습니다.",
-						applicationId,
-						"/admin/guildapplication",
-						param.get("sess_user_id") != null ? param.get("sess_user_id").toString() : null
-					);
-				}
+			for (String adminId : adminPrivilegeResolver.listConfiguredAdminUserIds()) {
+				notificationService.createNotification(
+					adminId,
+					"GUILD_APPLICATION_PENDING",
+					"새로운 길드 생성 신청이 있습니다",
+					guildName + " 길드 생성 신청이 접수되었습니다.",
+					applicationId,
+					"/admin/guildapplication",
+					param.get("sess_user_id") != null ? param.get("sess_user_id").toString() : null
+				);
 			}
 		}
 		

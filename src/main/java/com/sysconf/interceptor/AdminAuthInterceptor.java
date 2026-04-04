@@ -1,6 +1,5 @@
 package com.sysconf.interceptor;
 
-import java.util.List;
 import java.util.Map;
 
 import jakarta.servlet.http.HttpServletRequest;
@@ -12,7 +11,7 @@ import org.springframework.web.servlet.HandlerInterceptor;
 import org.springframework.web.servlet.ModelAndView;
 
 import com.sysconf.annotation.RequireAdmin;
-import com.sysconf.constants.Constant;
+import com.sysconf.security.AdminPrivilegeResolver;
 import com.sysconf.util.CookieUtil;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -31,6 +30,9 @@ public class AdminAuthInterceptor implements HandlerInterceptor {
 
 	@Autowired
 	private CookieUtil cookieUtil;
+
+	@Autowired
+	private AdminPrivilegeResolver adminPrivilegeResolver;
 
 	@Override
 	public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
@@ -77,28 +79,7 @@ public class AdminAuthInterceptor implements HandlerInterceptor {
 	}
 
 	private boolean isAdminUser(Map<String, Object> userInfo) {
-		Object rolesObj = userInfo.get("roles");
-		if (rolesObj == null) {
-			rolesObj = userInfo.get("sess_role");
-		}
-		if (!(rolesObj instanceof List)) {
-			return false;
-		}
-		List<?> roles = (List<?>) rolesObj;
-		for (Object r : roles) {
-			if (!(r instanceof Map)) {
-				continue;
-			}
-			Map<?, ?> role = (Map<?, ?>) r;
-			Object roleId = role.get("role_id");
-			Object usgYn = role.get("usg_yn");
-			String roleIdStr = String.valueOf(roleId);
-			boolean enabled = (usgYn == null) || "Y".equalsIgnoreCase(String.valueOf(usgYn));
-			if (enabled && Constant.ROLE_ADMIN.equals(roleIdStr)) {
-				return true;
-			}
-		}
-		return false;
+		return adminPrivilegeResolver.isAdminUser(userInfo);
 	}
 
 	private boolean requiresAdmin(Object handler) {

@@ -18,9 +18,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.admin.role.service.RoleService;
 import com.admin.user.service.UserService;
-import com.sysconf.constants.Constant;
 import com.sysconf.security.SHA256;
 import com.sysconf.util.StringUtil;
 
@@ -37,9 +35,6 @@ public class UserController {
 
 	@Autowired
 	private UserService service;
-
-	@Autowired
-	private RoleService roleservice;
 
 	/**
 	 * 사용자 팝업 목록 조회
@@ -84,9 +79,7 @@ public class UserController {
 		if("".equals(param.get("user_id")) || null == param.get("user_id")) {
 			String key = String.valueOf(service.selectUserId().get("user_id"));
 			param.put("user_id", key);
-			param.put("role_id", Constant.ROLE_GENERAL);
 			service.insertUserDtl(param);
-			roleservice.insertUserRole(param);
 		}else {
 			service.updateUserDtl(param);
 		}

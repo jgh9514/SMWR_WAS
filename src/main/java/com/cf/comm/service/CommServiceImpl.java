@@ -1,6 +1,5 @@
 package com.cf.comm.service;
 
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -12,7 +11,6 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
 
 import com.admin.multilang.mapper.MultiLangMapper;
-import com.cf.comm.mapper.CommMapper;
 import com.sysconf.cache.MultiLangCacheManager;
 
 import lombok.extern.slf4j.Slf4j;
@@ -21,10 +19,7 @@ import lombok.extern.slf4j.Slf4j;
 @Service
 @Primary
 public class CommServiceImpl implements CommService {
-    
-    @Autowired
-    CommMapper mapper;
-    
+
     @Autowired
     MultiLangMapper multiLangMapper;
 
@@ -36,16 +31,6 @@ public class CommServiceImpl implements CommService {
         cachingMultiLanguageI18n();
     }
 
-    @Override
-    public List<Map<String, ?>> selectMenuList(Map<String, Object> param) {
-        return Collections.emptyList();
-    }
-    
-    @Override
-    public List<Map<String, ?>> selectLoginAccessPageList(Map<String, Object> param) {
-        return Collections.emptyList();
-    }
-    
     @Override
     public int updateConfig(Map<String, Object> param) {
         return userMapper.updateLangCd(param);
@@ -70,26 +55,23 @@ public class CommServiceImpl implements CommService {
     @Override
     public void cachingMultiLanguageI18n() {
         log.info("==================== Multi Language Cahcing Process START ====================");
-        
+
         Map<String, Object> param = new HashMap<>();
         param.put("lang_cd", "KO");
         List<Map<String, ?>> langKoList = multiLangMapper.selectI18nList(param);
-        
-        // KO
+
         Map<String, String> langKoMap = new HashMap<String, String>();
         for (Map<String, ?> item : langKoList) {
             langKoMap.put(item.get("mlang_key").toString(), item.get("mlang_txt").toString());
         }
-        
-        // EN
+
         param.put("lang_cd", "EN");
         List<Map<String, ?>> langEnList = multiLangMapper.selectI18nList(param);
         Map<String, String> langEnMap = new HashMap<String, String>();
         for (Map<String, ?> item : langEnList) {
             langEnMap.put(item.get("mlang_key").toString(), item.get("mlang_txt").toString());
         }
-        
-        // ZH
+
         param.put("lang_cd", "ZH");
         List<Map<String, ?>> langZhList = multiLangMapper.selectI18nList(param);
         Map<String, String> langZhMap = new HashMap<String, String>();
@@ -102,15 +84,5 @@ public class CommServiceImpl implements CommService {
         MultiLangCacheManager.setCacheLangMapZh(langZhMap);
 
         log.info("==================== Multi Language Cahcing Process END ====================");
-    }
-    
-    @Override
-    public List<Map<String, ?>> selectVersionCheck() {
-    	return mapper.selectVersionCheck();
-    }
-    
-    @Override
-    public void insertErrorLogs(Map<String, Object> param) {
-    	mapper.insertErrorLogs(param);
     }
 }

@@ -12,7 +12,6 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.admin.role.service.RoleService;
 import com.admin.user.mapper.UserMapper;
 import com.admin.user.service.UserService;
 import com.smw.auth.service.EmailService;
@@ -38,9 +37,6 @@ public class LoginServiceImpl implements LoginService {
     
     @Autowired
     UserService userService;
-    
-    @Autowired
-    RoleService roleService;
     
     @Autowired
     EmailService emailService;
@@ -117,7 +113,6 @@ public class LoginServiceImpl implements LoginService {
             if (param.get("password") != null) {
                 param.put("user_pw", SHA256.encrypt(StringUtil.nvl(param.get("password").toString())));
             }
-            param.put("role_id", Constant.ROLE_GENERAL);
             param.put("usg_yn", param.get("usg_yn") != null && !"".equals(param.get("usg_yn").toString()) 
                     ? param.get("usg_yn").toString() : "Y");
             param.put("del_yn", param.get("del_yn") != null && !"".equals(param.get("del_yn").toString()) 
@@ -126,9 +121,7 @@ public class LoginServiceImpl implements LoginService {
             // 회원가입 시 세션 정보가 없으므로 자기 자신의 user_id를 사용
             param.put("sess_user_id", userId);
             
-            // 사용자 및 역할 생성
             userService.insertUserDtl(param);
-            roleService.insertUserRole(param);
             
             // 이메일 인증 정보 삭제 (재사용 방지)
             emailService.removeVerifiedEmail(email);

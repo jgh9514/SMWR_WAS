@@ -176,18 +176,6 @@
 		</if>
 	</delete>
 
-	<!-- 역할 다국어 목록 수정 -->
-	<update id="updateRoleMlangList" parameterType="sqlMap">
-		/* updateRoleMlangList */
-		UPDATE SYS_MLANG
-		SET mlang_txt = #{mlang_txt}
-		   ,upt_user_id = #{sess_user_id}
-		   ,upt_date = CURRENT_TIMESTAMP
-		WHERE mlang_tp_cd = 'RL'
-		  AND mlang_cd = #{role_id}
-		  AND lang_cd = #{sess_lang_cd}
-	</update>
-
 	<!-- 다국어 시퀀스 조회 -->
 	<select id="selectMlangSeq" parameterType="string" resultType="string">
 		/* selectMlangSeq */

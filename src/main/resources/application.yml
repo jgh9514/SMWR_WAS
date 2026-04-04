@@ -130,6 +130,8 @@ management:
 smw:
   globalDblinkNm: SMW_DBLINK
   cookie-live-time: 600
+  # SYS_ROLE/SYS_USER_ROLE 제거 시: 관리자 user_id 목록(콤마 구분). RequireAdmin·알림 수신·댓글 삭제 등
+  admin-user-ids: ${SMW_ADMIN_USER_IDS:}
   # S3: smw.aws.* → S3Service 정적 키 사용
   # - 로컬: src/main/resources/application-local.yml (Git 제외, application-local.example.yml 참고)
   # - K8s(docker): Deployment에서 s3-credentials 시크릿 → AWS_* 환경변수로 주입

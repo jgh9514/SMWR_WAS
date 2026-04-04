@@ -18,8 +18,6 @@ public interface MultiLangMapper {
 	
 	public int deleteMlangUpCd(Map<String, Object> param);
 	
-	public int updateRoleMlangList(Map<String, Object> param);
-	
 	public String selectMlangInfo(Map<String, Object> param);
 	
 	public List<Map<String, String>> selectMlangListInfo(Map<String, Object> param);

@@ -133,9 +133,5 @@ public interface GuildMapper {
 	 */
 	public int updateUserCurrentGuildId(Map<String, Object> param);
 
-	/**
-	 * 역할별 사용자 목록 조회 (관리자 조회용)
-	 */
-	public List<Map<String, ?>> selectUsersByRole(Map<String, Object> param);
 }
 

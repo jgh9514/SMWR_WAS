@@ -101,14 +101,7 @@
 		WHERE comment_id = #{comment_id}
 		  AND (
 		  	user_id = #{sess_user_id}
-		  	OR EXISTS (
-		  		SELECT 1 FROM SYS_USER_ROLE sur
-		  		JOIN SYS_ROLE sr ON sur.role_id = sr.role_id
-		  		WHERE sur.user_id = #{sess_user_id}
-		  		  AND sr.role_id = 'RL0001'
-		  		  AND sur.usg_yn = 'Y'
-		  		  AND sur.del_yn = 'N'
-		  	)
+		  	OR #{sess_is_admin} = 'Y'
 		  )
 	</update>
 

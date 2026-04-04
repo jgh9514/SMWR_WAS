@@ -11,7 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.cf.community.mapper.InquiryMapper;
 import com.cf.notification.service.NotificationService;
-import com.smw.guild.mapper.GuildMapper;
+import com.sysconf.security.AdminPrivilegeResolver;
 
 @Service
 @Primary
@@ -24,7 +24,7 @@ public class InquiryServiceImpl implements InquiryService {
 	private NotificationService notificationService;
 
 	@Autowired
-	private GuildMapper guildMapper;
+	private AdminPrivilegeResolver adminPrivilegeResolver;
 
 	@Override
 	public Map<String, Object> getInquiryList(Map<String, Object> param) {
@@ -72,31 +72,22 @@ public class InquiryServiceImpl implements InquiryService {
 		result.put("result", "SUCCESS");
 		result.put("inquiry_id", param.get("inquiry_id"));
 		
-		// 관리자에게 알림 생성
-		Map<String, Object> adminParam = new HashMap<>();
-		adminParam.put("role_id", "RL0001");
-		List<Map<String, ?>> admins = guildMapper.selectUsersByRole(adminParam);
-		
 		String inquiryId = param.get("inquiry_id") != null ? param.get("inquiry_id").toString() : null;
 		String title = (String) param.get("title");
 		
-		for (Map<String, ?> admin : admins) {
-			String adminId = (String) admin.get("user_id");
-			if (adminId != null) {
-				// MyBatis 인터셉터가 주입하는 sess_user_id를 생성자(crt_user_id)로 사용
-				String creatorUserId = param.get("sess_user_id") != null
-					? String.valueOf(param.get("sess_user_id"))
-					: (param.get("crt_user_id") != null ? String.valueOf(param.get("crt_user_id")) : null);
-				notificationService.createNotification(
-					adminId,
-					"INQUIRY_PENDING",
-					"새로운 1대1 문의가 등록되었습니다",
-					title != null ? title : "새로운 문의가 등록되었습니다.",
-					inquiryId,
-					"/inquiry",
-					creatorUserId
-				);
-			}
+		for (String adminId : adminPrivilegeResolver.listConfiguredAdminUserIds()) {
+			String creatorUserId = param.get("sess_user_id") != null
+				? String.valueOf(param.get("sess_user_id"))
+				: (param.get("crt_user_id") != null ? String.valueOf(param.get("crt_user_id")) : null);
+			notificationService.createNotification(
+				adminId,
+				"INQUIRY_PENDING",
+				"새로운 1대1 문의가 등록되었습니다",
+				title != null ? title : "새로운 문의가 등록되었습니다.",
+				inquiryId,
+				"/inquiry",
+				creatorUserId
+			);
 		}
 		
 		return result;

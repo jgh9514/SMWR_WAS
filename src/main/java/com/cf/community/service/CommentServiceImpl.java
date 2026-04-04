@@ -1,5 +1,6 @@
 package com.cf.community.service;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -11,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.cf.community.mapper.CommentMapper;
+import com.sysconf.security.AdminPrivilegeResolver;
 
 @Service
 @Primary
@@ -18,6 +20,9 @@ public class CommentServiceImpl implements CommentService {
 
 	@Autowired
 	private CommentMapper mapper;
+
+	@Autowired
+	private AdminPrivilegeResolver adminPrivilegeResolver;
 
 	@Override
 	public List<Map<String, ?>> getCommentList(Map<String, Object> param) {
@@ -87,8 +92,10 @@ public class CommentServiceImpl implements CommentService {
 		Map<String, Object> result = new HashMap<>();
 
 		try {
-			// MyBatis 인터셉터가 자동으로 sess_user_id를 주입하므로 직접 사용
-			// 댓글 작성자 확인 및 관리자 권한 확인은 XML의 WHERE 절에서 처리됨
+			Map<String, Object> ui = new HashMap<>();
+			ui.put("sess_user_id", param.get("sess_user_id"));
+			ui.put("roles", Collections.emptyList());
+			param.put("sess_is_admin", adminPrivilegeResolver.isAdminUser(ui) ? "Y" : "N");
 			param.put("del_yn", "Y");
 
 			int count = mapper.deleteComment(param);
