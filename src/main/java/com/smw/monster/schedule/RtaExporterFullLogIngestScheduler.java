@@ -23,8 +23,8 @@ import lombok.extern.slf4j.Slf4j;
 
 /**
  * Exporter 가 만든 full_log 를 watch 디렉터리에서 {@code temp} 로 옮긴 뒤 파싱·DB 반영하고,
- * 성공 시 temp 파일을 삭제한다. 처리 실패 시 {@code *.failed} 로 남기며, 이후 스캔에서 watch 후보가 없으면
- * temp 내 가장 오래된 {@code *.failed} 를 {@code retry_*} 이름으로 다시 처리한다.
+ * 성공 시 temp 파일을 삭제한다. 처리 실패 시 {@code *.failed} 로 남기며, 이후 스캔에서는
+ * watch 에 새 로그가 계속 있어도 temp 내 가장 오래된 {@code *.failed} 를 먼저 {@code retry_*} 로 재시도한다.
  * <p>
  * 스케줄: 이전 구간 종료 후 {@link RtaExporterProperties#getPollIntervalMs()} 만큼 대기한 뒤,
  * {@link RtaExporterProperties#getPollBurstDurationMs()} 동안 {@link RtaExporterProperties#getPollScanIntervalMs()} 간격으로 폴더를 반복 스캔한다.
@@ -89,7 +89,7 @@ public class RtaExporterFullLogIngestScheduler {
 		}
 	}
 
-	/** 한 번: watch 에서 후보 1개 → 없으면 temp 의 *.failed 재시도 1개 → 파싱·DB. */
+	/** 한 번: temp 의 *.failed 재시도 1개 → 없으면 watch 에서 후보 1개 → 파싱·DB. */
 	private void tryIngestOneCandidate(Path watchDir, Path tempDir, String prefix, long maxBytes) {
 		Path workFile;
 		try {
@@ -130,51 +130,52 @@ public class RtaExporterFullLogIngestScheduler {
 	}
 
 	/**
-	 * 우선순위: (1) watch 의 full_log 후보 → temp 로 이동 (2) 없으면 temp 내 가장 오래된 {@code *.failed} 재시도용 이름으로 이동.
+	 * 우선순위: (1) temp 내 가장 오래된 {@code *.failed} → 재시도용 이름으로 이동
+	 * (2) 없으면 watch 의 full_log 후보 → temp 로 이동. watch 에 로그가 끊이 없을 때도 실패 큐가 처리되도록 한다.
 	 * @return 작업 파일 경로, 없으면 null
 	 */
 	private Path prepareOneWorkFile(Path watchDir, Path tempDir, String prefix, long maxBytes) throws IOException {
-		Path candidate = findNextCandidate(watchDir, prefix);
-		if (candidate != null) {
-			boolean stable = waitUntilFileStable(candidate, props.getStableMillis(), props.getStableMaxWaitMs());
-			if (!stable) {
-				log.debug("[rta-exporter] 아직 크기 변동(쓰기 중 추정), 다음 스캔에서 재시도: {}", candidate);
-				return null;
-			}
-			long size = Files.size(candidate);
+		Path failed = findNextFailedRetry(tempDir);
+		if (failed != null) {
+			long size = Files.size(failed);
 			if (size > maxBytes) {
-				log.warn("[rta-exporter] 파일이 너무 큼 ({} MB 한도 초과), 건너뜀: {}", props.getMaxFileSizeMb(), candidate);
+				log.warn("[rta-exporter] 실패 재시도 파일이 너무 큼 ({} MB 한도), 건너뜀: {}", props.getMaxFileSizeMb(), failed);
 				return null;
 			}
-			String baseName = candidate.getFileName().toString();
-			Path workFile = tempDir.resolve(System.currentTimeMillis() + "_" + baseName);
+			String stripped = stripFailedSuffix(failed.getFileName().toString());
+			Path workFile = tempDir.resolve("retry_" + System.currentTimeMillis() + "_" + stripped);
 			try {
-				Files.move(candidate, workFile, StandardCopyOption.REPLACE_EXISTING);
+				Files.move(failed, workFile, StandardCopyOption.REPLACE_EXISTING);
 			} catch (IOException e) {
-				log.warn("[rta-exporter] temp 로 이동 실패 (다른 프로세스가 잠금 가능): {} → {}", candidate, workFile, e);
+				log.warn("[rta-exporter] failed → 재시도 작업명 이동 실패: {} → {}", failed, workFile, e);
 				return null;
 			}
+			log.info("[rta-exporter] 이전 실패 파일 재시도: {} → {}", failed, workFile);
 			return workFile;
 		}
 
-		Path failed = findNextFailedRetry(tempDir);
-		if (failed == null) {
+		Path candidate = findNextCandidate(watchDir, prefix);
+		if (candidate == null) {
 			return null;
 		}
-		long size = Files.size(failed);
+		boolean stable = waitUntilFileStable(candidate, props.getStableMillis(), props.getStableMaxWaitMs());
+		if (!stable) {
+			log.debug("[rta-exporter] 아직 크기 변동(쓰기 중 추정), 다음 스캔에서 재시도: {}", candidate);
+			return null;
+		}
+		long size = Files.size(candidate);
 		if (size > maxBytes) {
-			log.warn("[rta-exporter] 실패 재시도 파일이 너무 큼 ({} MB 한도), 건너뜀: {}", props.getMaxFileSizeMb(), failed);
+			log.warn("[rta-exporter] 파일이 너무 큼 ({} MB 한도 초과), 건너뜀: {}", props.getMaxFileSizeMb(), candidate);
 			return null;
 		}
-		String stripped = stripFailedSuffix(failed.getFileName().toString());
-		Path workFile = tempDir.resolve("retry_" + System.currentTimeMillis() + "_" + stripped);
+		String baseName = candidate.getFileName().toString();
+		Path workFile = tempDir.resolve(System.currentTimeMillis() + "_" + baseName);
 		try {
-			Files.move(failed, workFile, StandardCopyOption.REPLACE_EXISTING);
+			Files.move(candidate, workFile, StandardCopyOption.REPLACE_EXISTING);
 		} catch (IOException e) {
-			log.warn("[rta-exporter] failed → 재시도 작업명 이동 실패: {} → {}", failed, workFile, e);
+			log.warn("[rta-exporter] temp 로 이동 실패 (다른 프로세스가 잠금 가능): {} → {}", candidate, workFile, e);
 			return null;
 		}
-		log.info("[rta-exporter] 이전 실패 파일 재시도: {} → {}", failed, workFile);
 		return workFile;
 	}
 
