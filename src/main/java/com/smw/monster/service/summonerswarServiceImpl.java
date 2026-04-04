@@ -27,6 +27,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import com.smw.monster.mapper.summonerswarMapper;
 import com.smw.monster.util.MonsterDetailContextBuilder;
+import com.smw.rta.cache.RtaCacheEvictor;
 import com.smw.monster.util.MonsterIdEvolutionUtil;
 import com.sysconf.exception.RtaUploadValidationException;
 
@@ -43,6 +44,9 @@ public class summonerswarServiceImpl implements summonerswarService {
 
 	@Autowired
 	private ObjectMapper objectMapper;
+
+	@Autowired
+	private RtaCacheEvictor rtaCacheEvictor;
 
 	/** raw → replay_list 정규화 시 한 트랜잭션에 묶는 건수 (1 미만이면 1). 상한 없음. */
 	@Value("${smw.rta.raw-apply.apply-chunk-size:80}")
@@ -1158,6 +1162,9 @@ public class summonerswarServiceImpl implements summonerswarService {
 			int dup = applied.getDuplicateReplaySkippedCount();
 			fail += dup;
 			success = Math.max(0, success - dup);
+		}
+		if ((persistMode == ArenaRtaPersistMode.FULL || persistMode == ArenaRtaPersistMode.NORMALIZED_ONLY) && success > 0) {
+			rtaCacheEvictor.evictAllRtaCaches();
 		}
 		Map<String, Integer> result = new HashMap<>();
 		result.put("success", success);
