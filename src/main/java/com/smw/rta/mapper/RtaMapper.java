@@ -33,19 +33,35 @@ public interface RtaMapper {
     
     List<Map<String, Object>> debugMatchDetail(@Param("rid") String rid);
     
-    /**
-     * RTA 몬스터별 통계 조회
-     */
-    List<Map<String, Object>> getRtaMonsterStats(@Param("limit") int limit, @Param("offset") int offset,
+    /** RTA 몬스터 통계 집계 전체 삭제 후 재적재 */
+    int deleteAllRtaMonsterStatsAgg();
+
+    int insertRtaMonsterStatsMetaForSeason(@Param("seasonCode") String seasonCode,
             @Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd);
 
-    /** 동일 팀에서 함께 등장한 2마리 조합 승률 (전역 상위) */
-    List<Map<String, Object>> getRtaDuoComboStats(@Param("limit") int limit,
+    int insertRtaMonsterStatsAggForSeason(@Param("seasonCode") String seasonCode,
             @Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd);
 
-    /** 동일 팀에서 함께 등장한 3마리 조합 승률 (전역 상위) */
-    List<Map<String, Object>> getRtaTrioComboStats(@Param("limit") int limit,
+    int insertRtaMonsterDuoAggForSeason(@Param("seasonCode") String seasonCode,
             @Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd);
+
+    int insertRtaMonsterTrioAggForSeason(@Param("seasonCode") String seasonCode,
+            @Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd);
+
+    /** 시즌 총 매치 수 (집계 메타) */
+    Long getRtaMonsterStatsTotalFromAgg(@Param("seasonCode") String seasonCode);
+
+    /** RTA 몬스터별 통계 — 집계 테이블만 */
+    List<Map<String, Object>> getRtaMonsterStatsFromAgg(@Param("limit") int limit, @Param("offset") int offset,
+            @Param("seasonCode") String seasonCode);
+
+    /** 2마리 조합 — 집계 테이블만 */
+    List<Map<String, Object>> getRtaDuoComboStatsFromAgg(@Param("limit") int limit,
+            @Param("seasonCode") String seasonCode);
+
+    /** 3마리 조합 — 집계 테이블만 */
+    List<Map<String, Object>> getRtaTrioComboStatsFromAgg(@Param("limit") int limit,
+            @Param("seasonCode") String seasonCode);
     
     /**
      * RTA 몬스터 기본 정보 조회

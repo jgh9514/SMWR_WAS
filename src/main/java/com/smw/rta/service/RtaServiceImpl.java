@@ -137,18 +137,27 @@ public class RtaServiceImpl implements RtaService {
             key = "'ms_' + #seasonCode + '_' + #limit + '_' + #offset")
     public Map<String, Object> getRtaMonsterStats(int limit, int offset, String seasonCode) {
         ResolvedSeason se = resolveSeason(seasonCode);
-        long totalMatches = rtaMapper.getTotalRtaMatches(se.start, se.end);
+        String aggKey = se.code != null ? se.code.trim() : "";
 
-        List<Map<String, Object>> stats = rtaMapper.getRtaMonsterStats(limit, offset, se.start, se.end);
-        List<Map<String, Object>> duoStats = rtaMapper.getRtaDuoComboStats(50, se.start, se.end);
-        List<Map<String, Object>> trioStats = rtaMapper.getRtaTrioComboStats(50, se.start, se.end);
+        long totalMatches = 0L;
+        List<Map<String, Object>> stats = Collections.emptyList();
+        List<Map<String, Object>> duoStats = Collections.emptyList();
+        List<Map<String, Object>> trioStats = Collections.emptyList();
+
+        if (!aggKey.isEmpty()) {
+            Long tm = rtaMapper.getRtaMonsterStatsTotalFromAgg(aggKey);
+            totalMatches = tm != null ? tm.longValue() : 0L;
+            stats = rtaMapper.getRtaMonsterStatsFromAgg(limit, offset, aggKey);
+            duoStats = rtaMapper.getRtaDuoComboStatsFromAgg(50, aggKey);
+            trioStats = rtaMapper.getRtaTrioComboStatsFromAgg(50, aggKey);
+        }
 
         boolean hasMore = stats.size() == limit;
 
         Map<String, Object> response = new HashMap<>();
-        response.put("stats", stats);
-        response.put("duo_stats", duoStats);
-        response.put("trio_stats", trioStats);
+        response.put("stats", stats != null ? stats : Collections.emptyList());
+        response.put("duo_stats", duoStats != null ? duoStats : Collections.emptyList());
+        response.put("trio_stats", trioStats != null ? trioStats : Collections.emptyList());
         response.put("total_matches", totalMatches);
         response.put("has_more", hasMore);
         response.put("seasonCode", se.code);

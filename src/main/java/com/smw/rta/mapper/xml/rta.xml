@@ -191,77 +191,68 @@
         WHERE rid = #{rid}
     </select>
 
-    <!-- RTA 몬스터별 통계 조회 -->
-    <!-- replay_list 에 rid 당 중복 행(승/패 등)이 있으면 JOIN 시 행이 곱해지므로 rid 당 1행으로 축소 -->
-    <select id="getRtaMonsterStats" resultType="map">
+    <!-- RTA 몬스터 통계 집계 적재 (배치 전용, 원천 SQL) -->
+    <delete id="deleteAllRtaMonsterStatsAgg">
+        TRUNCATE TABLE rta_monster_trio_agg, rta_monster_duo_agg, rta_monster_stats_agg, rta_monster_stats_meta;
+    </delete>
+
+    <insert id="insertRtaMonsterStatsMetaForSeason">
+        WITH <include refid="replayListDedupCte"/>
+        INSERT INTO rta_monster_stats_meta (season_code, total_matches, computed_at)
+        SELECT #{seasonCode}::varchar(64), (SELECT COUNT(*)::bigint FROM replay_list_dedup), CURRENT_TIMESTAMP
+    </insert>
+
+    <insert id="insertRtaMonsterStatsAggForSeason">
         WITH <include refid="replayListDedupCte"/>,
-        match_count AS (
-            SELECT COUNT(*)::bigint AS total_matches
-            FROM replay_list_dedup
-        ),
         pick_stats AS (
-            SELECT 
+            SELECT
                 u.unit_master_id,
-                m.monster_elemental,
-                m.kr_name as monster_name,
-                COALESCE(m.image_url, '/images/' || m.monster_elemental || '/' || replace(m.un_name, ' ', '_') || '_' || m.monster_elemental || '_Icon.png') as monster_image,
-                COUNT(*) as pick_count,
-                COUNT(CASE WHEN u.pick_slot_id = 1 THEN 1 END) as first_pick_count
+                COUNT(*)::bigint AS pick_count,
+                COUNT(CASE WHEN u.pick_slot_id = 1 THEN 1 END)::bigint AS first_pick_count
             FROM ranker_rtpvp_replay_unit_list u
             INNER JOIN replay_list_dedup r ON u.rid = r.rid
             LEFT JOIN monster m ON u.unit_master_id = m.monster_id
             WHERE m.kr_name IS NOT NULL
-            GROUP BY u.unit_master_id, m.monster_elemental, m.kr_name, m.un_name, m.image_url
+            GROUP BY u.unit_master_id
         ),
         ban_stats AS (
-            SELECT 
+            SELECT
                 u.unit_master_id,
-                COUNT(*) as ban_count
+                COUNT(*)::bigint AS ban_count
             FROM ranker_rtpvp_replay_pick_list p
-            JOIN ranker_rtpvp_replay_unit_list u ON p.rid = u.rid 
-                AND p.wizard_id = u.wizard_id 
+            JOIN ranker_rtpvp_replay_unit_list u ON p.rid = u.rid
+                AND p.wizard_id = u.wizard_id
                 AND p.banned_slot_id = u.pick_slot_id
             INNER JOIN replay_list_dedup r ON p.rid = r.rid
             WHERE p.banned_slot_id IS NOT NULL
             GROUP BY u.unit_master_id
         ),
         win_stats AS (
-            SELECT 
+            SELECT
                 u.unit_master_id,
-                COUNT(*) as win_count
+                COUNT(*)::bigint AS win_count
             FROM ranker_rtpvp_replay_unit_list u
             JOIN ranker_rtpvp_replay_user_list ul ON u.rid = ul.rid AND u.wizard_id = ul.wizard_id
             JOIN replay_list_dedup r ON u.rid = r.rid
             WHERE r.wizard_id IS NOT NULL AND TRIM(BOTH FROM ul.wizard_id::text) = TRIM(BOTH FROM r.wizard_id::text)
             GROUP BY u.unit_master_id
         )
-        SELECT 
-            ps.unit_master_id as monster_id,
-            ps.monster_elemental,
-            ps.monster_name,
-            ps.monster_image,
+        INSERT INTO rta_monster_stats_agg (season_code, monster_id, pick_count, first_pick_count, win_count, ban_count, computed_at)
+        SELECT
+            #{seasonCode}::varchar(64),
+            ps.unit_master_id::bigint,
             ps.pick_count,
-            ROUND((ps.pick_count::numeric / mc.total_matches * 100)::numeric, 2) as pick_rate,
-            CASE 
-                WHEN ps.pick_count > 0 THEN ROUND((COALESCE(ws.win_count, 0)::numeric / ps.pick_count * 100)::numeric, 2)
-                ELSE 0
-            END as win_rate,
-            CASE 
-                WHEN ps.pick_count > 0 THEN ROUND((ps.first_pick_count::numeric / ps.pick_count * 100)::numeric, 2)
-                ELSE 0
-            END as first_pick_rate,
-            ROUND((COALESCE(bs.ban_count, 0)::numeric / mc.total_matches * 100)::numeric, 2) as ban_rate
+            ps.first_pick_count,
+            COALESCE(ws.win_count, 0)::bigint,
+            COALESCE(bs.ban_count, 0)::bigint,
+            CURRENT_TIMESTAMP
         FROM pick_stats ps
-        CROSS JOIN match_count mc
         LEFT JOIN ban_stats bs ON ps.unit_master_id = bs.unit_master_id
         LEFT JOIN win_stats ws ON ps.unit_master_id = ws.unit_master_id
         WHERE ps.pick_count > 0
-        ORDER BY ps.pick_count DESC
-        LIMIT #{limit} OFFSET #{offset}
-    </select>
+    </insert>
 
-    <!-- RTA 2마리 필드 조합 (5픽 중 벤 제외 → 실제 4마리, C(4,2)=6쌍/팀·매치) -->
-    <select id="getRtaDuoComboStats" resultType="map">
+    <insert id="insertRtaMonsterDuoAggForSeason">
         WITH <include refid="replayListDedupCte"/>,
         field_units AS (
             SELECT DISTINCT
@@ -281,8 +272,8 @@
             SELECT
                 u1.unit_master_id AS id1,
                 u2.unit_master_id AS id2,
-                COUNT(*) AS match_count,
-                SUM(CASE WHEN r.wizard_id IS NOT NULL AND TRIM(BOTH FROM ul.wizard_id::text) = TRIM(BOTH FROM r.wizard_id::text) THEN 1 ELSE 0 END) AS win_count
+                COUNT(*)::bigint AS match_count,
+                SUM(CASE WHEN r.wizard_id IS NOT NULL AND TRIM(BOTH FROM ul.wizard_id::text) = TRIM(BOTH FROM r.wizard_id::text) THEN 1 ELSE 0 END)::bigint AS win_count
             FROM field_units u1
             INNER JOIN field_units u2
                 ON u1.rid = u2.rid AND u1.wizard_id = u2.wizard_id
@@ -292,27 +283,18 @@
             GROUP BY u1.unit_master_id, u2.unit_master_id
             HAVING COUNT(*) &gt;= 2
         )
+        INSERT INTO rta_monster_duo_agg (season_code, monster_id_1, monster_id_2, match_count, win_count, computed_at)
         SELECT
-            d.id1::text AS monster_id_1,
-            d.id2::text AS monster_id_2,
-            m1.kr_name AS monster_name_1,
-            m2.kr_name AS monster_name_2,
-            COALESCE(m1.image_url, '/images/' || m1.monster_elemental || '/' || replace(m1.un_name, ' ', '_') || '_' || m1.monster_elemental || '_Icon.png') AS monster_image_1,
-            COALESCE(m2.image_url, '/images/' || m2.monster_elemental || '/' || replace(m2.un_name, ' ', '_') || '_' || m2.monster_elemental || '_Icon.png') AS monster_image_2,
-            m1.monster_elemental AS monster_elemental_1,
-            m2.monster_elemental AS monster_elemental_2,
+            #{seasonCode}::varchar(64),
+            d.id1::bigint,
+            d.id2::bigint,
             d.match_count,
-            ROUND((d.win_count::numeric / NULLIF(d.match_count, 0) * 100)::numeric, 2) AS win_rate
+            d.win_count,
+            CURRENT_TIMESTAMP
         FROM duo d
-        LEFT JOIN monster m1 ON d.id1 = m1.monster_id
-        LEFT JOIN monster m2 ON d.id2 = m2.monster_id
-        WHERE m1.kr_name IS NOT NULL AND m2.kr_name IS NOT NULL
-        ORDER BY (d.win_count::numeric / NULLIF(d.match_count, 0)) DESC NULLS LAST, d.match_count DESC
-        LIMIT #{limit}
-    </select>
+    </insert>
 
-    <!-- RTA 3마리 필드 조합 (벤 제외 4마리 중 C(4,3)=4조합/팀·매치) -->
-    <select id="getRtaTrioComboStats" resultType="map">
+    <insert id="insertRtaMonsterTrioAggForSeason">
         WITH <include refid="replayListDedupCte"/>,
         field_units AS (
             SELECT DISTINCT
@@ -334,8 +316,8 @@
                 u1.unit_master_id AS id1,
                 u2.unit_master_id AS id2,
                 u3.unit_master_id AS id3,
-                COUNT(*) AS match_count,
-                SUM(CASE WHEN r.wizard_id IS NOT NULL AND TRIM(BOTH FROM ul.wizard_id::text) = TRIM(BOTH FROM r.wizard_id::text) THEN 1 ELSE 0 END) AS win_count
+                COUNT(*)::bigint AS match_count,
+                SUM(CASE WHEN r.wizard_id IS NOT NULL AND TRIM(BOTH FROM ul.wizard_id::text) = TRIM(BOTH FROM r.wizard_id::text) THEN 1 ELSE 0 END)::bigint AS win_count
             FROM field_units u1
             INNER JOIN field_units u2
                 ON u1.rid = u2.rid AND u1.wizard_id = u2.wizard_id
@@ -348,10 +330,78 @@
             GROUP BY u1.unit_master_id, u2.unit_master_id, u3.unit_master_id
             HAVING COUNT(*) &gt;= 2
         )
+        INSERT INTO rta_monster_trio_agg (season_code, monster_id_1, monster_id_2, monster_id_3, match_count, win_count, computed_at)
         SELECT
-            t.id1::text AS monster_id_1,
-            t.id2::text AS monster_id_2,
-            t.id3::text AS monster_id_3,
+            #{seasonCode}::varchar(64),
+            t.id1::bigint,
+            t.id2::bigint,
+            t.id3::bigint,
+            t.match_count,
+            t.win_count,
+            CURRENT_TIMESTAMP
+        FROM trio t
+    </insert>
+
+    <!-- RTA 몬스터별 통계 조회 (집계 테이블만) -->
+    <select id="getRtaMonsterStatsTotalFromAgg" resultType="java.lang.Long">
+        SELECT total_matches
+        FROM rta_monster_stats_meta
+        WHERE season_code = #{seasonCode}
+    </select>
+
+    <select id="getRtaMonsterStatsFromAgg" resultType="map">
+        SELECT
+            ps.monster_id::text AS monster_id,
+            m.monster_elemental,
+            m.kr_name AS monster_name,
+            COALESCE(m.image_url, '/images/' || m.monster_elemental || '/' || replace(m.un_name, ' ', '_') || '_' || m.monster_elemental || '_Icon.png') AS monster_image,
+            ps.pick_count,
+            ROUND((ps.pick_count::numeric / NULLIF(meta.total_matches, 0) * 100)::numeric, 2) AS pick_rate,
+            CASE
+                WHEN ps.pick_count > 0 THEN ROUND((COALESCE(ps.win_count, 0)::numeric / ps.pick_count * 100)::numeric, 2)
+                ELSE 0
+            END AS win_rate,
+            CASE
+                WHEN ps.pick_count > 0 THEN ROUND((ps.first_pick_count::numeric / ps.pick_count * 100)::numeric, 2)
+                ELSE 0
+            END AS first_pick_rate,
+            ROUND((COALESCE(ps.ban_count, 0)::numeric / NULLIF(meta.total_matches, 0) * 100)::numeric, 2) AS ban_rate
+        FROM rta_monster_stats_agg ps
+        INNER JOIN rta_monster_stats_meta meta ON meta.season_code = ps.season_code
+        LEFT JOIN monster m ON m.monster_id = ps.monster_id
+        WHERE ps.season_code = #{seasonCode}
+          AND m.kr_name IS NOT NULL
+          AND ps.pick_count > 0
+        ORDER BY ps.pick_count DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="getRtaDuoComboStatsFromAgg" resultType="map">
+        SELECT
+            d.monster_id_1::text AS monster_id_1,
+            d.monster_id_2::text AS monster_id_2,
+            m1.kr_name AS monster_name_1,
+            m2.kr_name AS monster_name_2,
+            COALESCE(m1.image_url, '/images/' || m1.monster_elemental || '/' || replace(m1.un_name, ' ', '_') || '_' || m1.monster_elemental || '_Icon.png') AS monster_image_1,
+            COALESCE(m2.image_url, '/images/' || m2.monster_elemental || '/' || replace(m2.un_name, ' ', '_') || '_' || m2.monster_elemental || '_Icon.png') AS monster_image_2,
+            m1.monster_elemental AS monster_elemental_1,
+            m2.monster_elemental AS monster_elemental_2,
+            d.match_count,
+            ROUND((d.win_count::numeric / NULLIF(d.match_count, 0) * 100)::numeric, 2) AS win_rate
+        FROM rta_monster_duo_agg d
+        LEFT JOIN monster m1 ON d.monster_id_1 = m1.monster_id
+        LEFT JOIN monster m2 ON d.monster_id_2 = m2.monster_id
+        WHERE d.season_code = #{seasonCode}
+          AND m1.kr_name IS NOT NULL AND m2.kr_name IS NOT NULL
+        ORDER BY (d.win_count::numeric / NULLIF(d.match_count, 0)) DESC NULLS LAST, d.match_count DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="getRtaTrioComboStatsFromAgg" resultType="map">
+        SELECT
+            d.monster_id_1::text AS monster_id_1,
+            d.monster_id_2::text AS monster_id_2,
+            d.monster_id_3::text AS monster_id_3,
             m1.kr_name AS monster_name_1,
             m2.kr_name AS monster_name_2,
             m3.kr_name AS monster_name_3,
@@ -361,14 +411,15 @@
             m1.monster_elemental AS monster_elemental_1,
             m2.monster_elemental AS monster_elemental_2,
             m3.monster_elemental AS monster_elemental_3,
-            t.match_count,
-            ROUND((t.win_count::numeric / NULLIF(t.match_count, 0) * 100)::numeric, 2) AS win_rate
-        FROM trio t
-        LEFT JOIN monster m1 ON t.id1 = m1.monster_id
-        LEFT JOIN monster m2 ON t.id2 = m2.monster_id
-        LEFT JOIN monster m3 ON t.id3 = m3.monster_id
-        WHERE m1.kr_name IS NOT NULL AND m2.kr_name IS NOT NULL AND m3.kr_name IS NOT NULL
-        ORDER BY (t.win_count::numeric / NULLIF(t.match_count, 0)) DESC NULLS LAST, t.match_count DESC
+            d.match_count,
+            ROUND((d.win_count::numeric / NULLIF(d.match_count, 0) * 100)::numeric, 2) AS win_rate
+        FROM rta_monster_trio_agg d
+        LEFT JOIN monster m1 ON d.monster_id_1 = m1.monster_id
+        LEFT JOIN monster m2 ON d.monster_id_2 = m2.monster_id
+        LEFT JOIN monster m3 ON d.monster_id_3 = m3.monster_id
+        WHERE d.season_code = #{seasonCode}
+          AND m1.kr_name IS NOT NULL AND m2.kr_name IS NOT NULL AND m3.kr_name IS NOT NULL
+        ORDER BY (d.win_count::numeric / NULLIF(d.match_count, 0)) DESC NULLS LAST, d.match_count DESC
         LIMIT #{limit}
     </select>
 
