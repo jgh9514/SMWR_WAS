@@ -66,14 +66,29 @@ public interface RtaMapper {
      */
     List<Map<String, Object>> getRtaMonsterRecentMatches(@Param("monsterId") int monsterId);
 
-    /** 일자×티어별 출현 수 (전체 기간, 대시보드 클라이언트에서 기간 합산) */
-    List<Map<String, Object>> getRtaTierDistributionDaily();
+    /** 일자×티어별 출현 수 — 집계 테이블 */
+    List<Map<String, Object>> getRtaTierDistributionDailyFromAgg();
+
+    /** 일자×티어별 출현 수 — 원천 조인 (집계 비어 있을 때 폴백) */
+    List<Map<String, Object>> getRtaTierDistributionDailyLive();
 
     /** 리플레이 날짜 min/max */
     Map<String, Object> getRtaReplayDateRange();
 
-    /** 앵커 시각(3h·6h·12h·3d·7d) 기준 일자 내 최저 점수 (P2·P3·G1~G3, 랭크 컷 추정용) */
-    List<Map<String, Object>> getRtaRankCutoffAnchors();
+    /** 랭크 컷 스냅샷 — 집계 테이블 */
+    List<Map<String, Object>> getRtaRankCutoffAnchorsFromAgg();
+
+    /** 랭크 컷 — 원천 조인 (집계 비어 있을 때 폴백) */
+    List<Map<String, Object>> getRtaRankCutoffAnchorsLive();
+
+    /** 티어 분포 집계 전체 삭제 후 재적재용 */
+    int deleteAllRtaTierDistributionDailyAgg();
+
+    int insertRtaTierDistributionDailyAggFromLive();
+
+    int deleteAllRtaRankCutoffSnapshot();
+
+    int insertRtaRankCutoffSnapshotFromLive();
 
     /** 소환사 랭킹 (최근 리플레이 기준 점수 순) */
     int getRtaSummonerRankingCount();

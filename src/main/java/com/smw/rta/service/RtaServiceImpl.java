@@ -105,9 +105,15 @@ public class RtaServiceImpl implements RtaService {
 
     @Override
     public Map<String, Object> getRtaDashboard() {
-        List<Map<String, Object>> daily = rtaMapper.getRtaTierDistributionDaily();
+        List<Map<String, Object>> daily = rtaMapper.getRtaTierDistributionDailyFromAgg();
+        if (daily == null || daily.isEmpty()) {
+            daily = rtaMapper.getRtaTierDistributionDailyLive();
+        }
         Map<String, Object> dateRange = rtaMapper.getRtaReplayDateRange();
-        List<Map<String, Object>> rankCutoffAnchors = rtaMapper.getRtaRankCutoffAnchors();
+        List<Map<String, Object>> rankCutoffAnchors = rtaMapper.getRtaRankCutoffAnchorsFromAgg();
+        if (rankCutoffAnchors == null || rankCutoffAnchors.isEmpty()) {
+            rankCutoffAnchors = rtaMapper.getRtaRankCutoffAnchorsLive();
+        }
         Map<String, Object> response = new HashMap<>();
         response.put("daily_tiers", daily != null ? daily : Collections.emptyList());
         response.put("date_range", dateRange != null ? dateRange : new HashMap<>());
