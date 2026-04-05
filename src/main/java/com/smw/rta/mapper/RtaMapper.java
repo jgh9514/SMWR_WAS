@@ -6,6 +6,9 @@ import org.apache.ibatis.annotations.Param;
 import java.util.List;
 import java.util.Map;
 
+import com.smw.rta.model.RtaSynergyAggUpsertRow;
+import com.smw.rta.model.RtaSynergyComboRow;
+
 @Mapper
 public interface RtaMapper {
     
@@ -76,4 +79,32 @@ public interface RtaMapper {
     int getRtaSummonerRankingCount();
 
     List<Map<String, Object>> getRtaSummonerRanking(@Param("limit") int limit, @Param("offset") int offset);
-} 
+
+    /** 소환사 상세 헤더용 요약 (수집 리플레이 기준 최신 점수·글로벌 순위) */
+    Map<String, Object> getRtaPlayerSummary(@Param("wizardId") String wizardId);
+
+    /** 스냅샷 미집계 rid (rta_agg_status = pending) */
+    List<Long> selectPendingRtaAggRids(@Param("batchSize") int batchSize);
+
+    /** getRtaMatches 와 동일 조인으로 rta_replay_match_snapshot upsert (조회는 집계 테이블 사용) */
+    int upsertRtaMatchSnapshotsForRids(@Param("rids") List<Long> rids);
+
+    /** 스냅샷이 존재하는 rid 만 replay_list 를 done 처리 */
+    int markRtaAggDoneForRidsWithSnapshot(@Param("rids") List<Long> rids);
+
+    /** 시너지 미집계 rid (synergy_agg_status = pending) */
+    List<Long> selectPendingSynergyAggRids(@Param("batchSize") int batchSize);
+
+    Map<String, Object> selectSynergyReplayRow(@Param("rid") long rid);
+
+    List<Map<String, Object>> selectSynergyFieldUnits(@Param("rid") long rid);
+
+    int insertRtaSynergyFacts(@Param("rows") List<RtaSynergyComboRow> rows);
+
+    int upsertRtaSynergyAgg(@Param("rows") List<RtaSynergyAggUpsertRow> rows);
+
+    /** pending 인 rid 만 done */
+    int markSynergyAggDone(@Param("rid") long rid);
+
+    int markSynergyAggFailed(@Param("rid") long rid);
+}

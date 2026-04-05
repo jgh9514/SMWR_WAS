@@ -8,21 +8,13 @@ import org.springframework.stereotype.Component;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * RtaServiceImpl 등에 붙은 RTA 조회 캐시(shortLived) 일괄 무효화.
- * raw 정규화 배치 등으로 DB가 바뀐 뒤 호출한다.
+ * 과거 RTA 조회 캐시 무효화 훅. 현재 RtaServiceImpl은 캐시 미사용 — 배치 호출은 noop.
  */
 @Slf4j
 @Component
 public class RtaCacheEvictor {
 
-	private static final String[] CACHE_NAMES = {
-			"rtaMatchesCount",
-			"rtaStats",
-			"rtaMonsterStatsV2",
-			"rtaMonsterDetail",
-			"rtaDashboardV2",
-			"rtaSummonerRanking",
-	};
+	private static final String[] CACHE_NAMES = {};
 
 	private final CacheManager shortLivedCacheManager;
 
@@ -38,6 +30,6 @@ public class RtaCacheEvictor {
 				log.debug("[rta-cache] cleared: {}", name);
 			}
 		}
-		log.info("[rta-cache] RTA 관련 캐시 {}개 무효화 완료", CACHE_NAMES.length);
+		log.debug("[rta-cache] 무효화 대상 {}개 (RTA 서비스 캐시 미사용)", CACHE_NAMES.length);
 	}
 }

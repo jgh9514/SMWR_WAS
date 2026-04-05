@@ -2,7 +2,6 @@ package com.smw.rta.service;
 
 import com.smw.rta.mapper.RtaMapper;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.cache.annotation.Cacheable;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
 
@@ -29,13 +28,11 @@ public class RtaServiceImpl implements RtaService {
     }
 
     @Override
-    @Cacheable(cacheNames = "rtaMatchesCount", cacheManager = "shortLivedCacheManager", key = "'all'")
     public long getRtaMatchesCount() {
         return rtaMapper.getTotalRtaMatches();
     }
 
     @Override
-    @Cacheable(cacheNames = "rtaStats", cacheManager = "shortLivedCacheManager", key = "'all'")
     public Object getRtaStats() {
         Map<String, Object> stats = new HashMap<>();
         
@@ -57,11 +54,6 @@ public class RtaServiceImpl implements RtaService {
     }
     
     @Override
-    @Cacheable(
-            cacheNames = "rtaMonsterStatsV2",
-            cacheManager = "shortLivedCacheManager",
-            key = "#limit + ':' + #offset"
-    )
     public Map<String, Object> getRtaMonsterStats(int limit, int offset) {
         // 전체 매치 수 조회
         long totalMatches = rtaMapper.getTotalRtaMatches();
@@ -85,7 +77,6 @@ public class RtaServiceImpl implements RtaService {
     }
     
     @Override
-    @Cacheable(cacheNames = "rtaMonsterDetail", cacheManager = "shortLivedCacheManager", key = "#monsterId")
     public Map<String, Object> getRtaMonsterDetail(int monsterId) {
         Map<String, Object> response = new HashMap<>();
         
@@ -113,11 +104,6 @@ public class RtaServiceImpl implements RtaService {
     }
 
     @Override
-    @Cacheable(
-            cacheNames = "rtaDashboardV2",
-            cacheManager = "shortLivedCacheManager",
-            key = "'all'"
-    )
     public Map<String, Object> getRtaDashboard() {
         List<Map<String, Object>> daily = rtaMapper.getRtaTierDistributionDaily();
         Map<String, Object> dateRange = rtaMapper.getRtaReplayDateRange();
@@ -130,17 +116,29 @@ public class RtaServiceImpl implements RtaService {
     }
 
     @Override
-    @Cacheable(
-            cacheNames = "rtaSummonerRanking",
-            cacheManager = "shortLivedCacheManager",
-            key = "#limit + ':' + #offset"
-    )
     public Map<String, Object> getRtaSummonerRanking(int limit, int offset) {
         int total = rtaMapper.getRtaSummonerRankingCount();
         List<Map<String, Object>> rows = rtaMapper.getRtaSummonerRanking(limit, offset);
         Map<String, Object> response = new HashMap<>();
         response.put("total", total);
         response.put("rankings", rows != null ? rows : Collections.emptyList());
+        return response;
+    }
+
+    @Override
+    public Map<String, Object> getRtaPlayerSummary(String wizardId) {
+        Map<String, Object> response = new HashMap<>();
+        if (wizardId == null || wizardId.trim().isEmpty()) {
+            response.put("found", false);
+            return response;
+        }
+        Map<String, Object> row = rtaMapper.getRtaPlayerSummary(wizardId.trim());
+        if (row == null || row.isEmpty()) {
+            response.put("found", false);
+            return response;
+        }
+        response.putAll(row);
+        response.put("found", true);
         return response;
     }
 }

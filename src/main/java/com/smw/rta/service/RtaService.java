@@ -49,4 +49,7 @@ public interface RtaService {
      * RTA 소환사 랭킹 (수집 리플레이 중 소환사별 최신 경기 점수 기준)
      */
     Map<String, Object> getRtaSummonerRanking(int limit, int offset);
+
+    /** RTA 소환사 요약 (닉네임·점수·순위·승률 등) */
+    Map<String, Object> getRtaPlayerSummary(String wizardId);
 }
