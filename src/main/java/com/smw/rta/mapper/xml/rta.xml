@@ -645,7 +645,7 @@
         ORDER BY mm.date_add DESC
     </select>
 
-    <!-- RTA 대시보드: 일자×티어별 집계 (집계 테이블 우선, 없으면 Live) -->
+    <!-- RTA 대시보드: 일자×티어별 집계 (조회는 집계 테이블만; 적재는 배치 insert) -->
     <select id="getRtaTierDistributionDailyFromAgg" resultType="map">
         SELECT bucket_date, tier_key, player_count, sort_order
         FROM rta_tier_distribution_daily_agg
@@ -657,76 +657,17 @@
         ORDER BY bucket_date, sort_order
     </select>
 
-    <!-- RTA 대시보드: 일자×티어별 집계 (클라이언트에서 기간 슬라이더로 합산) — 원천 조인 -->
-    <!-- rating_id 를 rid 로 별칭한 뒤 replay_list.rid 와 조인하면 안 됨(서로 다른 값). bucket_date·rating_id 는 한 번의 조인에서만 취한다. -->
-    <!-- 소환사·일자당 MAX(rating) 1행 → 티어 1곳만 부여. player_count = 해당 일·티어 유니크 소환사 수(리플레이 중복 제거). -->
-    <select id="getRtaTierDistributionDailyLive" resultType="map">
-        WITH <include refid="replayListDedupCte"/>
+    <!-- 리플레이 기간 min/max — 집계 테이블만 (대시보드 date_range) -->
+    <select id="getRtaReplayDateRangeFromAgg" resultType="map">
         SELECT
-            bucket_date,
-            tier_key,
-            COUNT(*)::bigint AS player_count,
-            MIN(sort_order)::int AS sort_order
-        FROM (
-            SELECT
-                t.bucket_date,
-                (
-                    CASE
-                        WHEN t.rating_val >= 5000 THEN 'L'
-                        WHEN t.rating_val >= 4000 THEN 'G'
-                        WHEN t.rating_val >= 3500 THEN 'P'
-                        WHEN t.rating_val >= 3000 THEN 'C'
-                        WHEN t.rating_val >= 2000 THEN 'F'
-                        ELSE 'Ch'
-                    END
-                )
-                ||
-                CASE
-                    WHEN (t.rating_val % 10) IN (1, 2, 3) THEN (t.rating_val % 10)::text
-                    ELSE '2'
-                END AS tier_key,
-                (
-                    CASE
-                        WHEN t.rating_val >= 5000 THEN 60
-                        WHEN t.rating_val >= 4000 THEN 50
-                        WHEN t.rating_val >= 3500 THEN 40
-                        WHEN t.rating_val >= 3000 THEN 30
-                        WHEN t.rating_val >= 2000 THEN 20
-                        ELSE 10
-                    END
-                    + CASE WHEN (t.rating_val % 10) IN (1, 2, 3) THEN (t.rating_val % 10) ELSE 2 END
-                ) AS sort_order
-            FROM (
-                SELECT
-                    r.date_add::date AS bucket_date,
-                    MAX(CAST(TRIM(u.rating_id::text) AS INT)) AS rating_val
-                FROM ranker_rtpvp_replay_user_list u
-                INNER JOIN replay_list_dedup r ON u.rid = r.rid
-                WHERE TRIM(COALESCE(u.rating_id::text, '')) ~ '^[0-9]+$'
-                  AND CAST(TRIM(u.rating_id::text) AS INT) &gt;= 1000
-                GROUP BY r.date_add::date, u.wizard_id
-            ) t
-        ) x
-        GROUP BY bucket_date, tier_key
-        ORDER BY bucket_date, MIN(sort_order)
-    </select>
-
-    <select id="getRtaReplayDateRange" resultType="map">
-        SELECT
-            MIN(r.date_add)::date AS min_date,
-            MAX(r.date_add)::date AS max_date
-        FROM (
-            SELECT DISTINCT ON (rid)
-                rid,
-                date_add
-            FROM ranker_rtpvp_replay_list
-            WHERE 1 = 1
-            <if test="seasonStart != null and seasonEnd != null">
-                AND date_add &gt;= #{seasonStart}
-                AND date_add &lt; #{seasonEnd}
-            </if>
-            ORDER BY rid, crt_date DESC NULLS LAST
-        ) r
+            MIN(bucket_date)::date AS min_date,
+            MAX(bucket_date)::date AS max_date
+        FROM rta_tier_distribution_daily_agg
+        WHERE 1 = 1
+        <if test="seasonStart != null and seasonEnd != null">
+            AND bucket_date &gt;= (#{seasonStart})::date
+            AND bucket_date &lt; (#{seasonEnd})::date
+        </if>
     </select>
 
     <select id="getRtaRankCutoffAnchorsFromAgg" resultType="map">
@@ -734,87 +675,6 @@
         FROM rta_rank_cutoff_snapshot
         WHERE tier_key IN ('G3', 'G2', 'G1', 'P3', 'P2', 'P1')
         ORDER BY sort_order, tier_key
-    </select>
-
-    <!-- 앵커 시각 기준 티어별 최저 점수(컷 추정). 당일·앵커 이전만으로 표본이 없으면 7일·앵커 이전 전체로 폴백(P1 등 희소 티어) -->
-    <select id="getRtaRankCutoffAnchorsLive" resultType="map">
-        WITH <include refid="replayListDedupCte"/>,
-        anchors AS (
-            SELECT * FROM (VALUES
-                (1, '3h',  CURRENT_TIMESTAMP - INTERVAL '3 hours'),
-                (2, '6h',  CURRENT_TIMESTAMP - INTERVAL '6 hours'),
-                (3, '12h', CURRENT_TIMESTAMP - INTERVAL '12 hours'),
-                (4, '3d',  CURRENT_TIMESTAMP - INTERVAL '3 days'),
-                (5, '7d',  CURRENT_TIMESTAMP - INTERVAL '7 days')
-            ) AS v(sort_order, anchor_key, ts)
-        ),
-        base AS (
-            SELECT
-                r.date_add,
-                CAST(TRIM(u.score::text) AS INT) AS score_val,
-                (
-                    CASE
-                        WHEN CAST(TRIM(u.rating_id::text) AS INT) &gt;= 5000 THEN 'L'
-                        WHEN CAST(TRIM(u.rating_id::text) AS INT) &gt;= 4000 THEN 'G'
-                        WHEN CAST(TRIM(u.rating_id::text) AS INT) &gt;= 3500 THEN 'P'
-                        WHEN CAST(TRIM(u.rating_id::text) AS INT) &gt;= 3000 THEN 'C'
-                        WHEN CAST(TRIM(u.rating_id::text) AS INT) &gt;= 2000 THEN 'F'
-                        ELSE 'Ch'
-                    END
-                )
-                ||
-                CASE
-                    WHEN (CAST(TRIM(u.rating_id::text) AS INT) % 10) IN (1, 2, 3)
-                    THEN (CAST(TRIM(u.rating_id::text) AS INT) % 10)::text
-                    ELSE '2'
-                END AS tier_key
-            FROM ranker_rtpvp_replay_user_list u
-            INNER JOIN replay_list_dedup r ON u.rid = r.rid
-            WHERE TRIM(COALESCE(u.rating_id::text, '')) ~ '^[0-9]+$'
-              AND CAST(TRIM(u.rating_id::text) AS INT) &gt;= 1000
-              AND TRIM(COALESCE(u.score::text, '')) ~ '^[0-9]+$'
-              AND CAST(TRIM(u.score::text) AS INT) &gt; 0
-              AND r.date_add::date &gt;= (
-                  SELECT (MAX(r2.date_add::date) - INTERVAL '120 days')::date
-                  FROM replay_list_dedup r2
-              )
-        ),
-        tiers AS (
-            SELECT * FROM (VALUES
-                ('G3'), ('G2'), ('G1'), ('P3'), ('P2'), ('P1')
-            ) AS tv(tier_key)
-        )
-        SELECT
-            sub.sort_order,
-            sub.anchor_key,
-            sub.tier_key,
-            sub.cutoff_score
-        FROM (
-            SELECT
-                a.sort_order,
-                a.anchor_key,
-                t.tier_key,
-                COALESCE(
-                    (SELECT MIN(b.score_val) FROM base b
-                     WHERE b.tier_key = t.tier_key
-                       AND b.date_add::date = (a.ts)::date
-                       AND b.date_add &lt;= a.ts),
-                    (SELECT MIN(b.score_val) FROM base b
-                     WHERE b.tier_key = t.tier_key
-                       AND b.date_add &lt;= a.ts
-                       AND b.date_add &gt;= (a.ts - INTERVAL '7 days')),
-                    (SELECT MIN(b.score_val) FROM base b
-                     WHERE b.tier_key = t.tier_key
-                       AND b.date_add &lt;= a.ts),
-                    (SELECT MIN(b.score_val) FROM base b
-                     WHERE b.date_add &lt;= a.ts
-                       AND SUBSTRING(b.tier_key, 1, 1) = SUBSTRING(t.tier_key, 1, 1)),
-                    1000
-                )::bigint AS cutoff_score
-            FROM anchors a
-            CROSS JOIN tiers t
-        ) sub
-        ORDER BY sub.sort_order, sub.tier_key
     </select>
 
     <!-- 소환사별: 수집 리플레이 중 가장 최근 경기의 점수·레이팅으로 랭킹 (공식 랭킹과 다를 수 있음) -->
@@ -1489,7 +1349,7 @@
                     (SELECT MIN(b.score_val) FROM base b
                      WHERE b.date_add &lt;= a.ts
                        AND SUBSTRING(b.tier_key, 1, 1) = SUBSTRING(t.tier_key, 1, 1)),
-                    1000
+                    0
                 )::bigint AS cutoff_score
             FROM anchors a
             CROSS JOIN tiers t

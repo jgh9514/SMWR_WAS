@@ -77,24 +77,16 @@ public interface RtaMapper {
     List<Map<String, Object>> getRtaMonsterRecentMatches(@Param("monsterId") int monsterId,
             @Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd);
 
-    /** 일자×티어별 출현 수 — 집계 테이블 */
+    /** 일자×티어별 출현 수 — 집계 테이블만 (대시보드) */
     List<Map<String, Object>> getRtaTierDistributionDailyFromAgg(
             @Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd);
 
-    /** 일자×티어별 출현 수 — 원천 조인 (집계 비어 있을 때 폴백) */
-    List<Map<String, Object>> getRtaTierDistributionDailyLive(
+    /** 리플레이 기간 min/max — 집계 테이블(티어 분포 일자)만 (대시보드) */
+    Map<String, Object> getRtaReplayDateRangeFromAgg(
             @Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd);
 
-    /** 리플레이 날짜 min/max */
-    Map<String, Object> getRtaReplayDateRange(
-            @Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd);
-
-    /** 랭크 컷 스냅샷 — 집계 테이블 */
+    /** 랭크 컷 스냅샷 — 집계 테이블만 (대시보드) */
     List<Map<String, Object>> getRtaRankCutoffAnchorsFromAgg();
-
-    /** 랭크 컷 — 원천 조인 (집계 비어 있을 때 폴백) */
-    List<Map<String, Object>> getRtaRankCutoffAnchorsLive(
-            @Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd);
 
     /** 티어 분포 집계 전체 삭제 후 재적재용 */
     int deleteAllRtaTierDistributionDailyAgg();

@@ -189,15 +189,8 @@ public class RtaServiceImpl implements RtaService {
         ResolvedSeason se = resolveSeason(seasonCode);
 
         List<Map<String, Object>> daily = rtaMapper.getRtaTierDistributionDailyFromAgg(se.start, se.end);
-        if (daily == null || daily.isEmpty()) {
-            daily = rtaMapper.getRtaTierDistributionDailyLive(se.start, se.end);
-        }
-        Map<String, Object> dateRange = rtaMapper.getRtaReplayDateRange(se.start, se.end);
-
-        List<Map<String, Object>> rankCutoffAnchors = rtaMapper.getRtaRankCutoffAnchorsLive(se.start, se.end);
-        if (rankCutoffAnchors == null || rankCutoffAnchors.isEmpty()) {
-            rankCutoffAnchors = rtaMapper.getRtaRankCutoffAnchorsFromAgg();
-        }
+        Map<String, Object> dateRange = rtaMapper.getRtaReplayDateRangeFromAgg(se.start, se.end);
+        List<Map<String, Object>> rankCutoffAnchors = rtaMapper.getRtaRankCutoffAnchorsFromAgg();
 
         Map<String, Object> response = new HashMap<>();
         response.put("daily_tiers", daily != null ? daily : Collections.emptyList());
