@@ -44,7 +44,8 @@ public class CacheManagerConfig {
                 "rtaDashboard",
                 "rtaMatchList",
                 "rtaMonster",
-                "rtaRanking"
+                "rtaRanking",
+                "rtaSeasons"
         ));
         cacheManager.setCaffeine(Caffeine.newBuilder()
                 .maximumSize(shortLivedMaximumSize)

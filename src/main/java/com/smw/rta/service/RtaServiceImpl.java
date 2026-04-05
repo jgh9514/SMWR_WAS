@@ -6,6 +6,7 @@ import org.springframework.cache.annotation.Cacheable;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
 
+import java.sql.Timestamp;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -15,146 +16,244 @@ import java.util.Map;
 @Primary
 public class RtaServiceImpl implements RtaService {
 
+    /** /rta 매치 목록과 동일: 요청 limit를 페이지 크기로 볼 때 11페이지 이상이면(offset >= 10*limit) DB 미조회 */
+    private static final int RTA_MATCH_LIST_MAX_PAGES = 10;
+
     @Autowired
     private RtaMapper rtaMapper;
 
-    @Override
-    @Cacheable(cacheNames = "rtaMatchList", cacheManager = "shortLivedCacheManager", key = "'m_' + #limit + '_' + #offset")
-    public List<Map<String, Object>> getRtaMatches(int limit, int offset) {
-        return rtaMapper.getRtaMatches(limit, offset);
+    private static final class ResolvedSeason {
+        final String code;
+        final Timestamp start;
+        final Timestamp end;
+
+        ResolvedSeason(String code, Timestamp start, Timestamp end) {
+            this.code = code;
+            this.start = start;
+            this.end = end;
+        }
+    }
+
+    private ResolvedSeason resolveSeason(String seasonCode) {
+        String code = seasonCode != null ? seasonCode.trim() : "";
+        if (code.isEmpty()) {
+            code = rtaMapper.selectDefaultSeasonCodeForNow();
+        }
+        Map<String, Object> row = code != null && !code.isEmpty() ? rtaMapper.selectRtaSeasonBounds(code) : null;
+        if (row == null || row.isEmpty()) {
+            code = rtaMapper.selectDefaultSeasonCodeForNow();
+            row = rtaMapper.selectRtaSeasonBounds(code);
+        }
+        if (row == null || row.isEmpty()) {
+            return new ResolvedSeason(null, null, null);
+        }
+        Object s = row.get("startAt");
+        if (s == null) {
+            s = row.get("start_at");
+        }
+        Object e = row.get("endAt");
+        if (e == null) {
+            e = row.get("end_at");
+        }
+        Timestamp start = toTimestamp(s);
+        Timestamp end = toTimestamp(e);
+        Object sc = row.get("seasonCode");
+        if (sc == null) {
+            sc = row.get("season_code");
+        }
+        String c = sc != null ? String.valueOf(sc) : code;
+        return new ResolvedSeason(c, start, end);
+    }
+
+    private static Timestamp toTimestamp(Object o) {
+        if (o == null) {
+            return null;
+        }
+        if (o instanceof Timestamp) {
+            return (Timestamp) o;
+        }
+        if (o instanceof java.util.Date) {
+            return new Timestamp(((java.util.Date) o).getTime());
+        }
+        return null;
     }
 
     @Override
-    @Cacheable(cacheNames = "rtaMatchList", cacheManager = "shortLivedCacheManager", key = "'p_' + #wizardId + '_' + #limit + '_' + #offset")
-    public List<Map<String, Object>> getPlayerRtaMatches(String wizardId, int limit, int offset) {
-        return rtaMapper.getPlayerRtaMatches(wizardId, limit, offset);
+    @Cacheable(cacheNames = "rtaMatchList", cacheManager = "shortLivedCacheManager",
+            key = "'m_' + #seasonCode + '_' + #limit + '_' + #offset")
+    public List<Map<String, Object>> getRtaMatches(int limit, int offset, String seasonCode) {
+        if (limit > 0 && offset >= (long) RTA_MATCH_LIST_MAX_PAGES * limit) {
+            return Collections.emptyList();
+        }
+        ResolvedSeason se = resolveSeason(seasonCode);
+        return rtaMapper.getRtaMatches(limit, offset, se.start, se.end);
     }
 
     @Override
-    @Cacheable(cacheNames = "rtaMatchList", cacheManager = "shortLivedCacheManager", key = "'cnt'")
-    public long getRtaMatchesCount() {
-        return rtaMapper.getTotalRtaMatches();
+    @Cacheable(cacheNames = "rtaMatchList", cacheManager = "shortLivedCacheManager",
+            key = "'p_' + #seasonCode + '_' + #wizardId + '_' + #limit + '_' + #offset")
+    public List<Map<String, Object>> getPlayerRtaMatches(String wizardId, int limit, int offset, String seasonCode) {
+        ResolvedSeason se = resolveSeason(seasonCode);
+        return rtaMapper.getPlayerRtaMatches(wizardId, limit, offset, se.start, se.end);
     }
 
     @Override
-    @Cacheable(cacheNames = "rtaMatchList", cacheManager = "shortLivedCacheManager", key = "'stats'")
-    public Object getRtaStats() {
+    @Cacheable(cacheNames = "rtaMatchList", cacheManager = "shortLivedCacheManager",
+            key = "'cnt_' + #seasonCode")
+    public long getRtaMatchesCount(String seasonCode) {
+        ResolvedSeason se = resolveSeason(seasonCode);
+        return rtaMapper.getTotalRtaMatches(se.start, se.end);
+    }
+
+    @Override
+    @Cacheable(cacheNames = "rtaMatchList", cacheManager = "shortLivedCacheManager",
+            key = "'stats_' + #seasonCode")
+    public Object getRtaStats(String seasonCode) {
+        ResolvedSeason se = resolveSeason(seasonCode);
         Map<String, Object> stats = new HashMap<>();
-        
-        int totalMatches = rtaMapper.getTotalRtaMatches();
+
+        int totalMatches = rtaMapper.getTotalRtaMatches(se.start, se.end);
         stats.put("totalMatches", totalMatches);
-        
-        int todayMatches = rtaMapper.getTodayRtaMatches();
+
+        int todayMatches = rtaMapper.getTodayRtaMatches(se.start, se.end);
         stats.put("todayMatches", todayMatches);
-        
-        int weeklyMatches = rtaMapper.getWeeklyRtaMatches();
+
+        int weeklyMatches = rtaMapper.getWeeklyRtaMatches(se.start, se.end);
         stats.put("weeklyMatches", weeklyMatches);
-        
+
         return stats;
     }
-    
+
     @Override
     public Map<String, Object> testRtaData() {
         return rtaMapper.testRtaData();
     }
-    
+
     @Override
-    @Cacheable(cacheNames = "rtaMonster", cacheManager = "shortLivedCacheManager", key = "'ms_' + #limit + '_' + #offset")
-    public Map<String, Object> getRtaMonsterStats(int limit, int offset) {
-        // 전체 매치 수 조회
-        long totalMatches = rtaMapper.getTotalRtaMatches();
-        
-        // 몬스터별 통계 조회
-        List<Map<String, Object>> stats = rtaMapper.getRtaMonsterStats(limit, offset);
-        List<Map<String, Object>> duoStats = rtaMapper.getRtaDuoComboStats(50);
-        List<Map<String, Object>> trioStats = rtaMapper.getRtaTrioComboStats(50);
-        
-        // 더 불러올 데이터가 있는지 확인
+    @Cacheable(cacheNames = "rtaMonster", cacheManager = "shortLivedCacheManager",
+            key = "'ms_' + #seasonCode + '_' + #limit + '_' + #offset")
+    public Map<String, Object> getRtaMonsterStats(int limit, int offset, String seasonCode) {
+        ResolvedSeason se = resolveSeason(seasonCode);
+        long totalMatches = rtaMapper.getTotalRtaMatches(se.start, se.end);
+
+        List<Map<String, Object>> stats = rtaMapper.getRtaMonsterStats(limit, offset, se.start, se.end);
+        List<Map<String, Object>> duoStats = rtaMapper.getRtaDuoComboStats(50, se.start, se.end);
+        List<Map<String, Object>> trioStats = rtaMapper.getRtaTrioComboStats(50, se.start, se.end);
+
         boolean hasMore = stats.size() == limit;
-        
+
         Map<String, Object> response = new HashMap<>();
         response.put("stats", stats);
         response.put("duo_stats", duoStats);
         response.put("trio_stats", trioStats);
         response.put("total_matches", totalMatches);
         response.put("has_more", hasMore);
-        
-        return response;
-    }
-    
-    @Override
-    @Cacheable(cacheNames = "rtaMonster", cacheManager = "shortLivedCacheManager", key = "'md_' + #monsterId")
-    public Map<String, Object> getRtaMonsterDetail(int monsterId) {
-        Map<String, Object> response = new HashMap<>();
-        
-        // 기본 정보
-        Map<String, Object> basicInfo = rtaMapper.getRtaMonsterBasicInfo(monsterId);
-        response.putAll(basicInfo);
-        
-        // 강한 상대 (이 몬스터가 상대했을 때 승률이 높은 몬스터)
-        List<Map<String, Object>> strongAgainst = rtaMapper.getRtaMonsterStrongAgainst(monsterId);
-        response.put("strong_against", strongAgainst);
-        
-        // 좋은 콤비 (함께 사용했을 때 승률이 높은 몬스터)
-        List<Map<String, Object>> goodCombos = rtaMapper.getRtaMonsterGoodCombos(monsterId);
-        response.put("good_combos", goodCombos);
-        
-        // 좋은 3체인 콤비 (2개 몬스터와 함께 사용했을 때 승률이 높은 조합)
-        List<Map<String, Object>> goodTripleCombos = rtaMapper.getRtaMonsterGoodTripleCombos(monsterId);
-        response.put("good_triple_combos", goodTripleCombos);
-        
-        // 최근 경기 정보
-        List<Map<String, Object>> recentMatches = rtaMapper.getRtaMonsterRecentMatches(monsterId);
-        response.put("recent_matches", recentMatches);
-        
+        response.put("seasonCode", se.code);
+
         return response;
     }
 
     @Override
-    @Cacheable(cacheNames = "rtaDashboard", cacheManager = "shortLivedCacheManager", key = "'dash'")
-    public Map<String, Object> getRtaDashboard() {
-        List<Map<String, Object>> daily = rtaMapper.getRtaTierDistributionDailyFromAgg();
+    @Cacheable(cacheNames = "rtaMonster", cacheManager = "shortLivedCacheManager",
+            key = "'md_' + #seasonCode + '_' + #monsterId")
+    public Map<String, Object> getRtaMonsterDetail(int monsterId, String seasonCode) {
+        ResolvedSeason se = resolveSeason(seasonCode);
+        Map<String, Object> response = new HashMap<>();
+
+        Map<String, Object> basicInfo = rtaMapper.getRtaMonsterBasicInfo(monsterId, se.start, se.end);
+        response.putAll(basicInfo);
+
+        List<Map<String, Object>> strongAgainst = rtaMapper.getRtaMonsterStrongAgainst(monsterId, se.start, se.end);
+        response.put("strong_against", strongAgainst);
+
+        List<Map<String, Object>> goodCombos = rtaMapper.getRtaMonsterGoodCombos(monsterId, se.start, se.end);
+        response.put("good_combos", goodCombos);
+
+        List<Map<String, Object>> goodTripleCombos = rtaMapper.getRtaMonsterGoodTripleCombos(monsterId, se.start, se.end);
+        response.put("good_triple_combos", goodTripleCombos);
+
+        List<Map<String, Object>> recentMatches = rtaMapper.getRtaMonsterRecentMatches(monsterId, se.start, se.end);
+        response.put("recent_matches", recentMatches);
+        response.put("seasonCode", se.code);
+
+        return response;
+    }
+
+    @Override
+    @Cacheable(cacheNames = "rtaDashboard", cacheManager = "shortLivedCacheManager",
+            key = "'dash_' + #seasonCode")
+    public Map<String, Object> getRtaDashboard(String seasonCode) {
+        ResolvedSeason se = resolveSeason(seasonCode);
+
+        List<Map<String, Object>> daily = rtaMapper.getRtaTierDistributionDailyFromAgg(se.start, se.end);
         if (daily == null || daily.isEmpty()) {
-            daily = rtaMapper.getRtaTierDistributionDailyLive();
+            daily = rtaMapper.getRtaTierDistributionDailyLive(se.start, se.end);
         }
-        Map<String, Object> dateRange = rtaMapper.getRtaReplayDateRange();
-        List<Map<String, Object>> rankCutoffAnchors = rtaMapper.getRtaRankCutoffAnchorsFromAgg();
+        Map<String, Object> dateRange = rtaMapper.getRtaReplayDateRange(se.start, se.end);
+
+        List<Map<String, Object>> rankCutoffAnchors = rtaMapper.getRtaRankCutoffAnchorsLive(se.start, se.end);
         if (rankCutoffAnchors == null || rankCutoffAnchors.isEmpty()) {
-            rankCutoffAnchors = rtaMapper.getRtaRankCutoffAnchorsLive();
+            rankCutoffAnchors = rtaMapper.getRtaRankCutoffAnchorsFromAgg();
         }
+
         Map<String, Object> response = new HashMap<>();
         response.put("daily_tiers", daily != null ? daily : Collections.emptyList());
         response.put("date_range", dateRange != null ? dateRange : new HashMap<>());
         response.put("rank_cutoff_anchors", rankCutoffAnchors != null ? rankCutoffAnchors : Collections.emptyList());
+        response.put("seasonCode", se.code);
         return response;
     }
 
     @Override
-    @Cacheable(cacheNames = "rtaRanking", cacheManager = "shortLivedCacheManager", key = "'sr_' + #limit + '_' + #offset")
-    public Map<String, Object> getRtaSummonerRanking(int limit, int offset) {
-        int total = rtaMapper.getRtaSummonerRankingCount();
-        List<Map<String, Object>> rows = rtaMapper.getRtaSummonerRanking(limit, offset);
+    @Cacheable(cacheNames = "rtaRanking", cacheManager = "shortLivedCacheManager",
+            key = "'sr_' + #seasonCode + '_' + #limit + '_' + #offset")
+    public Map<String, Object> getRtaSummonerRanking(int limit, int offset, String seasonCode) {
+        ResolvedSeason se = resolveSeason(seasonCode);
+        String aggKey = se.code != null ? se.code.trim() : "";
+        int total;
+        List<Map<String, Object>> rows;
+        int aggCount = aggKey.isEmpty() ? 0 : rtaMapper.getRtaSummonerRankingAggCount(aggKey);
+        if (aggCount > 0) {
+            total = aggCount;
+            rows = rtaMapper.getRtaSummonerRankingFromAgg(limit, offset, aggKey);
+        } else {
+            total = rtaMapper.getRtaSummonerRankingCount(se.start, se.end);
+            rows = rtaMapper.getRtaSummonerRanking(limit, offset, se.start, se.end);
+        }
         Map<String, Object> response = new HashMap<>();
         response.put("total", total);
         response.put("rankings", rows != null ? rows : Collections.emptyList());
+        response.put("seasonCode", se.code);
         return response;
     }
 
     @Override
-    @Cacheable(cacheNames = "rtaRanking", cacheManager = "shortLivedCacheManager", key = "'ps_' + #wizardId")
-    public Map<String, Object> getRtaPlayerSummary(String wizardId) {
+    @Cacheable(cacheNames = "rtaRanking", cacheManager = "shortLivedCacheManager",
+            key = "'ps_' + #seasonCode + '_' + #wizardId")
+    public Map<String, Object> getRtaPlayerSummary(String wizardId, String seasonCode) {
+        ResolvedSeason se = resolveSeason(seasonCode);
         Map<String, Object> response = new HashMap<>();
         if (wizardId == null || wizardId.trim().isEmpty()) {
             response.put("found", false);
             return response;
         }
-        Map<String, Object> row = rtaMapper.getRtaPlayerSummary(wizardId.trim());
+        Map<String, Object> row = rtaMapper.getRtaPlayerSummary(wizardId.trim(), se.start, se.end);
         if (row == null || row.isEmpty()) {
             response.put("found", false);
             return response;
         }
         response.putAll(row);
         response.put("found", true);
+        response.put("seasonCode", se.code);
+        return response;
+    }
+
+    @Override
+    @Cacheable(cacheNames = "rtaSeasons", cacheManager = "shortLivedCacheManager", key = "'list'")
+    public Map<String, Object> getRtaSeasons() {
+        Map<String, Object> response = new HashMap<>();
+        response.put("seasons", rtaMapper.listRtaSeasons());
+        response.put("defaultSeasonCode", rtaMapper.selectDefaultSeasonCodeForNow());
         return response;
     }
 }

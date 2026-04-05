@@ -23,6 +23,7 @@ public class RtaCacheEvictor {
 			"rtaMatchList",
 			"rtaMonster",
 			"rtaRanking",
+			"rtaSeasons",
 	};
 
 	private final CacheManager shortLivedCacheManager;
