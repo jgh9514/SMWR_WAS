@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.cf.community.mapper.GuildRecruitmentMapper">
+
+	<select id="selectGuildRecruitmentList" parameterType="sqlMap" resultType="sqlMap">
+		SELECT
+			r.post_id,
+			r.user_id,
+			r.guild_name,
+			r.server_name,
+			r.last_season_grade,
+			SUBSTRING(r.content FROM 1 FOR 200) AS content_preview,
+			r.crt_date,
+			r.upt_date,
+			u.user_nm AS user_name
+		FROM guild_recruitment r
+		LEFT JOIN sys_user u ON r.user_id = u.user_id
+		WHERE r.del_yn = 'N'
+		<if test="search != null and search != ''">
+			AND (
+				r.guild_name ILIKE '%' || trim(#{search}) || '%'
+				OR r.server_name ILIKE '%' || trim(#{search}) || '%'
+				OR r.content ILIKE '%' || trim(#{search}) || '%'
+			)
+		</if>
+		ORDER BY r.crt_date DESC
+		LIMIT #{limit} OFFSET #{offset}
+	</select>
+
+	<select id="selectGuildRecruitmentCount" parameterType="sqlMap" resultType="int">
+		SELECT COUNT(1)
+		FROM guild_recruitment r
+		WHERE r.del_yn = 'N'
+		<if test="search != null and search != ''">
+			AND (
+				r.guild_name ILIKE '%' || trim(#{search}) || '%'
+				OR r.server_name ILIKE '%' || trim(#{search}) || '%'
+				OR r.content ILIKE '%' || trim(#{search}) || '%'
+			)
+		</if>
+	</select>
+
+	<select id="selectGuildRecruitmentDtl" parameterType="sqlMap" resultType="sqlMap">
+		SELECT
+			r.post_id,
+			r.user_id,
+			r.guild_name,
+			r.server_name,
+			r.last_season_grade,
+			r.content,
+			r.crt_date,
+			r.upt_date,
+			u.user_nm AS user_name
+		FROM guild_recruitment r
+		LEFT JOIN sys_user u ON r.user_id = u.user_id
+		WHERE r.post_id = #{post_id}
+		  AND r.del_yn = 'N'
+	</select>
+
+	<insert id="insertGuildRecruitment" parameterType="sqlMap">
+		<selectKey keyProperty="post_id" resultType="long" order="AFTER">
+			SELECT currval('guild_recruitment_seq')
+		</selectKey>
+		INSERT INTO guild_recruitment (
+			user_id,
+			guild_name,
+			server_name,
+			last_season_grade,
+			content,
+			del_yn,
+			crt_date,
+			upt_date
+		) VALUES (
+			#{sess_user_id},
+			#{guild_name},
+			#{server_name},
+			#{last_season_grade},
+			#{content},
+			'N',
+			CURRENT_TIMESTAMP,
+			CURRENT_TIMESTAMP
+		)
+	</insert>
+
+	<update id="updateGuildRecruitment" parameterType="sqlMap">
+		UPDATE guild_recruitment SET
+			guild_name = #{guild_name},
+			server_name = #{server_name},
+			last_season_grade = #{last_season_grade},
+			content = #{content},
+			upt_date = CURRENT_TIMESTAMP
+		WHERE post_id = #{post_id}
+		  AND user_id = #{sess_user_id}
+		  AND del_yn = 'N'
+	</update>
+
+	<update id="deleteGuildRecruitment" parameterType="sqlMap">
+		UPDATE guild_recruitment SET
+			del_yn = 'Y',
+			upt_date = CURRENT_TIMESTAMP
+		WHERE post_id = #{post_id}
+		  AND del_yn = 'N'
+		<choose>
+			<when test="is_admin != null and is_admin == 'Y'">
+			</when>
+			<otherwise>
+				AND user_id = #{sess_user_id}
+			</otherwise>
+		</choose>
+	</update>
+</mapper>

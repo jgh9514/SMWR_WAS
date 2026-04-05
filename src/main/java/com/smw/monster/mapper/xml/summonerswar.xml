@@ -1554,6 +1554,7 @@
 		FROM ranker_rtpvp_replay_raw
 		WHERE apply_status IN ('pending', 'failed')
 		ORDER BY rid ASC
+		LIMIT #{limit}
 	</select>
 		
 	<select id="selectRecommendedAttackDeckList" parameterType="sqlMap" resultType="sqlMap">

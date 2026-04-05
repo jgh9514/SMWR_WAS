@@ -186,6 +186,8 @@ smw:
       stable-millis: ${SMW_RTA_EXPORTER_STABLE_MS:2000}
       stable-max-wait-ms: ${SMW_RTA_EXPORTER_STABLE_MAX_MS:60000}
     raw-apply:
+      # 배치(RtaReplayRawApplyJob) 한 실행당 DB에서 꺼내 처리할 pending/failed 최대 건수
+      max-rows-per-run: ${SMW_RTA_RAW_APPLY_MAX_ROWS:1000}
       # 한 트랜잭션에 묶어 replay_list 등에 넣는 건수(최소 1). 상한 없음.
       apply-chunk-size: ${SMW_RTA_RAW_APPLY_CHUNK_SIZE:80}
   ops:

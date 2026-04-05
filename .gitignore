@@ -48,7 +48,5 @@ k8s/*-secret.yaml
 *.bak
 *.swp
 *~
-*.log
 *.sql
 /log/test.log
-not_ddl.sql
