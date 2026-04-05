@@ -134,7 +134,7 @@ public interface RtaMapper {
     Map<String, Object> getRtaPlayerSummary(@Param("wizardId") String wizardId,
             @Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd);
 
-    /** 소환사 요약 — 랭킹·프로필은 agg, 경기 수·승률은 내 경기 목록과 동일 소스(rta_replay_match_snapshot) */
+    /** 소환사 요약 — 순위·점수·승패·승률 모두 {@code rta_summoner_ranking_agg} (랭킹 API와 동일) */
     Map<String, Object> getRtaPlayerSummaryFromAgg(@Param("wizardId") String wizardId,
             @Param("seasonCode") String seasonCode,
             @Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd);

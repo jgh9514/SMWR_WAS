@@ -763,11 +763,12 @@
               AND CAST(TRIM(u.score::text) AS INT) &gt; 0
             ORDER BY u.wizard_id, r.date_add DESC
         ),
+        <!-- win_agg: 승수는 user_list.win_lose='1'(경기별 플레이어 승패). replay_list.wizard_id(승자 id)와 비교하면 원천 불일치 시 집계가 실제와 어긋남 -->
         win_agg AS (
             SELECT
                 u.wizard_id,
                 COUNT(*)::bigint AS match_count,
-                SUM(CASE WHEN r.wizard_id IS NOT NULL AND TRIM(BOTH FROM u.wizard_id::text) = TRIM(BOTH FROM r.wizard_id::text) THEN 1 ELSE 0 END)::bigint AS win_count
+                SUM(CASE WHEN TRIM(COALESCE(u.win_lose::text, '')) = '1' THEN 1 ELSE 0 END)::bigint AS win_count
             FROM ranker_rtpvp_replay_user_list u
             INNER JOIN replay_list_dedup r ON u.rid = r.rid
             WHERE TRIM(COALESCE(u.score::text, '')) ~ '^[0-9]+$'
@@ -911,7 +912,7 @@
             SELECT
                 u.wizard_id,
                 COUNT(*)::bigint AS match_count,
-                SUM(CASE WHEN r.wizard_id IS NOT NULL AND TRIM(BOTH FROM u.wizard_id::text) = TRIM(BOTH FROM r.wizard_id::text) THEN 1 ELSE 0 END)::bigint AS win_count
+                SUM(CASE WHEN TRIM(COALESCE(u.win_lose::text, '')) = '1' THEN 1 ELSE 0 END)::bigint AS win_count
             FROM ranker_rtpvp_replay_user_list u
             INNER JOIN replay_list_dedup r ON u.rid = r.rid
             WHERE TRIM(COALESCE(u.score::text, '')) ~ '^[0-9]+$'
@@ -952,7 +953,7 @@
         LIMIT 1
     </select>
 
-    <!-- 소환사 요약: 순위·점수 등은 agg, 경기 수·승·승률은 내 경기 목록과 동일(rta_replay_match_snapshot + 시즌 구간) -->
+    <!-- 소환사 요약: 순위·점수·경기 수·승·승률 모두 rta_summoner_ranking_agg (소환사 랭킹 목록과 동일 소스) -->
     <select id="getRtaPlayerSummaryFromAgg" resultType="map">
         SELECT
             a.rank_position,
@@ -963,36 +964,14 @@
             a.score,
             a.rating_id,
             a.last_match_at,
-            COALESCE(st.match_count, 0)::bigint AS match_count,
-            COALESCE(st.win_count, 0)::bigint AS win_count,
+            COALESCE(a.match_count, 0)::bigint AS match_count,
+            COALESCE(a.win_count, 0)::bigint AS win_count,
             CASE
-                WHEN COALESCE(st.match_count, 0) &gt; 0
-                THEN ROUND(100.0 * COALESCE(st.win_count, 0)::numeric / st.match_count::numeric, 1)
+                WHEN COALESCE(a.match_count, 0) &gt; 0
+                THEN ROUND(100.0 * COALESCE(a.win_count, 0)::numeric / a.match_count::numeric, 1)
                 ELSE NULL
             END AS win_rate_pct
         FROM rta_summoner_ranking_agg a
-        LEFT JOIN LATERAL (
-            SELECT
-                COUNT(*)::bigint AS match_count,
-                SUM(
-                    CASE
-                        WHEN TRIM(BOTH FROM s.p1_wizard_id::text) = TRIM(BOTH FROM #{wizardId})
-                            THEN CASE WHEN TRIM(BOTH FROM s.winner_position::text) = '1' THEN 1 ELSE 0 END
-                        WHEN TRIM(BOTH FROM s.p2_wizard_id::text) = TRIM(BOTH FROM #{wizardId})
-                            THEN CASE WHEN TRIM(BOTH FROM s.winner_position::text) = '2' THEN 1 ELSE 0 END
-                        ELSE 0
-                    END
-                )::bigint AS win_count
-            FROM rta_replay_match_snapshot s
-            WHERE (
-                TRIM(BOTH FROM s.p1_wizard_id::text) = TRIM(BOTH FROM #{wizardId})
-                OR TRIM(BOTH FROM s.p2_wizard_id::text) = TRIM(BOTH FROM #{wizardId})
-            )
-            <if test="seasonStart != null and seasonEnd != null">
-                AND s.date_add &gt;= #{seasonStart}
-                AND s.date_add &lt; #{seasonEnd}
-            </if>
-        ) st ON true
         WHERE a.season_code = #{seasonCode}
           AND TRIM(BOTH FROM a.wizard_id::text) = TRIM(BOTH FROM #{wizardId})
         LIMIT 1
@@ -1445,7 +1424,7 @@
             SELECT
                 u.wizard_id,
                 COUNT(*)::bigint AS match_count,
-                SUM(CASE WHEN r.wizard_id IS NOT NULL AND TRIM(BOTH FROM u.wizard_id::text) = TRIM(BOTH FROM r.wizard_id::text) THEN 1 ELSE 0 END)::bigint AS win_count
+                SUM(CASE WHEN TRIM(COALESCE(u.win_lose::text, '')) = '1' THEN 1 ELSE 0 END)::bigint AS win_count
             FROM ranker_rtpvp_replay_user_list u
             INNER JOIN replay_list_dedup r ON u.rid = r.rid
             WHERE TRIM(COALESCE(u.score::text, '')) ~ '^[0-9]+$'

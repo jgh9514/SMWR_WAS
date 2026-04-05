@@ -209,6 +209,10 @@ public class RtaServiceImpl implements RtaService {
         return response;
     }
 
+    /**
+     * 소환사 랭킹: 사용자 요청 시에는 항상 집계 테이블 {@code rta_summoner_ranking_agg}만 조회한다.
+     * (원장 기준 동적 쿼리 {@code getRtaSummonerRanking}은 배치 적재용 SQL에만 존재하며 여기서 호출하지 않음.)
+     */
     @Override
     @Cacheable(cacheNames = "rtaRanking", cacheManager = "shortLivedCacheManager",
             key = "'sr_' + #seasonCode + '_' + #limit + '_' + #offset")
