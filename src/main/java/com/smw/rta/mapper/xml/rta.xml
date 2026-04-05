@@ -762,11 +762,75 @@
         </if>
     </select>
 
-    <select id="getRtaRankCutoffAnchorsFromAgg" resultType="map">
-        SELECT sort_order, anchor_key, tier_key, cutoff_score
-        FROM rta_rank_cutoff_snapshot
-        WHERE tier_key IN ('G3', 'G2', 'G1', 'P3', 'P2', 'P1')
-        ORDER BY sort_order, tier_key
+    <!-- 랭크 컷: 스냅샷 테이블 없이 현재 시각 기준 되돌림 구간 [now-iv, now] 내 리플레이로 계산 -->
+    <select id="getRtaRankCutoffAnchorsFromLive" resultType="map">
+        WITH <include refid="replayListDedupCte"/>,
+        anchors AS (
+            SELECT * FROM (VALUES
+                (1, '3h',  INTERVAL '3 hours'),
+                (2, '6h',  INTERVAL '6 hours'),
+                (3, '12h', INTERVAL '12 hours'),
+                (4, '3d',  INTERVAL '3 days'),
+                (5, '7d',  INTERVAL '7 days')
+            ) AS v(sort_order, anchor_key, iv)
+        ),
+        base AS (
+            SELECT
+                r.date_add,
+                CAST(TRIM(u.score::text) AS INT) AS score_val,
+                (
+                    CASE
+                        WHEN CAST(TRIM(u.rating_id::text) AS INT) &gt;= 5000 THEN 'L'
+                        WHEN CAST(TRIM(u.rating_id::text) AS INT) &gt;= 4000 THEN 'G'
+                        WHEN CAST(TRIM(u.rating_id::text) AS INT) &gt;= 3500 THEN 'P'
+                        WHEN CAST(TRIM(u.rating_id::text) AS INT) &gt;= 3000 THEN 'C'
+                        WHEN CAST(TRIM(u.rating_id::text) AS INT) &gt;= 2000 THEN 'F'
+                        ELSE 'Ch'
+                    END
+                )
+                ||
+                CASE
+                    WHEN (CAST(TRIM(u.rating_id::text) AS INT) % 10) IN (1, 2, 3)
+                    THEN (CAST(TRIM(u.rating_id::text) AS INT) % 10)::text
+                    ELSE '2'
+                END AS tier_key
+            FROM ranker_rtpvp_replay_user_list u
+            INNER JOIN replay_list_dedup r ON u.rid = r.rid
+            WHERE TRIM(COALESCE(u.rating_id::text, '')) ~ '^[0-9]+$'
+              AND CAST(TRIM(u.rating_id::text) AS INT) &gt;= 1000
+              AND TRIM(COALESCE(u.score::text, '')) ~ '^[0-9]+$'
+              AND CAST(TRIM(u.score::text) AS INT) &gt; 0
+              AND r.date_add::date &gt;= (
+                  SELECT (MAX(r2.date_add::date) - INTERVAL '120 days')::date
+                  FROM replay_list_dedup r2
+              )
+        ),
+        tiers AS (
+            SELECT * FROM (VALUES
+                ('G3'), ('G2'), ('G1'), ('P3'), ('P2'), ('P1')
+            ) AS tv(tier_key)
+        )
+        SELECT
+            sub.sort_order,
+            sub.anchor_key,
+            sub.tier_key,
+            sub.cutoff_score
+        FROM (
+            SELECT
+                a.sort_order,
+                a.anchor_key,
+                t.tier_key,
+                COALESCE(
+                    (SELECT MIN(b.score_val) FROM base b
+                     WHERE b.tier_key = t.tier_key
+                       AND b.date_add &gt;= CURRENT_TIMESTAMP - a.iv
+                       AND b.date_add &lt;= CURRENT_TIMESTAMP),
+                    0
+                )::bigint AS cutoff_score
+            FROM anchors a
+            CROSS JOIN tiers t
+        ) sub
+        ORDER BY sub.sort_order, sub.tier_key
     </select>
 
     <!-- 소환사별: 수집 리플레이 중 가장 최근 경기의 점수·레이팅으로 랭킹 (공식 랭킹과 다를 수 있음) -->
@@ -1320,91 +1384,6 @@
             ) t
         ) x
         GROUP BY bucket_date, tier_key
-    </insert>
-
-    <delete id="deleteAllRtaRankCutoffSnapshot">
-        DELETE FROM rta_rank_cutoff_snapshot
-    </delete>
-
-    <insert id="insertRtaRankCutoffSnapshotFromLive">
-        INSERT INTO rta_rank_cutoff_snapshot (sort_order, anchor_key, tier_key, cutoff_score, computed_at)
-        WITH <include refid="replayListDedupCte"/>,
-        anchors AS (
-            SELECT * FROM (VALUES
-                (1, '3h',  CURRENT_TIMESTAMP - INTERVAL '3 hours'),
-                (2, '6h',  CURRENT_TIMESTAMP - INTERVAL '6 hours'),
-                (3, '12h', CURRENT_TIMESTAMP - INTERVAL '12 hours'),
-                (4, '3d',  CURRENT_TIMESTAMP - INTERVAL '3 days'),
-                (5, '7d',  CURRENT_TIMESTAMP - INTERVAL '7 days')
-            ) AS v(sort_order, anchor_key, ts)
-        ),
-        base AS (
-            SELECT
-                r.date_add,
-                CAST(TRIM(u.score::text) AS INT) AS score_val,
-                (
-                    CASE
-                        WHEN CAST(TRIM(u.rating_id::text) AS INT) &gt;= 5000 THEN 'L'
-                        WHEN CAST(TRIM(u.rating_id::text) AS INT) &gt;= 4000 THEN 'G'
-                        WHEN CAST(TRIM(u.rating_id::text) AS INT) &gt;= 3500 THEN 'P'
-                        WHEN CAST(TRIM(u.rating_id::text) AS INT) &gt;= 3000 THEN 'C'
-                        WHEN CAST(TRIM(u.rating_id::text) AS INT) &gt;= 2000 THEN 'F'
-                        ELSE 'Ch'
-                    END
-                )
-                ||
-                CASE
-                    WHEN (CAST(TRIM(u.rating_id::text) AS INT) % 10) IN (1, 2, 3)
-                    THEN (CAST(TRIM(u.rating_id::text) AS INT) % 10)::text
-                    ELSE '2'
-                END AS tier_key
-            FROM ranker_rtpvp_replay_user_list u
-            INNER JOIN replay_list_dedup r ON u.rid = r.rid
-            WHERE TRIM(COALESCE(u.rating_id::text, '')) ~ '^[0-9]+$'
-              AND CAST(TRIM(u.rating_id::text) AS INT) &gt;= 1000
-              AND TRIM(COALESCE(u.score::text, '')) ~ '^[0-9]+$'
-              AND CAST(TRIM(u.score::text) AS INT) &gt; 0
-              AND r.date_add::date &gt;= (
-                  SELECT (MAX(r2.date_add::date) - INTERVAL '120 days')::date
-                  FROM replay_list_dedup r2
-              )
-        ),
-        tiers AS (
-            SELECT * FROM (VALUES
-                ('G3'), ('G2'), ('G1'), ('P3'), ('P2'), ('P1')
-            ) AS tv(tier_key)
-        )
-        SELECT
-            sub.sort_order,
-            sub.anchor_key,
-            sub.tier_key,
-            sub.cutoff_score,
-            CURRENT_TIMESTAMP AS computed_at
-        FROM (
-            SELECT
-                a.sort_order,
-                a.anchor_key,
-                t.tier_key,
-                COALESCE(
-                    (SELECT MIN(b.score_val) FROM base b
-                     WHERE b.tier_key = t.tier_key
-                       AND b.date_add::date = (a.ts)::date
-                       AND b.date_add &lt;= a.ts),
-                    (SELECT MIN(b.score_val) FROM base b
-                     WHERE b.tier_key = t.tier_key
-                       AND b.date_add &lt;= a.ts
-                       AND b.date_add &gt;= (a.ts - INTERVAL '7 days')),
-                    (SELECT MIN(b.score_val) FROM base b
-                     WHERE b.tier_key = t.tier_key
-                       AND b.date_add &lt;= a.ts),
-                    (SELECT MIN(b.score_val) FROM base b
-                     WHERE b.date_add &lt;= a.ts
-                       AND SUBSTRING(b.tier_key, 1, 1) = SUBSTRING(t.tier_key, 1, 1)),
-                    0
-                )::bigint AS cutoff_score
-            FROM anchors a
-            CROSS JOIN tiers t
-        ) sub
     </insert>
 
     <delete id="deleteAllRtaSummonerRankingAgg">

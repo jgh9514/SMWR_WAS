@@ -216,12 +216,10 @@ public class RtaBatchAggregationService {
 		return new SynergyDrainResult(rounds, totalOk, totalFail, stopReason);
 	}
 
-	public TierRankcutRebuildResult rebuildTierRankcut(RtaMapper rtaMapper) {
+	/** 티어 일별 분포만 (대시보드 차트용). 랭크 컷은 API 라이브 조회 + 1시간 캐시. */
+	public int rebuildTierDistributionDailyAgg(RtaMapper rtaMapper) {
 		rtaMapper.deleteAllRtaTierDistributionDailyAgg();
-		int tierRows = rtaMapper.insertRtaTierDistributionDailyAggFromLive();
-		rtaMapper.deleteAllRtaRankCutoffSnapshot();
-		int cutRows = rtaMapper.insertRtaRankCutoffSnapshotFromLive();
-		return new TierRankcutRebuildResult(tierRows, cutRows);
+		return rtaMapper.insertRtaTierDistributionDailyAggFromLive();
 	}
 
 	public MonsterStatsRebuildResult rebuildMonsterStatsAgg(RtaMapper rtaMapper) {
@@ -291,9 +289,6 @@ public class RtaBatchAggregationService {
 	}
 
 	public record SynergyDrainResult(int rounds, int totalOk, int totalFail, String stopReason) {
-	}
-
-	public record TierRankcutRebuildResult(int tierRows, int cutRows) {
 	}
 
 	public record MonsterStatsRebuildResult(int metaRows, int pickRows, int duoRows, int trioRows) {

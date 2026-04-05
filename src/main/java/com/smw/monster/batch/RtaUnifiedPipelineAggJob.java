@@ -17,11 +17,11 @@ import com.smw.rta.service.RtaSynergyAggService;
  * <li>매치 스냅샷 pending 전량</li>
  * <li>시너지 집계 pending 전량</li>
  * <li>소환사 랭킹 agg 재적재</li>
- * <li>티어·랭크 컷 스냅샷 재적재</li>
  * <li>몬스터 통계 agg 재적재</li>
  * <li>사용자 보유 몬스터 집계 (SWEX → {@code user_monster_owned_agg})</li>
  * </ol>
- * 기존 단일 목적 Job(10001~10007)은 DB {@code use_yn = N} 으로 끄고 본 Job(bat_id 10008)만 사용한다.
+ * 티어 일별 분포({@code rta_tier_distribution_daily_agg})는 {@link RtaTierDistributionDailyAggJob}(bat_id 10004, 매시)와 분리.
+ * 기존 단일 목적 Job(10001~10003,10005~10007)은 DB {@code use_yn = N}. 10004·10008 은 사용.
  * <p>
  * 스케줄: DB {@code sys_batch_config.cron_expr} (기본 5분, bat_id 10008).
  */
@@ -82,11 +82,7 @@ public class RtaUnifiedPipelineAggJob extends BaseBatchJob {
 		RtaBatchAggregationService.SummonerRankingRebuildResult rank = aggregationService.rebuildSummonerRankingAgg(rtaMapper);
 		addLog("rta_summoner_ranking_agg 합계: %d행", rank.totalRows());
 
-		addLog("--- 5) 티어·랭크 컷 재적재 ---");
-		RtaBatchAggregationService.TierRankcutRebuildResult tier = aggregationService.rebuildTierRankcut(rtaMapper);
-		addLog("rta_tier_distribution_daily_agg %d행, rta_rank_cutoff_snapshot %d행", tier.tierRows(), tier.cutRows());
-
-		addLog("--- 6) 몬스터 통계 집계 재적재 ---");
+		addLog("--- 5) 몬스터 통계 집계 재적재 ---");
 		RtaBatchAggregationService.MonsterStatsRebuildResult mon = aggregationService.rebuildMonsterStatsAgg(rtaMapper);
 		addLog("rta_monster_stats_* 합계: meta=%d, pick=%d, duo=%d, trio=%d",
 				mon.metaRows(),
@@ -94,7 +90,7 @@ public class RtaUnifiedPipelineAggJob extends BaseBatchJob {
 				mon.duoRows(),
 				mon.trioRows());
 
-		addLog("--- 7) 사용자 보유 몬스터 집계 (SWEX → user_monster_owned_agg) ---");
+		addLog("--- 6) 사용자 보유 몬스터 집계 (SWEX → user_monster_owned_agg) ---");
 		AccountSummaryMapper accountSummaryMapper = applicationContext.getBean(AccountSummaryMapper.class);
 		accountSummaryMapper.deleteAllUserMonsterOwnedAgg();
 		int ownedRows = accountSummaryMapper.insertUserMonsterOwnedAggFromSwex();

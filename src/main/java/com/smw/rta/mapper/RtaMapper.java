@@ -101,17 +101,13 @@ public interface RtaMapper {
     Map<String, Object> getRtaReplayDateRangeFromAgg(
             @Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd);
 
-    /** 랭크 컷 스냅샷 — 집계 테이블만 (대시보드) */
-    List<Map<String, Object>> getRtaRankCutoffAnchorsFromAgg();
+    /** 랭크 컷 앵커 — 현재 시각 기준 되돌림 구간 [now-iv, now] 라이브 집계 (대시보드) */
+    List<Map<String, Object>> getRtaRankCutoffAnchorsFromLive();
 
     /** 티어 분포 집계 전체 삭제 후 재적재용 */
     int deleteAllRtaTierDistributionDailyAgg();
 
     int insertRtaTierDistributionDailyAggFromLive();
-
-    int deleteAllRtaRankCutoffSnapshot();
-
-    int insertRtaRankCutoffSnapshotFromLive();
 
     /** 소환사 랭킹 (최근 리플레이 기준 점수 순) */
     int getRtaSummonerRankingCount(

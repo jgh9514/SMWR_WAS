@@ -25,6 +25,12 @@ public class RtaServiceImpl implements RtaService {
     @Autowired
     private RtaMapper rtaMapper;
 
+    @Autowired
+    private RtaDashboardTierCacheService rtaDashboardTierCacheService;
+
+    @Autowired
+    private RtaRankCutoffLiveCacheService rtaRankCutoffLiveCacheService;
+
     private static final class ResolvedSeason {
         final String code;
         final Timestamp start;
@@ -192,19 +198,14 @@ public class RtaServiceImpl implements RtaService {
     }
 
     @Override
-    @Cacheable(cacheNames = "rtaDashboard", cacheManager = "shortLivedCacheManager",
-            key = "'dash_' + #seasonCode")
     public Map<String, Object> getRtaDashboard(String seasonCode) {
         ResolvedSeason se = resolveSeason(seasonCode);
-
-        List<Map<String, Object>> daily = rtaMapper.getRtaTierDistributionDailyFromAgg(se.start, se.end);
-        Map<String, Object> dateRange = rtaMapper.getRtaReplayDateRangeFromAgg(se.start, se.end);
-        List<Map<String, Object>> rankCutoffAnchors = rtaMapper.getRtaRankCutoffAnchorsFromAgg();
+        Map<String, Object> tierPart = rtaDashboardTierCacheService.getTierPart(seasonCode);
+        List<Map<String, Object>> rankCutoffAnchors = rtaRankCutoffLiveCacheService.getAnchors();
 
         Map<String, Object> response = new HashMap<>();
-        response.put("daily_tiers", daily != null ? daily : Collections.emptyList());
-        response.put("date_range", dateRange != null ? dateRange : new HashMap<>());
-        response.put("rank_cutoff_anchors", rankCutoffAnchors != null ? rankCutoffAnchors : Collections.emptyList());
+        response.putAll(tierPart);
+        response.put("rank_cutoff_anchors", rankCutoffAnchors);
         response.put("seasonCode", se.code);
         return response;
     }

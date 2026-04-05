@@ -1,5 +1,6 @@
 package com.smw.infra.cache;
 
+import java.time.Duration;
 import java.util.Arrays;
 
 import org.springframework.beans.factory.annotation.Value;
@@ -41,7 +42,7 @@ public class CacheManagerConfig {
                 "guildSiegeHistoryCount",
                 "monsterList",
                 "monsterInfo",
-                "rtaDashboard",
+                "rtaDashboardTiers",
                 "rtaMatchList",
                 "rtaMonster",
                 "rtaRanking",
@@ -50,6 +51,18 @@ public class CacheManagerConfig {
         cacheManager.setCaffeine(Caffeine.newBuilder()
                 .maximumSize(shortLivedMaximumSize)
                 .expireAfterWrite(java.time.Duration.ofMinutes(shortLivedExpireAfterWriteMinutes))
+                .recordStats());
+        return cacheManager;
+    }
+
+    /** RTA 랭크 컷 라이브 조회 전용 — 1시간 단위 갱신 */
+    @Bean("rtaOneHourCacheManager")
+    public CacheManager rtaOneHourCacheManager() {
+        CaffeineCacheManager cacheManager = new CaffeineCacheManager();
+        cacheManager.setCacheNames(Arrays.asList("rtaRankCutoffLive"));
+        cacheManager.setCaffeine(Caffeine.newBuilder()
+                .maximumSize(20)
+                .expireAfterWrite(Duration.ofHours(1))
                 .recordStats());
         return cacheManager;
     }

@@ -19,7 +19,7 @@ public class RtaCacheEvictor {
 
 	/** {@link com.smw.infra.cache.CacheManagerConfig#shortLivedCacheManager()} 에 등록한 RTA 캐시 이름과 동일 */
 	private static final String[] CACHE_NAMES = {
-			"rtaDashboard",
+			"rtaDashboardTiers",
 			"rtaMatchList",
 			"rtaMonster",
 			"rtaRanking",
