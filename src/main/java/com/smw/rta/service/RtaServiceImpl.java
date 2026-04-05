@@ -215,19 +215,21 @@ public class RtaServiceImpl implements RtaService {
      */
     @Override
     @Cacheable(cacheNames = "rtaRanking", cacheManager = "shortLivedCacheManager",
-            key = "'sr_' + #seasonCode + '_' + #limit + '_' + #offset")
-    public Map<String, Object> getRtaSummonerRanking(int limit, int offset, String seasonCode) {
+            key = "'sr_' + #seasonCode + '_' + #limit + '_' + #offset + '_' + (#countryFilter != null ? #countryFilter : 'all')")
+    public Map<String, Object> getRtaSummonerRanking(int limit, int offset, String seasonCode, String countryFilter) {
         ResolvedSeason se = resolveSeason(seasonCode);
         String aggKey = se.code != null ? se.code.trim() : "";
+        String cf = countryFilter != null ? countryFilter.trim() : "";
+        String countryForMapper = cf.isEmpty() ? null : cf;
         int total = 0;
         List<Map<String, Object>> rows = Collections.emptyList();
         if (!aggKey.isEmpty()) {
-            int rawCount = rtaMapper.getRtaSummonerRankingAggCount(aggKey);
+            int rawCount = rtaMapper.getRtaSummonerRankingAggCount(aggKey, countryForMapper);
             total = Math.min(rawCount, RTA_SUMMONER_RANKING_MAX_ROWS);
             if (total > 0 && offset < RTA_SUMMONER_RANKING_MAX_ROWS) {
                 int fetchLimit = Math.min(limit, RTA_SUMMONER_RANKING_MAX_ROWS - offset);
                 if (fetchLimit > 0) {
-                    rows = rtaMapper.getRtaSummonerRankingFromAgg(fetchLimit, offset, aggKey);
+                    rows = rtaMapper.getRtaSummonerRankingFromAgg(fetchLimit, offset, aggKey, countryForMapper);
                 }
             }
         }
@@ -235,6 +237,32 @@ public class RtaServiceImpl implements RtaService {
         response.put("total", total);
         response.put("rankings", rows != null ? rows : Collections.emptyList());
         response.put("seasonCode", se.code);
+        if (countryForMapper != null) {
+            response.put("countryFilter", countryForMapper);
+        }
+        return response;
+    }
+
+    @Override
+    public Map<String, Object> searchRtaSummoners(String query, String seasonCode) {
+        ResolvedSeason se = resolveSeason(seasonCode);
+        String aggKey = se.code != null ? se.code.trim() : "";
+        Map<String, Object> response = new HashMap<>();
+        response.put("seasonCode", se.code);
+        if (aggKey.isEmpty() || query == null) {
+            response.put("results", Collections.emptyList());
+            return response;
+        }
+        String q = query.trim();
+        if (q.length() > 50) {
+            q = q.substring(0, 50);
+        }
+        if (q.isEmpty()) {
+            response.put("results", Collections.emptyList());
+            return response;
+        }
+        List<Map<String, Object>> rows = rtaMapper.searchRtaSummonersInAgg(aggKey, q, 20);
+        response.put("results", rows != null ? rows : Collections.emptyList());
         return response;
     }
 

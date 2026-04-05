@@ -125,10 +125,15 @@ public interface RtaMapper {
     int insertRtaSummonerRankingAggForSeason(@Param("seasonCode") String seasonCode,
             @Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd);
 
-    int getRtaSummonerRankingAggCount(@Param("seasonCode") String seasonCode);
+    int getRtaSummonerRankingAggCount(@Param("seasonCode") String seasonCode,
+            @Param("countryFilter") String countryFilter);
 
     List<Map<String, Object>> getRtaSummonerRankingFromAgg(@Param("limit") int limit, @Param("offset") int offset,
-            @Param("seasonCode") String seasonCode);
+            @Param("seasonCode") String seasonCode, @Param("countryFilter") String countryFilter);
+
+    /** 집계 랭킹에서 닉네임 부분 일치 또는 위자드 ID 정확 일치 검색 */
+    List<Map<String, Object>> searchRtaSummonersInAgg(@Param("seasonCode") String seasonCode, @Param("query") String query,
+            @Param("limit") int limit);
 
     /** 소환사 상세 헤더용 요약 (수집 리플레이 기준 최신 점수·글로벌 순위) */
     Map<String, Object> getRtaPlayerSummary(@Param("wizardId") String wizardId,

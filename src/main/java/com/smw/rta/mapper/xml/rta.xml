@@ -966,6 +966,7 @@
             a.last_match_at,
             COALESCE(a.match_count, 0)::bigint AS match_count,
             COALESCE(a.win_count, 0)::bigint AS win_count,
+            COALESCE(a.max_season_score, a.score)::int AS max_season_score,
             CASE
                 WHEN COALESCE(a.match_count, 0) &gt; 0
                 THEN ROUND(100.0 * COALESCE(a.win_count, 0)::numeric / a.match_count::numeric, 1)
@@ -1395,7 +1396,7 @@
         INSERT INTO rta_summoner_ranking_agg (
             season_code, computed_at,
             rank_position, wizard_id, wizard_name, country, channel_uid, score, rating_id, last_match_at,
-            match_count, win_count,
+            match_count, win_count, max_season_score,
             most_monster_1_id, most_monster_1_pick_count, most_monster_1_name, most_monster_1_image,
             most_monster_2_id, most_monster_2_pick_count, most_monster_2_name, most_monster_2_image,
             most_monster_3_id, most_monster_3_pick_count, most_monster_3_name, most_monster_3_image
@@ -1425,6 +1426,16 @@
                 u.wizard_id,
                 COUNT(*)::bigint AS match_count,
                 SUM(CASE WHEN TRIM(COALESCE(u.win_lose::text, '')) = '1' THEN 1 ELSE 0 END)::bigint AS win_count
+            FROM ranker_rtpvp_replay_user_list u
+            INNER JOIN replay_list_dedup r ON u.rid = r.rid
+            WHERE TRIM(COALESCE(u.score::text, '')) ~ '^[0-9]+$'
+              AND CAST(TRIM(u.score::text) AS INT) &gt; 0
+            GROUP BY u.wizard_id
+        ),
+        score_max_agg AS (
+            SELECT
+                u.wizard_id,
+                MAX(CAST(TRIM(u.score::text) AS INT))::int AS max_season_score
             FROM ranker_rtpvp_replay_user_list u
             INNER JOIN replay_list_dedup r ON u.rid = r.rid
             WHERE TRIM(COALESCE(u.score::text, '')) ~ '^[0-9]+$'
@@ -1498,6 +1509,7 @@
             pr.last_match_at,
             COALESCE(wa.match_count, 0)::bigint AS match_count,
             COALESCE(wa.win_count, 0)::bigint AS win_count,
+            COALESCE(sm.max_season_score, pr.score)::int AS max_season_score,
             m1.m1_id::text AS most_monster_1_id,
             m1.m1_pick AS most_monster_1_pick_count,
             COALESCE(mm1.kr_name, '') AS most_monster_1_name,
@@ -1533,6 +1545,7 @@
             ) AS most_monster_3_image
         FROM full_ranked pr
         LEFT JOIN win_agg wa ON pr.wizard_id = wa.wizard_id
+        LEFT JOIN score_max_agg sm ON pr.wizard_id = sm.wizard_id
         LEFT JOIN most1 m1 ON pr.wizard_id = m1.wizard_id
         LEFT JOIN monster mm1 ON m1.m1_id IS NOT NULL AND mm1.monster_id = m1.m1_id
         LEFT JOIN most2 m2 ON pr.wizard_id = m2.wizard_id
@@ -1546,6 +1559,11 @@
         SELECT COUNT(*)::int
         FROM rta_summoner_ranking_agg
         WHERE season_code = #{seasonCode}
+        <if test="countryFilter != null and countryFilter != ''">
+            AND (
+                CASE WHEN TRIM(COALESCE(country::text, '')) = '' THEN '—' ELSE TRIM(country::text) END
+            ) = #{countryFilter}
+        </if>
     </select>
 
     <select id="getRtaSummonerRankingFromAgg" resultType="map">
@@ -1560,6 +1578,7 @@
             last_match_at,
             match_count,
             win_count,
+            max_season_score,
             most_monster_1_id,
             most_monster_1_pick_count,
             most_monster_1_name,
@@ -1574,8 +1593,36 @@
             most_monster_3_image
         FROM rta_summoner_ranking_agg
         WHERE season_code = #{seasonCode}
+        <if test="countryFilter != null and countryFilter != ''">
+            AND (
+                CASE WHEN TRIM(COALESCE(country::text, '')) = '' THEN '—' ELSE TRIM(country::text) END
+            ) = #{countryFilter}
+        </if>
         ORDER BY rank_position
         LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <!-- 닉네임: 부분 일치(POSITION). 위자드 ID: TRIM 후 정확 일치 -->
+    <select id="searchRtaSummonersInAgg" resultType="map">
+        SELECT
+            rank_position,
+            wizard_id,
+            wizard_name,
+            country,
+            score,
+            rating_id
+        FROM rta_summoner_ranking_agg
+        WHERE season_code = #{seasonCode}
+          AND LENGTH(TRIM(#{query})) &gt;= 1
+          AND (
+              TRIM(BOTH FROM wizard_id::text) = TRIM(#{query})
+              OR (
+                  wizard_name IS NOT NULL
+                  AND POSITION(LOWER(TRIM(#{query})) IN LOWER(wizard_name)) &gt; 0
+              )
+          )
+        ORDER BY rank_position ASC
+        LIMIT #{limit}
     </select>
 
     <select id="listRtaSeasons" resultType="map">

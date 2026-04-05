@@ -48,8 +48,13 @@ public interface RtaService {
 
     /**
      * RTA 소환사 랭킹 (수집 리플레이 중 소환사별 최신 경기 점수 기준)
+     *
+     * @param countryFilter 국가 코드(2자) 또는 미상 표시 {@code —}; null/빈값이면 전체
      */
-    Map<String, Object> getRtaSummonerRanking(int limit, int offset, String seasonCode);
+    Map<String, Object> getRtaSummonerRanking(int limit, int offset, String seasonCode, String countryFilter);
+
+    /** RTA 소환사 검색 (집계 랭킹 기준, 닉네임 부분 일치·위자드 ID 일치) */
+    Map<String, Object> searchRtaSummoners(String query, String seasonCode);
 
     /** RTA 소환사 요약 (닉네임·점수·순위·승률 등) */
     Map<String, Object> getRtaPlayerSummary(String wizardId, String seasonCode);

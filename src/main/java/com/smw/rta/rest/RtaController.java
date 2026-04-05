@@ -172,10 +172,37 @@ public class RtaController {
                 offset = 0;
             }
             String sc = pickSeasonCode(param);
-            Map<String, Object> response = rtaService.getRtaSummonerRanking(limit, offset, sc);
+            String countryFilter = null;
+            if (param != null) {
+                Object co = param.get("country");
+                if (co != null) {
+                    String cf = co.toString().trim();
+                    if (!cf.isEmpty()) {
+                        countryFilter = cf;
+                    }
+                }
+            }
+            Map<String, Object> response = rtaService.getRtaSummonerRanking(limit, offset, sc, countryFilter);
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             log.error("RTA summoner ranking 조회 실패", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    @Operation(summary = "RTA 소환사 검색", description = "집계 랭킹(rta_summoner_ranking_agg)에서 닉네임 부분 일치 또는 위자드 ID 정확 일치 검색")
+    @PostMapping("/summoner-search")
+    public ResponseEntity<Map<String, Object>> searchRtaSummoners(@RequestBody(required = false) Map<String, Object> param) {
+        try {
+            String q = null;
+            if (param != null && param.get("q") != null) {
+                q = param.get("q").toString();
+            }
+            String sc = pickSeasonCode(param);
+            Map<String, Object> response = rtaService.searchRtaSummoners(q, sc);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("RTA summoner search 실패", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
