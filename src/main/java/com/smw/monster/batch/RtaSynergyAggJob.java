@@ -4,6 +4,7 @@ import java.util.List;
 
 import org.quartz.JobExecutionContext;
 
+import com.smw.rta.cache.RtaCacheEvictor;
 import com.smw.rta.mapper.RtaMapper;
 import com.smw.rta.service.RtaSynergyAggService;
 
@@ -21,6 +22,7 @@ public class RtaSynergyAggJob extends BaseBatchJob {
 	protected void executeBatch(JobExecutionContext context) throws Exception {
 		RtaMapper rtaMapper = applicationContext.getBean(RtaMapper.class);
 		RtaSynergyAggService synergyAggService = applicationContext.getBean(RtaSynergyAggService.class);
+		RtaCacheEvictor rtaCacheEvictor = applicationContext.getBean(RtaCacheEvictor.class);
 
 		List<Long> rids = rtaMapper.selectPendingSynergyAggRids(BATCH_SIZE);
 		if (rids == null || rids.isEmpty()) {
@@ -44,6 +46,10 @@ public class RtaSynergyAggJob extends BaseBatchJob {
 			}
 		}
 		addLog("시너지 집계 완료 ok=%d fail=%d", ok, fail);
+		if (ok > 0) {
+			rtaCacheEvictor.evictAllRtaCaches();
+			addLog("RTA 조회 캐시 무효화 (성공 건 있음)");
+		}
 	}
 
 	@Override

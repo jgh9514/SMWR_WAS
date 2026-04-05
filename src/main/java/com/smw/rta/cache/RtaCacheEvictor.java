@@ -8,13 +8,22 @@ import org.springframework.stereotype.Component;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * 과거 RTA 조회 캐시 무효화 훅. 현재 RtaServiceImpl은 캐시 미사용 — 배치 호출은 noop.
+ * RTA 관련 Spring Cache 무효화 훅.
+ * <p>
+ * {@code CACHE_NAMES} 에 캐시 이름을 넣으면 배치(스냅샷·raw·시너지·티어/컷 등) 후 자동으로 비운다.
+ * 현재 비어 있으면 호출은 no-op. {@code RtaServiceImpl} 등에 {@code @Cacheable} 을 붙일 때 이름을 여기에 등록한다.
  */
 @Slf4j
 @Component
 public class RtaCacheEvictor {
 
-	private static final String[] CACHE_NAMES = {};
+	/** {@link com.smw.infra.cache.CacheManagerConfig#shortLivedCacheManager()} 에 등록한 RTA 캐시 이름과 동일 */
+	private static final String[] CACHE_NAMES = {
+			"rtaDashboard",
+			"rtaMatchList",
+			"rtaMonster",
+			"rtaRanking",
+	};
 
 	private final CacheManager shortLivedCacheManager;
 

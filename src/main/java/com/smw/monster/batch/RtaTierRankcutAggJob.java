@@ -2,6 +2,7 @@ package com.smw.monster.batch;
 
 import org.quartz.JobExecutionContext;
 
+import com.smw.rta.cache.RtaCacheEvictor;
 import com.smw.rta.mapper.RtaMapper;
 
 /**
@@ -14,6 +15,7 @@ public class RtaTierRankcutAggJob extends BaseBatchJob {
 	@Override
 	protected void executeBatch(JobExecutionContext context) throws Exception {
 		RtaMapper rtaMapper = applicationContext.getBean(RtaMapper.class);
+		RtaCacheEvictor rtaCacheEvictor = applicationContext.getBean(RtaCacheEvictor.class);
 
 		rtaMapper.deleteAllRtaTierDistributionDailyAgg();
 		int tierRows = rtaMapper.insertRtaTierDistributionDailyAggFromLive();
@@ -22,6 +24,9 @@ public class RtaTierRankcutAggJob extends BaseBatchJob {
 		rtaMapper.deleteAllRtaRankCutoffSnapshot();
 		int cutRows = rtaMapper.insertRtaRankCutoffSnapshotFromLive();
 		addLog("rta_rank_cutoff_snapshot 적재: %d행", cutRows);
+
+		rtaCacheEvictor.evictAllRtaCaches();
+		addLog("RTA 조회 캐시 무효화 (대시보드 집계 갱신)");
 	}
 
 	@Override

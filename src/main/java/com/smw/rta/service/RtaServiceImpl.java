@@ -2,6 +2,7 @@ package com.smw.rta.service;
 
 import com.smw.rta.mapper.RtaMapper;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
 
@@ -18,21 +19,25 @@ public class RtaServiceImpl implements RtaService {
     private RtaMapper rtaMapper;
 
     @Override
+    @Cacheable(cacheNames = "rtaMatchList", cacheManager = "shortLivedCacheManager", key = "'m_' + #limit + '_' + #offset")
     public List<Map<String, Object>> getRtaMatches(int limit, int offset) {
         return rtaMapper.getRtaMatches(limit, offset);
     }
 
     @Override
+    @Cacheable(cacheNames = "rtaMatchList", cacheManager = "shortLivedCacheManager", key = "'p_' + #wizardId + '_' + #limit + '_' + #offset")
     public List<Map<String, Object>> getPlayerRtaMatches(String wizardId, int limit, int offset) {
         return rtaMapper.getPlayerRtaMatches(wizardId, limit, offset);
     }
 
     @Override
+    @Cacheable(cacheNames = "rtaMatchList", cacheManager = "shortLivedCacheManager", key = "'cnt'")
     public long getRtaMatchesCount() {
         return rtaMapper.getTotalRtaMatches();
     }
 
     @Override
+    @Cacheable(cacheNames = "rtaMatchList", cacheManager = "shortLivedCacheManager", key = "'stats'")
     public Object getRtaStats() {
         Map<String, Object> stats = new HashMap<>();
         
@@ -54,6 +59,7 @@ public class RtaServiceImpl implements RtaService {
     }
     
     @Override
+    @Cacheable(cacheNames = "rtaMonster", cacheManager = "shortLivedCacheManager", key = "'ms_' + #limit + '_' + #offset")
     public Map<String, Object> getRtaMonsterStats(int limit, int offset) {
         // 전체 매치 수 조회
         long totalMatches = rtaMapper.getTotalRtaMatches();
@@ -77,6 +83,7 @@ public class RtaServiceImpl implements RtaService {
     }
     
     @Override
+    @Cacheable(cacheNames = "rtaMonster", cacheManager = "shortLivedCacheManager", key = "'md_' + #monsterId")
     public Map<String, Object> getRtaMonsterDetail(int monsterId) {
         Map<String, Object> response = new HashMap<>();
         
@@ -104,6 +111,7 @@ public class RtaServiceImpl implements RtaService {
     }
 
     @Override
+    @Cacheable(cacheNames = "rtaDashboard", cacheManager = "shortLivedCacheManager", key = "'dash'")
     public Map<String, Object> getRtaDashboard() {
         List<Map<String, Object>> daily = rtaMapper.getRtaTierDistributionDailyFromAgg();
         if (daily == null || daily.isEmpty()) {
@@ -122,6 +130,7 @@ public class RtaServiceImpl implements RtaService {
     }
 
     @Override
+    @Cacheable(cacheNames = "rtaRanking", cacheManager = "shortLivedCacheManager", key = "'sr_' + #limit + '_' + #offset")
     public Map<String, Object> getRtaSummonerRanking(int limit, int offset) {
         int total = rtaMapper.getRtaSummonerRankingCount();
         List<Map<String, Object>> rows = rtaMapper.getRtaSummonerRanking(limit, offset);
@@ -132,6 +141,7 @@ public class RtaServiceImpl implements RtaService {
     }
 
     @Override
+    @Cacheable(cacheNames = "rtaRanking", cacheManager = "shortLivedCacheManager", key = "'ps_' + #wizardId")
     public Map<String, Object> getRtaPlayerSummary(String wizardId) {
         Map<String, Object> response = new HashMap<>();
         if (wizardId == null || wizardId.trim().isEmpty()) {
