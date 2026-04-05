@@ -9,7 +9,8 @@ import com.smw.account.mapper.AccountSummaryMapper;
  * 소환사(wizard_id)마다 {@code import_id} 가 가장 큰 임포트를 최신으로 보고, 그 임포트의
  * {@code swex_monster} 를 master_id 당 마리 수로 집계한다. RTA 시즌과 무관.
  * <p>
- * 스케줄: DB {@code sys_batch_config.cron_expr} (기본 15분마다, bat_id 10006).
+ * 운영에서는 {@link RtaUnifiedPipelineAggJob}(bat_id 10008)에 동일 로직이 포함되므로
+ * 본 Job 단독 스케줄(bat_id 10006)은 {@code use_yn = N} 권장.
  */
 public class UserMonsterOwnedAggJob extends BaseBatchJob {
 

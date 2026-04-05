@@ -2,6 +2,7 @@ package com.smw.monster.batch;
 
 import org.quartz.JobExecutionContext;
 
+import com.smw.account.mapper.AccountSummaryMapper;
 import com.smw.monster.mapper.summonerswarMapper;
 import com.smw.monster.service.summonerswarService;
 import com.smw.rta.cache.RtaCacheEvictor;
@@ -18,6 +19,7 @@ import com.smw.rta.service.RtaSynergyAggService;
  * <li>소환사 랭킹 agg 재적재</li>
  * <li>티어·랭크 컷 스냅샷 재적재</li>
  * <li>몬스터 통계 agg 재적재</li>
+ * <li>사용자 보유 몬스터 집계 (SWEX → {@code user_monster_owned_agg})</li>
  * </ol>
  * 기존 단일 목적 Job(10001~10007)은 DB {@code use_yn = N} 으로 끄고 본 Job(bat_id 10008)만 사용한다.
  * <p>
@@ -91,6 +93,12 @@ public class RtaUnifiedPipelineAggJob extends BaseBatchJob {
 				mon.pickRows(),
 				mon.duoRows(),
 				mon.trioRows());
+
+		addLog("--- 7) 사용자 보유 몬스터 집계 (SWEX → user_monster_owned_agg) ---");
+		AccountSummaryMapper accountSummaryMapper = applicationContext.getBean(AccountSummaryMapper.class);
+		accountSummaryMapper.deleteAllUserMonsterOwnedAgg();
+		int ownedRows = accountSummaryMapper.insertUserMonsterOwnedAggFromSwex();
+		addLog("user_monster_owned_agg 적재: %d행", ownedRows);
 
 		rtaCacheEvictor.evictAllRtaCaches();
 		addLog("RTA 조회 캐시 무효화 (전체 파이프라인 완료)");
