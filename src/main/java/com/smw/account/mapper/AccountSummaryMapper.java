@@ -34,6 +34,15 @@ public interface AccountSummaryMapper {
 	int selectRuneListCount(Map<String, Object> param);
 
 	List<Map<String, ?>> selectRunesForScoreSummary(Map<String, Object> param);
+
+	/** 보유 몬스터 집계 전체 삭제 (배치 재적재 전) */
+	int deleteAllUserMonsterOwnedAgg();
+
+	/**
+	 * SWEX: 소환사별 최신 임포트(import_id 최대) 기준 master_id 당 보유 마리 수 집계.
+	 * 시즌·RTA와 무관.
+	 */
+	int insertUserMonsterOwnedAggFromSwex();
 }
 
 

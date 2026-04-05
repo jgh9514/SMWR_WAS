@@ -126,11 +126,12 @@ public interface RtaMapper {
     Map<String, Object> getRtaPlayerSummary(@Param("wizardId") String wizardId,
             @Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd);
 
-    /** 소환사 요약 — rta_summoner_ranking_agg (랭킹 배치와 동일 match/win·승률) */
+    /** 소환사 요약 — 랭킹·프로필은 agg, 경기 수·승률은 내 경기 목록과 동일 소스(rta_replay_match_snapshot) */
     Map<String, Object> getRtaPlayerSummaryFromAgg(@Param("wizardId") String wizardId,
-            @Param("seasonCode") String seasonCode);
+            @Param("seasonCode") String seasonCode,
+            @Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd);
 
-    /** 스냅샷 미집계 rid (rta_agg_status = pending) */
+    /** 스냅샷 미집계 rid (rta_agg_status = pending, rid 오름차순) */
     List<Long> selectPendingRtaAggRids(@Param("batchSize") int batchSize);
 
     /** getRtaMatches 와 동일 조인으로 rta_replay_match_snapshot upsert (조회는 집계 테이블 사용) */
@@ -139,7 +140,7 @@ public interface RtaMapper {
     /** 스냅샷이 존재하는 rid 만 replay_list 를 done 처리 */
     int markRtaAggDoneForRidsWithSnapshot(@Param("rids") List<Long> rids);
 
-    /** 시너지 미집계 rid (synergy_agg_status = pending) */
+    /** 시너지 미집계 rid (synergy_agg_status = pending, rid 오름차순) */
     List<Long> selectPendingSynergyAggRids(@Param("batchSize") int batchSize);
 
     Map<String, Object> selectSynergyReplayRow(@Param("rid") long rid);

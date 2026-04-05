@@ -1041,7 +1041,7 @@
         LIMIT 1
     </select>
 
-    <!-- 소환사 요약: 집계 테이블(랭킹 배치와 동일 win_count·match_count → 승률) -->
+    <!-- 소환사 요약: 순위·점수 등은 agg, 경기 수·승·승률은 내 경기 목록과 동일(rta_replay_match_snapshot + 시즌 구간) -->
     <select id="getRtaPlayerSummaryFromAgg" resultType="map">
         SELECT
             a.rank_position,
@@ -1052,14 +1052,36 @@
             a.score,
             a.rating_id,
             a.last_match_at,
-            a.match_count,
-            a.win_count,
+            COALESCE(st.match_count, 0)::bigint AS match_count,
+            COALESCE(st.win_count, 0)::bigint AS win_count,
             CASE
-                WHEN COALESCE(a.match_count, 0) &gt; 0
-                THEN ROUND(100.0 * COALESCE(a.win_count, 0)::numeric / a.match_count::numeric, 1)
+                WHEN COALESCE(st.match_count, 0) &gt; 0
+                THEN ROUND(100.0 * COALESCE(st.win_count, 0)::numeric / st.match_count::numeric, 1)
                 ELSE NULL
             END AS win_rate_pct
         FROM rta_summoner_ranking_agg a
+        LEFT JOIN LATERAL (
+            SELECT
+                COUNT(*)::bigint AS match_count,
+                SUM(
+                    CASE
+                        WHEN TRIM(BOTH FROM s.p1_wizard_id::text) = TRIM(BOTH FROM #{wizardId})
+                            THEN CASE WHEN TRIM(BOTH FROM s.winner_position::text) = '1' THEN 1 ELSE 0 END
+                        WHEN TRIM(BOTH FROM s.p2_wizard_id::text) = TRIM(BOTH FROM #{wizardId})
+                            THEN CASE WHEN TRIM(BOTH FROM s.winner_position::text) = '2' THEN 1 ELSE 0 END
+                        ELSE 0
+                    END
+                )::bigint AS win_count
+            FROM rta_replay_match_snapshot s
+            WHERE (
+                TRIM(BOTH FROM s.p1_wizard_id::text) = TRIM(BOTH FROM #{wizardId})
+                OR TRIM(BOTH FROM s.p2_wizard_id::text) = TRIM(BOTH FROM #{wizardId})
+            )
+            <if test="seasonStart != null and seasonEnd != null">
+                AND s.date_add &gt;= #{seasonStart}
+                AND s.date_add &lt; #{seasonEnd}
+            </if>
+        ) st ON true
         WHERE a.season_code = #{seasonCode}
           AND TRIM(BOTH FROM a.wizard_id::text) = TRIM(BOTH FROM #{wizardId})
         LIMIT 1
@@ -1070,7 +1092,7 @@
         SELECT r.rid
         FROM ranker_rtpvp_replay_list r
         WHERE r.rta_agg_status = 'pending'
-        ORDER BY r.date_add DESC NULLS LAST
+        ORDER BY r.rid ASC
         LIMIT #{batchSize}
     </select>
 
@@ -1260,7 +1282,7 @@
         SELECT r.rid
         FROM ranker_rtpvp_replay_list r
         WHERE r.synergy_agg_status = 'pending'
-        ORDER BY r.date_add DESC NULLS LAST
+        ORDER BY r.rid ASC
         LIMIT #{batchSize}
     </select>
 

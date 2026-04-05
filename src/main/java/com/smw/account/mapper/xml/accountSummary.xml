@@ -339,6 +339,42 @@
 		WHERE r.import_id = CAST(#{import_id} AS BIGINT)
 	</select>
 
+	<!-- 사용자 보유 몬스터 집계 (배치: SWEX 최신 임포트 → 시즌 무관) -->
+	<delete id="deleteAllUserMonsterOwnedAgg">
+		DELETE FROM public.user_monster_owned_agg
+	</delete>
+
+	<insert id="insertUserMonsterOwnedAggFromSwex">
+		INSERT INTO public.user_monster_owned_agg (
+			wizard_id,
+			master_id,
+			copy_count,
+			source_import_id,
+			source_import_at,
+			computed_at
+		)
+		WITH latest_import AS (
+			SELECT DISTINCT ON (si.wizard_id)
+				si.wizard_id,
+				si.import_id,
+				si.crt_date
+			FROM swex_account_import si
+			WHERE si.wizard_id IS NOT NULL
+			ORDER BY si.wizard_id, si.import_id DESC
+		)
+		SELECT
+			TRIM(BOTH FROM li.wizard_id::text),
+			sm.master_id,
+			COUNT(*)::int,
+			li.import_id,
+			li.crt_date,
+			CURRENT_TIMESTAMP
+		FROM latest_import li
+		INNER JOIN swex_monster sm ON sm.import_id = li.import_id
+		WHERE sm.master_id IS NOT NULL
+		GROUP BY li.wizard_id, li.import_id, li.crt_date, sm.master_id
+	</insert>
+
 </mapper>
 
 

@@ -9,7 +9,7 @@ import com.smw.rta.mapper.RtaMapper;
 import com.smw.rta.service.RtaSynergyAggService;
 
 /**
- * {@code ranker_rtpvp_replay_list.synergy_agg_status = pending} 인 rid 를 골라
+ * {@code ranker_rtpvp_replay_list.synergy_agg_status = pending} 인 rid 를 {@code rid} 오름차순으로 골라
  * {@code rta_synergy_match_fact} · {@code rta_synergy_agg} 에 반영한다.
  * <p>
  * 스케줄: DB {@code sys_batch_config.cron_expr} (기본 3분마다, bat_id 10003).

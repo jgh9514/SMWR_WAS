@@ -246,7 +246,7 @@ public class RtaServiceImpl implements RtaService {
         String aggKey = se.code != null ? se.code.trim() : "";
         Map<String, Object> row = null;
         if (!aggKey.isEmpty()) {
-            row = rtaMapper.getRtaPlayerSummaryFromAgg(wid, aggKey);
+            row = rtaMapper.getRtaPlayerSummaryFromAgg(wid, aggKey, se.start, se.end);
         }
         if (row == null || row.isEmpty()) {
             response.put("found", false);

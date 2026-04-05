@@ -8,7 +8,7 @@ import com.smw.rta.cache.RtaCacheEvictor;
 import com.smw.rta.mapper.RtaMapper;
 
 /**
- * {@code ranker_rtpvp_replay_list.rta_agg_status = pending} 인 rid 를 골라
+ * {@code ranker_rtpvp_replay_list.rta_agg_status = pending} 인 rid 를 {@code rid} 오름차순으로 골라
  * {@code rta_replay_match_snapshot} 에 평탄화 적재하고, 성공 건만 {@code done} 으로 표시한다.
  * <p>
  * 스케줄: DB {@code sys_batch_config.cron_expr} (기본 2분마다, bat_id 10002).
