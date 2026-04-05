@@ -165,8 +165,8 @@ public class RtaController {
             if (limit < 1) {
                 limit = 50;
             }
-            if (limit > 200) {
-                limit = 200;
+            if (limit > 500) {
+                limit = 500;
             }
             if (offset < 0) {
                 offset = 0;

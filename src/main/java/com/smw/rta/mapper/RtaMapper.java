@@ -126,6 +126,10 @@ public interface RtaMapper {
     Map<String, Object> getRtaPlayerSummary(@Param("wizardId") String wizardId,
             @Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd);
 
+    /** 소환사 요약 — rta_summoner_ranking_agg (랭킹 배치와 동일 match/win·승률) */
+    Map<String, Object> getRtaPlayerSummaryFromAgg(@Param("wizardId") String wizardId,
+            @Param("seasonCode") String seasonCode);
+
     /** 스냅샷 미집계 rid (rta_agg_status = pending) */
     List<Long> selectPendingRtaAggRids(@Param("batchSize") int batchSize);
 

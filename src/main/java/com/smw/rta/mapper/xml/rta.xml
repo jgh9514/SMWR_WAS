@@ -659,6 +659,7 @@
 
     <!-- RTA 대시보드: 일자×티어별 집계 (클라이언트에서 기간 슬라이더로 합산) — 원천 조인 -->
     <!-- rating_id 를 rid 로 별칭한 뒤 replay_list.rid 와 조인하면 안 됨(서로 다른 값). bucket_date·rating_id 는 한 번의 조인에서만 취한다. -->
+    <!-- 소환사·일자당 MAX(rating) 1행 → 티어 1곳만 부여. player_count = 해당 일·티어 유니크 소환사 수(리플레이 중복 제거). -->
     <select id="getRtaTierDistributionDailyLive" resultType="map">
         WITH <include refid="replayListDedupCte"/>
         SELECT
@@ -698,11 +699,12 @@
             FROM (
                 SELECT
                     r.date_add::date AS bucket_date,
-                    CAST(TRIM(u.rating_id::text) AS INT) AS rating_val
+                    MAX(CAST(TRIM(u.rating_id::text) AS INT)) AS rating_val
                 FROM ranker_rtpvp_replay_user_list u
                 INNER JOIN replay_list_dedup r ON u.rid = r.rid
                 WHERE TRIM(COALESCE(u.rating_id::text, '')) ~ '^[0-9]+$'
                   AND CAST(TRIM(u.rating_id::text) AS INT) &gt;= 1000
+                GROUP BY r.date_add::date, u.wizard_id
             ) t
         ) x
         GROUP BY bucket_date, tier_key
@@ -1039,6 +1041,30 @@
         LIMIT 1
     </select>
 
+    <!-- 소환사 요약: 집계 테이블(랭킹 배치와 동일 win_count·match_count → 승률) -->
+    <select id="getRtaPlayerSummaryFromAgg" resultType="map">
+        SELECT
+            a.rank_position,
+            a.wizard_id,
+            a.wizard_name,
+            a.country,
+            a.channel_uid,
+            a.score,
+            a.rating_id,
+            a.last_match_at,
+            a.match_count,
+            a.win_count,
+            CASE
+                WHEN COALESCE(a.match_count, 0) &gt; 0
+                THEN ROUND(100.0 * COALESCE(a.win_count, 0)::numeric / a.match_count::numeric, 1)
+                ELSE NULL
+            END AS win_rate_pct
+        FROM rta_summoner_ranking_agg a
+        WHERE a.season_code = #{seasonCode}
+          AND TRIM(BOTH FROM a.wizard_id::text) = TRIM(BOTH FROM #{wizardId})
+        LIMIT 1
+    </select>
+
     <!-- RTA 매치 스냅샷 배치: 미집계 rid 목록 -->
     <select id="selectPendingRtaAggRids" resultType="long">
         SELECT r.rid
@@ -1352,11 +1378,12 @@
             FROM (
                 SELECT
                     r.date_add::date AS bucket_date,
-                    CAST(TRIM(u.rating_id::text) AS INT) AS rating_val
+                    MAX(CAST(TRIM(u.rating_id::text) AS INT)) AS rating_val
                 FROM ranker_rtpvp_replay_user_list u
                 INNER JOIN replay_list_dedup r ON u.rid = r.rid
                 WHERE TRIM(COALESCE(u.rating_id::text, '')) ~ '^[0-9]+$'
                   AND CAST(TRIM(u.rating_id::text) AS INT) &gt;= 1000
+                GROUP BY r.date_add::date, u.wizard_id
             ) t
         ) x
         GROUP BY bucket_date, tier_key

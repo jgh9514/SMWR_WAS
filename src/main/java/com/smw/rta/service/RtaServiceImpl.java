@@ -19,6 +19,9 @@ public class RtaServiceImpl implements RtaService {
     /** /rta 매치 목록과 동일: 요청 limit를 페이지 크기로 볼 때 11페이지 이상이면(offset >= 10*limit) DB 미조회 */
     private static final int RTA_MATCH_LIST_MAX_PAGES = 10;
 
+    /** 소환사 랭킹 API·화면: 상위 N위까지만 노출 (집계 테이블 전체 행 수와 무관) */
+    private static final int RTA_SUMMONER_RANKING_MAX_ROWS = 500;
+
     @Autowired
     private RtaMapper rtaMapper;
 
@@ -210,15 +213,17 @@ public class RtaServiceImpl implements RtaService {
     public Map<String, Object> getRtaSummonerRanking(int limit, int offset, String seasonCode) {
         ResolvedSeason se = resolveSeason(seasonCode);
         String aggKey = se.code != null ? se.code.trim() : "";
-        int total;
-        List<Map<String, Object>> rows;
-        int aggCount = aggKey.isEmpty() ? 0 : rtaMapper.getRtaSummonerRankingAggCount(aggKey);
-        if (aggCount > 0) {
-            total = aggCount;
-            rows = rtaMapper.getRtaSummonerRankingFromAgg(limit, offset, aggKey);
-        } else {
-            total = rtaMapper.getRtaSummonerRankingCount(se.start, se.end);
-            rows = rtaMapper.getRtaSummonerRanking(limit, offset, se.start, se.end);
+        int total = 0;
+        List<Map<String, Object>> rows = Collections.emptyList();
+        if (!aggKey.isEmpty()) {
+            int rawCount = rtaMapper.getRtaSummonerRankingAggCount(aggKey);
+            total = Math.min(rawCount, RTA_SUMMONER_RANKING_MAX_ROWS);
+            if (total > 0 && offset < RTA_SUMMONER_RANKING_MAX_ROWS) {
+                int fetchLimit = Math.min(limit, RTA_SUMMONER_RANKING_MAX_ROWS - offset);
+                if (fetchLimit > 0) {
+                    rows = rtaMapper.getRtaSummonerRankingFromAgg(fetchLimit, offset, aggKey);
+                }
+            }
         }
         Map<String, Object> response = new HashMap<>();
         response.put("total", total);
@@ -237,7 +242,12 @@ public class RtaServiceImpl implements RtaService {
             response.put("found", false);
             return response;
         }
-        Map<String, Object> row = rtaMapper.getRtaPlayerSummary(wizardId.trim(), se.start, se.end);
+        String wid = wizardId.trim();
+        String aggKey = se.code != null ? se.code.trim() : "";
+        Map<String, Object> row = null;
+        if (!aggKey.isEmpty()) {
+            row = rtaMapper.getRtaPlayerSummaryFromAgg(wid, aggKey);
+        }
         if (row == null || row.isEmpty()) {
             response.put("found", false);
             return response;
