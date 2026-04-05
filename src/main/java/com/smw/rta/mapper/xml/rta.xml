@@ -20,6 +20,47 @@
         )
     </sql>
 
+    <!--
+      스냅샷·프론트(getMatchPerspective)와 동일한 승패: rid 당 p1=wizard_id 문자열 MIN, p2=MAX,
+      replay_list.win_lose 가 '1'이면 p1 승, '2'이면 p2 승(upsert 스냅샷의 winner_position 과 동일 소스).
+      user_list.win_lose 는 원천과 불일치하는 경우가 있어 집계에 쓰지 않는다. rid 에 플레이어 2명이 없으면 user.win_lose 로 폴백.
+    -->
+    <sql id="rtaWinAggPairwise">
+        rid_pair AS (
+            SELECT
+                rid,
+                MIN(TRIM(BOTH FROM wizard_id::text)) AS w_min,
+                MAX(TRIM(BOTH FROM wizard_id::text)) AS w_max
+            FROM ranker_rtpvp_replay_user_list
+            GROUP BY rid
+            HAVING COUNT(DISTINCT TRIM(BOTH FROM wizard_id::text)) = 2
+        ),
+        win_agg AS (
+            SELECT
+                u.wizard_id,
+                COUNT(*)::bigint AS match_count,
+                SUM(
+                    CASE
+                        WHEN pa.w_min IS NOT NULL THEN
+                            CASE
+                                WHEN TRIM(BOTH FROM u.wizard_id::text) = pa.w_min
+                                     AND TRIM(BOTH FROM COALESCE(r.win_lose::text, '')) = '1' THEN 1
+                                WHEN TRIM(BOTH FROM u.wizard_id::text) = pa.w_max
+                                     AND TRIM(BOTH FROM COALESCE(r.win_lose::text, '')) = '2' THEN 1
+                                ELSE 0
+                            END
+                        ELSE CASE WHEN TRIM(COALESCE(u.win_lose::text, '')) = '1' THEN 1 ELSE 0 END
+                    END
+                )::bigint AS win_count
+            FROM ranker_rtpvp_replay_user_list u
+            INNER JOIN replay_list_dedup r ON u.rid = r.rid
+            LEFT JOIN rid_pair pa ON u.rid = pa.rid
+            WHERE TRIM(COALESCE(u.score::text, '')) ~ '^[0-9]+$'
+              AND CAST(TRIM(u.score::text) AS INT) &gt; 0
+            GROUP BY u.wizard_id
+        )
+    </sql>
+
     <sql id="replaySnapshotSeasonFilter">
         <if test="seasonStart != null and seasonEnd != null">
             AND s.date_add &gt;= #{seasonStart}
@@ -744,6 +785,7 @@
 
     <select id="getRtaSummonerRanking" resultType="map">
         WITH <include refid="replayListDedupCte"/>,
+        <include refid="rtaWinAggPairwise"/>,
         latest AS (
             SELECT DISTINCT ON (u.wizard_id)
                 u.wizard_id,
@@ -762,18 +804,6 @@
             WHERE TRIM(COALESCE(u.score::text, '')) ~ '^[0-9]+$'
               AND CAST(TRIM(u.score::text) AS INT) &gt; 0
             ORDER BY u.wizard_id, r.date_add DESC
-        ),
-        <!-- win_agg: 승수는 user_list.win_lose='1'(경기별 플레이어 승패). replay_list.wizard_id(승자 id)와 비교하면 원천 불일치 시 집계가 실제와 어긋남 -->
-        win_agg AS (
-            SELECT
-                u.wizard_id,
-                COUNT(*)::bigint AS match_count,
-                SUM(CASE WHEN TRIM(COALESCE(u.win_lose::text, '')) = '1' THEN 1 ELSE 0 END)::bigint AS win_count
-            FROM ranker_rtpvp_replay_user_list u
-            INNER JOIN replay_list_dedup r ON u.rid = r.rid
-            WHERE TRIM(COALESCE(u.score::text, '')) ~ '^[0-9]+$'
-              AND CAST(TRIM(u.score::text) AS INT) &gt; 0
-            GROUP BY u.wizard_id
         ),
         ranked AS (
             SELECT
@@ -889,6 +919,7 @@
     <!-- 소환사 상단 카드용: 랭킹과 동일 집계(최신 경기 점수·글로벌 순위) + 승률 -->
     <select id="getRtaPlayerSummary" resultType="map">
         WITH <include refid="replayListDedupCte"/>,
+        <include refid="rtaWinAggPairwise"/>,
         latest AS (
             SELECT DISTINCT ON (u.wizard_id)
                 u.wizard_id,
@@ -907,17 +938,6 @@
             WHERE TRIM(COALESCE(u.score::text, '')) ~ '^[0-9]+$'
               AND CAST(TRIM(u.score::text) AS INT) &gt; 0
             ORDER BY u.wizard_id, r.date_add DESC
-        ),
-        win_agg AS (
-            SELECT
-                u.wizard_id,
-                COUNT(*)::bigint AS match_count,
-                SUM(CASE WHEN TRIM(COALESCE(u.win_lose::text, '')) = '1' THEN 1 ELSE 0 END)::bigint AS win_count
-            FROM ranker_rtpvp_replay_user_list u
-            INNER JOIN replay_list_dedup r ON u.rid = r.rid
-            WHERE TRIM(COALESCE(u.score::text, '')) ~ '^[0-9]+$'
-              AND CAST(TRIM(u.score::text) AS INT) &gt; 0
-            GROUP BY u.wizard_id
         ),
         ranked AS (
             SELECT
@@ -1402,6 +1422,7 @@
             most_monster_3_id, most_monster_3_pick_count, most_monster_3_name, most_monster_3_image
         )
         WITH <include refid="replayListDedupCte"/>,
+        <include refid="rtaWinAggPairwise"/>,
         latest AS (
             SELECT DISTINCT ON (u.wizard_id)
                 u.wizard_id,
@@ -1420,17 +1441,6 @@
             WHERE TRIM(COALESCE(u.score::text, '')) ~ '^[0-9]+$'
               AND CAST(TRIM(u.score::text) AS INT) &gt; 0
             ORDER BY u.wizard_id, r.date_add DESC
-        ),
-        win_agg AS (
-            SELECT
-                u.wizard_id,
-                COUNT(*)::bigint AS match_count,
-                SUM(CASE WHEN TRIM(COALESCE(u.win_lose::text, '')) = '1' THEN 1 ELSE 0 END)::bigint AS win_count
-            FROM ranker_rtpvp_replay_user_list u
-            INNER JOIN replay_list_dedup r ON u.rid = r.rid
-            WHERE TRIM(COALESCE(u.score::text, '')) ~ '^[0-9]+$'
-              AND CAST(TRIM(u.score::text) AS INT) &gt; 0
-            GROUP BY u.wizard_id
         ),
         score_max_agg AS (
             SELECT
@@ -1609,6 +1619,7 @@
             wizard_id,
             wizard_name,
             country,
+            channel_uid,
             score,
             rating_id
         FROM rta_summoner_ranking_agg
