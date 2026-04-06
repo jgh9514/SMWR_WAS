@@ -20,10 +20,9 @@ import com.smw.rta.service.RtaSynergyAggService;
  * <li>몬스터 통계 agg 재적재</li>
  * <li>사용자 보유 몬스터 집계 (SWEX → {@code user_monster_owned_agg})</li>
  * </ol>
- * 티어 일별 분포는 {@link RtaTierDistributionDailyAggJob}(bat_id 10004, 매시)와 분리. (집계 테이블 미사용 시 Mapper no-op)
- * 기존 단일 목적 Job(10001~10003,10005~10007)은 DB {@code use_yn = N}. 10004·10008 은 사용.
+ * 티어 일별 분포는 {@link RtaTierDistributionDailyAggJob}(bat_id 10002, 매시)와 분리. (집계 테이블 미사용 시 Mapper no-op)
  * <p>
- * 스케줄: DB {@code sys_batch_config.cron_expr} (기본 5분, bat_id 10008).
+ * 스케줄: DB {@code sys_batch_config.cron_expr} (기본 5분, bat_id 10001).
  */
 public class RtaUnifiedPipelineAggJob extends BaseBatchJob {
 

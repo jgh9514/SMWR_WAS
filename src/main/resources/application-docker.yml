@@ -26,8 +26,8 @@ spring:
       connection-timeout: 30000
       leak-detection-threshold: ${SPRING_DATASOURCE_HIKARI_LEAK_DETECTION_THRESHOLD:0}
   servlet:
-    multipart.max-file-size: 32MB
-    max-request-size: 40MB
+    multipart.max-file-size: ${SMW_MULTIPART_MAX_FILE_SIZE:512MB}
+    max-request-size: ${SMW_MULTIPART_MAX_REQUEST_SIZE:512MB}
   mail:
     # 쿠버네티스/개발 서버에서는 환경변수로 제어 (기본 false 권장)
     enabled: ${SPRING_MAIL_ENABLED:${MAIL_ENABLED:false}}
@@ -75,7 +75,7 @@ server:
     mime-types: application/json,application/xml,text/html,text/xml,text/plain,text/css,application/javascript
   tomcat:
     min-spare-threads: 40
-    max-http-post-size: 32MB
+    max-http-post-size: ${SMW_SERVER_MAX_HTTP_POST_SIZE:512MB}
   servlet:
     session:
       timeout: 3600

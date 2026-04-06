@@ -48,8 +48,11 @@ public class RtaExporterProperties {
 	 */
 	private long pollScanIntervalMs = 20_000L;
 
-	/** 한 파일 최대 크기(MB). 초과 시 건너뜀 */
-	private int maxFileSizeMb = 128;
+	/**
+	 * 한 파일 최대 크기(MB). {@code 0} 이하이면 크기 검사를 하지 않는다(무제한).
+	 * 양수일 때만 초과 시 건너뜀. 무제한은 {@code Files.readString} 전체 로드이므로 JVM 힙 여유가 필요하다.
+	 */
+	private int maxFileSizeMb = 0;
 
 	/**
 	 * 후보 파일 안정화: 연속 두 크기 샘플 사이 대기(ms). 한 번의 처리 시도 안에서만 사용.

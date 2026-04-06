@@ -64,7 +64,7 @@ public class RtaExporterFullLogIngestScheduler {
 		}
 
 		String prefix = props.getFileNamePrefix() != null ? props.getFileNamePrefix() : "full_log";
-		long maxBytes = (long) props.getMaxFileSizeMb() * 1024L * 1024L;
+		long maxBytes = maxBytesFromMb(props.getMaxFileSizeMb());
 
 		long burstMs = Math.max(1_000L, props.getPollBurstDurationMs());
 		long scanIntervalMs = Math.max(1_000L, props.getPollScanIntervalMs());
@@ -176,6 +176,16 @@ public class RtaExporterFullLogIngestScheduler {
 			return null;
 		}
 		return workFile;
+	}
+
+	/**
+	 * @param maxFileSizeMb {@code 0} 이하이면 무제한({@link Long#MAX_VALUE}).
+	 */
+	private static long maxBytesFromMb(int maxFileSizeMb) {
+		if (maxFileSizeMb <= 0) {
+			return Long.MAX_VALUE;
+		}
+		return (long) maxFileSizeMb * 1024L * 1024L;
 	}
 
 	private static String stripFailedSuffix(String fileName) {

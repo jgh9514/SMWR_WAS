@@ -31,8 +31,9 @@ spring:
       connection-timeout: 30000
       leak-detection-threshold: ${SPRING_DATASOURCE_HIKARI_LEAK_DETECTION_THRESHOLD:0}
   servlet:
-    multipart.max-file-size: 32MB
-    max-request-size: 40MB
+    # 아레나 rta-upload(JSON body)·멀티파트 등 대용량 — 필요 시 SMW_MULTIPART_* 로 상향
+    multipart.max-file-size: ${SMW_MULTIPART_MAX_FILE_SIZE:512MB}
+    max-request-size: ${SMW_MULTIPART_MAX_REQUEST_SIZE:512MB}
   mail:
     host: smtp.gmail.com
     port: 587
@@ -72,8 +73,8 @@ server:
     mime-types: application/json,application/xml,text/html,text/xml,text/plain,text/css,application/javascript
   tomcat:
     min-spare-threads: 40
-    # JSON @RequestBody(실레나 rta-upload 등) — 기본 2MB 제한 완화
-    max-http-post-size: 32MB
+    # JSON @RequestBody(rta-upload arenaJson 등) — SMW_SERVER_MAX_HTTP_POST_SIZE 로 상향
+    max-http-post-size: ${SMW_SERVER_MAX_HTTP_POST_SIZE:512MB}
   servlet:
     session:
       timeout: 3600
@@ -172,7 +173,7 @@ smw:
       maximum-size: ${SMW_SHORT_CACHE_MAXIMUM_SIZE:500}
       expire-after-write-minutes: ${SMW_SHORT_CACHE_EXPIRE_AFTER_WRITE_MINUTES:5}
   # Summoners War Exporter full_log 로컬 폴더 감시 (로그 수집 PC에서만 켬 — UI 테스트 PC는 enabled: false 유지)
-  # 감시 시 항상 ranker_rtpvp_replay_raw 만 적재, 정규화는 RtaReplayRawApplyJob 등 배치
+  # 감시 시 항상 ranker_rtpvp_replay_raw 만 적재, 정규화는 RtaUnifiedPipelineAggJob(bat_id 10001) 등 배치
   rta:
     exporter:
       enabled: ${SMW_RTA_EXPORTER_ENABLED:false}
@@ -184,12 +185,13 @@ smw:
       poll-burst-duration-ms: ${SMW_RTA_EXPORTER_BURST_MS:60000}
       # 한 구간 안에서 폴더 스캔(후보 탐색) 사이 대기(ms)
       poll-scan-interval-ms: ${SMW_RTA_EXPORTER_SCAN_INTERVAL_MS:20000}
-      max-file-size-mb: ${SMW_RTA_EXPORTER_MAX_MB:128}
+      # 0 이하 = full_log 크기 검사 안 함(무제한). 양수 = MB 단위 상한. 무제한은 힙·메모리 주의
+      max-file-size-mb: ${SMW_RTA_EXPORTER_MAX_MB:0}
       # 후보 파일 한 번 처리 시 크기 안정화(연속 두 샘플 간격·상한)
       stable-millis: ${SMW_RTA_EXPORTER_STABLE_MS:2000}
       stable-max-wait-ms: ${SMW_RTA_EXPORTER_STABLE_MAX_MS:60000}
     raw-apply:
-      # 배치(RtaReplayRawApplyJob) 한 실행당 DB에서 꺼내 처리할 pending/failed 최대 건수
+      # 정규화 배치(RtaUnifiedPipelineAggJob 등) 한 실행당 DB에서 꺼내 처리할 pending/failed 최대 건수
       max-rows-per-run: ${SMW_RTA_RAW_APPLY_MAX_ROWS:1000}
       # 한 트랜잭션에 묶어 replay_list 등에 넣는 건수(최소 1). 상한 없음.
       apply-chunk-size: ${SMW_RTA_RAW_APPLY_CHUNK_SIZE:80}

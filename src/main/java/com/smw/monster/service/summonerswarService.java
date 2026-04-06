@@ -69,7 +69,7 @@ public interface summonerswarService {
 	int deleteArenaRtaOrphanChildrenByRids(Collection<Long> rids);
 
 	/**
-	 * 부모 {@code replay_list} 행이 없는 user/pick/unit 고아 행 전수 삭제. 배치({@code RtaReplayRawApplyJob})에서 호출.
+	 * 부모 {@code replay_list} 행이 없는 user/pick/unit 고아 행 전수 삭제. 배치({@link com.smw.monster.batch.RtaUnifiedPipelineAggJob})에서 호출.
 	 */
 	int deleteArenaRtaOrphanChildrenGlobal();
 	
@@ -117,7 +117,7 @@ public interface summonerswarService {
 
 	/**
 	 * Exporter {@code watch-directory} 전용: 검증 후 {@code ranker_rtpvp_replay_raw} 만 적재(pending).
-	 * 정규화는 {@code RtaReplayRawApplyJob} 배치가 수행한다.
+	 * 정규화는 {@link com.smw.monster.batch.RtaUnifiedPipelineAggJob}(bat_id 10001)가 수행한다.
 	 */
 	Map<String, Integer> applyArenaRtaUploadRawOnlyFromParsedItems(List<Map<String, ?>> log_list);
 
