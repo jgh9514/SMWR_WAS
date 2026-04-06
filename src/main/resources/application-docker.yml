@@ -7,7 +7,9 @@ spring:
     time-zone: Asia/Seoul
   batch:
     job:
-      enabled: true
+      # Spring Batch Job 빈이 여러 개(rtaReplayPipelineJob 등) — true 면 기동 시 Job 이름 미지정으로 실패함.
+      # Quartz(sys_batch_config)와 별개. NDJSON Job 은 JobLauncher 로만 실행.
+      enabled: false
   lifecycle:
     timeout-per-shutdown-phase: 20s
   datasource:
