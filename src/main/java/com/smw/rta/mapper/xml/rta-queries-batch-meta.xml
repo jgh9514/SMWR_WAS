@@ -1,19 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.smw.rta.mapper.RtaMapper">
-    <select id="selectPendingRtaAggRids" resultType="long">
-        SELECT m.replay_id FROM public.rta_match m WHERE FALSE LIMIT #{batchSize}
-    </select>
-
-    <insert id="upsertRtaMatchSnapshotsForRids">
-        INSERT INTO public.rta_match (replay_id, season_id, played_at, winner_wizard_id, battle_version)
-        SELECT 0::bigint, (SELECT season_id FROM public.rta_season WHERE season_code = '_FALLBACK' LIMIT 1), CURRENT_TIMESTAMP, '', '' WHERE FALSE
-    </insert>
-
-    <update id="markRtaAggDoneForRidsWithSnapshot">
-        UPDATE public.rta_match SET battle_type = battle_type WHERE FALSE
-    </update>
-
     <select id="selectPendingSynergyAggRids" resultType="long">
         SELECT m.replay_id
         FROM public.rta_match m
@@ -73,26 +60,6 @@
         SET synergy_applied_at = CURRENT_TIMESTAMP
         WHERE replay_id = #{rid}
     </update>
-
-    <!-- RTA 대시보드 배치: 티어 일별 집계 테이블 미사용 시 no-op -->
-    <delete id="deleteAllRtaTierDistributionDailyAgg">
-        DELETE FROM public.rta_match WHERE FALSE
-    </delete>
-
-    <insert id="insertRtaTierDistributionDailyAggFromLive">
-        INSERT INTO public.rta_match (replay_id)
-        SELECT NULL::bigint WHERE FALSE
-    </insert>
-
-    <delete id="deleteAllRtaSummonerRankingAgg">
-        DELETE FROM public.rta_match WHERE FALSE
-    </delete>
-
-    <!-- 소환사 랭킹 스냅샷 테이블 미사용 시 no-op (랭킹 API는 라이브 집계) -->
-    <insert id="insertRtaSummonerRankingAggForSeason">
-        INSERT INTO public.rta_match (replay_id)
-        SELECT NULL::bigint WHERE FALSE
-    </insert>
 
     <select id="getRtaSummonerRankingAggCount" resultType="int">
         WITH <include refid="rtaMatchInSeasonCte"/>,
@@ -420,6 +387,100 @@
           AND s.snapshot_at = mx.ts
         ORDER BY rg.tier_sort NULLS LAST, s.rating_id
     </select>
+
+    <update id="deleteAllRtaRankCutoffAnchorSnap">
+        TRUNCATE TABLE public.rta_rank_cutoff_anchor_snap
+    </update>
+
+    <!-- getRtaRankCutoffAnchorsFromLive 와 동일 로직 → 집계 테이블 적재 (배치 전용) -->
+    <insert id="insertRtaRankCutoffAnchorSnapFromLive">
+        INSERT INTO public.rta_rank_cutoff_anchor_snap (snapshot_at, sort_order, anchor_key, tier_key, cutoff_score)
+        SELECT CURRENT_TIMESTAMP, sub.sort_order, sub.anchor_key, sub.tier_key, sub.cutoff_score
+        FROM (
+            WITH <include refid="rtaMatchInSeasonCte"/>,
+            anchors AS (
+                SELECT * FROM (VALUES
+                    (1, '3h',  INTERVAL '3 hours'),
+                    (2, '6h',  INTERVAL '6 hours'),
+                    (3, '12h', INTERVAL '12 hours'),
+                    (4, '3d',  INTERVAL '3 days'),
+                    (5, '7d',  INTERVAL '7 days')
+                ) AS v(sort_order, anchor_key, iv)
+            ),
+            base AS (
+                SELECT
+                    r.date_add,
+                    CAST(TRIM(u.ladder_score::text) AS INT) AS score_val,
+                    (
+                        CASE
+                            WHEN CAST(TRIM(u.rating_id::text) AS INT) &gt;= 5000 THEN 'L'
+                            WHEN CAST(TRIM(u.rating_id::text) AS INT) &gt;= 4000 THEN 'G'
+                            WHEN CAST(TRIM(u.rating_id::text) AS INT) &gt;= 3500 THEN 'P'
+                            WHEN CAST(TRIM(u.rating_id::text) AS INT) &gt;= 3000 THEN 'C'
+                            WHEN CAST(TRIM(u.rating_id::text) AS INT) &gt;= 2000 THEN 'F'
+                            ELSE 'Ch'
+                        END
+                    )
+                    ||
+                    CASE
+                        WHEN (CAST(TRIM(u.rating_id::text) AS INT) % 10) IN (1, 2, 3)
+                        THEN (CAST(TRIM(u.rating_id::text) AS INT) % 10)::text
+                        ELSE '2'
+                    END AS tier_key
+                FROM public.rta_match_participant u
+                INNER JOIN rta_match_in_season r ON u.replay_id = r.rid
+                WHERE TRIM(COALESCE(u.rating_id::text, '')) ~ '^[0-9]+$'
+                  AND CAST(TRIM(u.rating_id::text) AS INT) &gt;= 1000
+                  AND TRIM(COALESCE(u.ladder_score::text, '')) ~ '^[0-9]+$'
+                  AND CAST(TRIM(u.ladder_score::text) AS INT) &gt; 0
+                  AND r.date_add::date &gt;= (
+                      SELECT (MAX(r2.date_add::date) - INTERVAL '120 days')::date
+                      FROM rta_match_in_season r2
+                  )
+            ),
+            tiers AS (
+                SELECT * FROM (VALUES
+                    ('G3'), ('G2'), ('G1'), ('P3'), ('P2'), ('P1')
+                ) AS tv(tier_key)
+            )
+            SELECT
+                a.sort_order,
+                a.anchor_key,
+                t.tier_key,
+                COALESCE(
+                    (SELECT MIN(b.score_val) FROM base b
+                     WHERE b.tier_key = t.tier_key
+                       AND b.date_add &gt;= CURRENT_TIMESTAMP - a.iv
+                       AND b.date_add &lt;= CURRENT_TIMESTAMP),
+                    0
+                )::bigint AS cutoff_score
+            FROM anchors a
+            CROSS JOIN tiers t
+        ) sub
+    </insert>
+
+    <!-- 시즌별 등급(rating_id) 최저 래더 점수 스냅샷 (히스토리 적재) -->
+    <insert id="insertRtaSnapshotRankCutForAllSeasons">
+        INSERT INTO public.rta_snapshot_rank_cut (season_id, snapshot_at, rating_id, cutoff_score)
+        SELECT DISTINCT ON (s.season_id, rg.rating_id)
+            s.season_id,
+            CURRENT_TIMESTAMP,
+            rg.rating_id,
+            COALESCE((
+                SELECT MIN(CAST(TRIM(u.ladder_score::text) AS INT))
+                FROM public.rta_match_participant u
+                INNER JOIN public.rta_match m ON m.replay_id = u.replay_id
+                WHERE m.played_at &gt;= s.start_at
+                  AND m.played_at &lt; s.end_at
+                  AND TRIM(COALESCE(u.rating_id::text, '')) ~ '^[0-9]+$'
+                  AND CAST(TRIM(u.rating_id::text) AS INT) = rg.rating_id
+                  AND TRIM(COALESCE(u.ladder_score::text, '')) ~ '^[0-9]+$'
+                  AND CAST(TRIM(u.ladder_score::text) AS INT) &gt; 0
+            ), 0)::bigint
+        FROM public.rta_season s
+        INNER JOIN public.rta_rating_grade rg ON rg.tier_key IS NOT NULL
+        ORDER BY s.season_id, rg.rating_id
+    </insert>
 
     <!-- 몬스터 상세: 카운터 매치업 (rta_agg_counter_matchup, rating_id=0 전체 구간) -->
     <select id="getRtaMonsterCounterMatchups" resultType="map">

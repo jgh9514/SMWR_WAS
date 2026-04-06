@@ -13,7 +13,7 @@ import org.springframework.stereotype.Service;
 import com.smw.rta.mapper.RtaMapper;
 
 /**
- * 대시보드 티어 일별·기간 범위는 집계 테이블 조회. 5분 캐시 (shortLived).
+ * 대시보드 티어 일별·기간 범위는 라이브 SQL({@code getRtaTierDistributionDailyFromAgg}) + 5분 캐시 (shortLived).
  */
 @Service
 public class RtaDashboardTierCacheService {

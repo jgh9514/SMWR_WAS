@@ -1218,10 +1218,6 @@
 		AND NOT EXISTS (SELECT 1 FROM public.rta_match r WHERE r.replay_id = u.replay_id)
 	</delete>
 
-	<delete id="deleteArenaRtaOrphanPicksByRids">
-		DELETE FROM public.rta_match WHERE FALSE
-	</delete>
-
 	<delete id="deleteArenaRtaOrphanUsersByRids">
 		DELETE FROM public.rta_match_participant ul
 		WHERE ul.replay_id IN
@@ -1234,11 +1230,6 @@
 	<delete id="deleteArenaRtaOrphanUnitsGlobal">
 		DELETE FROM public.rta_match_unit_pick u
 		WHERE NOT EXISTS (SELECT 1 FROM public.rta_match r WHERE r.replay_id = u.replay_id)
-	</delete>
-
-	<delete id="deleteArenaRtaOrphanPicksGlobal">
-		/* v2: 픽 메타는 rta_match_unit_pick — 호환용 no-op (0행) */
-		DELETE FROM public.rta_match WHERE FALSE
 	</delete>
 
 	<delete id="deleteArenaRtaOrphanUsersGlobal">
@@ -1309,11 +1300,6 @@
 		)
 		</foreach>
 		ON CONFLICT (replay_id, wizard_id) DO NOTHING
-	</insert>
-
-	<insert id="insertArenaPickInfoBulk">
-		INSERT INTO public.rta_monster (unit_master_id, monster_name, element_code)
-		SELECT -1::bigint, '', '' WHERE FALSE
 	</insert>
 
 	<insert id="insertRtaMonsterEnsureBulk">

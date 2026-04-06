@@ -131,6 +131,11 @@ management:
         smw.swarfarm.sync.duration: true
 
 smw:
+  # Quartz(BatchConfig): DB sys_batch_config 스케줄 등록. docker 프로필만 쓰면 bulkload.yml 이 없으므로 여기서 기본 ON.
+  # 스케줄 끄기(예: 배치 전용 Pod 분리): SMW_BATCH_QUARTZ_ENABLED=false
+  batch:
+    quartz:
+      enabled: ${SMW_BATCH_QUARTZ_ENABLED:true}
   service-domain: localhost, localhost:3000, 13.236.20.39:32282, jgh9514.com, www.jgh9514.com
   globalDblinkNm: SMW_DBLINK
   front-url: http://localhost:3000

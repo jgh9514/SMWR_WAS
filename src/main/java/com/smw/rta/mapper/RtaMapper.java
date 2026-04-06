@@ -33,9 +33,6 @@ public interface RtaMapper {
     /** RTA 몬스터 통계 집계 전체 삭제 후 재적재 */
     int deleteAllRtaMonsterStatsAgg();
 
-    int insertRtaMonsterStatsMetaForSeason(@Param("seasonCode") String seasonCode,
-            @Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd);
-
     int insertRtaMonsterStatsAggForSeason(@Param("seasonCode") String seasonCode,
             @Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd);
 
@@ -90,24 +87,25 @@ public interface RtaMapper {
     Map<String, Object> getRtaReplayDateRangeFromAgg(
             @Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd);
 
-    /** 랭크 컷 앵커 — 현재 시각 기준 되돌림 구간 [now-iv, now] 라이브 집계 (대시보드) */
+    /** 랭크 컷 앵커 — 현재 시각 기준 되돌림 구간 [now-iv, now] 라이브 집계 (대시보드, 배치 미사용 시) */
     List<Map<String, Object>> getRtaRankCutoffAnchorsFromLive();
 
-    /** 티어 분포 집계 테이블 미사용 시 no-op (배치 호환) */
-    int deleteAllRtaTierDistributionDailyAgg();
+    /** 랭크 컷 앵커 — {@code rta_rank_cutoff_anchor_snap} 배치 적재 결과 */
+    List<Map<String, Object>> getRtaRankCutoffAnchorsFromAgg();
 
-    int insertRtaTierDistributionDailyAggFromLive();
+    /** 앵커 스냅샷 전체 삭제 후 라이브와 동일 로직으로 재적재 */
+    int deleteAllRtaRankCutoffAnchorSnap();
+
+    int insertRtaRankCutoffAnchorSnapFromLive();
+
+    /** 시즌×등급별 컷 히스토리 1회 적재 */
+    int insertRtaSnapshotRankCutForAllSeasons();
 
     /** 소환사 랭킹 (최근 리플레이 기준 점수 순) */
     int getRtaSummonerRankingCount(
             @Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd);
 
     List<Map<String, Object>> getRtaSummonerRanking(@Param("limit") int limit, @Param("offset") int offset,
-            @Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd);
-
-    int deleteAllRtaSummonerRankingAgg();
-
-    int insertRtaSummonerRankingAggForSeason(@Param("seasonCode") String seasonCode,
             @Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd);
 
     int getRtaSummonerRankingAggCount(@Param("seasonCode") String seasonCode,
@@ -131,15 +129,6 @@ public interface RtaMapper {
     Map<String, Object> getRtaPlayerSummaryFromAgg(@Param("wizardId") String wizardId,
             @Param("seasonCode") String seasonCode,
             @Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd);
-
-    /** 스냅샷 미집계 rid — v2에서 스냅샷 테이블 제거 시 no-op 스텁과 연동 */
-    List<Long> selectPendingRtaAggRids(@Param("batchSize") int batchSize);
-
-    /** 레거시 스냅샷 upsert — v2 스키마에서는 no-op 스텁 */
-    int upsertRtaMatchSnapshotsForRids(@Param("rids") List<Long> rids);
-
-    /** 레거시 스냅샷 done — v2 스키마에서는 no-op 스텁 */
-    int markRtaAggDoneForRidsWithSnapshot(@Param("rids") List<Long> rids);
 
     /** 시너지 미집계 rid ({@code rta_match.synergy_applied_at IS NULL}, rid 오름차순) */
     List<Long> selectPendingSynergyAggRids(@Param("batchSize") int batchSize);

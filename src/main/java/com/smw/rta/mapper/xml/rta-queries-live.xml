@@ -272,10 +272,6 @@
         TRUNCATE TABLE public.rta_agg_monster_unit;
     </delete>
 
-    <update id="insertRtaMonsterStatsMetaForSeason">
-        UPDATE public.rta_match SET replay_id = replay_id WHERE FALSE
-    </update>
-
     <insert id="insertRtaMonsterStatsAggForSeason">
         WITH deleted AS (
             DELETE FROM public.rta_agg_monster_unit x
@@ -806,6 +802,17 @@
             CROSS JOIN tiers t
         ) sub
         ORDER BY sub.sort_order, sub.tier_key
+    </select>
+
+    <!-- 랭크 컷 앵커: 배치 적재 테이블 (rta_rank_cutoff_anchor_snap). 비어 있으면 빈 목록 — 배치 미실행 시 -->
+    <select id="getRtaRankCutoffAnchorsFromAgg" resultType="map">
+        SELECT
+            sort_order,
+            anchor_key,
+            tier_key,
+            cutoff_score
+        FROM public.rta_rank_cutoff_anchor_snap
+        ORDER BY sort_order, tier_key
     </select>
 
     <!-- 소환사별: 수집 리플레이 중 가장 최근 경기의 점수·레이팅으로 랭킹 (공식 랭킹과 다를 수 있음) -->

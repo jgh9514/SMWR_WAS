@@ -466,7 +466,6 @@ public class summonerswarServiceImpl implements summonerswarService {
 			int to = Math.min(from + ARENA_RTA_EXISTING_RID_CHUNK, distinct.size());
 			List<Long> sub = new ArrayList<>(distinct.subList(from, to));
 			total += swMapper.deleteArenaRtaOrphanUnitsByRids(sub);
-			total += swMapper.deleteArenaRtaOrphanPicksByRids(sub);
 			total += swMapper.deleteArenaRtaOrphanUsersByRids(sub);
 		}
 		return total;
@@ -475,7 +474,6 @@ public class summonerswarServiceImpl implements summonerswarService {
 	@Override
 	public int deleteArenaRtaOrphanChildrenGlobal() {
 		int n = swMapper.deleteArenaRtaOrphanUnitsGlobal();
-		n += swMapper.deleteArenaRtaOrphanPicksGlobal();
 		n += swMapper.deleteArenaRtaOrphanUsersGlobal();
 		return n;
 	}

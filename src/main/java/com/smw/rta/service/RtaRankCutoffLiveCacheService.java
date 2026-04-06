@@ -11,7 +11,8 @@ import org.springframework.stereotype.Service;
 import com.smw.rta.mapper.RtaMapper;
 
 /**
- * 랭크 컷 앵커는 원장 기준 라이브 조회. 1시간 캐시로 부하 완화 (스냅샷 테이블 없음).
+ * 랭크 컷 앵커는 {@code rta_rank_cutoff_anchor_snap} 배치 적재 결과를 조회한다. 1시간 캐시.
+ * 테이블이 비어 있으면 빈 목록 — {@link com.smw.monster.batch.RtaRankCutSnapshotAggJob} 실행 필요.
  */
 @Service
 public class RtaRankCutoffLiveCacheService {
@@ -21,7 +22,7 @@ public class RtaRankCutoffLiveCacheService {
 
 	@Cacheable(cacheNames = "rtaRankCutoffLive", cacheManager = "rtaOneHourCacheManager", key = "'anchors'")
 	public List<Map<String, Object>> getAnchors() {
-		List<Map<String, Object>> rows = rtaMapper.getRtaRankCutoffAnchorsFromLive();
+		List<Map<String, Object>> rows = rtaMapper.getRtaRankCutoffAnchorsFromAgg();
 		return rows != null ? rows : Collections.emptyList();
 	}
 }

@@ -27,9 +27,22 @@ public class RtaCacheEvictor {
 	};
 
 	private final CacheManager shortLivedCacheManager;
+	private final CacheManager rtaOneHourCacheManager;
 
-	public RtaCacheEvictor(@Qualifier("shortLivedCacheManager") CacheManager shortLivedCacheManager) {
+	public RtaCacheEvictor(
+			@Qualifier("shortLivedCacheManager") CacheManager shortLivedCacheManager,
+			@Qualifier("rtaOneHourCacheManager") CacheManager rtaOneHourCacheManager) {
 		this.shortLivedCacheManager = shortLivedCacheManager;
+		this.rtaOneHourCacheManager = rtaOneHourCacheManager;
+	}
+
+	/** 랭크 컷 앵커 캐시({@code rtaRankCutoffLive}) — 배치 재적재 후 호출 */
+	public void evictRtaRankCutoffLiveCache() {
+		Cache cache = rtaOneHourCacheManager.getCache("rtaRankCutoffLive");
+		if (cache != null) {
+			cache.clear();
+			log.debug("[rta-cache] cleared: rtaRankCutoffLive");
+		}
 	}
 
 	public void evictAllRtaCaches() {

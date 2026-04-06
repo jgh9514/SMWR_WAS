@@ -13,7 +13,7 @@ import com.smw.rta.mapper.RtaMapper;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * RTA 관련 집계 공통 로직 (raw 정규화·스냅샷·시너지·랭킹·티어·몬스터 통계).
+ * RTA 관련 집계 공통 로직 (raw 정규화·스냅샷·시너지·랭킹·몬스터 통계).
  * <p>
  * 배치 Job 여러 개가 동일 규칙을 쓰도록 묶는다.
  */
@@ -36,89 +36,22 @@ public class RtaBatchAggregationService {
 	public static final int MAX_SYNERGY_ROUNDS_PER_JOB = 100_000;
 
 	/**
-	 * pending 이 없어질 때까지(또는 상한·정체 감지 시) 스냅샷을 반복 적재한다.
-	 *
-	 * @param batchSize   {@link #SNAPSHOT_BATCH_SIZE} 권장
-	 * @param maxRounds   라운드 상한 ({@link #MAX_SNAPSHOT_ROUNDS_PER_JOB} 권장)
-	 * @param evictCaches 라운드마다 캐시 무효화 여부. 통합 배치 끝에서 한 번만 하려면 false
+	 * v2 레거시 매치 스냅샷 단계 없음 — 별도 집계 테이블/스텝 없이 즉시 완료.
 	 */
+	@SuppressWarnings("unused")
 	public SnapshotDrainResult drainPendingSnapshots(
 			RtaMapper rtaMapper,
 			RtaCacheEvictor cacheEvictor,
 			int batchSize,
 			int maxRounds,
 			boolean evictCachesEachRound) {
-		int rounds = 0;
-		int totalRidsTouched = 0;
-		long totalUpserted = 0;
-		long totalMarked = 0;
-		int consecutiveNoProgress = 0;
-		String stopReason = null;
-
-		while (rounds < maxRounds) {
-			List<Long> rids = rtaMapper.selectPendingRtaAggRids(batchSize);
-			if (rids == null || rids.isEmpty()) {
-				stopReason = "pending 없음";
-				break;
-			}
-			totalRidsTouched += rids.size();
-			int upserted = rtaMapper.upsertRtaMatchSnapshotsForRids(rids);
-			int marked = rtaMapper.markRtaAggDoneForRidsWithSnapshot(rids);
-			totalUpserted += upserted;
-			totalMarked += marked;
-			rounds++;
-
-			if (evictCachesEachRound && (upserted > 0 || marked > 0)) {
-				cacheEvictor.evictAllRtaCaches();
-			}
-
-			if (upserted == 0 && marked == 0) {
-				consecutiveNoProgress++;
-				if (consecutiveNoProgress >= 3) {
-					stopReason = "스냅샷 반영 0건 3회 연속 — pending·원천 데이터 점검 필요";
-					log.warn("[rta-batch] {}", stopReason);
-					break;
-				}
-			} else {
-				consecutiveNoProgress = 0;
-			}
-		}
-		if (stopReason == null) {
-			List<Long> stillPending = rtaMapper.selectPendingRtaAggRids(1);
-			if (stillPending != null && !stillPending.isEmpty() && rounds >= maxRounds) {
-				stopReason = "라운드 상한 도달 (" + maxRounds + "), pending 남음 — 다음 스케줄에서 계속";
-			} else {
-				stopReason = "완료";
-			}
-		}
-		return new SnapshotDrainResult(rounds, totalRidsTouched, totalUpserted, totalMarked, stopReason);
+		return new SnapshotDrainResult(0, 0, 0, 0, "v2: 레거시 매치 스냅샷 단계 없음");
 	}
 
-	/** 소환사 랭킹 스냅샷 재적재 호출 (집계 테이블 미사용 시 Mapper no-op) */
+	/** 소환사 랭킹 스냅샷 agg 테이블 미사용 — API 는 라이브/집계 CTE 집계. */
+	@SuppressWarnings("unused")
 	public SummonerRankingRebuildResult rebuildSummonerRankingAgg(RtaMapper rtaMapper) {
-		rtaMapper.deleteAllRtaSummonerRankingAgg();
-		List<Map<String, Object>> seasons = rtaMapper.listRtaSeasons();
-		int totalRows = 0;
-		for (Map<String, Object> row : seasons) {
-			String code = pickSeasonCode(row);
-			if (code == null || code.isEmpty()) {
-				continue;
-			}
-			Map<String, Object> bounds = rtaMapper.selectRtaSeasonBounds(code);
-			if (bounds == null || bounds.isEmpty()) {
-				log.warn("[rta-batch] 시즌 경계 없음, 건너뜀: {}", code);
-				continue;
-			}
-			Timestamp start = toTimestamp(bounds.get("start_at"));
-			Timestamp end = toTimestamp(bounds.get("end_at"));
-			if (start == null || end == null) {
-				log.warn("[rta-batch] 시즌 start/end 파싱 실패, 건너뜀: {}", code);
-				continue;
-			}
-			int n = rtaMapper.insertRtaSummonerRankingAggForSeason(code, start, end);
-			totalRows += n;
-		}
-		return new SummonerRankingRebuildResult(totalRows);
+		return new SummonerRankingRebuildResult(0);
 	}
 
 	/**
@@ -204,16 +137,9 @@ public class RtaBatchAggregationService {
 		return new SynergyDrainResult(rounds, totalOk, totalFail, stopReason);
 	}
 
-	/** 티어 일별 분포 재적재 호출 (집계 테이블 미사용 시 no-op; 대시보드 조회는 라이브 집계). */
-	public int rebuildTierDistributionDailyAgg(RtaMapper rtaMapper) {
-		rtaMapper.deleteAllRtaTierDistributionDailyAgg();
-		return rtaMapper.insertRtaTierDistributionDailyAggFromLive();
-	}
-
 	public MonsterStatsRebuildResult rebuildMonsterStatsAgg(RtaMapper rtaMapper) {
 		rtaMapper.deleteAllRtaMonsterStatsAgg();
 		List<Map<String, Object>> seasons = rtaMapper.listRtaSeasons();
-		int metaRows = 0;
 		int pickRows = 0;
 		for (Map<String, Object> row : seasons) {
 			String code = pickSeasonCode(row);
@@ -231,10 +157,20 @@ public class RtaBatchAggregationService {
 				log.warn("[rta-batch] 몬스터 통계 시즌 start/end 파싱 실패, 건너뜀: {}", code);
 				continue;
 			}
-			metaRows += rtaMapper.insertRtaMonsterStatsMetaForSeason(code, start, end);
 			pickRows += rtaMapper.insertRtaMonsterStatsAggForSeason(code, start, end);
 		}
-		return new MonsterStatsRebuildResult(metaRows, pickRows);
+		return new MonsterStatsRebuildResult(0, pickRows);
+	}
+
+	/**
+	 * 랭크 컷 앵커({@code rta_rank_cutoff_anchor_snap}) TRUNCATE 후 라이브와 동일 로직 적재,
+	 * 시즌×등급 컷({@code rta_snapshot_rank_cut}) 히스토리 1회 적재.
+	 */
+	public RankCutSnapshotRebuildResult rebuildRankCutSnapshots(RtaMapper rtaMapper) {
+		rtaMapper.deleteAllRtaRankCutoffAnchorSnap();
+		int anchorRows = rtaMapper.insertRtaRankCutoffAnchorSnapFromLive();
+		int snapshotRows = rtaMapper.insertRtaSnapshotRankCutForAllSeasons();
+		return new RankCutSnapshotRebuildResult(anchorRows, snapshotRows);
 	}
 
 	private static String pickSeasonCode(Map<String, Object> row) {
@@ -276,5 +212,8 @@ public class RtaBatchAggregationService {
 	}
 
 	public record MonsterStatsRebuildResult(int metaRows, int pickRows) {
+	}
+
+	public record RankCutSnapshotRebuildResult(int anchorRows, int snapshotRows) {
 	}
 }
