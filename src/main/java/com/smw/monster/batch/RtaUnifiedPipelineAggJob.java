@@ -90,7 +90,7 @@ public class RtaUnifiedPipelineAggJob extends BaseBatchJob {
 
 		addLog("--- 5) 몬스터 통계 집계 재적재 ---");
 		RtaBatchAggregationService.MonsterStatsRebuildResult mon = aggregationService.rebuildMonsterStatsAgg(rtaMapper);
-		addLog("rta_monster_stats_* 합계: meta=%d, pick=%d",
+		addLog("몬스터 통계 집계 테이블 합계(meta/pick): meta=%d, pick=%d",
 				mon.metaRows(),
 				mon.pickRows());
 

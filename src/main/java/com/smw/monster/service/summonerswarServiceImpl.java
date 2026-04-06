@@ -534,7 +534,6 @@ public class summonerswarServiceImpl implements summonerswarService {
 		if (param == null) {
 			return 0;
 		}
-		swMapper.insertRtaMonsterEnsureBulk(Collections.singletonList(param));
 		return swMapper.insertArenaUnitInfoBulk(Collections.singletonList(param));
 	}
 
@@ -592,7 +591,6 @@ public class summonerswarServiceImpl implements summonerswarService {
 		for (int from = 0; from < rows.size(); from += ARENA_RTA_BULK_CHUNK) {
 			int to = Math.min(from + ARENA_RTA_BULK_CHUNK, rows.size());
 			List<Map<String, ?>> chunk = rows.subList(from, to);
-			swMapper.insertRtaMonsterEnsureBulk(chunk);
 			total += swMapper.insertArenaUnitInfoBulk(chunk);
 		}
 		return total;
@@ -1095,10 +1093,6 @@ public class summonerswarServiceImpl implements summonerswarService {
 				}
 			}
 			if (unitBatch != null && !unitBatch.isEmpty()) {
-				for (int from = 0; from < unitBatch.size(); from += ARENA_RTA_BULK_CHUNK) {
-					int to = Math.min(from + ARENA_RTA_BULK_CHUNK, unitBatch.size());
-					swMapper.insertRtaMonsterEnsureBulk(unitBatch.subList(from, to));
-				}
 				for (int from = 0; from < unitBatch.size(); from += ARENA_RTA_BULK_CHUNK) {
 					int to = Math.min(from + ARENA_RTA_BULK_CHUNK, unitBatch.size());
 					swMapper.insertArenaUnitInfoBulk(unitBatch.subList(from, to));

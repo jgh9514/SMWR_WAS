@@ -81,9 +81,6 @@ public interface summonerswarMapper {
 
 	int insertArenaUnitInfoBulk(@Param("rows") List<Map<String, ?>> rows);
 
-	/** 유닛 적재 전 rta_monster 보강 (canonical id, monster 도감 조인) */
-	int insertRtaMonsterEnsureBulk(@Param("rows") List<Map<String, ?>> rows);
-
 	/** rta-upload: 원본 JSON 벌크 (rid + payload). ON CONFLICT 시 payload 갱신 */
 	int insertArenaReplayRawBulk(@Param("rows") List<Map<String, Object>> rows);
 

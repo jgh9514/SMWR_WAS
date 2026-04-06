@@ -1302,21 +1302,6 @@
 		ON CONFLICT (replay_id, wizard_id) DO NOTHING
 	</insert>
 
-	<insert id="insertRtaMonsterEnsureBulk">
-		INSERT INTO public.rta_monster (unit_master_id, monster_name, element_code)
-		SELECT DISTINCT
-			c.canonical_id,
-			COALESCE(mo.kr_name, '?'),
-			COALESCE(mo.monster_elemental, 'unknown')
-		FROM (
-			<foreach collection="rows" item="m" separator=" UNION ALL ">
-			SELECT public.rta_canonical_unit_master_id(TRIM(#{m.unit_master_id}::text)::bigint) AS canonical_id
-			</foreach>
-		) c
-		LEFT JOIN public.monster mo ON mo.monster_id = c.canonical_id::text
-		ON CONFLICT (unit_master_id) DO NOTHING
-	</insert>
-
 	<insert id="insertArenaUnitInfoBulk">
 		INSERT INTO public.rta_match_unit_pick (
 			replay_id,

@@ -42,11 +42,11 @@
                 u.replay_id,
                 u.wizard_id,
                 array_agg(u.unit_master_id::text ORDER BY u.pick_slot_no) AS picked_units,
-                array_agg('/images/' || mo.element_code || '/' || replace(mo.monster_name, ' ', '_') || '_' || mo.element_code || '_Icon.png' ORDER BY u.pick_slot_no) AS unit_images,
-                array_agg(mo.monster_name ORDER BY u.pick_slot_no) AS unit_names,
+                array_agg('/images/' || mo.monster_elemental || '/' || replace(mo.kr_name, ' ', '_') || '_' || mo.monster_elemental || '_Icon.png' ORDER BY u.pick_slot_no) AS unit_images,
+                array_agg(mo.kr_name ORDER BY u.pick_slot_no) AS unit_names,
                 string_agg(u.unit_master_id::text, ',' ORDER BY u.pick_slot_no) AS picked_units_str
             FROM public.rta_match_unit_pick u
-            LEFT JOIN public.rta_monster mo ON mo.unit_master_id = u.unit_master_id
+            LEFT JOIN public.monster mo ON mo.monster_id = u.unit_master_id::text
             INNER JOIN rms ON rms.rid = u.replay_id
             WHERE NOT u.is_banned
             GROUP BY u.replay_id, u.wizard_id
@@ -140,11 +140,11 @@
                 u.replay_id,
                 u.wizard_id,
                 array_agg(u.unit_master_id::text ORDER BY u.pick_slot_no) AS picked_units,
-                array_agg('/images/' || mo.element_code || '/' || replace(mo.monster_name, ' ', '_') || '_' || mo.element_code || '_Icon.png' ORDER BY u.pick_slot_no) AS unit_images,
-                array_agg(mo.monster_name ORDER BY u.pick_slot_no) AS unit_names,
+                array_agg('/images/' || mo.monster_elemental || '/' || replace(mo.kr_name, ' ', '_') || '_' || mo.monster_elemental || '_Icon.png' ORDER BY u.pick_slot_no) AS unit_images,
+                array_agg(mo.kr_name ORDER BY u.pick_slot_no) AS unit_names,
                 string_agg(u.unit_master_id::text, ',' ORDER BY u.pick_slot_no) AS picked_units_str
             FROM public.rta_match_unit_pick u
-            LEFT JOIN public.rta_monster mo ON mo.unit_master_id = u.unit_master_id
+            LEFT JOIN public.monster mo ON mo.monster_id = u.unit_master_id::text
             INNER JOIN rms ON rms.rid = u.replay_id
             WHERE NOT u.is_banned
             GROUP BY u.replay_id, u.wizard_id
@@ -294,11 +294,11 @@
         INNER JOIN public.rta_match m ON u.replay_id = m.replay_id
         INNER JOIN public.rta_season s ON s.season_id = m.season_id
         INNER JOIN public.rta_match_participant mp ON mp.replay_id = u.replay_id AND mp.wizard_id = u.wizard_id
-        LEFT JOIN public.rta_monster mo ON mo.unit_master_id = u.unit_master_id
+        LEFT JOIN public.monster mo ON mo.monster_id = u.unit_master_id::text
         WHERE s.season_code = #{seasonCode}
           AND m.played_at &gt;= #{seasonStart}
           AND m.played_at &lt; #{seasonEnd}
-          AND mo.monster_name IS NOT NULL
+          AND mo.kr_name IS NOT NULL
         GROUP BY s.season_id, u.unit_master_id
         ON CONFLICT (season_id, rating_id, unit_master_id) DO UPDATE SET
             pick_cnt = EXCLUDED.pick_cnt,
@@ -317,9 +317,9 @@
     <select id="getRtaMonsterStatsFromAgg" resultType="map">
         SELECT
             ps.unit_master_id::text AS monster_id,
-            m.element_code AS monster_elemental,
-            m.monster_name AS monster_name,
-            '/images/' || m.element_code || '/' || replace(m.monster_name, ' ', '_') || '_' || m.element_code || '_Icon.png' AS monster_image,
+            m.monster_elemental AS monster_elemental,
+            m.kr_name AS monster_name,
+            '/images/' || m.monster_elemental || '/' || replace(m.kr_name, ' ', '_') || '_' || m.monster_elemental || '_Icon.png' AS monster_image,
             ps.pick_cnt AS pick_count,
             ROUND((ps.pick_cnt::numeric / NULLIF((SELECT COUNT(*)::numeric FROM public.rta_match mm INNER JOIN public.rta_season ss ON ss.season_id = mm.season_id WHERE ss.season_code = #{seasonCode}), 0) * 100)::numeric, 2) AS pick_rate,
             CASE
@@ -333,10 +333,10 @@
             ROUND((COALESCE(ps.ban_cnt, 0)::numeric / NULLIF((SELECT COUNT(*)::numeric FROM public.rta_match mm INNER JOIN public.rta_season ss ON ss.season_id = mm.season_id WHERE ss.season_code = #{seasonCode}), 0) * 100)::numeric, 2) AS ban_rate
         FROM public.rta_agg_monster_unit ps
         INNER JOIN public.rta_season rs ON rs.season_id = ps.season_id
-        LEFT JOIN public.rta_monster m ON m.unit_master_id = ps.unit_master_id
+        LEFT JOIN public.monster m ON m.monster_id = ps.unit_master_id::text
         WHERE rs.season_code = #{seasonCode}
           AND ps.rating_id = 0
-          AND m.monster_name IS NOT NULL
+          AND m.kr_name IS NOT NULL
           AND ps.pick_cnt > 0
         ORDER BY ps.pick_cnt DESC
         LIMIT #{limit} OFFSET #{offset}
@@ -346,19 +346,19 @@
         SELECT
             split_part(s.combo_unit_key, ',', 1) AS monster_id_1,
             split_part(s.combo_unit_key, ',', 2) AS monster_id_2,
-            m1.monster_name AS monster_name_1,
-            m2.monster_name AS monster_name_2,
-            '/images/' || m1.element_code || '/' || replace(m1.monster_name, ' ', '_') || '_' || m1.element_code || '_Icon.png' AS monster_image_1,
-            '/images/' || m2.element_code || '/' || replace(m2.monster_name, ' ', '_') || '_' || m2.element_code || '_Icon.png' AS monster_image_2,
-            m1.element_code AS monster_elemental_1,
-            m2.element_code AS monster_elemental_2,
+            m1.kr_name AS monster_name_1,
+            m2.kr_name AS monster_name_2,
+            '/images/' || m1.monster_elemental || '/' || replace(m1.kr_name, ' ', '_') || '_' || m1.monster_elemental || '_Icon.png' AS monster_image_1,
+            '/images/' || m2.monster_elemental || '/' || replace(m2.kr_name, ' ', '_') || '_' || m2.monster_elemental || '_Icon.png' AS monster_image_2,
+            m1.monster_elemental AS monster_elemental_1,
+            m2.monster_elemental AS monster_elemental_2,
             s.match_cnt AS match_count,
             ROUND((s.win_cnt::numeric / NULLIF(s.match_cnt, 0) * 100)::numeric, 2) AS win_rate
         FROM public.rta_agg_synergy_combo s
-        LEFT JOIN public.rta_monster m1 ON m1.unit_master_id = split_part(s.combo_unit_key, ',', 1)::bigint
-        LEFT JOIN public.rta_monster m2 ON m2.unit_master_id = split_part(s.combo_unit_key, ',', 2)::bigint
+        LEFT JOIN public.monster m1 ON m1.monster_id = split_part(s.combo_unit_key, ',', 1)
+        LEFT JOIN public.monster m2 ON m2.monster_id = split_part(s.combo_unit_key, ',', 2)
         WHERE s.combo_size = 2 AND s.rating_id = 0
-          AND m1.monster_name IS NOT NULL AND m2.monster_name IS NOT NULL
+          AND m1.kr_name IS NOT NULL AND m2.kr_name IS NOT NULL
         ORDER BY (s.win_cnt::numeric / NULLIF(s.match_cnt, 0)) DESC NULLS LAST, s.match_cnt DESC
         LIMIT #{limit}
     </select>
@@ -368,23 +368,23 @@
             split_part(s.combo_unit_key, ',', 1) AS monster_id_1,
             split_part(s.combo_unit_key, ',', 2) AS monster_id_2,
             split_part(s.combo_unit_key, ',', 3) AS monster_id_3,
-            m1.monster_name AS monster_name_1,
-            m2.monster_name AS monster_name_2,
-            m3.monster_name AS monster_name_3,
-            '/images/' || m1.element_code || '/' || replace(m1.monster_name, ' ', '_') || '_' || m1.element_code || '_Icon.png' AS monster_image_1,
-            '/images/' || m2.element_code || '/' || replace(m2.monster_name, ' ', '_') || '_' || m2.element_code || '_Icon.png' AS monster_image_2,
-            '/images/' || m3.element_code || '/' || replace(m3.monster_name, ' ', '_') || '_' || m3.element_code || '_Icon.png' AS monster_image_3,
-            m1.element_code AS monster_elemental_1,
-            m2.element_code AS monster_elemental_2,
-            m3.element_code AS monster_elemental_3,
+            m1.kr_name AS monster_name_1,
+            m2.kr_name AS monster_name_2,
+            m3.kr_name AS monster_name_3,
+            '/images/' || m1.monster_elemental || '/' || replace(m1.kr_name, ' ', '_') || '_' || m1.monster_elemental || '_Icon.png' AS monster_image_1,
+            '/images/' || m2.monster_elemental || '/' || replace(m2.kr_name, ' ', '_') || '_' || m2.monster_elemental || '_Icon.png' AS monster_image_2,
+            '/images/' || m3.monster_elemental || '/' || replace(m3.kr_name, ' ', '_') || '_' || m3.monster_elemental || '_Icon.png' AS monster_image_3,
+            m1.monster_elemental AS monster_elemental_1,
+            m2.monster_elemental AS monster_elemental_2,
+            m3.monster_elemental AS monster_elemental_3,
             s.match_cnt AS match_count,
             ROUND((s.win_cnt::numeric / NULLIF(s.match_cnt, 0) * 100)::numeric, 2) AS win_rate
         FROM public.rta_agg_synergy_combo s
-        LEFT JOIN public.rta_monster m1 ON m1.unit_master_id = split_part(s.combo_unit_key, ',', 1)::bigint
-        LEFT JOIN public.rta_monster m2 ON m2.unit_master_id = split_part(s.combo_unit_key, ',', 2)::bigint
-        LEFT JOIN public.rta_monster m3 ON m3.unit_master_id = split_part(s.combo_unit_key, ',', 3)::bigint
+        LEFT JOIN public.monster m1 ON m1.monster_id = split_part(s.combo_unit_key, ',', 1)
+        LEFT JOIN public.monster m2 ON m2.monster_id = split_part(s.combo_unit_key, ',', 2)
+        LEFT JOIN public.monster m3 ON m3.monster_id = split_part(s.combo_unit_key, ',', 3)
         WHERE s.combo_size = 3 AND s.rating_id = 0
-          AND m1.monster_name IS NOT NULL AND m2.monster_name IS NOT NULL AND m3.monster_name IS NOT NULL
+          AND m1.kr_name IS NOT NULL AND m2.kr_name IS NOT NULL AND m3.kr_name IS NOT NULL
         ORDER BY (s.win_cnt::numeric / NULLIF(s.match_cnt, 0)) DESC NULLS LAST, s.match_cnt DESC
         LIMIT #{limit}
     </select>
@@ -399,17 +399,17 @@
         pick_stats AS (
             SELECT 
                 u.unit_master_id,
-                m.element_code as monster_elemental,
-                m.monster_name as monster_name,
-                '/images/' || m.element_code || '/' || replace(m.monster_name, ' ', '_') || '_' || m.element_code || '_Icon.png' as monster_image,
+                m.monster_elemental as monster_elemental,
+                m.kr_name as monster_name,
+                '/images/' || m.monster_elemental || '/' || replace(m.kr_name, ' ', '_') || '_' || m.monster_elemental || '_Icon.png' as monster_image,
                 COUNT(*) as pick_count,
                 COUNT(CASE WHEN u.pick_slot_no = 1 THEN 1 END) as first_pick_count
             FROM public.rta_match_unit_pick u
             INNER JOIN rta_match_in_season r ON u.replay_id = r.rid
-            LEFT JOIN public.rta_monster m ON m.unit_master_id = u.unit_master_id
-            WHERE m.monster_name IS NOT NULL
+            LEFT JOIN public.monster m ON m.monster_id = u.unit_master_id::text
+            WHERE m.kr_name IS NOT NULL
                 AND u.unit_master_id = #{monsterId}
-            GROUP BY u.unit_master_id, m.element_code, m.monster_name
+            GROUP BY u.unit_master_id, m.monster_elemental, m.kr_name
         ),
         ban_stats AS (
             SELECT 
@@ -468,9 +468,9 @@
         opponent_stats AS (
             SELECT 
                 u2.unit_master_id as opponent_monster_id,
-                m.element_code as opponent_monster_elemental,
-                m.monster_name as opponent_monster_name,
-                '/images/' || m.element_code || '/' || replace(m.monster_name, ' ', '_') || '_' || m.element_code || '_Icon.png' as opponent_monster_image,
+                m.monster_elemental as opponent_monster_elemental,
+                m.kr_name as opponent_monster_name,
+                '/images/' || m.monster_elemental || '/' || replace(m.kr_name, ' ', '_') || '_' || m.monster_elemental || '_Icon.png' as opponent_monster_image,
                 COUNT(*) as match_count,
                 SUM(CASE WHEN ul1.is_winner THEN 1 ELSE 0 END) as win_count
             FROM my_matches mm
@@ -478,10 +478,10 @@
             JOIN public.rta_match_participant ul1 ON mm.replay_id = ul1.replay_id AND mm.wizard_id = ul1.wizard_id
             JOIN public.rta_match_participant ul2 ON mm.replay_id = ul2.replay_id AND u2.wizard_id = ul2.wizard_id AND ul1.wizard_id != ul2.wizard_id
             JOIN rta_match_in_season r ON mm.replay_id = r.rid
-            LEFT JOIN public.rta_monster m ON m.unit_master_id = u2.unit_master_id
+            LEFT JOIN public.monster m ON m.monster_id = u2.unit_master_id::text
             WHERE u2.unit_master_id != #{monsterId}
-                AND m.monster_name IS NOT NULL
-            GROUP BY u2.unit_master_id, m.element_code, m.monster_name
+                AND m.kr_name IS NOT NULL
+            GROUP BY u2.unit_master_id, m.monster_elemental, m.kr_name
             HAVING COUNT(*) >= 10
         )
         SELECT 
@@ -511,19 +511,19 @@
         combo_stats AS (
             SELECT 
                 u2.unit_master_id as combo_monster_id,
-                m.element_code as combo_monster_elemental,
-                m.monster_name as combo_monster_name,
-                '/images/' || m.element_code || '/' || replace(m.monster_name, ' ', '_') || '_' || m.element_code || '_Icon.png' as combo_monster_image,
+                m.monster_elemental as combo_monster_elemental,
+                m.kr_name as combo_monster_name,
+                '/images/' || m.monster_elemental || '/' || replace(m.kr_name, ' ', '_') || '_' || m.monster_elemental || '_Icon.png' as combo_monster_image,
                 COUNT(*) as match_count,
                 SUM(CASE WHEN ul.is_winner THEN 1 ELSE 0 END) as win_count
             FROM my_matches mm
             JOIN public.rta_match_unit_pick u2 ON mm.replay_id = u2.replay_id AND mm.wizard_id = u2.wizard_id
             JOIN public.rta_match_participant ul ON mm.replay_id = ul.replay_id AND mm.wizard_id = ul.wizard_id
             JOIN rta_match_in_season r ON mm.replay_id = r.rid
-            LEFT JOIN public.rta_monster m ON m.unit_master_id = u2.unit_master_id
+            LEFT JOIN public.monster m ON m.monster_id = u2.unit_master_id::text
             WHERE u2.unit_master_id != #{monsterId}
-                AND m.monster_name IS NOT NULL
-            GROUP BY u2.unit_master_id, m.element_code, m.monster_name
+                AND m.kr_name IS NOT NULL
+            GROUP BY u2.unit_master_id, m.monster_elemental, m.kr_name
             HAVING COUNT(*) >= 10
         )
         SELECT 
@@ -554,13 +554,13 @@
         triple_combo_stats AS (
             SELECT 
                 u2.unit_master_id as monster1_id,
-                m1.element_code as monster1_elemental,
-                m1.monster_name as monster1_name,
-                '/images/' || m1.element_code || '/' || replace(m1.monster_name, ' ', '_') || '_' || m1.element_code || '_Icon.png' as monster1_image,
+                m1.monster_elemental as monster1_elemental,
+                m1.kr_name as monster1_name,
+                '/images/' || m1.monster_elemental || '/' || replace(m1.kr_name, ' ', '_') || '_' || m1.monster_elemental || '_Icon.png' as monster1_image,
                 u3.unit_master_id as monster2_id,
-                m2.element_code as monster2_elemental,
-                m2.monster_name as monster2_name,
-                '/images/' || m2.element_code || '/' || replace(m2.monster_name, ' ', '_') || '_' || m2.element_code || '_Icon.png' as monster2_image,
+                m2.monster_elemental as monster2_elemental,
+                m2.kr_name as monster2_name,
+                '/images/' || m2.monster_elemental || '/' || replace(m2.kr_name, ' ', '_') || '_' || m2.monster_elemental || '_Icon.png' as monster2_image,
                 COUNT(*) as match_count,
                 SUM(CASE WHEN ul.is_winner THEN 1 ELSE 0 END) as win_count
             FROM my_matches mm
@@ -568,15 +568,15 @@
             JOIN public.rta_match_unit_pick u3 ON mm.replay_id = u3.replay_id AND mm.wizard_id = u3.wizard_id
             JOIN public.rta_match_participant ul ON mm.replay_id = ul.replay_id AND mm.wizard_id = ul.wizard_id
             JOIN rta_match_in_season r ON mm.replay_id = r.rid
-            LEFT JOIN public.rta_monster m1 ON m1.unit_master_id = u2.unit_master_id
-            LEFT JOIN public.rta_monster m2 ON m2.unit_master_id = u3.unit_master_id
+            LEFT JOIN public.monster m1 ON m1.monster_id = u2.unit_master_id::text
+            LEFT JOIN public.monster m2 ON m2.monster_id = u3.unit_master_id::text
             WHERE u2.unit_master_id != #{monsterId}
                 AND u3.unit_master_id != #{monsterId}
                 AND u2.unit_master_id &lt; u3.unit_master_id
-                AND m1.monster_name IS NOT NULL
-                AND m2.monster_name IS NOT NULL
-            GROUP BY u2.unit_master_id, m1.element_code, m1.monster_name,
-                     u3.unit_master_id, m2.element_code, m2.monster_name
+                AND m1.kr_name IS NOT NULL
+                AND m2.kr_name IS NOT NULL
+            GROUP BY u2.unit_master_id, m1.monster_elemental, m1.kr_name,
+                     u3.unit_master_id, m2.monster_elemental, m2.kr_name
             HAVING COUNT(*) >= 5
         )
         SELECT 
@@ -616,16 +616,16 @@
                 json_agg(
                     json_build_object(
                         'monster_id', u1.unit_master_id,
-                        'monster_name', COALESCE(m1.monster_name, ''),
+                        'monster_name', COALESCE(m1.kr_name, ''),
                         'monster_image', CASE 
-                            WHEN m1.monster_name IS NOT NULL THEN '/images/' || m1.element_code || '/' || replace(m1.monster_name, ' ', '_') || '_' || m1.element_code || '_Icon.png'
+                            WHEN m1.kr_name IS NOT NULL THEN '/images/' || m1.monster_elemental || '/' || replace(m1.kr_name, ' ', '_') || '_' || m1.monster_elemental || '_Icon.png'
                             ELSE ''
                         END
                     ) ORDER BY u1.pick_slot_no
                 ) as my_team
             FROM my_matches mm
             JOIN public.rta_match_unit_pick u1 ON mm.replay_id = u1.replay_id AND mm.wizard_id = u1.wizard_id
-            LEFT JOIN public.rta_monster m1 ON m1.unit_master_id = u1.unit_master_id
+            LEFT JOIN public.monster m1 ON m1.monster_id = u1.unit_master_id::text
             GROUP BY mm.replay_id, mm.wizard_id
         ),
         opponent_team_json AS (
@@ -634,16 +634,16 @@
                 json_agg(
                     json_build_object(
                         'monster_id', u2.unit_master_id,
-                        'monster_name', COALESCE(m2.monster_name, ''),
+                        'monster_name', COALESCE(m2.kr_name, ''),
                         'monster_image', CASE 
-                            WHEN m2.monster_name IS NOT NULL THEN '/images/' || m2.element_code || '/' || replace(m2.monster_name, ' ', '_') || '_' || m2.element_code || '_Icon.png'
+                            WHEN m2.kr_name IS NOT NULL THEN '/images/' || m2.monster_elemental || '/' || replace(m2.kr_name, ' ', '_') || '_' || m2.monster_elemental || '_Icon.png'
                             ELSE ''
                         END
                     ) ORDER BY u2.pick_slot_no
                 ) as opponent_team
             FROM my_matches mm
             JOIN public.rta_match_unit_pick u2 ON mm.replay_id = u2.replay_id AND mm.wizard_id != u2.wizard_id
-            LEFT JOIN public.rta_monster m2 ON m2.unit_master_id = u2.unit_master_id
+            LEFT JOIN public.monster m2 ON m2.monster_id = u2.unit_master_id::text
             GROUP BY mm.replay_id
         )
         SELECT 
@@ -915,39 +915,39 @@
             COALESCE(wa.win_count, 0)::bigint AS win_count,
             m1.m1_id::text AS most_monster_1_id,
             m1.m1_pick AS most_monster_1_pick_count,
-            COALESCE(mm1.monster_name, '') AS most_monster_1_name,
+            COALESCE(mm1.kr_name, '') AS most_monster_1_name,
             CASE
-                WHEN mm1.monster_name IS NOT NULL THEN
-                    '/images/' || mm1.element_code || '/' || replace(mm1.monster_name, ' ', '_') || '_' || mm1.element_code || '_Icon.png'
+                WHEN mm1.kr_name IS NOT NULL THEN
+                    '/images/' || mm1.monster_elemental || '/' || replace(mm1.kr_name, ' ', '_') || '_' || mm1.monster_elemental || '_Icon.png'
                 ELSE ''
             END AS most_monster_1_image,
             m2.m2_id::text AS most_monster_2_id,
             m2.m2_pick AS most_monster_2_pick_count,
-            COALESCE(mm2.monster_name, '') AS most_monster_2_name,
+            COALESCE(mm2.kr_name, '') AS most_monster_2_name,
             CASE
-                WHEN mm2.monster_name IS NOT NULL THEN
-                    '/images/' || mm2.element_code || '/' || replace(mm2.monster_name, ' ', '_') || '_' || mm2.element_code || '_Icon.png'
+                WHEN mm2.kr_name IS NOT NULL THEN
+                    '/images/' || mm2.monster_elemental || '/' || replace(mm2.kr_name, ' ', '_') || '_' || mm2.monster_elemental || '_Icon.png'
                 ELSE ''
             END AS most_monster_2_image,
             m3.m3_id::text AS most_monster_3_id,
             m3.m3_pick AS most_monster_3_pick_count,
-            COALESCE(mm3.monster_name, '') AS most_monster_3_name,
+            COALESCE(mm3.kr_name, '') AS most_monster_3_name,
             CASE
-                WHEN mm3.monster_name IS NOT NULL THEN
-                    '/images/' || mm3.element_code || '/' || replace(mm3.monster_name, ' ', '_') || '_' || mm3.element_code || '_Icon.png'
+                WHEN mm3.kr_name IS NOT NULL THEN
+                    '/images/' || mm3.monster_elemental || '/' || replace(mm3.kr_name, ' ', '_') || '_' || mm3.monster_elemental || '_Icon.png'
                 ELSE ''
             END AS most_monster_3_image
         FROM page_ranked pr
         LEFT JOIN win_agg wa ON pr.wizard_id = wa.wizard_id
         LEFT JOIN most1 m1 ON pr.wizard_id = m1.wizard_id
-        LEFT JOIN public.rta_monster mm1 ON m1.m1_id IS NOT NULL AND TRIM(BOTH FROM m1.m1_id::text) ~ '^[0-9]+$'
-            AND mm1.unit_master_id = CAST(TRIM(BOTH FROM m1.m1_id::text) AS bigint)
+        LEFT JOIN public.monster mm1 ON m1.m1_id IS NOT NULL AND TRIM(BOTH FROM m1.m1_id::text) ~ '^[0-9]+$'
+            AND mm1.monster_id = TRIM(BOTH FROM m1.m1_id::text)
         LEFT JOIN most2 m2 ON pr.wizard_id = m2.wizard_id
-        LEFT JOIN public.rta_monster mm2 ON m2.m2_id IS NOT NULL AND TRIM(BOTH FROM m2.m2_id::text) ~ '^[0-9]+$'
-            AND mm2.unit_master_id = CAST(TRIM(BOTH FROM m2.m2_id::text) AS bigint)
+        LEFT JOIN public.monster mm2 ON m2.m2_id IS NOT NULL AND TRIM(BOTH FROM m2.m2_id::text) ~ '^[0-9]+$'
+            AND mm2.monster_id = TRIM(BOTH FROM m2.m2_id::text)
         LEFT JOIN most3 m3 ON pr.wizard_id = m3.wizard_id
-        LEFT JOIN public.rta_monster mm3 ON m3.m3_id IS NOT NULL AND TRIM(BOTH FROM m3.m3_id::text) ~ '^[0-9]+$'
-            AND mm3.unit_master_id = CAST(TRIM(BOTH FROM m3.m3_id::text) AS bigint)
+        LEFT JOIN public.monster mm3 ON m3.m3_id IS NOT NULL AND TRIM(BOTH FROM m3.m3_id::text) ~ '^[0-9]+$'
+            AND mm3.monster_id = TRIM(BOTH FROM m3.m3_id::text)
         ORDER BY pr.rank_position
     </select>
 

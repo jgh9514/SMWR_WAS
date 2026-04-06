@@ -213,40 +213,40 @@
             COALESCE(sm.max_season_score, pr.score)::int AS max_season_score,
             m1.m1_id::text AS most_monster_1_id,
             m1.m1_pick AS most_monster_1_pick_count,
-            COALESCE(mm1.monster_name, '') AS most_monster_1_name,
+            COALESCE(mm1.kr_name, '') AS most_monster_1_name,
             CASE
-                WHEN mm1.monster_name IS NOT NULL THEN
-                    '/images/' || mm1.element_code || '/' || replace(mm1.monster_name, ' ', '_') || '_' || mm1.element_code || '_Icon.png'
+                WHEN mm1.kr_name IS NOT NULL THEN
+                    '/images/' || mm1.monster_elemental || '/' || replace(mm1.kr_name, ' ', '_') || '_' || mm1.monster_elemental || '_Icon.png'
                 ELSE ''
             END AS most_monster_1_image,
             m2.m2_id::text AS most_monster_2_id,
             m2.m2_pick AS most_monster_2_pick_count,
-            COALESCE(mm2.monster_name, '') AS most_monster_2_name,
+            COALESCE(mm2.kr_name, '') AS most_monster_2_name,
             CASE
-                WHEN mm2.monster_name IS NOT NULL THEN
-                    '/images/' || mm2.element_code || '/' || replace(mm2.monster_name, ' ', '_') || '_' || mm2.element_code || '_Icon.png'
+                WHEN mm2.kr_name IS NOT NULL THEN
+                    '/images/' || mm2.monster_elemental || '/' || replace(mm2.kr_name, ' ', '_') || '_' || mm2.monster_elemental || '_Icon.png'
                 ELSE ''
             END AS most_monster_2_image,
             m3.m3_id::text AS most_monster_3_id,
             m3.m3_pick AS most_monster_3_pick_count,
-            COALESCE(mm3.monster_name, '') AS most_monster_3_name,
+            COALESCE(mm3.kr_name, '') AS most_monster_3_name,
             CASE
-                WHEN mm3.monster_name IS NOT NULL THEN
-                    '/images/' || mm3.element_code || '/' || replace(mm3.monster_name, ' ', '_') || '_' || mm3.element_code || '_Icon.png'
+                WHEN mm3.kr_name IS NOT NULL THEN
+                    '/images/' || mm3.monster_elemental || '/' || replace(mm3.kr_name, ' ', '_') || '_' || mm3.monster_elemental || '_Icon.png'
                 ELSE ''
             END AS most_monster_3_image
         FROM page_ranked pr
         LEFT JOIN win_agg wa ON pr.wizard_id = wa.wizard_id
         LEFT JOIN score_max_agg sm ON pr.wizard_id = sm.wizard_id
         LEFT JOIN most1 m1 ON pr.wizard_id = m1.wizard_id
-        LEFT JOIN public.rta_monster mm1 ON m1.m1_id IS NOT NULL AND TRIM(BOTH FROM m1.m1_id::text) ~ '^[0-9]+$'
-            AND mm1.unit_master_id = CAST(TRIM(BOTH FROM m1.m1_id::text) AS bigint)
+        LEFT JOIN public.monster mm1 ON m1.m1_id IS NOT NULL AND TRIM(BOTH FROM m1.m1_id::text) ~ '^[0-9]+$'
+            AND mm1.monster_id = TRIM(BOTH FROM m1.m1_id::text)
         LEFT JOIN most2 m2 ON pr.wizard_id = m2.wizard_id
-        LEFT JOIN public.rta_monster mm2 ON m2.m2_id IS NOT NULL AND TRIM(BOTH FROM m2.m2_id::text) ~ '^[0-9]+$'
-            AND mm2.unit_master_id = CAST(TRIM(BOTH FROM m2.m2_id::text) AS bigint)
+        LEFT JOIN public.monster mm2 ON m2.m2_id IS NOT NULL AND TRIM(BOTH FROM m2.m2_id::text) ~ '^[0-9]+$'
+            AND mm2.monster_id = TRIM(BOTH FROM m2.m2_id::text)
         LEFT JOIN most3 m3 ON pr.wizard_id = m3.wizard_id
-        LEFT JOIN public.rta_monster mm3 ON m3.m3_id IS NOT NULL AND TRIM(BOTH FROM m3.m3_id::text) ~ '^[0-9]+$'
-            AND mm3.unit_master_id = CAST(TRIM(BOTH FROM m3.m3_id::text) AS bigint)
+        LEFT JOIN public.monster mm3 ON m3.m3_id IS NOT NULL AND TRIM(BOTH FROM m3.m3_id::text) ~ '^[0-9]+$'
+            AND mm3.monster_id = TRIM(BOTH FROM m3.m3_id::text)
         ORDER BY pr.rank_position
     </select>
 
@@ -495,9 +495,9 @@
                 ELSE NULL
             END AS "winRate",
             (
-                SELECT string_agg(m.monster_name, ' + ' ORDER BY z.ord)
+                SELECT string_agg(m.kr_name, ' + ' ORDER BY z.ord)
                 FROM unnest(string_to_array(c.opponent_combo_key, ',')) WITH ORDINALITY AS z(id, ord)
-                LEFT JOIN public.rta_monster m ON m.unit_master_id = NULLIF(TRIM(BOTH FROM z.id), '')::bigint
+                LEFT JOIN public.monster m ON m.monster_id = NULLIF(TRIM(BOTH FROM z.id), '')
             ) AS "opponentLabel"
         FROM public.rta_agg_counter_matchup c
         WHERE c.season_id = (SELECT season_id FROM public.rta_season WHERE season_code = #{seasonCode} LIMIT 1)
