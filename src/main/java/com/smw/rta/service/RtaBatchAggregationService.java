@@ -122,7 +122,7 @@ public class RtaBatchAggregationService {
 	}
 
 	/**
-	 * ranker_rtpvp_replay_raw 미적용 건을 정규화 테이블로 반영한다.
+	 * 원본 스테이징 미적용 건을 정규화 테이블로 반영한다.
 	 *
 	 * @param maxRounds 통합 배치는 {@link #MAX_RAW_APPLY_ROUNDS_PER_JOB}, 단발 배치는 1
 	 */
@@ -171,21 +171,9 @@ public class RtaBatchAggregationService {
 				stopReason = "pending 없음";
 				break;
 			}
-			int ok = 0;
-			int fail = 0;
-			for (Long rid : rids) {
-				if (rid == null) {
-					continue;
-				}
-				try {
-					synergyAggService.applyOneRid(rid);
-					ok++;
-				} catch (Exception e) {
-					fail++;
-					rtaMapper.markSynergyAggFailed(rid);
-					log.warn("[rta-batch] rid={} 시너지 집계 실패: {}", rid, e.getMessage());
-				}
-			}
+			RtaSynergyAggService.SynergyBatchApplyResult batch = synergyAggService.applySynergyBatch(rids);
+			int ok = batch.ok();
+			int fail = batch.fail();
 			totalOk += ok;
 			totalFail += fail;
 			rounds++;

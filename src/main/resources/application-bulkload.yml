@@ -1,0 +1,15 @@
+# 전량 재적재·대량 백필: spring.profiles.active=local,bulkload (파일명으로 bulkload 전용)
+# 프로필 없이 쓰려면 SMW_RTA_* 환경변수만 application.yml 기본값보다 크게 설정.
+
+smw:
+  rta:
+    raw-apply:
+      # 한 번의 applyPending 호출에서 SELECT 할 최대 행 수 (기본 application.yml 1000 → 대량 시 상향)
+      max-rows-per-run: ${SMW_RTA_RAW_APPLY_MAX_ROWS:20000}
+      # 정규화 INSERT 청크 (클수록 트랜잭션 수↓, 단일 트랜잭션 부담↑)
+      apply-chunk-size: ${SMW_RTA_RAW_APPLY_CHUNK_SIZE:200}
+    batch:
+      synergy-batch-size: ${SMW_RTA_SYNERGY_BATCH_SIZE:400}
+      snapshot-batch-size: ${SMW_RTA_SNAPSHOT_BATCH_SIZE:3000}
+      # v2에서 스냅샷 단계가 no-op 이면 true 권장
+      skip-legacy-snapshot-step: ${SMW_RTA_BATCH_SKIP_SNAPSHOT:true}

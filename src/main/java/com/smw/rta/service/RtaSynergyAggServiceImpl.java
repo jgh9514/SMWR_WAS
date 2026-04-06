@@ -16,8 +16,11 @@ import org.springframework.transaction.annotation.Transactional;
 import com.smw.rta.mapper.RtaMapper;
 import com.smw.rta.model.RtaSynergyAggUpsertRow;
 
+import lombok.extern.slf4j.Slf4j;
+
 @Service
 @Primary
+@Slf4j
 public class RtaSynergyAggServiceImpl implements RtaSynergyAggService {
 
 	private final RtaMapper rtaMapper;
@@ -29,6 +32,38 @@ public class RtaSynergyAggServiceImpl implements RtaSynergyAggService {
 	@Override
 	@Transactional(propagation = Propagation.REQUIRES_NEW, rollbackFor = Exception.class)
 	public void applyOneRid(long rid) {
+		applyOneRidInternal(rid);
+	}
+
+	@Override
+	@Transactional(rollbackFor = Exception.class)
+	public SynergyBatchApplyResult applySynergyBatch(List<Long> rids) {
+		int ok = 0;
+		int fail = 0;
+		if (rids == null) {
+			return new SynergyBatchApplyResult(0, 0);
+		}
+		for (Long rid : rids) {
+			if (rid == null) {
+				continue;
+			}
+			try {
+				applyOneRidInternal(rid);
+				ok++;
+			} catch (Exception e) {
+				fail++;
+				try {
+					rtaMapper.markSynergyAggFailed(rid);
+				} catch (Exception markEx) {
+					log.warn("[rta-synergy] rid={} 실패 표시 중 오류: {}", rid, markEx.getMessage());
+				}
+				log.warn("[rta-synergy] rid={} 시너지 집계 실패: {}", rid, e.getMessage());
+			}
+		}
+		return new SynergyBatchApplyResult(ok, fail);
+	}
+
+	private void applyOneRidInternal(long rid) {
 		List<RtaSynergyAggUpsertRow> aggRows = buildSynergyRowsForRid(rid);
 		if (aggRows.size() != 28) {
 			throw new IllegalStateException("조합 행 수 != 28 rid=" + rid + " n=" + aggRows.size());

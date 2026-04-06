@@ -6,6 +6,7 @@ import com.smw.account.mapper.AccountSummaryMapper;
 import com.smw.monster.mapper.summonerswarMapper;
 import com.smw.monster.service.summonerswarService;
 import com.smw.rta.cache.RtaCacheEvictor;
+import com.smw.rta.config.RtaBatchProperties;
 import com.smw.rta.mapper.RtaMapper;
 import com.smw.rta.service.RtaBatchAggregationService;
 import com.smw.rta.service.RtaSynergyAggService;
@@ -34,6 +35,7 @@ public class RtaUnifiedPipelineAggJob extends BaseBatchJob {
 		RtaCacheEvictor rtaCacheEvictor = applicationContext.getBean(RtaCacheEvictor.class);
 		RtaBatchAggregationService aggregationService = applicationContext.getBean(RtaBatchAggregationService.class);
 		RtaSynergyAggService synergyAggService = applicationContext.getBean(RtaSynergyAggService.class);
+		RtaBatchProperties rtaBatchProperties = applicationContext.getBean(RtaBatchProperties.class);
 
 		addLog("--- 1) RTA raw 정규화 (미적용 전량) ---");
 		int notApplied = summonerswarMapper.selectRtaReplayRawNotAppliedCount();
@@ -47,28 +49,33 @@ public class RtaUnifiedPipelineAggJob extends BaseBatchJob {
 				raw.totalApplied(),
 				raw.stopReason());
 
-		addLog("--- 2) 매치 스냅샷 pending 소진 (배치 %d건/라운드) ---",
-				RtaBatchAggregationService.SNAPSHOT_BATCH_SIZE);
-		RtaBatchAggregationService.SnapshotDrainResult snap = aggregationService.drainPendingSnapshots(
-				rtaMapper,
-				rtaCacheEvictor,
-				RtaBatchAggregationService.SNAPSHOT_BATCH_SIZE,
-				RtaBatchAggregationService.MAX_SNAPSHOT_ROUNDS_PER_JOB,
-				false);
-		addLog("스냅샷: 라운드 %d, rids 누적 %d건, upsert %d, done %d, 종료: %s",
-				snap.rounds(),
-				snap.totalRidsTouched(),
-				snap.totalUpserted(),
-				snap.totalMarked(),
-				snap.stopReason());
+		int snapshotBatch = Math.max(1, rtaBatchProperties.getSnapshotBatchSize());
+		int synergyBatch = Math.max(1, rtaBatchProperties.getSynergyBatchSize());
 
-		addLog("--- 3) 시너지 집계 pending 소진 (배치 %d건/라운드) ---",
-				RtaBatchAggregationService.SYNERGY_BATCH_SIZE);
+		if (rtaBatchProperties.isSkipLegacySnapshotStep()) {
+			addLog("--- 2) 매치 스냅샷: 설정에 의해 단계 생략 (smw.rta.batch.skip-legacy-snapshot-step=true) ---");
+		} else {
+			addLog("--- 2) 매치 스냅샷 pending 소진 (배치 %d건/라운드) ---", snapshotBatch);
+			RtaBatchAggregationService.SnapshotDrainResult snap = aggregationService.drainPendingSnapshots(
+					rtaMapper,
+					rtaCacheEvictor,
+					snapshotBatch,
+					RtaBatchAggregationService.MAX_SNAPSHOT_ROUNDS_PER_JOB,
+					false);
+			addLog("스냅샷: 라운드 %d, rids 누적 %d건, upsert %d, done %d, 종료: %s",
+					snap.rounds(),
+					snap.totalRidsTouched(),
+					snap.totalUpserted(),
+					snap.totalMarked(),
+					snap.stopReason());
+		}
+
+		addLog("--- 3) 시너지 집계 pending 소진 (배치 %d건/라운드) ---", synergyBatch);
 		RtaBatchAggregationService.SynergyDrainResult syn = aggregationService.drainSynergyPending(
 				rtaMapper,
 				synergyAggService,
 				rtaCacheEvictor,
-				RtaBatchAggregationService.SYNERGY_BATCH_SIZE,
+				synergyBatch,
 				RtaBatchAggregationService.MAX_SYNERGY_ROUNDS_PER_JOB,
 				false);
 		addLog("시너지: 라운드 %d, ok %d, fail %d, 종료: %s",

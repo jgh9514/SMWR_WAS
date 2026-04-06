@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smw.rta.mapper.RtaMapper">
+
+	<!-- 시즌 구간: rta_match.played_at ([start, end)) — CTE 별칭 rta_match_in_season -->
+	<sql id="rtaMatchInSeasonCte">
+		rta_match_in_season AS (
+			SELECT m.replay_id AS rid, m.played_at AS date_add, m.winner_wizard_id, m.battle_type
+			FROM public.rta_match m
+			WHERE 1 = 1
+			<if test="seasonStart != null and seasonEnd != null">
+				AND m.played_at &gt;= #{seasonStart}
+				AND m.played_at &lt; #{seasonEnd}
+			</if>
+		)
+	</sql>
+
+	<!--
+	  집계용 승패: wizard_id별 match_count / win_count (rta_match_in_season 조인)
+	-->
+	<sql id="rtaWinAggPairwise">
+		win_agg AS (
+			SELECT
+				u.wizard_id,
+				COUNT(*)::bigint AS match_count,
+				SUM(CASE WHEN u.is_winner THEN 1 ELSE 0 END)::bigint AS win_count
+			FROM public.rta_match_participant u
+			INNER JOIN rta_match_in_season r ON u.replay_id = r.rid
+			WHERE TRIM(COALESCE(u.ladder_score::text, '')) ~ '^[0-9]+$'
+			  AND CAST(TRIM(u.ladder_score::text) AS INT) &gt; 0
+			GROUP BY u.wizard_id
+		)
+	</sql>
+
+	<sql id="rtaMatchSeasonFilter">
+		<if test="seasonStart != null and seasonEnd != null">
+			AND m.played_at &gt;= #{seasonStart}
+			AND m.played_at &lt; #{seasonEnd}
+		</if>
+	</sql>
+</mapper>

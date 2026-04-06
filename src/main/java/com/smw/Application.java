@@ -16,12 +16,13 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
 import com.smw.monster.config.RtaExporterProperties;
+import com.smw.rta.config.RtaBatchProperties;
 import com.sysconf.config.SessionListener;
 
 @SpringBootApplication(scanBasePackages = {"com.smw", "com.sysconf", "com.admin", "com.cf"})
 @EnableCaching
 @EnableScheduling
-@EnableConfigurationProperties(RtaExporterProperties.class)
+@EnableConfigurationProperties({ RtaExporterProperties.class, RtaBatchProperties.class })
 @MapperScan({"com.smw", "com.admin", "com.cf", "com.sysconf"})
 public class Application extends SpringBootServletInitializer {
 

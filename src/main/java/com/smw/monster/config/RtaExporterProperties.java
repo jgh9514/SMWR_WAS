@@ -8,7 +8,7 @@ import lombok.Setter;
 /**
  * Summoners War Exporter 가 쓰는 full_log 를 로컬 폴더에서 읽어 DB 반영할 때 사용.
  * <p>
- * 감시 스케줄러는 항상 {@code ranker_rtpvp_replay_raw} 에만 INSERT 하며, {@code rta_match} 정규화는 WAS 배치가 처리한다.
+ * 감시 스케줄러는 원본 JSON 스테이징에만 INSERT 하며, {@code rta_match} 정규화는 WAS 배치가 처리한다.
  * <p>
  * {@code enabled=false} 가 기본 — 로그 수집 PC에서만 {@code application.yml} 또는 프로필로 켠다.
  */

@@ -66,10 +66,10 @@ public interface summonerswarMapper {
 	/** 이미 저장된 rid만 조회 (rta-upload 중복 검사 N회 → 1~N/500회) */
 	List<Long> selectArenaRidsExisting(@Param("rids") List<Long> rids);
 
-	/** user_list PK (rid, wizard_id) 이미 존재 여부 — replay_list 와 불일치 시에도 중복 INSERT 방지 */
+	/** user_list PK (rid, wizard_id) 이미 존재 여부 — rta_match 와 불일치 시에도 중복 INSERT 방지 */
 	List<Map<String, ?>> selectArenaUserPairsByRids(@Param("rids") List<Long> rids);
 
-	/** replay_list 에 부모가 없는 rid 에 대해 자식만 남은 행 삭제 (업로드 중단 복구용). unit → pick → user 순 */
+	/** rta_match 에 부모가 없는 rid 에 대해 자식만 남은 행 삭제 (업로드 중단 복구용). unit → pick → user 순 */
 	int deleteArenaRtaOrphanUnitsByRids(@Param("rids") List<Long> rids);
 
 	int deleteArenaRtaOrphanPicksByRids(@Param("rids") List<Long> rids);
@@ -106,7 +106,7 @@ public interface summonerswarMapper {
 	/** RTA raw: pending/failed 조회 (rid 오름차순, 한 실행당 {@code limit}건 상한). */
 	List<Map<String, ?>> selectRtaReplayRawPending(@Param("limit") int limit);
 
-	/** replay_list 부모 없는 고아 행 전수 삭제 (배치용, unit → pick → user 순) */
+	/** rta_match 부모 없는 고아 행 전수 삭제 (배치용, unit → pick → user 순) */
 	int deleteArenaRtaOrphanUnitsGlobal();
 
 	int deleteArenaRtaOrphanPicksGlobal();

@@ -61,7 +61,7 @@ public class summonerswarServiceImpl implements summonerswarService {
 	@Value("${smw.rta.raw-apply.max-rows-per-run:1000}")
 	private int rawApplyMaxRowsPerRun;
 
-	/** raw → replay_list 정규화 시 한 트랜잭션에 묶는 건수 (1 미만이면 1). 상한 없음. */
+	/** raw → rta_match 정규화 시 한 트랜잭션에 묶는 건수 (1 미만이면 1). 상한 없음. */
 	@Value("${smw.rta.raw-apply.apply-chunk-size:80}")
 	private int rawApplyApplyChunkSize;
 
@@ -857,7 +857,7 @@ public class summonerswarServiceImpl implements summonerswarService {
 	}
 
 	/**
-	 * API가 메타 필드를 루트가 아닌 첫 user 쪽에만 줄 때 replay_list 행으로 승격.
+	 * API가 메타 필드를 루트가 아닌 첫 user 쪽에만 줄 때 rta_match 적재용 매치 행으로 승격.
 	 */
 	private static void enrichArenaReplayListFromPayload(Map<String, Object> arenaRow) {
 		if (arenaRow == null) {
@@ -1026,7 +1026,7 @@ public class summonerswarServiceImpl implements summonerswarService {
 	}
 
 	/**
-	 * rta-upload: 매치 원본 JSON(rid) → ranker_rtpvp_replay_raw, 이후 정규화 테이블 벌크.
+	 * rta-upload: 매치 원본 JSON(rid) → 원본 스테이징, 이후 정규화 테이블 벌크.
 	 */
 	private List<Map<String, Object>> buildArenaReplayRawRows(List<Map<String, ?>> arenaRows) {
 		List<Map<String, Object>> out = new ArrayList<>();
@@ -1126,7 +1126,7 @@ public class summonerswarServiceImpl implements summonerswarService {
 
 	/**
 	 * rta-upload: 선행 필터 후 한 트랜잭션에서 원본 JSON(rid) → replay → user → pick → unit 순 벌크 INSERT.
-	 * replay_list 없이 남은 고아 행은 {@link #deleteArenaRtaOrphanChildrenGlobal()} 배치에서 정리.
+	 * rta_match 없이 남은 고아 행은 {@link #deleteArenaRtaOrphanChildrenGlobal()} 배치에서 정리.
 	 */
 	@Override
 	public ArenaRtaUploadApplyResult applyArenaRtaUploadPersistence(
@@ -1163,7 +1163,7 @@ public class summonerswarServiceImpl implements summonerswarService {
 		}
 		Set<Long> alreadyInReplay = selectArenaRidsExisting(candidateRids);
 		if (!alreadyInReplay.isEmpty()) {
-			log.warn("[rta-upload] 이미 replay_list 에 있는 rid 제외 (누적 로그·재업로드 등): {}", alreadyInReplay);
+			log.warn("[rta-upload] 이미 rta_match 에 있는 rid 제외 (누적 로그·재업로드 등): {}", alreadyInReplay);
 			removeArenaRtaRowsByRids(alreadyInReplay, arenaBatch, userBatch, pickBatch, unitBatch);
 			pruneArenaBatchWithoutUserRows(arenaBatch, userBatch);
 			dupSkipped += alreadyInReplay.size();
@@ -1192,7 +1192,7 @@ public class summonerswarServiceImpl implements summonerswarService {
 			}
 			Set<Long> replayExistsNow = selectArenaRidsExisting(ridsToInsert);
 			if (!replayExistsNow.isEmpty()) {
-				log.warn("[rta-upload] INSERT 직전 replay_list 에 이미 존재하는 rid 제외 (동시 업로드 등): {}", replayExistsNow);
+				log.warn("[rta-upload] INSERT 직전 rta_match 에 이미 존재하는 rid 제외 (동시 업로드 등): {}", replayExistsNow);
 				removeArenaRtaRowsByRids(replayExistsNow, arenaBatch, userBatch, pickBatch, unitBatch);
 				pruneArenaBatchWithoutUserRows(arenaBatch, userBatch);
 				dupSkipped += replayExistsNow.size();

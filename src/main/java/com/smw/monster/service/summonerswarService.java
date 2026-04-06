@@ -63,13 +63,13 @@ public interface summonerswarService {
 	Set<String> selectArenaUserPkKeysExisting(Collection<Long> rids);
 
 	/**
-	 * 업로드 중단 등으로 replay_list 없이 user/pick/unit 만 남은 rid 정리.
+	 * 업로드 중단 등으로 {@code rta_match} 행 없이 user/pick/unit 만 남은 rid 정리.
 	 * 재업로드 시 고아 PK가 ‘이미 존재’로 잡혀 replay 가 안 들어가는 현상 방지.
 	 */
 	int deleteArenaRtaOrphanChildrenByRids(Collection<Long> rids);
 
 	/**
-	 * 부모 {@code replay_list} 행이 없는 user/pick/unit 고아 행 전수 삭제. 배치({@link com.smw.monster.batch.RtaUnifiedPipelineAggJob})에서 호출.
+	 * 부모 {@code rta_match} 행이 없는 user/pick/unit 고아 행 전수 삭제. 배치({@link com.smw.monster.batch.RtaUnifiedPipelineAggJob})에서 호출.
 	 */
 	int deleteArenaRtaOrphanChildrenGlobal();
 	
@@ -116,7 +116,7 @@ public interface summonerswarService {
 	Map<String, Integer> applyArenaRtaUploadFromParsedItems(List<Map<String, ?>> log_list);
 
 	/**
-	 * Exporter {@code watch-directory} 전용: 검증 후 {@code ranker_rtpvp_replay_raw} 만 적재(pending).
+	 * Exporter {@code watch-directory} 전용: 검증 후 원본 JSON 스테이징 테이블에만 적재(pending).
 	 * 정규화는 {@link com.smw.monster.batch.RtaUnifiedPipelineAggJob}(bat_id 10001)가 수행한다.
 	 */
 	Map<String, Integer> applyArenaRtaUploadRawOnlyFromParsedItems(List<Map<String, ?>> log_list);
@@ -128,7 +128,7 @@ public interface summonerswarService {
 	Map<String, Integer> applyArenaRtaNormalizedChunk(List<Map<String, ?>> log_list);
 
 	/**
-	 * {@code ranker_rtpvp_replay_raw} 중 미적용 건을 정규화 테이블로 반영하고 applied 로 표시한다.
+	 * 원본 스테이징 중 미적용 건을 정규화({@code rta_match} 등)로 반영하고 applied 로 표시한다.
 	 * @return 이번 호출에서 정규화에 성공한 rid 수
 	 */
 	int applyPendingArenaReplayRawFromDb();

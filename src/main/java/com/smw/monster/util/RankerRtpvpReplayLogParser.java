@@ -14,6 +14,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 /**
  * 프론트 extractRankerReplayItemsFromLogText 와 동일 규칙으로
  * 프록시/NDJSON 로그에서 RTA 리플레이 객체를 추출한다.
+ * <p>
+ * JSON 필드명 {@code ranker_replay_list}, {@code replay_list} 는 게임/Exporter API 페이로드 키이며 DB 테이블명이 아니다.
  */
 public final class RankerRtpvpReplayLogParser {
 

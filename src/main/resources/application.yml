@@ -6,7 +6,7 @@ spring:
     pathmatch:
       matching-strategy: ANT_PATH_MATCHER  # Spring 6 PathPattern 대신 ANT 스타일 허용 (/**/*.js 등)
   profiles:
-    active: ${SPRING_PROFILES_ACTIVE:local}
+    active: ${SPRING_PROFILES_ACTIVE:bulkload}
   cache:
     type: caffeine
     caffeine:
@@ -173,7 +173,8 @@ smw:
       maximum-size: ${SMW_SHORT_CACHE_MAXIMUM_SIZE:500}
       expire-after-write-minutes: ${SMW_SHORT_CACHE_EXPIRE_AFTER_WRITE_MINUTES:5}
   # Summoners War Exporter full_log 로컬 폴더 감시 (로그 수집 PC에서만 켬 — UI 테스트 PC는 enabled: false 유지)
-  # 감시 시 항상 ranker_rtpvp_replay_raw 만 적재, 정규화는 RtaUnifiedPipelineAggJob(bat_id 10001) 등 배치
+  # 감시 시 원본 JSON만 스테이징 적재, 정규화는 RtaUnifiedPipelineAggJob(bat_id 10001) 등 배치
+  # 전량 재적재·백필: spring.profiles.active 에 bulkload 추가 → application-bulkload.yml (또는 SMW_RTA_RAW_APPLY_MAX_ROWS 등 상향)
   rta:
     exporter:
       enabled: ${SMW_RTA_EXPORTER_ENABLED:false}
@@ -193,8 +194,13 @@ smw:
     raw-apply:
       # 정규화 배치(RtaUnifiedPipelineAggJob 등) 한 실행당 DB에서 꺼내 처리할 pending/failed 최대 건수
       max-rows-per-run: ${SMW_RTA_RAW_APPLY_MAX_ROWS:1000}
-      # 한 트랜잭션에 묶어 replay_list 등에 넣는 건수(최소 1). 상한 없음.
+      # 한 트랜잭션에 묶어 rta_match 등에 넣는 건수(최소 1). 상한 없음.
       apply-chunk-size: ${SMW_RTA_RAW_APPLY_CHUNK_SIZE:80}
+    # 통합 RTA 배치(스냅샷·시너지 라운드 크기 등). 처리량·락 경합 트레이드오프.
+    batch:
+      synergy-batch-size: ${SMW_RTA_SYNERGY_BATCH_SIZE:200}
+      snapshot-batch-size: ${SMW_RTA_SNAPSHOT_BATCH_SIZE:3000}
+      skip-legacy-snapshot-step: ${SMW_RTA_BATCH_SKIP_SNAPSHOT:false}
   ops:
     thresholds:
       heap-warning-percent: ${SMW_OPS_HEAP_WARNING_PERCENT:75}

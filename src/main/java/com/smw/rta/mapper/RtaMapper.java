@@ -24,8 +24,6 @@ public interface RtaMapper {
     
     int getWeeklyRtaMatches(@Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd);
     
-    Map<String, Object> getRtaStats();
-    
     Map<String, Object> testRtaData();
     
     List<Map<String, Object>> debugRtaData();

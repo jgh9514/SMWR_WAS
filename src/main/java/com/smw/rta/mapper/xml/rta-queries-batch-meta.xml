@@ -1,0 +1,448 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smw.rta.mapper.RtaMapper">
+    <select id="selectPendingRtaAggRids" resultType="long">
+        SELECT m.replay_id FROM public.rta_match m WHERE FALSE LIMIT #{batchSize}
+    </select>
+
+    <insert id="upsertRtaMatchSnapshotsForRids">
+        INSERT INTO public.rta_match (replay_id, season_id, played_at, winner_wizard_id, battle_version)
+        SELECT 0::bigint, (SELECT season_id FROM public.rta_season WHERE season_code = '_FALLBACK' LIMIT 1), CURRENT_TIMESTAMP, '', '' WHERE FALSE
+    </insert>
+
+    <update id="markRtaAggDoneForRidsWithSnapshot">
+        UPDATE public.rta_match SET battle_type = battle_type WHERE FALSE
+    </update>
+
+    <select id="selectPendingSynergyAggRids" resultType="long">
+        SELECT m.replay_id
+        FROM public.rta_match m
+        WHERE m.synergy_applied_at IS NULL
+        ORDER BY m.replay_id ASC
+        LIMIT #{batchSize}
+    </select>
+
+    <select id="selectSynergyReplayRow" resultType="map">
+        SELECT
+            m.replay_id AS rid,
+            TRIM(BOTH FROM m.winner_wizard_id::text) AS winner_wizard_id,
+            m.played_at AS date_add,
+            m.season_id
+        FROM public.rta_match m
+        WHERE m.replay_id = #{rid}
+    </select>
+
+    <select id="selectSynergyFieldUnits" resultType="map">
+        SELECT DISTINCT
+            TRIM(BOTH FROM u.wizard_id::text) AS wizard_id,
+            u.unit_master_id AS unit_master_id
+        FROM public.rta_match_unit_pick u
+        WHERE u.replay_id = #{rid}
+          AND NOT u.is_banned
+        ORDER BY wizard_id, unit_master_id
+    </select>
+
+    <insert id="upsertRtaSynergyAgg">
+        INSERT INTO public.rta_agg_synergy_combo (season_id, rating_id, combo_unit_key, combo_size, match_cnt, win_cnt)
+        VALUES
+        <foreach collection="rows" item="r" separator=",">
+            (#{r.seasonId}, 0, #{r.comboKey}, #{r.comboSize}, 1, #{r.winDelta})
+        </foreach>
+        ON CONFLICT (season_id, rating_id, combo_unit_key) DO UPDATE SET
+            match_cnt = public.rta_agg_synergy_combo.match_cnt + EXCLUDED.match_cnt,
+            win_cnt = public.rta_agg_synergy_combo.win_cnt + EXCLUDED.win_cnt
+    </insert>
+
+    <update id="markSynergyAggDone">
+        UPDATE public.rta_match
+        SET synergy_applied_at = CURRENT_TIMESTAMP
+        WHERE replay_id = #{rid}
+    </update>
+
+    <update id="markSynergyAggDoneForRids">
+        UPDATE public.rta_match
+        SET synergy_applied_at = CURRENT_TIMESTAMP
+        WHERE replay_id IN
+        <foreach collection="rids" item="rid" open="(" separator="," close=")">
+            #{rid}
+        </foreach>
+    </update>
+
+    <update id="markSynergyAggFailed">
+        UPDATE public.rta_match
+        SET synergy_applied_at = CURRENT_TIMESTAMP
+        WHERE replay_id = #{rid}
+    </update>
+
+    <!-- RTA 대시보드 배치: 티어 일별 집계 테이블 미사용 시 no-op -->
+    <delete id="deleteAllRtaTierDistributionDailyAgg">
+        DELETE FROM public.rta_match WHERE FALSE
+    </delete>
+
+    <insert id="insertRtaTierDistributionDailyAggFromLive">
+        INSERT INTO public.rta_match (replay_id)
+        SELECT NULL::bigint WHERE FALSE
+    </insert>
+
+    <delete id="deleteAllRtaSummonerRankingAgg">
+        DELETE FROM public.rta_match WHERE FALSE
+    </delete>
+
+    <!-- 소환사 랭킹 스냅샷 테이블 미사용 시 no-op (랭킹 API는 라이브 집계) -->
+    <insert id="insertRtaSummonerRankingAggForSeason">
+        INSERT INTO public.rta_match (replay_id)
+        SELECT NULL::bigint WHERE FALSE
+    </insert>
+
+    <select id="getRtaSummonerRankingAggCount" resultType="int">
+        WITH <include refid="rtaMatchInSeasonCte"/>,
+        latest AS (
+            SELECT DISTINCT ON (u.wizard_id)
+                u.wizard_id,
+                u.wizard_name,
+                u.country_code AS country,
+                u.channel_uid,
+                CAST(TRIM(u.ladder_score::text) AS INT) AS score,
+                CASE
+                    WHEN TRIM(COALESCE(u.rating_id::text, '')) ~ '^[0-9]+$'
+                    THEN CAST(TRIM(u.rating_id::text) AS INT)
+                    ELSE NULL
+                END AS rating_id,
+                r.date_add AS last_match_at
+            FROM public.rta_match_participant u
+            INNER JOIN rta_match_in_season r ON u.replay_id = r.rid
+            WHERE TRIM(COALESCE(u.ladder_score::text, '')) ~ '^[0-9]+$'
+              AND CAST(TRIM(u.ladder_score::text) AS INT) &gt; 0
+            ORDER BY u.wizard_id, r.date_add DESC
+        ),
+        ranked AS (
+            SELECT
+                latest.wizard_id,
+                latest.wizard_name,
+                latest.country,
+                latest.channel_uid,
+                latest.score,
+                latest.rating_id,
+                latest.last_match_at,
+                ROW_NUMBER() OVER (ORDER BY latest.score DESC, latest.wizard_id ASC) AS rank_position
+            FROM latest
+        ),
+        ranked_filtered AS (
+            SELECT r.* FROM ranked r
+            WHERE 1 = 1
+            <if test="countryFilter != null and countryFilter != ''">
+            AND (
+                CASE WHEN TRIM(COALESCE(r.country::text, '')) = '' THEN '—' ELSE TRIM(r.country::text) END
+            ) = #{countryFilter}
+            </if>
+        )
+        SELECT COUNT(*)::int FROM ranked_filtered
+    </select>
+
+    <!-- 소환사 랭킹 목록 API: 라이브 집계 (국가 필터·페이징; 집계 테이블 미사용) -->
+    <select id="getRtaSummonerRankingFromAgg" resultType="map">
+        WITH <include refid="rtaMatchInSeasonCte"/>,
+        <include refid="rtaWinAggPairwise"/>,
+        latest AS (
+            SELECT DISTINCT ON (u.wizard_id)
+                u.wizard_id,
+                u.wizard_name,
+                u.country_code AS country,
+                u.channel_uid,
+                CAST(TRIM(u.ladder_score::text) AS INT) AS score,
+                CASE
+                    WHEN TRIM(COALESCE(u.rating_id::text, '')) ~ '^[0-9]+$'
+                    THEN CAST(TRIM(u.rating_id::text) AS INT)
+                    ELSE NULL
+                END AS rating_id,
+                r.date_add AS last_match_at
+            FROM public.rta_match_participant u
+            INNER JOIN rta_match_in_season r ON u.replay_id = r.rid
+            WHERE TRIM(COALESCE(u.ladder_score::text, '')) ~ '^[0-9]+$'
+              AND CAST(TRIM(u.ladder_score::text) AS INT) &gt; 0
+            ORDER BY u.wizard_id, r.date_add DESC
+        ),
+        ranked AS (
+            SELECT
+                latest.wizard_id,
+                latest.wizard_name,
+                latest.country,
+                latest.channel_uid,
+                latest.score,
+                latest.rating_id,
+                latest.last_match_at,
+                ROW_NUMBER() OVER (ORDER BY latest.score DESC, latest.wizard_id ASC) AS rank_position
+            FROM latest
+        ),
+        ranked_filtered AS (
+            SELECT r.* FROM ranked r
+            WHERE 1 = 1
+            <if test="countryFilter != null and countryFilter != ''">
+            AND (
+                CASE WHEN TRIM(COALESCE(r.country::text, '')) = '' THEN '—' ELSE TRIM(r.country::text) END
+            ) = #{countryFilter}
+            </if>
+        ),
+        score_max_agg AS (
+            SELECT
+                u.wizard_id,
+                MAX(CAST(TRIM(u.ladder_score::text) AS INT))::int AS max_season_score
+            FROM public.rta_match_participant u
+            INNER JOIN rta_match_in_season r ON u.replay_id = r.rid
+            WHERE TRIM(COALESCE(u.ladder_score::text, '')) ~ '^[0-9]+$'
+              AND CAST(TRIM(u.ladder_score::text) AS INT) &gt; 0
+            GROUP BY u.wizard_id
+        ),
+        page_ranked AS (
+            SELECT * FROM ranked_filtered
+            ORDER BY rank_position
+            LIMIT #{limit} OFFSET #{offset}
+        ),
+        field_pick_counts AS (
+            SELECT
+                u.wizard_id,
+                TRIM(BOTH FROM u.unit_master_id::text) AS unit_master_id,
+                COUNT(*)::bigint AS pick_count
+            FROM public.rta_match_unit_pick u
+            WHERE TRIM(BOTH FROM COALESCE(u.unit_master_id::text, '')) ~ '^[0-9]+$'
+              AND NOT u.is_banned
+              AND u.wizard_id IN (SELECT wizard_id FROM page_ranked)
+            GROUP BY u.wizard_id, TRIM(BOTH FROM u.unit_master_id::text)
+        ),
+        ranked_monsters AS (
+            SELECT
+                wizard_id,
+                unit_master_id,
+                pick_count,
+                ROW_NUMBER() OVER (
+                    PARTITION BY wizard_id
+                    ORDER BY pick_count DESC, CAST(unit_master_id AS BIGINT) ASC
+                ) AS rn
+            FROM field_pick_counts
+        ),
+        most1 AS (
+            SELECT wizard_id, unit_master_id AS m1_id, pick_count AS m1_pick
+            FROM ranked_monsters WHERE rn = 1
+        ),
+        most2 AS (
+            SELECT wizard_id, unit_master_id AS m2_id, pick_count AS m2_pick
+            FROM ranked_monsters WHERE rn = 2
+        ),
+        most3 AS (
+            SELECT wizard_id, unit_master_id AS m3_id, pick_count AS m3_pick
+            FROM ranked_monsters WHERE rn = 3
+        )
+        SELECT
+            pr.rank_position,
+            pr.wizard_id,
+            pr.wizard_name,
+            pr.country,
+            pr.channel_uid,
+            pr.score,
+            pr.rating_id,
+            pr.last_match_at,
+            COALESCE(wa.match_count, 0)::bigint AS match_count,
+            COALESCE(wa.win_count, 0)::bigint AS win_count,
+            COALESCE(sm.max_season_score, pr.score)::int AS max_season_score,
+            m1.m1_id::text AS most_monster_1_id,
+            m1.m1_pick AS most_monster_1_pick_count,
+            COALESCE(mm1.monster_name, '') AS most_monster_1_name,
+            CASE
+                WHEN mm1.monster_name IS NOT NULL THEN
+                    '/images/' || mm1.element_code || '/' || replace(mm1.monster_name, ' ', '_') || '_' || mm1.element_code || '_Icon.png'
+                ELSE ''
+            END AS most_monster_1_image,
+            m2.m2_id::text AS most_monster_2_id,
+            m2.m2_pick AS most_monster_2_pick_count,
+            COALESCE(mm2.monster_name, '') AS most_monster_2_name,
+            CASE
+                WHEN mm2.monster_name IS NOT NULL THEN
+                    '/images/' || mm2.element_code || '/' || replace(mm2.monster_name, ' ', '_') || '_' || mm2.element_code || '_Icon.png'
+                ELSE ''
+            END AS most_monster_2_image,
+            m3.m3_id::text AS most_monster_3_id,
+            m3.m3_pick AS most_monster_3_pick_count,
+            COALESCE(mm3.monster_name, '') AS most_monster_3_name,
+            CASE
+                WHEN mm3.monster_name IS NOT NULL THEN
+                    '/images/' || mm3.element_code || '/' || replace(mm3.monster_name, ' ', '_') || '_' || mm3.element_code || '_Icon.png'
+                ELSE ''
+            END AS most_monster_3_image
+        FROM page_ranked pr
+        LEFT JOIN win_agg wa ON pr.wizard_id = wa.wizard_id
+        LEFT JOIN score_max_agg sm ON pr.wizard_id = sm.wizard_id
+        LEFT JOIN most1 m1 ON pr.wizard_id = m1.wizard_id
+        LEFT JOIN public.rta_monster mm1 ON m1.m1_id IS NOT NULL AND TRIM(BOTH FROM m1.m1_id::text) ~ '^[0-9]+$'
+            AND mm1.unit_master_id = CAST(TRIM(BOTH FROM m1.m1_id::text) AS bigint)
+        LEFT JOIN most2 m2 ON pr.wizard_id = m2.wizard_id
+        LEFT JOIN public.rta_monster mm2 ON m2.m2_id IS NOT NULL AND TRIM(BOTH FROM m2.m2_id::text) ~ '^[0-9]+$'
+            AND mm2.unit_master_id = CAST(TRIM(BOTH FROM m2.m2_id::text) AS bigint)
+        LEFT JOIN most3 m3 ON pr.wizard_id = m3.wizard_id
+        LEFT JOIN public.rta_monster mm3 ON m3.m3_id IS NOT NULL AND TRIM(BOTH FROM m3.m3_id::text) ~ '^[0-9]+$'
+            AND mm3.unit_master_id = CAST(TRIM(BOTH FROM m3.m3_id::text) AS bigint)
+        ORDER BY pr.rank_position
+    </select>
+
+    <!-- 닉네임: 부분 일치(POSITION). 위자드 ID: TRIM 후 정확 일치 — 라이브 집계 -->
+    <select id="searchRtaSummonersInAgg" resultType="map">
+        WITH <include refid="rtaMatchInSeasonCte"/>,
+        latest AS (
+            SELECT DISTINCT ON (u.wizard_id)
+                u.wizard_id,
+                u.wizard_name,
+                u.country_code AS country,
+                u.channel_uid,
+                CAST(TRIM(u.ladder_score::text) AS INT) AS score,
+                CASE
+                    WHEN TRIM(COALESCE(u.rating_id::text, '')) ~ '^[0-9]+$'
+                    THEN CAST(TRIM(u.rating_id::text) AS INT)
+                    ELSE NULL
+                END AS rating_id,
+                r.date_add AS last_match_at
+            FROM public.rta_match_participant u
+            INNER JOIN rta_match_in_season r ON u.replay_id = r.rid
+            WHERE TRIM(COALESCE(u.ladder_score::text, '')) ~ '^[0-9]+$'
+              AND CAST(TRIM(u.ladder_score::text) AS INT) &gt; 0
+            ORDER BY u.wizard_id, r.date_add DESC
+        ),
+        ranked AS (
+            SELECT
+                latest.wizard_id,
+                latest.wizard_name,
+                latest.country,
+                latest.channel_uid,
+                latest.score,
+                latest.rating_id,
+                latest.last_match_at,
+                ROW_NUMBER() OVER (ORDER BY latest.score DESC, latest.wizard_id ASC) AS rank_position
+            FROM latest
+        )
+        SELECT
+            r.rank_position,
+            r.wizard_id,
+            r.wizard_name,
+            r.country,
+            r.channel_uid,
+            r.score,
+            r.rating_id
+        FROM ranked r
+        WHERE LENGTH(TRIM(#{query})) &gt;= 1
+          AND (
+              TRIM(BOTH FROM r.wizard_id::text) = TRIM(#{query})
+              OR (
+                  r.wizard_name IS NOT NULL
+                  AND POSITION(LOWER(TRIM(#{query})) IN LOWER(r.wizard_name)) &gt; 0
+              )
+          )
+        ORDER BY r.rank_position ASC
+        LIMIT #{limit}
+    </select>
+
+    <select id="listRtaSeasons" resultType="map">
+        SELECT
+            season_code AS "seasonCode",
+            season_no AS "seasonNo",
+            league_type AS "leagueType",
+            season_name AS "seasonName",
+            start_at AS "startAt",
+            end_at AS "endAt",
+            is_active AS "isActive",
+            sort_order AS "sortOrder"
+        FROM rta_season
+        ORDER BY sort_order ASC, season_no DESC, season_code ASC
+    </select>
+
+    <select id="selectRtaSeasonBounds" resultType="map">
+        SELECT start_at, end_at, season_code
+        FROM rta_season
+        WHERE season_code = #{seasonCode}
+        LIMIT 1
+    </select>
+
+    <!-- 금일 기준 진행 중 시즌 → 없으면 DB에 등록된 최신 시즌 코드 -->
+    <select id="selectDefaultSeasonCodeForNow" resultType="string">
+        SELECT COALESCE(
+            (
+                SELECT season_code
+                FROM rta_season
+                WHERE start_at &lt;= CURRENT_TIMESTAMP
+                  AND end_at &gt; CURRENT_TIMESTAMP
+                ORDER BY sort_order ASC, season_no DESC
+                LIMIT 1
+            ),
+            (
+                SELECT season_code
+                FROM rta_season
+                ORDER BY season_no DESC, season_code DESC
+                LIMIT 1
+            )
+        )
+    </select>
+
+    <!-- 참고용 공식 티어 규칙 (rta_rating_grade.tier_key 등) -->
+    <select id="listRtaRatingGradeReference" resultType="map">
+        SELECT
+            rating_id AS "ratingId",
+            grade_name AS "gradeName",
+            grade_abbr AS "gradeAbbr",
+            tier_key AS "tierKey",
+            min_win_points AS "minWinPoints",
+            rank_rule AS "rankRule",
+            icon_url AS "iconUrl",
+            tier_sort AS "tierSort"
+        FROM public.rta_rating_grade
+        WHERE tier_key IS NOT NULL
+        ORDER BY tier_sort NULLS LAST, rating_id
+    </select>
+
+    <!-- 대시보드: 시즌별 최신 스냅샷 시각의 등급별 컷 (rta_snapshot_rank_cut) -->
+    <select id="getRtaSnapshotRankCutLatest" resultType="map">
+        WITH sid AS (
+            SELECT season_id FROM public.rta_season WHERE season_code = #{seasonCode} LIMIT 1
+        ),
+        mx AS (
+            SELECT MAX(s.snapshot_at) AS ts
+            FROM public.rta_snapshot_rank_cut s
+            WHERE s.season_id = (SELECT season_id FROM sid)
+        )
+        SELECT
+            s.snapshot_at AS "snapshotAt",
+            s.rating_id AS "ratingId",
+            rg.tier_key AS "tierKey",
+            rg.grade_name AS "gradeName",
+            rg.grade_abbr AS "gradeAbbr",
+            s.cutoff_score AS "cutoffScore"
+        FROM public.rta_snapshot_rank_cut s
+        INNER JOIN public.rta_rating_grade rg ON rg.rating_id = s.rating_id
+        CROSS JOIN mx
+        WHERE s.season_id = (SELECT season_id FROM sid)
+          AND mx.ts IS NOT NULL
+          AND s.snapshot_at = mx.ts
+        ORDER BY rg.tier_sort NULLS LAST, s.rating_id
+    </select>
+
+    <!-- 몬스터 상세: 카운터 매치업 (rta_agg_counter_matchup, rating_id=0 전체 구간) -->
+    <select id="getRtaMonsterCounterMatchups" resultType="map">
+        SELECT
+            c.opponent_combo_key AS "opponentComboKey",
+            c.opponent_combo_size AS "opponentComboSize",
+            c.win_cnt AS "winCnt",
+            c.lose_cnt AS "loseCnt",
+            CASE
+                WHEN (c.win_cnt + c.lose_cnt) &gt; 0 THEN
+                    ROUND(100.0 * c.win_cnt::numeric / (c.win_cnt + c.lose_cnt)::numeric, 2)
+                ELSE NULL
+            END AS "winRate",
+            (
+                SELECT string_agg(m.monster_name, ' + ' ORDER BY z.ord)
+                FROM unnest(string_to_array(c.opponent_combo_key, ',')) WITH ORDINALITY AS z(id, ord)
+                LEFT JOIN public.rta_monster m ON m.unit_master_id = NULLIF(TRIM(BOTH FROM z.id), '')::bigint
+            ) AS "opponentLabel"
+        FROM public.rta_agg_counter_matchup c
+        WHERE c.season_id = (SELECT season_id FROM public.rta_season WHERE season_code = #{seasonCode} LIMIT 1)
+          AND c.subject_unit_id = #{monsterId}
+          AND c.rating_id = 0
+        ORDER BY (c.win_cnt + c.lose_cnt) DESC NULLS LAST
+        LIMIT 40
+    </select>
+</mapper>

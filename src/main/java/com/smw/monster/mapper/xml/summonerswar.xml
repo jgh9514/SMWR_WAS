@@ -1351,6 +1351,7 @@
 		ON CONFLICT (replay_id, wizard_id, pick_slot_no) DO NOTHING
 	</insert>
 
+	<!-- v2: 원본 JSON만 적재. 테이블명은 기존 DB 호환으로 ranker_rtpvp_replay_raw 유지 -->
 	<insert id="insertArenaReplayRawBulk" parameterType="java.util.List">
 		INSERT INTO ranker_rtpvp_replay_raw (rid, payload) VALUES
 		<foreach collection="rows" item="m" separator=",">
