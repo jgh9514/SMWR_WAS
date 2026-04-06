@@ -9,6 +9,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
 
+import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,6 +19,7 @@ import com.smw.rta.model.RtaSynergyAggUpsertRow;
 import com.smw.rta.model.RtaSynergyComboRow;
 
 @Service
+@Primary
 public class RtaSynergyAggServiceImpl implements RtaSynergyAggService {
 
 	private final RtaMapper rtaMapper;
