@@ -8,7 +8,7 @@ import com.smw.rta.service.RtaBatchAggregationService;
 import com.smw.rta.service.RtaSynergyAggService;
 
 /**
- * {@code ranker_rtpvp_replay_list.synergy_agg_status = pending} 인 rid 를 시너지 fact·롤업에 반영한다.
+ * {@code rta_match.synergy_applied_at IS NULL} 인 rid 를 {@code rta_agg_synergy_combo}에 반영한다.
  * <p>
  * 운영 스케줄은 {@link RtaUnifiedPipelineAggJob} 로 통합하는 것을 권장한다.
  * <p>

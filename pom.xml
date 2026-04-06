@@ -123,7 +123,18 @@
 	    	<groupId>org.springframework.boot</groupId>
 	        <artifactId>spring-boot-starter-tomcat</artifactId>
 	        <scope>provided</scope>
-	    </dependency> 
+	    </dependency>
+		<!-- Spring Batch: RTA 원시 적재(Step1) + 시너지 집계(Step2) 분리 Job -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-batch</artifactId>
+			<exclusions>
+				<exclusion>
+					<groupId>org.springframework.boot</groupId>
+					<artifactId>spring-boot-starter-logging</artifactId>
+				</exclusion>
+			</exclusions>
+		</dependency>
 	    <dependency>
 	    	<groupId>org.mybatis.spring.boot</groupId>
 	        <artifactId>mybatis-spring-boot-starter</artifactId>

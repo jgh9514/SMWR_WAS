@@ -154,8 +154,8 @@ public class RtaServiceImpl implements RtaService {
             Long tm = rtaMapper.getRtaMonsterStatsTotalFromAgg(aggKey);
             totalMatches = tm != null ? tm.longValue() : 0L;
             stats = rtaMapper.getRtaMonsterStatsFromAgg(limit, offset, aggKey);
-            duoStats = rtaMapper.getRtaDuoComboStatsFromAgg(50, aggKey);
-            trioStats = rtaMapper.getRtaTrioComboStatsFromAgg(50, aggKey);
+            duoStats = rtaMapper.getRtaDuoComboStatsFromAgg(50);
+            trioStats = rtaMapper.getRtaTrioComboStatsFromAgg(50);
         }
 
         boolean hasMore = stats.size() == limit;
@@ -192,9 +192,22 @@ public class RtaServiceImpl implements RtaService {
 
         List<Map<String, Object>> recentMatches = rtaMapper.getRtaMonsterRecentMatches(monsterId, se.start, se.end);
         response.put("recent_matches", recentMatches);
+
+        if (se.code != null && !se.code.isEmpty()) {
+            List<Map<String, Object>> counters = rtaMapper.getRtaMonsterCounterMatchups(monsterId, se.code);
+            response.put("counter_matchups", counters != null ? counters : Collections.emptyList());
+        } else {
+            response.put("counter_matchups", Collections.emptyList());
+        }
         response.put("seasonCode", se.code);
 
         return response;
+    }
+
+    @Override
+    public List<Map<String, Object>> listRtaRatingGradeReference() {
+        List<Map<String, Object>> rows = rtaMapper.listRtaRatingGradeReference();
+        return rows != null ? rows : Collections.emptyList();
     }
 
     @Override
@@ -206,13 +219,18 @@ public class RtaServiceImpl implements RtaService {
         Map<String, Object> response = new HashMap<>();
         response.putAll(tierPart);
         response.put("rank_cutoff_anchors", rankCutoffAnchors);
+        if (se.code != null && !se.code.isEmpty()) {
+            List<Map<String, Object>> snap = rtaMapper.getRtaSnapshotRankCutLatest(se.code);
+            response.put("snapshot_rank_cut", snap != null ? snap : Collections.emptyList());
+        } else {
+            response.put("snapshot_rank_cut", Collections.emptyList());
+        }
         response.put("seasonCode", se.code);
         return response;
     }
 
     /**
-     * 소환사 랭킹: 사용자 요청 시에는 항상 집계 테이블 {@code rta_summoner_ranking_agg}만 조회한다.
-     * (원장 기준 동적 쿼리 {@code getRtaSummonerRanking}은 배치 적재용 SQL에만 존재하며 여기서 호출하지 않음.)
+     * 소환사 랭킹: 시즌 구간 내 라이브 집계({@code rta_match} / participant / unit_pick).
      */
     @Override
     @Cacheable(cacheNames = "rtaRanking", cacheManager = "shortLivedCacheManager",
@@ -225,12 +243,12 @@ public class RtaServiceImpl implements RtaService {
         int total = 0;
         List<Map<String, Object>> rows = Collections.emptyList();
         if (!aggKey.isEmpty()) {
-            int rawCount = rtaMapper.getRtaSummonerRankingAggCount(aggKey, countryForMapper);
+            int rawCount = rtaMapper.getRtaSummonerRankingAggCount(aggKey, countryForMapper, se.start, se.end);
             total = Math.min(rawCount, RTA_SUMMONER_RANKING_MAX_ROWS);
             if (total > 0 && offset < RTA_SUMMONER_RANKING_MAX_ROWS) {
                 int fetchLimit = Math.min(limit, RTA_SUMMONER_RANKING_MAX_ROWS - offset);
                 if (fetchLimit > 0) {
-                    rows = rtaMapper.getRtaSummonerRankingFromAgg(fetchLimit, offset, aggKey, countryForMapper);
+                    rows = rtaMapper.getRtaSummonerRankingFromAgg(fetchLimit, offset, aggKey, countryForMapper, se.start, se.end);
                 }
             }
         }
@@ -262,7 +280,7 @@ public class RtaServiceImpl implements RtaService {
             response.put("results", Collections.emptyList());
             return response;
         }
-        List<Map<String, Object>> rows = rtaMapper.searchRtaSummonersInAgg(aggKey, q, 20);
+        List<Map<String, Object>> rows = rtaMapper.searchRtaSummonersInAgg(aggKey, q, 20, se.start, se.end);
         response.put("results", rows != null ? rows : Collections.emptyList());
         return response;
     }

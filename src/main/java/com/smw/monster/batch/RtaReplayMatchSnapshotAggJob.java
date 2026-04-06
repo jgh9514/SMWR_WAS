@@ -7,8 +7,8 @@ import com.smw.rta.mapper.RtaMapper;
 import com.smw.rta.service.RtaBatchAggregationService;
 
 /**
- * {@code ranker_rtpvp_replay_list.rta_agg_status = pending} 인 rid 를 {@code rid} 오름차순으로 골라
- * {@code rta_replay_match_snapshot} 에 평탄화 적재하고, 성공 건만 {@code done} 으로 표시한다.
+ * 레거시 스냅샷 배치. v2 스키마에서 평탄화 스냅샷 테이블·구 replay_list 는 제거되었고,
+ * {@link RtaMapper} 의 스냅샷 SQL 은 no-op 스텁이므로 실질 처리 없음(호환용).
  * <p>
  * 한 트리거당 <strong>1라운드</strong>만 실행(배치 크기 {@link RtaBatchAggregationService#SNAPSHOT_BATCH_SIZE}).
  * 운영 스케줄은 {@link RtaUnifiedPipelineAggJob} 로 통합하는 것을 권장한다.

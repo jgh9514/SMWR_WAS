@@ -61,4 +61,7 @@ public interface RtaService {
 
     /** 등록된 RTA 시즌 목록 (기간·코드·표시명) */
     Map<String, Object> getRtaSeasons();
+
+    /** DB 등록 공식 티어 규칙 참고 (rta_rating_grade) */
+    List<Map<String, Object>> listRtaRatingGradeReference();
 }

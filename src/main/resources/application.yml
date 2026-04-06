@@ -14,7 +14,11 @@ spring:
       spec: maximumSize=1000,expireAfterWrite=7d,recordStats
   batch:
     job:
-      enabled: true
+      # JobLauncher 로만 실행 권장 (부팅 시 전체 Job 자동 실행 방지)
+      enabled: false
+    jdbc:
+      # PostgreSQL 에 BATCH_* 메타 테이블 생성 (운영은 never + 마이그레이션 권장)
+      initialize-schema: always
   lifecycle:
     timeout-per-shutdown-phase: 20s
   datasource:
@@ -168,11 +172,10 @@ smw:
       maximum-size: ${SMW_SHORT_CACHE_MAXIMUM_SIZE:500}
       expire-after-write-minutes: ${SMW_SHORT_CACHE_EXPIRE_AFTER_WRITE_MINUTES:5}
   # Summoners War Exporter full_log 로컬 폴더 감시 (로그 수집 PC에서만 켬 — UI 테스트 PC는 enabled: false 유지)
+  # 감시 시 항상 ranker_rtpvp_replay_raw 만 적재, 정규화는 RtaReplayRawApplyJob 등 배치
   rta:
     exporter:
       enabled: ${SMW_RTA_EXPORTER_ENABLED:false}
-      # true: full_log → ranker_rtpvp_replay_raw 만 (pending). 정규화는 RtaReplayRawApplyJob 배치.
-      raw-only: ${SMW_RTA_EXPORTER_RAW_ONLY:false}
       watch-directory: ${SMW_RTA_EXPORTER_WATCH_DIR:}
       temp-subdir: ${SMW_RTA_EXPORTER_TEMP_SUBDIR:temp}
       file-name-prefix: ${SMW_RTA_EXPORTER_FILE_PREFIX:full_log}

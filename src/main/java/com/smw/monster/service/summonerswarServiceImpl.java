@@ -506,31 +506,40 @@ public class summonerswarServiceImpl implements summonerswarService {
 	
 	@Override
 	public int insertArenaInfo(Map<String, ?> param) {
+		if (param == null) {
+			return 0;
+		}
 		if (param instanceof Map) {
 			@SuppressWarnings("unchecked")
 			Map<String, Object> mo = (Map<String, Object>) param;
 			normalizeArenaReplayDateAdd(mo);
 		}
-		return swMapper.insertArenaInfo(param);
-	}
-	
-	@Override
-	public int insertArenaUserInfo(Map<String, ?> param) {
-		return swMapper.insertArenaUserInfo(param);
-	}
-	
-	@Override
-	public int insertArenaPickInfo(Map<String, ?> param) {
-		return swMapper.insertArenaPickInfo(param);
-	}
-	
-	@Override
-	public int insertArenaUnitInfo(Map<String, ?> param) {
-		return swMapper.insertArenaUnitInfo(param);
+		return swMapper.insertArenaInfoBulk(Collections.singletonList(param));
 	}
 
-	/** 레거시 단건 INSERT 반복 시 바깥 루프 단위 (실제로는 행마다 INSERT) */
-	private static final int ARENA_RTA_INSERT_CHUNK = 200;
+	@Override
+	public int insertArenaUserInfo(Map<String, ?> param) {
+		if (param == null) {
+			return 0;
+		}
+		return swMapper.insertArenaUserInfoBulk(Collections.singletonList(param));
+	}
+
+	@Override
+	public int insertArenaPickInfo(Map<String, ?> param) {
+		/* v2: 픽 메타는 rta_match_participant / rta_match_unit_pick 에만 적재 */
+		return 0;
+	}
+
+	@Override
+	public int insertArenaUnitInfo(Map<String, ?> param) {
+		if (param == null) {
+			return 0;
+		}
+		swMapper.insertRtaMonsterEnsureBulk(Collections.singletonList(param));
+		return swMapper.insertArenaUnitInfoBulk(Collections.singletonList(param));
+	}
+
 	/**
 	 * rta-upload VALUES 다중행 INSERT 시 한 문당 행 수 상한.
 	 * 한 번에 너무 많은 플레이스홀더를 보내면 PostgreSQL JDBC 에서 "An I/O error occurred while sending to the backend" 가 날 수 있음.
@@ -543,11 +552,17 @@ public class summonerswarServiceImpl implements summonerswarService {
 			return 0;
 		}
 		int total = 0;
-		for (int from = 0; from < rows.size(); from += ARENA_RTA_INSERT_CHUNK) {
-			int to = Math.min(from + ARENA_RTA_INSERT_CHUNK, rows.size());
-			for (int i = from; i < to; i++) {
-				total += swMapper.insertArenaInfo(rows.get(i));
+		for (int from = 0; from < rows.size(); from += ARENA_RTA_BULK_CHUNK) {
+			int to = Math.min(from + ARENA_RTA_BULK_CHUNK, rows.size());
+			List<Map<String, ?>> chunk = rows.subList(from, to);
+			for (Map<String, ?> row : chunk) {
+				if (row instanceof Map) {
+					@SuppressWarnings("unchecked")
+					Map<String, Object> mo = (Map<String, Object>) row;
+					normalizeArenaReplayDateAdd(mo);
+				}
 			}
+			total += swMapper.insertArenaInfoBulk(chunk);
 		}
 		return total;
 	}
@@ -558,28 +573,16 @@ public class summonerswarServiceImpl implements summonerswarService {
 			return 0;
 		}
 		int total = 0;
-		for (int from = 0; from < rows.size(); from += ARENA_RTA_INSERT_CHUNK) {
-			int to = Math.min(from + ARENA_RTA_INSERT_CHUNK, rows.size());
-			for (int i = from; i < to; i++) {
-				total += swMapper.insertArenaUserInfo(rows.get(i));
-			}
+		for (int from = 0; from < rows.size(); from += ARENA_RTA_BULK_CHUNK) {
+			int to = Math.min(from + ARENA_RTA_BULK_CHUNK, rows.size());
+			total += swMapper.insertArenaUserInfoBulk(rows.subList(from, to));
 		}
 		return total;
 	}
 
 	@Override
 	public int insertArenaPickInfoBatch(List<Map<String, ?>> rows) {
-		if (rows == null || rows.isEmpty()) {
-			return 0;
-		}
-		int total = 0;
-		for (int from = 0; from < rows.size(); from += ARENA_RTA_INSERT_CHUNK) {
-			int to = Math.min(from + ARENA_RTA_INSERT_CHUNK, rows.size());
-			for (int i = from; i < to; i++) {
-				total += swMapper.insertArenaPickInfo(rows.get(i));
-			}
-		}
-		return total;
+		return 0;
 	}
 
 	@Override
@@ -588,11 +591,11 @@ public class summonerswarServiceImpl implements summonerswarService {
 			return 0;
 		}
 		int total = 0;
-		for (int from = 0; from < rows.size(); from += ARENA_RTA_INSERT_CHUNK) {
-			int to = Math.min(from + ARENA_RTA_INSERT_CHUNK, rows.size());
-			for (int i = from; i < to; i++) {
-				total += swMapper.insertArenaUnitInfo(rows.get(i));
-			}
+		for (int from = 0; from < rows.size(); from += ARENA_RTA_BULK_CHUNK) {
+			int to = Math.min(from + ARENA_RTA_BULK_CHUNK, rows.size());
+			List<Map<String, ?>> chunk = rows.subList(from, to);
+			swMapper.insertRtaMonsterEnsureBulk(chunk);
+			total += swMapper.insertArenaUnitInfoBulk(chunk);
 		}
 		return total;
 	}
@@ -726,7 +729,7 @@ public class summonerswarServiceImpl implements summonerswarService {
 
 	/**
 	 * 리플레이 일시 — 게임/JSON이 epoch(ms·초), YYYYMMDD 정수, 날짜만 문자열 등 혼재.
-	 * {@code ranker_rtpvp_replay_list.date_add} 는 timestamp without time zone 이므로,
+	 * 정규화 적재 시 {@code rta_match.played_at} 등에 쓰기 위해,
 	 * 한국 서비스 기준으로 해석한 절대시각을 {@link Timestamp} 로 넣어 JDBC/PostgreSQL 오인식을 줄인다.
 	 */
 	private static final ZoneId RTA_REPLAY_ZONE = ZoneId.of("Asia/Seoul");
@@ -1093,13 +1096,11 @@ public class summonerswarServiceImpl implements summonerswarService {
 					swMapper.insertArenaUserInfoBulk(userBatch.subList(from, to));
 				}
 			}
-			if (pickBatch != null && !pickBatch.isEmpty()) {
-				for (int from = 0; from < pickBatch.size(); from += ARENA_RTA_BULK_CHUNK) {
-					int to = Math.min(from + ARENA_RTA_BULK_CHUNK, pickBatch.size());
-					swMapper.insertArenaPickInfoBulk(pickBatch.subList(from, to));
-				}
-			}
 			if (unitBatch != null && !unitBatch.isEmpty()) {
+				for (int from = 0; from < unitBatch.size(); from += ARENA_RTA_BULK_CHUNK) {
+					int to = Math.min(from + ARENA_RTA_BULK_CHUNK, unitBatch.size());
+					swMapper.insertRtaMonsterEnsureBulk(unitBatch.subList(from, to));
+				}
 				for (int from = 0; from < unitBatch.size(); from += ARENA_RTA_BULK_CHUNK) {
 					int to = Math.min(from + ARENA_RTA_BULK_CHUNK, unitBatch.size());
 					swMapper.insertArenaUnitInfoBulk(unitBatch.subList(from, to));
@@ -1224,6 +1225,12 @@ public class summonerswarServiceImpl implements summonerswarService {
 		return applyArenaRtaUploadFromParsedItemsWithMode(log_list, ArenaRtaPersistMode.RAW_ONLY);
 	}
 
+	@Override
+	@SuppressWarnings("unchecked")
+	public Map<String, Integer> applyArenaRtaNormalizedChunk(List<Map<String, ?>> log_list) {
+		return applyArenaRtaUploadFromParsedItemsWithMode(log_list, ArenaRtaPersistMode.NORMALIZED_ONLY);
+	}
+
 	/** Exporter / API 공통: 파싱 로그 → 배치 적재 (FULL 또는 RAW_ONLY). */
 	@SuppressWarnings("unchecked")
 	private Map<String, Integer> applyArenaRtaUploadFromParsedItemsWithMode(
@@ -1319,6 +1326,12 @@ public class summonerswarServiceImpl implements summonerswarService {
 				userBatch.add(user_info);
 
 				Map<String, Object> pick_info = (Map<String, Object>) user_info.get("pick_info");
+				if (pick_info == null) {
+					throw new RtaUploadValidationException("pick_info 없음 rid=" + list.get("rid"));
+				}
+				user_info.put("leader_pick_slot", pick_info.get("leader_slot_id"));
+				Object wl = user_info.get("win_lose");
+				user_info.put("is_winner", wl != null && "1".equals(String.valueOf(wl).trim()));
 				pick_info.put("rid", list.get("rid"));
 				pick_info.put("wizard_id", user_info.get("wizard_id"));
 				List<?> banList = (List<?>) pick_info.get("banned_slot_ids");
@@ -1337,6 +1350,11 @@ public class summonerswarServiceImpl implements summonerswarService {
 					Map<String, Object> unit = (Map<String, Object>) unit_list.get(k);
 					unit.put("rid", list.get("rid"));
 					unit.put("wizard_id", user_info.get("wizard_id"));
+					Object banSlot = pick_info != null ? pick_info.get("banned_slot_id") : null;
+					Object slot = unit.get("pick_slot_id");
+					boolean banned = banSlot != null && slot != null
+							&& banSlot.toString().trim().equals(slot.toString().trim());
+					unit.put("is_banned", banned);
 					unitBatch.add(unit);
 				}
 			}

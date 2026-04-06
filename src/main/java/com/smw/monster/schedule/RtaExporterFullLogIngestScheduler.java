@@ -22,7 +22,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * Exporter 가 만든 full_log 를 watch 디렉터리에서 {@code temp} 로 옮긴 뒤 파싱·DB 반영하고,
+ * Exporter 가 만든 full_log 를 watch 디렉터리에서 {@code temp} 로 옮긴 뒤 파싱하여
+ * <strong>{@code ranker_rtpvp_replay_raw} 에만 INSERT</strong> 한다. {@code rta_match} 등 정규화는 WAS 배치가 수행한다.
  * 성공 시 temp 파일을 삭제한다. 처리 실패 시 {@code *.failed} 로 남기며, 이후 스캔에서는
  * watch 에 새 로그가 계속 있어도 temp 내 가장 오래된 {@code *.failed} 를 먼저 {@code retry_*} 로 재시도한다.
  * <p>
@@ -112,10 +113,8 @@ public class RtaExporterFullLogIngestScheduler {
 			}
 			@SuppressWarnings("unchecked")
 			List<Map<String, ?>> items = (List<Map<String, ?>>) (List<?>) parsed;
-			Map<String, Integer> counts = props.isRawOnly()
-					? summonerswarService.applyArenaRtaUploadRawOnlyFromParsedItems(items)
-					: summonerswarService.applyArenaRtaUploadFromParsedItems(items);
-			log.info("[rta-exporter] 반영 완료 {} (rawOnly={}) → success={} fail={}", workFile, props.isRawOnly(),
+			Map<String, Integer> counts = summonerswarService.applyArenaRtaUploadRawOnlyFromParsedItems(items);
+			log.info("[rta-exporter] raw 적재 완료 {} → success={} fail={}", workFile,
 					counts.get("success"), counts.get("fail"));
 			Files.deleteIfExists(workFile);
 		} catch (Exception e) {

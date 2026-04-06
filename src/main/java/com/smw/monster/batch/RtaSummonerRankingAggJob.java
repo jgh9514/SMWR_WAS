@@ -7,7 +7,7 @@ import com.smw.rta.mapper.RtaMapper;
 import com.smw.rta.service.RtaBatchAggregationService;
 
 /**
- * 소환사 랭킹 스냅샷을 시즌별로 원천과 동일한 집계 SQL로 재적재한다.
+ * 소환사 랭킹 스냅샷 재적재 호출(집계 테이블 미사용 시 Mapper no-op; API는 라이브 집계).
  * <p>
  * 운영 스케줄은 {@link RtaUnifiedPipelineAggJob} 로 통합하는 것을 권장한다.
  * <p>
@@ -21,9 +21,9 @@ public class RtaSummonerRankingAggJob extends BaseBatchJob {
 		RtaCacheEvictor rtaCacheEvictor = applicationContext.getBean(RtaCacheEvictor.class);
 		RtaBatchAggregationService aggregationService = applicationContext.getBean(RtaBatchAggregationService.class);
 
-		addLog("rta_summoner_ranking_agg 전체 삭제 후 시즌별 재적재");
+		addLog("소환사 랭킹 스냅샷 재적재(집계 테이블 없으면 no-op)");
 		RtaBatchAggregationService.SummonerRankingRebuildResult rank = aggregationService.rebuildSummonerRankingAgg(rtaMapper);
-		addLog("rta_summoner_ranking_agg 합계: %d행", rank.totalRows());
+		addLog("소환사 랭킹 스냅샷 합계(0행=no-op): %d행", rank.totalRows());
 
 		rtaCacheEvictor.evictAllRtaCaches();
 		addLog("RTA 조회 캐시 무효화 (소환사 랭킹 집계 갱신)");

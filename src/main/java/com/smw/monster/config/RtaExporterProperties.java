@@ -8,6 +8,8 @@ import lombok.Setter;
 /**
  * Summoners War Exporter 가 쓰는 full_log 를 로컬 폴더에서 읽어 DB 반영할 때 사용.
  * <p>
+ * 감시 스케줄러는 항상 {@code ranker_rtpvp_replay_raw} 에만 INSERT 하며, {@code rta_match} 정규화는 WAS 배치가 처리한다.
+ * <p>
  * {@code enabled=false} 가 기본 — 로그 수집 PC에서만 {@code application.yml} 또는 프로필로 켠다.
  */
 @Getter
@@ -17,12 +19,6 @@ public class RtaExporterProperties {
 
 	/** true 일 때만 감시 스레드 동작 */
 	private boolean enabled = false;
-
-	/**
-	 * true 이면 full_log 파싱 후 {@code ranker_rtpvp_replay_raw} 만 적재(pending).
-	 * {@code ranker_rtpvp_replay_list} 등 정규화는 {@code RtaReplayRawApplyJob} 배치가 수행한다.
-	 */
-	private boolean rawOnly = false;
 
 	/**
 	 * Exporter 가 full_log 를 두는 디렉터리 (절대 경로 권장).

@@ -1,13 +1,12 @@
 package com.smw.rta.service;
 
-import java.sql.Timestamp;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.stream.Collectors;
 
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
@@ -16,7 +15,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.smw.rta.mapper.RtaMapper;
 import com.smw.rta.model.RtaSynergyAggUpsertRow;
-import com.smw.rta.model.RtaSynergyComboRow;
 
 @Service
 @Primary
@@ -31,12 +29,31 @@ public class RtaSynergyAggServiceImpl implements RtaSynergyAggService {
 	@Override
 	@Transactional(propagation = Propagation.REQUIRES_NEW, rollbackFor = Exception.class)
 	public void applyOneRid(long rid) {
+		List<RtaSynergyAggUpsertRow> aggRows = buildSynergyRowsForRid(rid);
+		if (aggRows.size() != 28) {
+			throw new IllegalStateException("조합 행 수 != 28 rid=" + rid + " n=" + aggRows.size());
+		}
+
+		rtaMapper.upsertRtaSynergyAgg(aggRows);
+
+		int marked = rtaMapper.markSynergyAggDone(rid);
+		if (marked == 0) {
+			throw new IllegalStateException("synergy_applied_at 갱신 0건 rid=" + rid);
+		}
+	}
+
+	@Override
+	public List<RtaSynergyAggUpsertRow> buildSynergyRowsForRid(long rid) {
 		Map<String, Object> replay = rtaMapper.selectSynergyReplayRow(rid);
 		if (replay == null || replay.isEmpty()) {
-			throw new IllegalStateException("replay_list 없음 rid=" + rid);
+			throw new IllegalStateException("rta_match 없음 rid=" + rid);
 		}
+		Object sid = replay.get("season_id");
+		if (sid == null) {
+			throw new IllegalStateException("season_id 없음 rid=" + rid);
+		}
+		long seasonId = ((Number) sid).longValue();
 		String winner = trimToNull(stringOf(replay.get("winner_wizard_id")));
-		Timestamp lastMatchAt = toTimestamp(replay.get("date_add"));
 
 		List<Map<String, Object>> raw = rtaMapper.selectSynergyFieldUnits(rid);
 		if (raw == null || raw.isEmpty()) {
@@ -67,28 +84,7 @@ public class RtaSynergyAggServiceImpl implements RtaSynergyAggService {
 		long[] ids1 = toDistinctSorted4(byWizard.get(w1), rid);
 		long[] ids2 = toDistinctSorted4(byWizard.get(w2), rid);
 
-		List<RtaSynergyComboRow> factRows = buildComboRows(rid, w1, w2, ids1, ids2, winner);
-		if (factRows.size() != 28) {
-			throw new IllegalStateException("조합 행 수 != 28 rid=" + rid + " n=" + factRows.size());
-		}
-
-		rtaMapper.insertRtaSynergyFacts(factRows);
-
-		List<RtaSynergyAggUpsertRow> aggRows = factRows.stream()
-				.map(f -> new RtaSynergyAggUpsertRow(
-						f.getArity(),
-						f.getM1(),
-						f.getM2(),
-						f.getM3(),
-						f.isWin() ? 1 : 0,
-						lastMatchAt))
-				.collect(Collectors.toList());
-		rtaMapper.upsertRtaSynergyAgg(aggRows);
-
-		int marked = rtaMapper.markSynergyAggDone(rid);
-		if (marked == 0) {
-			throw new IllegalStateException("synergy_agg_status 갱신 0건 rid=" + rid);
-		}
+		return buildAggRows(seasonId, w1, w2, ids1, ids2, winner);
 	}
 
 	private static long[] toDistinctSorted4(List<Long> ids, long rid) {
@@ -102,31 +98,43 @@ public class RtaSynergyAggServiceImpl implements RtaSynergyAggService {
 		return arr;
 	}
 
-	private static List<RtaSynergyComboRow> buildComboRows(long rid, String w1, String w2, long[] ids1, long[] ids2,
+	private static List<RtaSynergyAggUpsertRow> buildAggRows(long seasonId, String w1, String w2, long[] ids1, long[] ids2,
 			String winner) {
-		List<RtaSynergyComboRow> out = new ArrayList<>(28);
-		appendSide(rid, w1, ids1, winner, out);
-		appendSide(rid, w2, ids2, winner, out);
+		List<RtaSynergyAggUpsertRow> out = new ArrayList<>(28);
+		appendSide(seasonId, w1, ids1, winner, out);
+		appendSide(seasonId, w2, ids2, winner, out);
 		return out;
 	}
 
-	private static void appendSide(long rid, String wizardId, long[] ids, String winner, List<RtaSynergyComboRow> out) {
+	private static void appendSide(long seasonId, String wizardId, long[] ids, String winner,
+			List<RtaSynergyAggUpsertRow> out) {
 		boolean win = winner != null && Objects.equals(winner, trimToNull(wizardId));
+		int wd = win ? 1 : 0;
 		for (long id : ids) {
-			out.add(new RtaSynergyComboRow(rid, wizardId, 1, id, 0L, 0L, win));
+			out.add(new RtaSynergyAggUpsertRow(seasonId, Long.toString(id), 1, wd));
 		}
 		for (int i = 0; i < 4; i++) {
 			for (int j = i + 1; j < 4; j++) {
-				out.add(new RtaSynergyComboRow(rid, wizardId, 2, ids[i], ids[j], 0L, win));
+				out.add(new RtaSynergyAggUpsertRow(seasonId, comboKeySorted(ids[i], ids[j]), 2, wd));
 			}
 		}
 		for (int i = 0; i < 4; i++) {
 			for (int j = i + 1; j < 4; j++) {
 				for (int k = j + 1; k < 4; k++) {
-					out.add(new RtaSynergyComboRow(rid, wizardId, 3, ids[i], ids[j], ids[k], win));
+					out.add(new RtaSynergyAggUpsertRow(seasonId, comboKeySorted(ids[i], ids[j], ids[k]), 3, wd));
 				}
 			}
 		}
+	}
+
+	private static String comboKeySorted(long... raw) {
+		long[] a = Arrays.copyOf(raw, raw.length);
+		Arrays.sort(a);
+		String[] s = new String[a.length];
+		for (int i = 0; i < a.length; i++) {
+			s[i] = Long.toString(a[i]);
+		}
+		return String.join(",", s);
 	}
 
 	private static String stringOf(Object o) {
@@ -149,21 +157,5 @@ public class RtaSynergyAggServiceImpl implements RtaSynergyAggService {
 			return ((Number) o).longValue();
 		}
 		return Long.parseLong(String.valueOf(o).trim());
-	}
-
-	private static Timestamp toTimestamp(Object o) {
-		if (o == null) {
-			return null;
-		}
-		if (o instanceof Timestamp) {
-			return (Timestamp) o;
-		}
-		if (o instanceof java.util.Date) {
-			return new Timestamp(((java.util.Date) o).getTime());
-		}
-		if (o instanceof java.time.LocalDateTime) {
-			return Timestamp.valueOf((java.time.LocalDateTime) o);
-		}
-		throw new IllegalStateException("date_add 타입 지원 안 함: " + o.getClass());
 	}
 }

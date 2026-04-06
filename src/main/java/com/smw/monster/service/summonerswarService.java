@@ -122,6 +122,12 @@ public interface summonerswarService {
 	Map<String, Integer> applyArenaRtaUploadRawOnlyFromParsedItems(List<Map<String, ?>> log_list);
 
 	/**
+	 * NDJSON/API 청크용: 정규화 테이블만 적재 (기존 rid 는 ON CONFLICT 로 스킵).
+	 * Spring Batch Step1 에서 chunk 단위로 호출한다.
+	 */
+	Map<String, Integer> applyArenaRtaNormalizedChunk(List<Map<String, ?>> log_list);
+
+	/**
 	 * {@code ranker_rtpvp_replay_raw} 중 미적용 건을 정규화 테이블로 반영하고 applied 로 표시한다.
 	 * @return 이번 호출에서 정규화에 성공한 rid 수
 	 */

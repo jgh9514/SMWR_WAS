@@ -1192,9 +1192,9 @@
 	</insert>
 	
 	<select id="selectArenaRidsExisting" resultType="long">
-		/* selectArenaRidsExisting */
-		SELECT rid FROM ranker_rtpvp_replay_list
-		WHERE rid IN
+		/* selectArenaRidsExisting — v2 정규화 리플레이 PK (replay_id) */
+		SELECT replay_id FROM public.rta_match
+		WHERE replay_id IN
 		<foreach collection="rids" item="r" open="(" separator="," close=")">
 			#{r}
 		</foreach>
@@ -1202,300 +1202,153 @@
 
 	<select id="selectArenaUserPairsByRids" resultType="sqlMap">
 		/* selectArenaUserPairsByRids */
-		SELECT rid, wizard_id FROM ranker_rtpvp_replay_user_list
-		WHERE rid IN
+		SELECT replay_id AS rid, wizard_id FROM public.rta_match_participant
+		WHERE replay_id IN
 		<foreach collection="rids" item="r" open="(" separator="," close=")">
 			#{r}
 		</foreach>
 	</select>
 
 	<delete id="deleteArenaRtaOrphanUnitsByRids">
-		/* deleteArenaRtaOrphanUnitsByRids — 부모 replay 없는 rid 의 unit 만 제거 */
-		DELETE FROM ranker_rtpvp_replay_unit_list u
-		WHERE u.rid IN
+		DELETE FROM public.rta_match_unit_pick u
+		WHERE u.replay_id IN
 		<foreach collection="rids" item="r" open="(" separator="," close=")">
 			#{r}
 		</foreach>
-		AND NOT EXISTS (SELECT 1 FROM ranker_rtpvp_replay_list r WHERE r.rid = u.rid)
+		AND NOT EXISTS (SELECT 1 FROM public.rta_match r WHERE r.replay_id = u.replay_id)
 	</delete>
 
 	<delete id="deleteArenaRtaOrphanPicksByRids">
-		/* deleteArenaRtaOrphanPicksByRids */
-		DELETE FROM ranker_rtpvp_replay_pick_list p
-		WHERE p.rid IN
-		<foreach collection="rids" item="r" open="(" separator="," close=")">
-			#{r}
-		</foreach>
-		AND NOT EXISTS (SELECT 1 FROM ranker_rtpvp_replay_list r WHERE r.rid = p.rid)
+		DELETE FROM public.rta_match WHERE FALSE
 	</delete>
 
 	<delete id="deleteArenaRtaOrphanUsersByRids">
-		/* deleteArenaRtaOrphanUsersByRids */
-		DELETE FROM ranker_rtpvp_replay_user_list ul
-		WHERE ul.rid IN
+		DELETE FROM public.rta_match_participant ul
+		WHERE ul.replay_id IN
 		<foreach collection="rids" item="r" open="(" separator="," close=")">
 			#{r}
 		</foreach>
-		AND NOT EXISTS (SELECT 1 FROM ranker_rtpvp_replay_list r WHERE r.rid = ul.rid)
+		AND NOT EXISTS (SELECT 1 FROM public.rta_match r WHERE r.replay_id = ul.replay_id)
 	</delete>
 
 	<delete id="deleteArenaRtaOrphanUnitsGlobal">
-		DELETE FROM ranker_rtpvp_replay_unit_list u
-		WHERE NOT EXISTS (SELECT 1 FROM ranker_rtpvp_replay_list r WHERE r.rid = u.rid)
+		DELETE FROM public.rta_match_unit_pick u
+		WHERE NOT EXISTS (SELECT 1 FROM public.rta_match r WHERE r.replay_id = u.replay_id)
 	</delete>
 
 	<delete id="deleteArenaRtaOrphanPicksGlobal">
-		DELETE FROM ranker_rtpvp_replay_pick_list p
-		WHERE NOT EXISTS (SELECT 1 FROM ranker_rtpvp_replay_list r WHERE r.rid = p.rid)
+		/* v2: 픽 메타는 rta_match_unit_pick — 호환용 no-op (0행) */
+		DELETE FROM public.rta_match WHERE FALSE
 	</delete>
 
 	<delete id="deleteArenaRtaOrphanUsersGlobal">
-		DELETE FROM ranker_rtpvp_replay_user_list ul
-		WHERE NOT EXISTS (SELECT 1 FROM ranker_rtpvp_replay_list r WHERE r.rid = ul.rid)
+		DELETE FROM public.rta_match_participant ul
+		WHERE NOT EXISTS (SELECT 1 FROM public.rta_match r WHERE r.replay_id = ul.replay_id)
 	</delete>
-	
-	<insert id="insertArenaInfo" parameterType="sqlMap">
-		/* insertArenaInfo — 중복 rid 는 예외 없이 무시 (누적 로그·재요청·레이스) */
-		insert into ranker_rtpvp_replay_list (
-			   rid
-			 , battle_type
-			 , battle_ver
-			 , date_add
-			 , proto_ver
-			 , win_lose
-			 , wizard_id
-			 , user_key
-			 , server_id
-			 , slot_id
-			 , replay_rid_ref
-			 , infocsv
-			 , group_id
-			 , crt_date
-		) values (
-			   #{rid}
-			 , #{battle_type}
-			 , #{battle_ver}
-			 , #{date_add}::timestamp
-			 , #{proto_ver}
-			 , #{win_lose}
-			 , #{wizard_id}
-			 , #{user_key}
-			 , #{server_id}
-			 , #{slot_id}
-			 , #{replay_rid_ref}
-			 , #{infocsv}
-			 , #{group_id}
-			 , COALESCE(#{crt_date}::timestamp, CURRENT_TIMESTAMP)
-		)
-		ON CONFLICT (rid) DO NOTHING
-	</insert>
-	
-	<insert id="insertArenaUserInfo" parameterType="sqlMap">
-		/* insertArenaUserInfo — (rid, wizard_id) 중복 시 무시 */
-		insert into ranker_rtpvp_replay_user_list (
-			   rid
-			 , alive_count
-			 , country
-			 , is_first_pick
-			 , is_placement
-			 , rank_no
-			 , rating_id
-			 , score
-			 , win_lose
-			 , wizard_id
-			 , wizard_name
-			 , channel_uid
-			 , slot_id
-			 , team_no
-			 , server_id
-			 , coin
-			 , last_rating_id
-			 , crt_date
-		) values (
-			   #{rid}
-			 , #{alive_count}
-			 , #{country}
-			 , #{is_first_pick}
-			 , #{is_placement}
-			 , #{rank_no}
-			 , #{rating_id}
-			 , #{score}
-			 , #{win_lose}
-			 , #{wizard_id}
-			 , #{wizard_name}
-			 , #{channel_uid}
-			 , #{slot_id}
-			 , #{team_no}
-			 , #{server_id}
-			 , #{coin}
-			 , #{last_rating_id}
-			 , COALESCE(#{crt_date}::timestamp, CURRENT_TIMESTAMP)
-		)
-		ON CONFLICT (rid, wizard_id) DO NOTHING
-	</insert>
-	
-	<insert id="insertArenaPickInfo" parameterType="sqlMap">
-		/* insertArenaPickInfo — migrate: ranker_rtpvp_replay_pick_list_rid_wizard_uidx 후 ON CONFLICT (NOT EXISTS 풀스캔 방지) */
-		insert into ranker_rtpvp_replay_pick_list (
-			   rid
-			 , wizard_id
-			 , banned_slot_id
-			 , leader_slot_id
-			 , crt_date
-		) values (
-			   #{rid}
-			 , #{wizard_id}
-			 , #{banned_slot_id}
-			 , #{leader_slot_id}
-			 , COALESCE(#{crt_date}::timestamp, CURRENT_TIMESTAMP)
-		)
-		ON CONFLICT (rid, wizard_id) DO NOTHING
-	</insert>
-	
-	<insert id="insertArenaUnitInfo" parameterType="sqlMap">
-		/* insertArenaUnitInfo — (rid, wizard_id, pick_slot_id) 중복 시 무시 */
-		insert into ranker_rtpvp_replay_unit_list (
-			   rid
-			 , pick_slot_id
-			 , unit_master_id
-			 , wizard_id
-			 , crt_date
-		) values (
-			   #{rid}
-			 , #{pick_slot_id}
-			 , #{unit_master_id}
-			 , #{wizard_id}
-			 , COALESCE(#{crt_date}::timestamp, CURRENT_TIMESTAMP)
-		)
-		ON CONFLICT (rid, wizard_id, pick_slot_id) DO NOTHING
-	</insert>
 
 	<insert id="insertArenaInfoBulk">
-		/* insertArenaInfoBulk — rta-upload 벌크 (foreach item 은 row 금지: ParamMap 과 충돌) */
-		INSERT INTO ranker_rtpvp_replay_list (
-			   rid
-			 , battle_type
-			 , battle_ver
-			 , date_add
-			 , proto_ver
-			 , win_lose
-			 , wizard_id
-			 , user_key
-			 , server_id
-			 , slot_id
-			 , replay_rid_ref
-			 , infocsv
-			 , group_id
-			 , crt_date
+		/* insertArenaInfoBulk — rta_match (시즌은 played_at 으로 rta_season 매핑, 실패 시 _FALLBACK) */
+		INSERT INTO public.rta_match (
+			replay_id,
+			season_id,
+			played_at,
+			winner_wizard_id,
+			battle_version,
+			battle_type
 		) VALUES
 		<foreach collection="rows" item="m" separator=",">
 		(
-			   #{m.rid}
-			 , #{m.battle_type}
-			 , #{m.battle_ver}
-			 , #{m.date_add}::timestamp
-			 , #{m.proto_ver}
-			 , #{m.win_lose}
-			 , #{m.wizard_id}
-			 , #{m.user_key}
-			 , #{m.server_id}
-			 , #{m.slot_id}
-			 , #{m.replay_rid_ref}
-			 , #{m.infocsv}
-			 , #{m.group_id}
-			 , COALESCE(#{m.crt_date}::timestamp, CURRENT_TIMESTAMP)
+			#{m.rid}
+			, COALESCE(
+				(SELECT s.season_id FROM public.rta_season s
+				 WHERE s.start_at &lt;= (#{m.date_add})::timestamptz AND s.end_at &gt; (#{m.date_add})::timestamptz
+				 ORDER BY s.sort_order ASC, s.season_no DESC
+				 LIMIT 1),
+				(SELECT s2.season_id FROM public.rta_season s2 WHERE s2.season_code = '_FALLBACK' LIMIT 1)
+			)
+			, (#{m.date_add})::timestamptz
+			, #{m.wizard_id}
+			, #{m.battle_ver}
+			, #{m.battle_type}
 		)
 		</foreach>
-		ON CONFLICT (rid) DO NOTHING
+		ON CONFLICT (replay_id) DO NOTHING
 	</insert>
 
 	<insert id="insertArenaUserInfoBulk">
-		/* insertArenaUserInfoBulk — rta-upload 벌크 */
-		INSERT INTO ranker_rtpvp_replay_user_list (
-			   rid
-			 , alive_count
-			 , country
-			 , is_first_pick
-			 , is_placement
-			 , rank_no
-			 , rating_id
-			 , score
-			 , win_lose
-			 , wizard_id
-			 , wizard_name
-			 , channel_uid
-			 , slot_id
-			 , team_no
-			 , server_id
-			 , coin
-			 , last_rating_id
-			 , crt_date
+		INSERT INTO public.rta_match_participant (
+			replay_id,
+			wizard_id,
+			wizard_name,
+			channel_uid,
+			team_side,
+			country_code,
+			rating_id,
+			ladder_score,
+			ladder_rank,
+			is_winner,
+			is_first_pick,
+			alive_count,
+			leader_pick_slot
 		) VALUES
 		<foreach collection="rows" item="m" separator=",">
 		(
-			   #{m.rid}
-			 , #{m.alive_count}
-			 , #{m.country}
-			 , #{m.is_first_pick}
-			 , #{m.is_placement}
-			 , #{m.rank_no}
-			 , #{m.rating_id}
-			 , #{m.score}
-			 , #{m.win_lose}
-			 , #{m.wizard_id}
-			 , #{m.wizard_name}
-			 , #{m.channel_uid}
-			 , #{m.slot_id}
-			 , #{m.team_no}
-			 , #{m.server_id}
-			 , #{m.coin}
-			 , #{m.last_rating_id}
-			 , COALESCE(#{m.crt_date}::timestamp, CURRENT_TIMESTAMP)
+			#{m.rid}
+			, #{m.wizard_id}
+			, #{m.wizard_name}
+			, #{m.channel_uid}
+			, COALESCE(#{m.team_no,jdbcType=SMALLINT}, 1)
+			, #{m.country}
+			, #{m.rating_id,jdbcType=INTEGER}
+			, #{m.score,jdbcType=INTEGER}
+			, #{m.rank_no,jdbcType=INTEGER}
+			, COALESCE(#{m.is_winner,jdbcType=BOOLEAN}, false)
+			, #{m.is_first_pick,jdbcType=BOOLEAN}
+			, #{m.alive_count,jdbcType=SMALLINT}
+			, #{m.leader_pick_slot,jdbcType=SMALLINT}
 		)
 		</foreach>
-		ON CONFLICT (rid, wizard_id) DO NOTHING
+		ON CONFLICT (replay_id, wizard_id) DO NOTHING
 	</insert>
 
 	<insert id="insertArenaPickInfoBulk">
-		/* insertArenaPickInfoBulk — rta-upload 벌크 */
-		INSERT INTO ranker_rtpvp_replay_pick_list (
-			   rid
-			 , wizard_id
-			 , banned_slot_id
-			 , leader_slot_id
-			 , crt_date
-		) VALUES
-		<foreach collection="rows" item="m" separator=",">
-		(
-			   #{m.rid}
-			 , #{m.wizard_id}
-			 , #{m.banned_slot_id}
-			 , #{m.leader_slot_id}
-			 , COALESCE(#{m.crt_date}::timestamp, CURRENT_TIMESTAMP)
-		)
-		</foreach>
-		ON CONFLICT (rid, wizard_id) DO NOTHING
+		INSERT INTO public.rta_monster (unit_master_id, monster_name, element_code)
+		SELECT -1::bigint, '', '' WHERE FALSE
+	</insert>
+
+	<insert id="insertRtaMonsterEnsureBulk">
+		INSERT INTO public.rta_monster (unit_master_id, monster_name, element_code)
+		SELECT DISTINCT
+			c.canonical_id,
+			COALESCE(mo.kr_name, '?'),
+			COALESCE(mo.monster_elemental, 'unknown')
+		FROM (
+			<foreach collection="rows" item="m" separator=" UNION ALL ">
+			SELECT public.rta_canonical_unit_master_id(TRIM(#{m.unit_master_id}::text)::bigint) AS canonical_id
+			</foreach>
+		) c
+		LEFT JOIN public.monster mo ON mo.monster_id = c.canonical_id::text
+		ON CONFLICT (unit_master_id) DO NOTHING
 	</insert>
 
 	<insert id="insertArenaUnitInfoBulk">
-		/* insertArenaUnitInfoBulk — rta-upload 벌크 */
-		INSERT INTO ranker_rtpvp_replay_unit_list (
-			   rid
-			 , pick_slot_id
-			 , unit_master_id
-			 , wizard_id
-			 , crt_date
+		INSERT INTO public.rta_match_unit_pick (
+			replay_id,
+			wizard_id,
+			pick_slot_no,
+			unit_master_id,
+			is_banned
 		) VALUES
 		<foreach collection="rows" item="m" separator=",">
 		(
-			   #{m.rid}
-			 , #{m.pick_slot_id}
-			 , #{m.unit_master_id}
-			 , #{m.wizard_id}
-			 , COALESCE(#{m.crt_date}::timestamp, CURRENT_TIMESTAMP)
+			#{m.rid}
+			, #{m.wizard_id}
+			, #{m.pick_slot_id}::smallint
+			, public.rta_canonical_unit_master_id(TRIM(#{m.unit_master_id}::text)::bigint)
+			, COALESCE(#{m.is_banned}::boolean, false)
 		)
 		</foreach>
-		ON CONFLICT (rid, wizard_id, pick_slot_id) DO NOTHING
+		ON CONFLICT (replay_id, wizard_id, pick_slot_no) DO NOTHING
 	</insert>
 
 	<insert id="insertArenaReplayRawBulk" parameterType="java.util.List">

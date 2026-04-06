@@ -75,14 +75,6 @@ public interface summonerswarMapper {
 	int deleteArenaRtaOrphanPicksByRids(@Param("rids") List<Long> rids);
 
 	int deleteArenaRtaOrphanUsersByRids(@Param("rids") List<Long> rids);
-	
-	public int insertArenaInfo(Map<String, ?> param);
-	
-	public int insertArenaUserInfo(Map<String, ?> param);
-	
-	public int insertArenaPickInfo(Map<String, ?> param);
-	
-	public int insertArenaUnitInfo(Map<String, ?> param);
 
 	/** rta-upload 벌크: VALUES 다중 행 + ON CONFLICT DO NOTHING */
 	int insertArenaInfoBulk(@Param("rows") List<Map<String, ?>> rows);
@@ -92,6 +84,9 @@ public interface summonerswarMapper {
 	int insertArenaPickInfoBulk(@Param("rows") List<Map<String, ?>> rows);
 
 	int insertArenaUnitInfoBulk(@Param("rows") List<Map<String, ?>> rows);
+
+	/** 유닛 적재 전 rta_monster 보강 (canonical id, monster 도감 조인) */
+	int insertRtaMonsterEnsureBulk(@Param("rows") List<Map<String, ?>> rows);
 
 	/** rta-upload: 원본 JSON 벌크 (rid + payload). ON CONFLICT 시 payload 갱신 */
 	int insertArenaReplayRawBulk(@Param("rows") List<Map<String, Object>> rows);

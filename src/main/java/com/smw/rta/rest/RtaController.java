@@ -190,7 +190,7 @@ public class RtaController {
         }
     }
 
-    @Operation(summary = "RTA 소환사 검색", description = "집계 랭킹(rta_summoner_ranking_agg)에서 닉네임 부분 일치 또는 위자드 ID 정확 일치 검색")
+    @Operation(summary = "RTA 소환사 검색", description = "시즌 구간 내 라이브 랭킹에서 닉네임 부분 일치 또는 위자드 ID 정확 일치 검색")
     @PostMapping("/summoner-search")
     public ResponseEntity<Map<String, Object>> searchRtaSummoners(@RequestBody(required = false) Map<String, Object> param) {
         try {
@@ -215,6 +215,17 @@ public class RtaController {
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             log.error("RTA seasons 조회 실패", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    @Operation(summary = "RTA 공식 티어 규칙(참고)", description = "rta_rating_grade 에 등록된 tier_key·승점·랭킹 설명")
+    @GetMapping("/rating-grade-rules")
+    public ResponseEntity<List<Map<String, Object>>> listRtaRatingGradeRules() {
+        try {
+            return ResponseEntity.ok(rtaService.listRtaRatingGradeReference());
+        } catch (Exception e) {
+            log.error("RTA rating grade rules 조회 실패", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
@@ -249,7 +260,7 @@ public class RtaController {
         }
     }
 
-    @Operation(summary = "RTA 몬스터 상세 정보 조회", description = "특정 몬스터의 상세 정보를 조회합니다. (기본정보, 강한상대, 좋은콤비, 3체인콤비, 최근경기)")
+    @Operation(summary = "RTA 몬스터 상세 정보 조회", description = "특정 몬스터의 상세 정보를 조회합니다. (기본정보, 강한상대, 좋은콤비, 3체인콤비, 카운터매치업, 최근경기)")
     @PostMapping("/monster-detail")
     public ResponseEntity<Map<String, Object>> getRtaMonsterDetail(@RequestBody Map<String, Object> param) {
         

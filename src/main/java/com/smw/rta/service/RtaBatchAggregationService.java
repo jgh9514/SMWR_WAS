@@ -94,7 +94,7 @@ public class RtaBatchAggregationService {
 		return new SnapshotDrainResult(rounds, totalRidsTouched, totalUpserted, totalMarked, stopReason);
 	}
 
-	/** 소환사 랭킹 집계 테이블 전체 재적재 (시즌별 INSERT) */
+	/** 소환사 랭킹 스냅샷 재적재 호출 (집계 테이블 미사용 시 Mapper no-op) */
 	public SummonerRankingRebuildResult rebuildSummonerRankingAgg(RtaMapper rtaMapper) {
 		rtaMapper.deleteAllRtaSummonerRankingAgg();
 		List<Map<String, Object>> seasons = rtaMapper.listRtaSeasons();
@@ -150,7 +150,7 @@ public class RtaBatchAggregationService {
 	}
 
 	/**
-	 * synergy_agg_status = pending 인 rid 를 배치 단위로 시너지 fact·롤업에 반영한다.
+	 * {@code rta_match.synergy_applied_at IS NULL} 인 rid 를 배치 단위로 {@code rta_agg_synergy_combo}에 반영한다.
 	 */
 	public SynergyDrainResult drainSynergyPending(
 			RtaMapper rtaMapper,
@@ -216,7 +216,7 @@ public class RtaBatchAggregationService {
 		return new SynergyDrainResult(rounds, totalOk, totalFail, stopReason);
 	}
 
-	/** 티어 일별 분포만 (대시보드 차트용). 랭크 컷은 API 라이브 조회 + 1시간 캐시. */
+	/** 티어 일별 분포 재적재 호출 (집계 테이블 미사용 시 no-op; 대시보드 조회는 라이브 집계). */
 	public int rebuildTierDistributionDailyAgg(RtaMapper rtaMapper) {
 		rtaMapper.deleteAllRtaTierDistributionDailyAgg();
 		return rtaMapper.insertRtaTierDistributionDailyAggFromLive();
@@ -227,8 +227,6 @@ public class RtaBatchAggregationService {
 		List<Map<String, Object>> seasons = rtaMapper.listRtaSeasons();
 		int metaRows = 0;
 		int pickRows = 0;
-		int duoRows = 0;
-		int trioRows = 0;
 		for (Map<String, Object> row : seasons) {
 			String code = pickSeasonCode(row);
 			if (code == null || code.isEmpty()) {
@@ -247,10 +245,8 @@ public class RtaBatchAggregationService {
 			}
 			metaRows += rtaMapper.insertRtaMonsterStatsMetaForSeason(code, start, end);
 			pickRows += rtaMapper.insertRtaMonsterStatsAggForSeason(code, start, end);
-			duoRows += rtaMapper.insertRtaMonsterDuoAggForSeason(code, start, end);
-			trioRows += rtaMapper.insertRtaMonsterTrioAggForSeason(code, start, end);
 		}
-		return new MonsterStatsRebuildResult(metaRows, pickRows, duoRows, trioRows);
+		return new MonsterStatsRebuildResult(metaRows, pickRows);
 	}
 
 	private static String pickSeasonCode(Map<String, Object> row) {
@@ -291,6 +287,6 @@ public class RtaBatchAggregationService {
 	public record SynergyDrainResult(int rounds, int totalOk, int totalFail, String stopReason) {
 	}
 
-	public record MonsterStatsRebuildResult(int metaRows, int pickRows, int duoRows, int trioRows) {
+	public record MonsterStatsRebuildResult(int metaRows, int pickRows) {
 	}
 }
