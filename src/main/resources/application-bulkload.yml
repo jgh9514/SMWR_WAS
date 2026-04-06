@@ -1,7 +1,11 @@
 # 전량 재적재·대량 백필: spring.profiles.active=local,bulkload (파일명으로 bulkload 전용)
 # 프로필 없이 쓰려면 SMW_RTA_* 환경변수만 application.yml 기본값보다 크게 설정.
+# Quartz 배치(sys_batch_config) 등록 — local 프로필의 spring.batch.job.enabled 와 무관하게 켬.
 
 smw:
+  batch:
+    quartz:
+      enabled: true
   rta:
     raw-apply:
       # 한 번의 applyPending 호출에서 SELECT 할 최대 행 수 (기본 application.yml 1000 → 대량 시 상향)

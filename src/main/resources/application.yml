@@ -13,9 +13,6 @@ spring:
       # monster-list 같은 "거의 고정" 데이터는 WAS 메모리 캐시로 DB 타격을 제거
       spec: maximumSize=1000,expireAfterWrite=7d,recordStats
   batch:
-    job:
-      # JobLauncher 로만 실행 권장 (부팅 시 전체 Job 자동 실행 방지)
-      enabled: true
     jdbc:
       # PostgreSQL 에 BATCH_* 메타 테이블 생성 (운영은 never + 마이그레이션 권장)
       initialize-schema: always
@@ -133,6 +130,10 @@ management:
         smw.swarfarm.sync.duration: true
 
 smw:
+  # Quartz: DB sys_batch_config 를 읽어 RTA 통합 배치 등을 스케줄 등록 (BatchConfig)
+  batch:
+    quartz:
+      enabled: ${SMW_BATCH_QUARTZ_ENABLED:false}
   globalDblinkNm: SMW_DBLINK
   cookie-live-time: 600
   # SYS_ROLE/SYS_USER_ROLE 제거 시: 관리자 user_id 목록(콤마 구분). RequireAdmin·알림 수신·댓글 삭제 등

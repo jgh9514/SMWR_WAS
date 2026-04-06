@@ -28,7 +28,7 @@ import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 @Configuration
-@ConditionalOnProperty(prefix = "spring.batch.job", name = "enabled", havingValue = "true", matchIfMissing = false)
+@ConditionalOnProperty(prefix = "smw.batch.quartz", name = "enabled", havingValue = "true", matchIfMissing = false)
 public class BatchConfig {
 
 	@Autowired
