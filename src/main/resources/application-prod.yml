@@ -1,0 +1,7 @@
+# 운영 프로필 — spring.profiles.active 에 prod 포함 시 로드 (예: docker,prod · 마지막 프로필이 같은 키를 덮어씀)
+# Quartz 스케줄 배치(BatchConfig·sys_batch_config 기반 Job 등록) 비활성화. 수동/별도 워커에서만 돌릴 때 SMW_BATCH_QUARTZ_ENABLED=true
+
+smw:
+  batch:
+    quartz:
+      enabled: ${SMW_BATCH_QUARTZ_ENABLED:false}

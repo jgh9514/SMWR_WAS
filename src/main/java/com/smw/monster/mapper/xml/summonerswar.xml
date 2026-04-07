@@ -1290,11 +1290,16 @@
 			, #{m.channel_uid}
 			, COALESCE(#{m.team_no,jdbcType=SMALLINT}, 1)
 			, #{m.country}
-			, #{m.rating_id,jdbcType=INTEGER}
+			, (SELECT r.rating_id FROM public.rta_rating_grade r WHERE r.rating_id = #{m.rating_id,jdbcType=INTEGER} LIMIT 1)
 			, #{m.score,jdbcType=INTEGER}
 			, #{m.rank_no,jdbcType=INTEGER}
 			, COALESCE(#{m.is_winner,jdbcType=BOOLEAN}, false)
-			, #{m.is_first_pick,jdbcType=BOOLEAN}
+			, CASE
+				WHEN #{m.is_first_pick} IS NULL THEN NULL::boolean
+				WHEN trim(#{m.is_first_pick}::text) IN ('1','true','t','TRUE') THEN true
+				WHEN trim(#{m.is_first_pick}::text) IN ('0','false','f','F','FALSE') THEN false
+				ELSE NULL::boolean
+			END
 			, #{m.alive_count,jdbcType=SMALLINT}
 			, #{m.leader_pick_slot,jdbcType=SMALLINT}
 		)

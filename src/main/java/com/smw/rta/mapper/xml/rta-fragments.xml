@@ -38,4 +38,19 @@
 			AND m.played_at &lt; #{seasonEnd}
 		</if>
 	</sql>
+
+	<!--
+	  몬스터 초상 URL: DB image_url(S3/CloudFront 등) 우선, 없을 때만 /images 정적 경로.
+	  ${alias} = 조인된 monster 테이블 별칭 (mo, m, m1, mm1 …).
+	-->
+	<sql id="monsterPortraitUrl">
+		COALESCE(
+			NULLIF(TRIM(${alias}.image_url), ''),
+			CASE
+				WHEN ${alias}.kr_name IS NOT NULL AND ${alias}.monster_elemental IS NOT NULL THEN
+					'/images/' || ${alias}.monster_elemental || '/' || replace(${alias}.kr_name, ' ', '_') || '_' || ${alias}.monster_elemental || '_Icon.png'
+				ELSE NULL
+			END
+		)
+	</sql>
 </mapper>

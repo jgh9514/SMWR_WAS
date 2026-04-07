@@ -214,27 +214,15 @@
             m1.m1_id::text AS most_monster_1_id,
             m1.m1_pick AS most_monster_1_pick_count,
             COALESCE(mm1.kr_name, '') AS most_monster_1_name,
-            CASE
-                WHEN mm1.kr_name IS NOT NULL THEN
-                    '/images/' || mm1.monster_elemental || '/' || replace(mm1.kr_name, ' ', '_') || '_' || mm1.monster_elemental || '_Icon.png'
-                ELSE ''
-            END AS most_monster_1_image,
+            COALESCE(<include refid="monsterPortraitUrl"><property name="alias" value="mm1"/></include>, '') AS most_monster_1_image,
             m2.m2_id::text AS most_monster_2_id,
             m2.m2_pick AS most_monster_2_pick_count,
             COALESCE(mm2.kr_name, '') AS most_monster_2_name,
-            CASE
-                WHEN mm2.kr_name IS NOT NULL THEN
-                    '/images/' || mm2.monster_elemental || '/' || replace(mm2.kr_name, ' ', '_') || '_' || mm2.monster_elemental || '_Icon.png'
-                ELSE ''
-            END AS most_monster_2_image,
+            COALESCE(<include refid="monsterPortraitUrl"><property name="alias" value="mm2"/></include>, '') AS most_monster_2_image,
             m3.m3_id::text AS most_monster_3_id,
             m3.m3_pick AS most_monster_3_pick_count,
             COALESCE(mm3.kr_name, '') AS most_monster_3_name,
-            CASE
-                WHEN mm3.kr_name IS NOT NULL THEN
-                    '/images/' || mm3.monster_elemental || '/' || replace(mm3.kr_name, ' ', '_') || '_' || mm3.monster_elemental || '_Icon.png'
-                ELSE ''
-            END AS most_monster_3_image
+            COALESCE(<include refid="monsterPortraitUrl"><property name="alias" value="mm3"/></include>, '') AS most_monster_3_image
         FROM page_ranked pr
         LEFT JOIN win_agg wa ON pr.wizard_id = wa.wizard_id
         LEFT JOIN score_max_agg sm ON pr.wizard_id = sm.wizard_id

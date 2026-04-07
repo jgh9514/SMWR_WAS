@@ -21,12 +21,15 @@ import java.util.Map;
 import java.util.Set;
 
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
+
+import jakarta.annotation.PostConstruct;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -37,6 +40,7 @@ import lombok.extern.slf4j.Slf4j;
 import com.smw.monster.mapper.summonerswarMapper;
 import com.smw.monster.util.MonsterDetailContextBuilder;
 import com.smw.rta.cache.RtaCacheEvictor;
+import com.smw.rta.config.RtaRawApplyProperties;
 import com.smw.monster.util.MonsterIdEvolutionUtil;
 import com.sysconf.exception.RtaUploadValidationException;
 
@@ -49,7 +53,17 @@ public class summonerswarServiceImpl implements summonerswarService {
 	summonerswarMapper swMapper;
 
 	@Autowired
-	private TransactionTemplate transactionTemplate;
+	private PlatformTransactionManager platformTransactionManager;
+
+	/** RTA 정규화 INSERT 묶음마다 별도 커밋({@code REQUIRES_NEW}) — 긴 Job·다른 호출부와 분리 */
+	private TransactionTemplate arenaRtaPersistTransactionTemplate;
+
+	@PostConstruct
+	void initArenaRtaPersistTransactionTemplate() {
+		TransactionTemplate t = new TransactionTemplate(platformTransactionManager);
+		t.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+		this.arenaRtaPersistTransactionTemplate = t;
+	}
 
 	@Autowired
 	private ObjectMapper objectMapper;
@@ -57,13 +71,8 @@ public class summonerswarServiceImpl implements summonerswarService {
 	@Autowired
 	private RtaCacheEvictor rtaCacheEvictor;
 
-	/** 배치 한 실행에서 SELECT할 pending/failed 최대 건수 (1 미만이면 1). */
-	@Value("${smw.rta.raw-apply.max-rows-per-run:1000}")
-	private int rawApplyMaxRowsPerRun;
-
-	/** raw → rta_match 정규화 시 한 트랜잭션에 묶는 건수 (1 미만이면 1). 상한 없음. */
-	@Value("${smw.rta.raw-apply.apply-chunk-size:80}")
-	private int rawApplyApplyChunkSize;
+	@Autowired
+	private RtaRawApplyProperties rtaRawApplyProperties;
 
 	
 	@Override
@@ -1199,7 +1208,7 @@ public class summonerswarServiceImpl implements summonerswarService {
 				}
 			}
 			List<Map<String, ?>> arenaRows = new ArrayList<>(arenaByRid.values());
-			transactionTemplate.executeWithoutResult(status ->
+			arenaRtaPersistTransactionTemplate.executeWithoutResult(status ->
 					insertArenaRtaBulkInChunks(arenaRows, userBatch, pickBatch, unitBatch, mode));
 		}
 		return new ArenaRtaUploadApplyResult(0, dupSkipped);
@@ -1369,7 +1378,7 @@ public class summonerswarServiceImpl implements summonerswarService {
 	@Override
 	public int applyPendingArenaReplayRawFromDb() {
 		int pfCount = swMapper.countRtaReplayRawPendingPf();
-		int maxRows = Math.max(1, rawApplyMaxRowsPerRun);
+		int maxRows = Math.max(1, rtaRawApplyProperties.getMaxRowsPerRun());
 		List<Map<String, ?>> pending = swMapper.selectRtaReplayRawPending(maxRows);
 		log.info("[rta-raw-apply] pending/failed DB 건수(count)={}, 이번 실행 조회 상한={}, 조회 rows={}", pfCount, maxRows,
 				pending.size());
@@ -1381,7 +1390,7 @@ public class summonerswarServiceImpl implements summonerswarService {
 		if (pending.isEmpty()) {
 			return 0;
 		}
-		int chunk = Math.max(1, rawApplyApplyChunkSize);
+		int chunk = Math.max(1, rtaRawApplyProperties.getApplyChunkSize());
 		int applied = 0;
 
 		List<Map<String, ?>> parsed = new ArrayList<>();
@@ -1390,6 +1399,9 @@ public class summonerswarServiceImpl implements summonerswarService {
 			Object payloadObj = row.get("payload");
 			if (rid == null || payloadObj == null) {
 				log.warn("[rta-raw-apply] rid/payload 없음 row={}", row);
+				if (rid != null) {
+					swMapper.updateArenaReplayRawFailedBulk(Collections.singletonList(rid), "payload 없음");
+				}
 				continue;
 			}
 			try {

@@ -25,7 +25,7 @@ import lombok.extern.slf4j.Slf4j;
 /**
  * 배치 Job의 기본 클래스
  * - 로그 수집 및 이력 관리
- * - 트랜잭션 관리 및 롤백 처리
+ * - 실행 이력은 짧은 트랜잭션으로 기록, 본문 배치는 서비스/매퍼 단위로 커밋
  */
 @Slf4j
 public abstract class BaseBatchJob implements Job {
@@ -35,7 +35,6 @@ public abstract class BaseBatchJob implements Job {
     protected ApplicationContext applicationContext;
     protected BatchMapper batchMapper;
     protected PlatformTransactionManager transactionManager;
-    protected TransactionStatus transactionStatus;
     protected MeterRegistry meterRegistry;
 
     /** 수동 실행 시 SSE로 실시간 로그를 보낼 때 사용하는 스트림 ID (없으면 null) */
@@ -48,7 +47,6 @@ public abstract class BaseBatchJob implements Job {
         logContent.setLength(0); // 로그 초기화
         streamId = null;
         logBroadcaster = null;
-        TransactionStatus txStatus = null;
         Timer.Sample batchTimerSample = null;
         boolean completedOk = false;
         
@@ -93,17 +91,7 @@ public abstract class BaseBatchJob implements Job {
                 throw new JobExecutionException("배치 ID를 찾을 수 없습니다.");
             }
             
-            // 트랜잭션 시작
-            if (transactionManager != null) {
-                DefaultTransactionDefinition def = new DefaultTransactionDefinition();
-                def.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRED);
-                def.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
-                txStatus = transactionManager.getTransaction(def);
-                this.transactionStatus = txStatus;
-                addLog("트랜잭션 시작");
-            }
-            
-            // 실행 이력 등록
+            // 실행 이력 RUNNING 등록만 짧은 트랜잭션으로 커밋 — 본문 배치는 묶지 않음(장시간·대량 시 한 덩어리 롤백 방지)
             addLog("===== 배치 실행 시작 =====");
             addLog("배치 ID: %d", batId);
             addLog("배치명: %s", getBatchName());
@@ -112,7 +100,7 @@ public abstract class BaseBatchJob implements Job {
             runHis.put("bat_id", batId);
             runHis.put("rslt_cd", "RUNNING");
             runHis.put("rslt_txt", getLogContent());
-            batchMapper.insertBatchRunHis(runHis);
+            insertBatchRunStartingInNewTx(runHis);
             runSn = (Long) runHis.get("run_sn");
             
             addLog("실행 이력 등록 완료. run_sn: %d", runSn);
@@ -121,12 +109,6 @@ public abstract class BaseBatchJob implements Job {
             addLog("===== 배치 로직 실행 시작 =====");
             executeBatch(context);
             addLog("===== 배치 로직 실행 완료 =====");
-            
-            // 트랜잭션 커밋
-            if (txStatus != null && !txStatus.isCompleted()) {
-                transactionManager.commit(txStatus);
-                addLog("트랜잭션 커밋 완료");
-            }
             
             // 성공 처리
             long elapsedTime = System.currentTimeMillis() - startTime;
@@ -138,16 +120,6 @@ public abstract class BaseBatchJob implements Job {
             completedOk = true;
             
         } catch (Exception e) {
-            // 트랜잭션 롤백 (배치 로직 중 오류 시 즉시 중단, 이후 커밋 없음)
-            if (txStatus != null && !txStatus.isCompleted()) {
-                try {
-                    transactionManager.rollback(txStatus);
-                    addLog("트랜잭션 롤백 완료 (오류로 배치 처리 중단)");
-                } catch (Exception rollbackEx) {
-                    log.error("트랜잭션 롤백 중 오류 발생", rollbackEx);
-                }
-            }
-            
             // 실패 처리
             long elapsedTime = System.currentTimeMillis() - startTime;
             addLog("===== 배치 실행 실패 =====");
@@ -171,6 +143,34 @@ public abstract class BaseBatchJob implements Job {
             throw new JobExecutionException("배치 실행 실패: " + e.getMessage(), e);
         } finally {
             completeLogStream(completedOk);
+        }
+    }
+
+    /** RUNNING 이력 INSERT 를 Job 본문과 분리해 즉시 커밋 */
+    private void insertBatchRunStartingInNewTx(Map<String, Object> runHis) {
+        if (transactionManager == null) {
+            batchMapper.insertBatchRunHis(runHis);
+            return;
+        }
+        DefaultTransactionDefinition def = new DefaultTransactionDefinition();
+        def.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        def.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+        TransactionStatus histTx = transactionManager.getTransaction(def);
+        try {
+            batchMapper.insertBatchRunHis(runHis);
+            transactionManager.commit(histTx);
+        } catch (Exception e) {
+            if (!histTx.isCompleted()) {
+                try {
+                    transactionManager.rollback(histTx);
+                } catch (Exception rollbackEx) {
+                    log.error("배치 RUNNING 이력 등록 롤백 실패", rollbackEx);
+                }
+            }
+            if (e instanceof RuntimeException re) {
+                throw re;
+            }
+            throw new IllegalStateException("배치 RUNNING 이력 등록 실패", e);
         }
     }
 

@@ -42,7 +42,7 @@
                 u.replay_id,
                 u.wizard_id,
                 array_agg(u.unit_master_id::text ORDER BY u.pick_slot_no) AS picked_units,
-                array_agg('/images/' || mo.monster_elemental || '/' || replace(mo.kr_name, ' ', '_') || '_' || mo.monster_elemental || '_Icon.png' ORDER BY u.pick_slot_no) AS unit_images,
+                array_agg(<include refid="monsterPortraitUrl"><property name="alias" value="mo"/></include> ORDER BY u.pick_slot_no) AS unit_images,
                 array_agg(mo.kr_name ORDER BY u.pick_slot_no) AS unit_names,
                 string_agg(u.unit_master_id::text, ',' ORDER BY u.pick_slot_no) AS picked_units_str
             FROM public.rta_match_unit_pick u
@@ -140,7 +140,7 @@
                 u.replay_id,
                 u.wizard_id,
                 array_agg(u.unit_master_id::text ORDER BY u.pick_slot_no) AS picked_units,
-                array_agg('/images/' || mo.monster_elemental || '/' || replace(mo.kr_name, ' ', '_') || '_' || mo.monster_elemental || '_Icon.png' ORDER BY u.pick_slot_no) AS unit_images,
+                array_agg(<include refid="monsterPortraitUrl"><property name="alias" value="mo"/></include> ORDER BY u.pick_slot_no) AS unit_images,
                 array_agg(mo.kr_name ORDER BY u.pick_slot_no) AS unit_names,
                 string_agg(u.unit_master_id::text, ',' ORDER BY u.pick_slot_no) AS picked_units_str
             FROM public.rta_match_unit_pick u
@@ -319,7 +319,7 @@
             ps.unit_master_id::text AS monster_id,
             m.monster_elemental AS monster_elemental,
             m.kr_name AS monster_name,
-            '/images/' || m.monster_elemental || '/' || replace(m.kr_name, ' ', '_') || '_' || m.monster_elemental || '_Icon.png' AS monster_image,
+            <include refid="monsterPortraitUrl"><property name="alias" value="m"/></include> AS monster_image,
             ps.pick_cnt AS pick_count,
             ROUND((ps.pick_cnt::numeric / NULLIF((SELECT COUNT(*)::numeric FROM public.rta_match mm INNER JOIN public.rta_season ss ON ss.season_id = mm.season_id WHERE ss.season_code = #{seasonCode}), 0) * 100)::numeric, 2) AS pick_rate,
             CASE
@@ -348,8 +348,8 @@
             split_part(s.combo_unit_key, ',', 2) AS monster_id_2,
             m1.kr_name AS monster_name_1,
             m2.kr_name AS monster_name_2,
-            '/images/' || m1.monster_elemental || '/' || replace(m1.kr_name, ' ', '_') || '_' || m1.monster_elemental || '_Icon.png' AS monster_image_1,
-            '/images/' || m2.monster_elemental || '/' || replace(m2.kr_name, ' ', '_') || '_' || m2.monster_elemental || '_Icon.png' AS monster_image_2,
+            <include refid="monsterPortraitUrl"><property name="alias" value="m1"/></include> AS monster_image_1,
+            <include refid="monsterPortraitUrl"><property name="alias" value="m2"/></include> AS monster_image_2,
             m1.monster_elemental AS monster_elemental_1,
             m2.monster_elemental AS monster_elemental_2,
             s.match_cnt AS match_count,
@@ -371,9 +371,9 @@
             m1.kr_name AS monster_name_1,
             m2.kr_name AS monster_name_2,
             m3.kr_name AS monster_name_3,
-            '/images/' || m1.monster_elemental || '/' || replace(m1.kr_name, ' ', '_') || '_' || m1.monster_elemental || '_Icon.png' AS monster_image_1,
-            '/images/' || m2.monster_elemental || '/' || replace(m2.kr_name, ' ', '_') || '_' || m2.monster_elemental || '_Icon.png' AS monster_image_2,
-            '/images/' || m3.monster_elemental || '/' || replace(m3.kr_name, ' ', '_') || '_' || m3.monster_elemental || '_Icon.png' AS monster_image_3,
+            <include refid="monsterPortraitUrl"><property name="alias" value="m1"/></include> AS monster_image_1,
+            <include refid="monsterPortraitUrl"><property name="alias" value="m2"/></include> AS monster_image_2,
+            <include refid="monsterPortraitUrl"><property name="alias" value="m3"/></include> AS monster_image_3,
             m1.monster_elemental AS monster_elemental_1,
             m2.monster_elemental AS monster_elemental_2,
             m3.monster_elemental AS monster_elemental_3,
@@ -401,7 +401,7 @@
                 u.unit_master_id,
                 m.monster_elemental as monster_elemental,
                 m.kr_name as monster_name,
-                '/images/' || m.monster_elemental || '/' || replace(m.kr_name, ' ', '_') || '_' || m.monster_elemental || '_Icon.png' as monster_image,
+                <include refid="monsterPortraitUrl"><property name="alias" value="m"/></include> as monster_image,
                 COUNT(*) as pick_count,
                 COUNT(CASE WHEN u.pick_slot_no = 1 THEN 1 END) as first_pick_count
             FROM public.rta_match_unit_pick u
@@ -470,7 +470,7 @@
                 u2.unit_master_id as opponent_monster_id,
                 m.monster_elemental as opponent_monster_elemental,
                 m.kr_name as opponent_monster_name,
-                '/images/' || m.monster_elemental || '/' || replace(m.kr_name, ' ', '_') || '_' || m.monster_elemental || '_Icon.png' as opponent_monster_image,
+                <include refid="monsterPortraitUrl"><property name="alias" value="m"/></include> as opponent_monster_image,
                 COUNT(*) as match_count,
                 SUM(CASE WHEN ul1.is_winner THEN 1 ELSE 0 END) as win_count
             FROM my_matches mm
@@ -513,7 +513,7 @@
                 u2.unit_master_id as combo_monster_id,
                 m.monster_elemental as combo_monster_elemental,
                 m.kr_name as combo_monster_name,
-                '/images/' || m.monster_elemental || '/' || replace(m.kr_name, ' ', '_') || '_' || m.monster_elemental || '_Icon.png' as combo_monster_image,
+                <include refid="monsterPortraitUrl"><property name="alias" value="m"/></include> as combo_monster_image,
                 COUNT(*) as match_count,
                 SUM(CASE WHEN ul.is_winner THEN 1 ELSE 0 END) as win_count
             FROM my_matches mm
@@ -556,11 +556,11 @@
                 u2.unit_master_id as monster1_id,
                 m1.monster_elemental as monster1_elemental,
                 m1.kr_name as monster1_name,
-                '/images/' || m1.monster_elemental || '/' || replace(m1.kr_name, ' ', '_') || '_' || m1.monster_elemental || '_Icon.png' as monster1_image,
+                <include refid="monsterPortraitUrl"><property name="alias" value="m1"/></include> as monster1_image,
                 u3.unit_master_id as monster2_id,
                 m2.monster_elemental as monster2_elemental,
                 m2.kr_name as monster2_name,
-                '/images/' || m2.monster_elemental || '/' || replace(m2.kr_name, ' ', '_') || '_' || m2.monster_elemental || '_Icon.png' as monster2_image,
+                <include refid="monsterPortraitUrl"><property name="alias" value="m2"/></include> as monster2_image,
                 COUNT(*) as match_count,
                 SUM(CASE WHEN ul.is_winner THEN 1 ELSE 0 END) as win_count
             FROM my_matches mm
@@ -617,10 +617,7 @@
                     json_build_object(
                         'monster_id', u1.unit_master_id,
                         'monster_name', COALESCE(m1.kr_name, ''),
-                        'monster_image', CASE 
-                            WHEN m1.kr_name IS NOT NULL THEN '/images/' || m1.monster_elemental || '/' || replace(m1.kr_name, ' ', '_') || '_' || m1.monster_elemental || '_Icon.png'
-                            ELSE ''
-                        END
+                        'monster_image', COALESCE(<include refid="monsterPortraitUrl"><property name="alias" value="m1"/></include>, '')
                     ) ORDER BY u1.pick_slot_no
                 ) as my_team
             FROM my_matches mm
@@ -635,10 +632,7 @@
                     json_build_object(
                         'monster_id', u2.unit_master_id,
                         'monster_name', COALESCE(m2.kr_name, ''),
-                        'monster_image', CASE 
-                            WHEN m2.kr_name IS NOT NULL THEN '/images/' || m2.monster_elemental || '/' || replace(m2.kr_name, ' ', '_') || '_' || m2.monster_elemental || '_Icon.png'
-                            ELSE ''
-                        END
+                        'monster_image', COALESCE(<include refid="monsterPortraitUrl"><property name="alias" value="m2"/></include>, '')
                     ) ORDER BY u2.pick_slot_no
                 ) as opponent_team
             FROM my_matches mm
@@ -916,27 +910,15 @@
             m1.m1_id::text AS most_monster_1_id,
             m1.m1_pick AS most_monster_1_pick_count,
             COALESCE(mm1.kr_name, '') AS most_monster_1_name,
-            CASE
-                WHEN mm1.kr_name IS NOT NULL THEN
-                    '/images/' || mm1.monster_elemental || '/' || replace(mm1.kr_name, ' ', '_') || '_' || mm1.monster_elemental || '_Icon.png'
-                ELSE ''
-            END AS most_monster_1_image,
+            COALESCE(<include refid="monsterPortraitUrl"><property name="alias" value="mm1"/></include>, '') AS most_monster_1_image,
             m2.m2_id::text AS most_monster_2_id,
             m2.m2_pick AS most_monster_2_pick_count,
             COALESCE(mm2.kr_name, '') AS most_monster_2_name,
-            CASE
-                WHEN mm2.kr_name IS NOT NULL THEN
-                    '/images/' || mm2.monster_elemental || '/' || replace(mm2.kr_name, ' ', '_') || '_' || mm2.monster_elemental || '_Icon.png'
-                ELSE ''
-            END AS most_monster_2_image,
+            COALESCE(<include refid="monsterPortraitUrl"><property name="alias" value="mm2"/></include>, '') AS most_monster_2_image,
             m3.m3_id::text AS most_monster_3_id,
             m3.m3_pick AS most_monster_3_pick_count,
             COALESCE(mm3.kr_name, '') AS most_monster_3_name,
-            CASE
-                WHEN mm3.kr_name IS NOT NULL THEN
-                    '/images/' || mm3.monster_elemental || '/' || replace(mm3.kr_name, ' ', '_') || '_' || mm3.monster_elemental || '_Icon.png'
-                ELSE ''
-            END AS most_monster_3_image
+            COALESCE(<include refid="monsterPortraitUrl"><property name="alias" value="mm3"/></include>, '') AS most_monster_3_image
         FROM page_ranked pr
         LEFT JOIN win_agg wa ON pr.wizard_id = wa.wizard_id
         LEFT JOIN most1 m1 ON pr.wizard_id = m1.wizard_id

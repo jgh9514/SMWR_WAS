@@ -24,16 +24,8 @@ public class RtaBatchAggregationService {
 	/** pending rid 한 번에 가져와 스냅샷 반영하는 건수 */
 	public static final int SNAPSHOT_BATCH_SIZE = 3000;
 
-	/** 한 배치 실행에서 스냅샷 루프 최대 횟수 (무한 루프·장시간 점유 방지) */
-	public static final int MAX_SNAPSHOT_ROUNDS_PER_JOB = 100_000;
-
-	/** raw 정규화 루프 상한 (한 라운드 = apply 한 번) */
-	public static final int MAX_RAW_APPLY_ROUNDS_PER_JOB = 100_000;
-
 	/** 시너지 집계: rid 한 번에 선택하는 건수 */
 	public static final int SYNERGY_BATCH_SIZE = 200;
-
-	public static final int MAX_SYNERGY_ROUNDS_PER_JOB = 100_000;
 
 	/**
 	 * v2 레거시 매치 스냅샷 단계 없음 — 별도 집계 테이블/스텝 없이 즉시 완료.
@@ -57,7 +49,7 @@ public class RtaBatchAggregationService {
 	/**
 	 * 원본 스테이징 미적용 건을 정규화 테이블로 반영한다.
 	 *
-	 * @param maxRounds 통합 배치는 {@link #MAX_RAW_APPLY_ROUNDS_PER_JOB}, 단발 배치는 1
+	 * @param maxRounds 루프 상한 (통합 Job은 {@code smw.rta.raw-apply.max-rounds-per-unified-job}, 단발은 1 권장)
 	 */
 	public RawApplyDrainResult drainReplayRawPending(summonerswarService service, int maxRounds) {
 		int orphansDeleted = service.deleteArenaRtaOrphanChildrenGlobal();

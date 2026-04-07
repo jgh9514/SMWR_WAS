@@ -7,6 +7,7 @@ import com.smw.monster.mapper.summonerswarMapper;
 import com.smw.monster.service.summonerswarService;
 import com.smw.rta.cache.RtaCacheEvictor;
 import com.smw.rta.config.RtaBatchProperties;
+import com.smw.rta.config.RtaRawApplyProperties;
 import com.smw.rta.mapper.RtaMapper;
 import com.smw.rta.service.RtaBatchAggregationService;
 import com.smw.rta.service.RtaSynergyAggService;
@@ -14,9 +15,9 @@ import com.smw.rta.service.RtaSynergyAggService;
 /**
  * RTA 관련 집계를 한 번의 스케줄로 순서대로 수행한다.
  * <ol>
- * <li>리플레이 raw 정규화 (미적용 건 전량, 상한 내)</li>
- * <li>매치 스냅샷 pending 전량</li>
- * <li>시너지 집계 pending 전량</li>
+ * <li>리플레이 raw 정규화 (설정 라운드·건수 상한, 나머지는 다음 스케줄)</li>
+ * <li>매치 스냅샷 pending (설정 라운드 상한)</li>
+ * <li>시너지 집계 pending (설정 라운드 상한)</li>
  * <li>소환사 랭킹 agg 재적재</li>
  * <li>몬스터 통계 agg 재적재</li>
  * <li>사용자 보유 몬스터 집계 (SWEX → {@code user_monster_owned_agg})</li>
@@ -36,13 +37,16 @@ public class RtaUnifiedPipelineAggJob extends BaseBatchJob {
 		RtaBatchAggregationService aggregationService = applicationContext.getBean(RtaBatchAggregationService.class);
 		RtaSynergyAggService synergyAggService = applicationContext.getBean(RtaSynergyAggService.class);
 		RtaBatchProperties rtaBatchProperties = applicationContext.getBean(RtaBatchProperties.class);
+		RtaRawApplyProperties rtaRawApplyProperties = applicationContext.getBean(RtaRawApplyProperties.class);
 
-		addLog("--- 1) RTA raw 정규화 (미적용 전량) ---");
+		addLog("--- 1) RTA raw 정규화 (라운드·건수 상한) ---");
 		int notApplied = summonerswarMapper.selectRtaReplayRawNotAppliedCount();
 		addLog("미적용 raw 건수(참고): %d", notApplied);
+		int rawMaxRounds = Math.max(1, rtaRawApplyProperties.getMaxRoundsPerUnifiedJob());
+		addLog("raw 정규화 최대 라운드: %d (회당 최대 %d행)", rawMaxRounds, rtaRawApplyProperties.getMaxRowsPerRun());
 		RtaBatchAggregationService.RawApplyDrainResult raw = aggregationService.drainReplayRawPending(
 				summonerswarService,
-				RtaBatchAggregationService.MAX_RAW_APPLY_ROUNDS_PER_JOB);
+				rawMaxRounds);
 		addLog("raw: 고아 정리 %d건, 라운드 %d, 적용 누적 %d건, 종료: %s",
 				raw.orphansDeleted(),
 				raw.rounds(),
@@ -56,11 +60,12 @@ public class RtaUnifiedPipelineAggJob extends BaseBatchJob {
 			addLog("--- 2) 매치 스냅샷: 설정에 의해 단계 생략 (smw.rta.batch.skip-legacy-snapshot-step=true) ---");
 		} else {
 			addLog("--- 2) 매치 스냅샷 pending 소진 (배치 %d건/라운드) ---", snapshotBatch);
+			int snapMaxRounds = Math.max(1, rtaBatchProperties.getSnapshotMaxRoundsPerJob());
 			RtaBatchAggregationService.SnapshotDrainResult snap = aggregationService.drainPendingSnapshots(
 					rtaMapper,
 					rtaCacheEvictor,
 					snapshotBatch,
-					RtaBatchAggregationService.MAX_SNAPSHOT_ROUNDS_PER_JOB,
+					snapMaxRounds,
 					false);
 			addLog("스냅샷: 라운드 %d, rids 누적 %d건, upsert %d, done %d, 종료: %s",
 					snap.rounds(),
@@ -71,12 +76,13 @@ public class RtaUnifiedPipelineAggJob extends BaseBatchJob {
 		}
 
 		addLog("--- 3) 시너지 집계 pending 소진 (배치 %d건/라운드) ---", synergyBatch);
+		int synMaxRounds = Math.max(1, rtaBatchProperties.getSynergyMaxRoundsPerJob());
 		RtaBatchAggregationService.SynergyDrainResult syn = aggregationService.drainSynergyPending(
 				rtaMapper,
 				synergyAggService,
 				rtaCacheEvictor,
 				synergyBatch,
-				RtaBatchAggregationService.MAX_SYNERGY_ROUNDS_PER_JOB,
+				synMaxRounds,
 				false);
 		addLog("시너지: 라운드 %d, ok %d, fail %d, 종료: %s",
 				syn.rounds(),
