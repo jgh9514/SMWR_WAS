@@ -14,7 +14,7 @@ import lombok.Setter;
 public class RtaRawApplyProperties {
 
 	/** {@code applyPendingArenaReplayRawFromDb} 한 번 호출당 SELECT 상한 */
-	private int maxRowsPerRun = 100;
+	private int maxRowsPerRun = 10000;
 
 	/** 정규화 INSERT 청크 크기 (최소 1은 서비스에서 보정) */
 	private int applyChunkSize = 200;

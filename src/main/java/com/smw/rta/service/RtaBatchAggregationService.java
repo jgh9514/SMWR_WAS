@@ -25,7 +25,7 @@ public class RtaBatchAggregationService {
 	public static final int SNAPSHOT_BATCH_SIZE = 3000;
 
 	/** 시너지 집계: rid 한 번에 선택하는 건수 */
-	public static final int SYNERGY_BATCH_SIZE = 200;
+	public static final int SYNERGY_BATCH_SIZE = 10000;
 
 	/**
 	 * v2 레거시 매치 스냅샷 단계 없음 — 별도 집계 테이블/스텝 없이 즉시 완료.

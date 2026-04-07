@@ -168,6 +168,29 @@ public class summonerswarServiceImpl implements summonerswarService {
 			}
 		}
 	}
+
+	/**
+	 * 점령 상세 SQL은 {@code IN (${dm1_list})} 형태 문자열 치환이라 dm1~dm3 중 하나라도 빠지면 {@code IN ()} 로 깨져 500이 난다.
+	 */
+	private static boolean missingDmIdLists(Map<String, Object> param) {
+		for (String k : new String[] { "dm1_list", "dm2_list", "dm3_list" }) {
+			Object v = param.get(k);
+			if (!(v instanceof String) || ((String) v).trim().isEmpty()) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private static Map<String, Object> emptyMonsterDetailFullResponse() {
+		Map<String, Object> map = new HashMap<>();
+		map.put("enemyData", Collections.emptyList());
+		map.put("recommendedList", Collections.emptyList());
+		map.put("recommendedTotalCount", 0);
+		map.put("historyList", Collections.emptyList());
+		map.put("historyTotalCount", 0);
+		return map;
+	}
 	
 	@Override
 	public int selectTotalPageCount(Map<String, Object> param) {
@@ -291,6 +314,9 @@ public class summonerswarServiceImpl implements summonerswarService {
 	@Override
 	public Map<String, ?> selectMonsterDetailList(Map<String, Object> param) {
 		expandMonsterIdsToIncludeCollaborations(param);
+		if (missingDmIdLists(param)) {
+			return emptyMonsterDetailFullResponse();
+		}
 
 		Map<String, Object> map = new HashMap<String, Object>();
 		
@@ -321,6 +347,11 @@ public class summonerswarServiceImpl implements summonerswarService {
 	@Override
 	public Map<String, ?> selectMonsterDetailBasic(Map<String, Object> param) {
 		expandMonsterIdsToIncludeCollaborations(param);
+		if (missingDmIdLists(param)) {
+			Map<String, Object> map = new HashMap<>();
+			map.put("enemyData", Collections.emptyList());
+			return map;
+		}
 		List<Map<String, ?>> enemyDataList = swMapper.selectMonsterDetailList(param);
 		Map<String, Object> map = new HashMap<>();
 		map.put("enemyData", enemyDataList);
@@ -341,6 +372,12 @@ public class summonerswarServiceImpl implements summonerswarService {
 	@Override
 	public Map<String, ?> selectMonsterDetailHistory(Map<String, Object> param) {
 		expandMonsterIdsToIncludeCollaborations(param);
+		if (missingDmIdLists(param)) {
+			Map<String, Object> map = new HashMap<>();
+			map.put("historyList", Collections.emptyList());
+			map.put("historyTotalCount", 0);
+			return map;
+		}
 		List<Map<String, ?>> historyList = swMapper.selectMonsterDetailTeamList(param);
 		int historyTotalCount = swMapper.selectMonsterDetailTeamListCount(param);
 		Map<String, Object> map = new HashMap<>();
@@ -352,6 +389,9 @@ public class summonerswarServiceImpl implements summonerswarService {
 	@Override
 	public int selectMonsterDetailTeamListCount(Map<String, Object> param) {
 		expandMonsterIdsToIncludeCollaborations(param);
+		if (missingDmIdLists(param)) {
+			return 0;
+		}
 		return swMapper.selectMonsterDetailTeamListCount(param);
 	}
 	

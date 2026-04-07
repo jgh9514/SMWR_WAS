@@ -14,7 +14,7 @@ import lombok.Setter;
 public class RtaBatchProperties {
 
 	/** {@code synergy_applied_at IS NULL} rid 를 한 라운드에서 가져오는 건수 */
-	private int synergyBatchSize = 200;
+	private int synergyBatchSize = 10000;
 
 	/** 매치 스냅샷 pending 을 한 라운드에서 처리하는 rid 건수 */
 	private int snapshotBatchSize = 3000;

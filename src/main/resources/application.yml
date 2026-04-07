@@ -198,14 +198,14 @@ smw:
       stable-max-wait-ms: ${SMW_RTA_EXPORTER_STABLE_MAX_MS:60000}
     raw-apply:
       # 정규화 배치(RtaUnifiedPipelineAggJob 등) 한 실행당 DB에서 꺼내 처리할 pending/failed 최대 건수
-      max-rows-per-run: ${SMW_RTA_RAW_APPLY_MAX_ROWS:100}
+      max-rows-per-run: ${SMW_RTA_RAW_APPLY_MAX_ROWS:10000}
       # 한 트랜잭션에 묶어 rta_match 등에 넣는 건수(최소 1). 상한 없음.
       apply-chunk-size: ${SMW_RTA_RAW_APPLY_CHUNK_SIZE:200}
       # 통합 Job 한 번에 raw 정규화 루프 최대 횟수(매번 max-rows-per-run 만큼 처리). 다음 스케줄에서 이어감.
       max-rounds-per-unified-job: ${SMW_RTA_RAW_APPLY_MAX_ROUNDS:30}
     # 통합 RTA 배치(스냅샷·시너지 라운드 크기 등). 처리량·락 경합 트레이드오프.
     batch:
-      synergy-batch-size: ${SMW_RTA_SYNERGY_BATCH_SIZE:400}
+      synergy-batch-size: ${SMW_RTA_SYNERGY_BATCH_SIZE:10000}
       snapshot-batch-size: ${SMW_RTA_SNAPSHOT_BATCH_SIZE:3000}
       snapshot-max-rounds-per-job: ${SMW_RTA_SNAPSHOT_MAX_ROUNDS:200}
       synergy-max-rounds-per-job: ${SMW_RTA_SYNERGY_MAX_ROUNDS:500}

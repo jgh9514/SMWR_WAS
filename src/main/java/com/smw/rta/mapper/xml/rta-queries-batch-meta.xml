@@ -25,7 +25,7 @@
             u.unit_master_id AS unit_master_id
         FROM public.rta_match_unit_pick u
         WHERE u.replay_id = #{rid}
-          AND NOT u.is_banned
+          AND COALESCE(u.is_banned, false) = false
         ORDER BY wizard_id, unit_master_id
     </select>
 
@@ -38,6 +38,22 @@
         ON CONFLICT (season_id, rating_id, combo_unit_key) DO UPDATE SET
             match_cnt = public.rta_agg_synergy_combo.match_cnt + EXCLUDED.match_cnt,
             win_cnt = public.rta_agg_synergy_combo.win_cnt + EXCLUDED.win_cnt
+    </insert>
+
+    <!-- subject_unit_id: 필드에 나온 유닛, opponent_*: 같은 경기 상대 팀의 듀오/트리오(정렬된 유닛 ID 키) -->
+    <insert id="upsertRtaCounterMatchupAgg">
+        INSERT INTO public.rta_agg_counter_matchup (
+            season_id, rating_id, subject_unit_id, opponent_combo_key, opponent_combo_size, win_cnt, lose_cnt
+        )
+        VALUES
+        <foreach collection="rows" item="r" separator=",">
+            (#{r.seasonId}, 0, #{r.subjectUnitId}, #{r.opponentComboKey}, #{r.opponentComboSize}::smallint,
+             #{r.winDelta}::bigint, #{r.loseDelta}::bigint)
+        </foreach>
+        ON CONFLICT (season_id, rating_id, subject_unit_id, opponent_combo_key) DO UPDATE SET
+            win_cnt = public.rta_agg_counter_matchup.win_cnt + EXCLUDED.win_cnt,
+            lose_cnt = public.rta_agg_counter_matchup.lose_cnt + EXCLUDED.lose_cnt,
+            opponent_combo_size = EXCLUDED.opponent_combo_size
     </insert>
 
     <update id="markSynergyAggDone">

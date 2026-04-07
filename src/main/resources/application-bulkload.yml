@@ -14,7 +14,7 @@ smw:
       apply-chunk-size: ${SMW_RTA_RAW_APPLY_CHUNK_SIZE:200}
       max-rounds-per-unified-job: ${SMW_RTA_RAW_APPLY_MAX_ROUNDS:200}
     batch:
-      synergy-batch-size: ${SMW_RTA_SYNERGY_BATCH_SIZE:400}
+      synergy-batch-size: ${SMW_RTA_SYNERGY_BATCH_SIZE:10000}
       snapshot-batch-size: ${SMW_RTA_SNAPSHOT_BATCH_SIZE:3000}
       snapshot-max-rounds-per-job: ${SMW_RTA_SNAPSHOT_MAX_ROUNDS:500}
       synergy-max-rounds-per-job: ${SMW_RTA_SYNERGY_MAX_ROUNDS:2000}

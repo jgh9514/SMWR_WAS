@@ -7,6 +7,7 @@ import java.sql.Timestamp;
 import java.util.List;
 import java.util.Map;
 
+import com.smw.rta.model.RtaCounterMatchupUpsertRow;
 import com.smw.rta.model.RtaSynergyAggUpsertRow;
 
 @Mapper
@@ -139,6 +140,9 @@ public interface RtaMapper {
     List<Map<String, Object>> selectSynergyFieldUnits(@Param("rid") long rid);
 
     int upsertRtaSynergyAgg(@Param("rows") List<RtaSynergyAggUpsertRow> rows);
+
+    /** 몬스터 상세 카운터: 필드 유닛(subject) vs 상대 듀오·트리오(opponent_combo_key) 승·패 */
+    int upsertRtaCounterMatchupAgg(@Param("rows") List<RtaCounterMatchupUpsertRow> rows);
 
     /** pending 인 rid 만 done */
     int markSynergyAggDone(@Param("rid") long rid);
