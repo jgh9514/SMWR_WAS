@@ -1,5 +1,6 @@
 package com.smw.monster.batch;
 
+import org.quartz.DisallowConcurrentExecution;
 import org.quartz.JobExecutionContext;
 
 import com.smw.account.mapper.AccountSummaryMapper;
@@ -25,7 +26,10 @@ import com.smw.rta.service.RtaSynergyAggService;
  * 대시보드 티어 일별 분포는 별도 배치 없이 {@code getRtaTierDistributionDailyFromAgg} 라이브 쿼리 + 캐시.
  * <p>
  * 스케줄: DB {@code sys_batch_config.cron_expr} (기본 5분, bat_id 10001).
+ * <p>
+ * 동일 Job 이 겹쳐 실행되면 DB 부하가 배가 될 수 있어 {@link DisallowConcurrentExecution} 으로 한 번에 하나만 실행한다.
  */
+@DisallowConcurrentExecution
 public class RtaUnifiedPipelineAggJob extends BaseBatchJob {
 
 	@Override
@@ -77,13 +81,18 @@ public class RtaUnifiedPipelineAggJob extends BaseBatchJob {
 
 		addLog("--- 3) 시너지 집계 pending 소진 (배치 %d건/라운드) ---", synergyBatch);
 		int synMaxRounds = Math.max(1, rtaBatchProperties.getSynergyMaxRoundsPerJob());
+		int synPause = Math.max(0, rtaBatchProperties.getSynergyPauseMsBetweenRounds());
+		if (synPause > 0) {
+			addLog("시너지 라운드 간 대기: %dms", synPause);
+		}
 		RtaBatchAggregationService.SynergyDrainResult syn = aggregationService.drainSynergyPending(
 				rtaMapper,
 				synergyAggService,
 				rtaCacheEvictor,
 				synergyBatch,
 				synMaxRounds,
-				false);
+				false,
+				synPause);
 		addLog("시너지: 라운드 %d, ok %d, fail %d, 종료: %s",
 				syn.rounds(),
 				syn.totalOk(),
@@ -94,17 +103,25 @@ public class RtaUnifiedPipelineAggJob extends BaseBatchJob {
 		RtaBatchAggregationService.SummonerRankingRebuildResult rank = aggregationService.rebuildSummonerRankingAgg(rtaMapper);
 		addLog("소환사 랭킹 스냅샷 재적재(0행=no-op): %d행", rank.totalRows());
 
-		addLog("--- 5) 몬스터 통계 집계 재적재 ---");
-		RtaBatchAggregationService.MonsterStatsRebuildResult mon = aggregationService.rebuildMonsterStatsAgg(rtaMapper);
-		addLog("몬스터 통계 집계 테이블 합계(meta/pick): meta=%d, pick=%d",
-				mon.metaRows(),
-				mon.pickRows());
+		if (rtaBatchProperties.isSkipMonsterStatsInUnifiedJob()) {
+			addLog("--- 5) 몬스터 통계 집계: 설정에 의해 생략 (smw.rta.batch.skip-monster-stats-in-unified-job=true) ---");
+		} else {
+			addLog("--- 5) 몬스터 통계 집계 재적재 ---");
+			RtaBatchAggregationService.MonsterStatsRebuildResult mon = aggregationService.rebuildMonsterStatsAgg(rtaMapper);
+			addLog("몬스터 통계 집계 테이블 합계(meta/pick): meta=%d, pick=%d",
+					mon.metaRows(),
+					mon.pickRows());
+		}
 
-		addLog("--- 6) 사용자 보유 몬스터 집계 (SWEX → user_monster_owned_agg) ---");
-		AccountSummaryMapper accountSummaryMapper = applicationContext.getBean(AccountSummaryMapper.class);
-		accountSummaryMapper.deleteAllUserMonsterOwnedAgg();
-		int ownedRows = accountSummaryMapper.insertUserMonsterOwnedAggFromSwex();
-		addLog("user_monster_owned_agg 적재: %d행", ownedRows);
+		if (rtaBatchProperties.isSkipUserMonsterOwnedAggInUnifiedJob()) {
+			addLog("--- 6) 사용자 보유 몬스터 집계: 설정에 의해 생략 (smw.rta.batch.skip-user-monster-owned-agg-in-unified-job=true) ---");
+		} else {
+			addLog("--- 6) 사용자 보유 몬스터 집계 (SWEX → user_monster_owned_agg) ---");
+			AccountSummaryMapper accountSummaryMapper = applicationContext.getBean(AccountSummaryMapper.class);
+			accountSummaryMapper.deleteAllUserMonsterOwnedAgg();
+			int ownedRows = accountSummaryMapper.insertUserMonsterOwnedAggFromSwex();
+			addLog("user_monster_owned_agg 적재: %d행", ownedRows);
+		}
 
 		rtaCacheEvictor.evictAllRtaCaches();
 		addLog("RTA 조회 캐시 무효화 (전체 파이프라인 완료)");

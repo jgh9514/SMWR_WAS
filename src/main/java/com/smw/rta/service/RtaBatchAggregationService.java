@@ -25,7 +25,7 @@ public class RtaBatchAggregationService {
 	public static final int SNAPSHOT_BATCH_SIZE = 3000;
 
 	/** 시너지 집계: rid 한 번에 선택하는 건수 */
-	public static final int SYNERGY_BATCH_SIZE = 10000;
+	public static final int SYNERGY_BATCH_SIZE = 500;
 
 	/**
 	 * v2 레거시 매치 스냅샷 단계 없음 — 별도 집계 테이블/스텝 없이 즉시 완료.
@@ -76,6 +76,8 @@ public class RtaBatchAggregationService {
 
 	/**
 	 * {@code rta_match.synergy_applied_at IS NULL} 인 rid 를 배치 단위로 {@code rta_agg_synergy_combo}에 반영한다.
+	 *
+	 * @param pauseMsBetweenRounds 라운드 사이 대기(ms), 0 이면 생략
 	 */
 	public SynergyDrainResult drainSynergyPending(
 			RtaMapper rtaMapper,
@@ -83,7 +85,8 @@ public class RtaBatchAggregationService {
 			RtaCacheEvictor cacheEvictor,
 			int batchSize,
 			int maxRounds,
-			boolean evictCachesEachRound) {
+			boolean evictCachesEachRound,
+			int pauseMsBetweenRounds) {
 		int rounds = 0;
 		int totalOk = 0;
 		int totalFail = 0;
@@ -116,6 +119,10 @@ public class RtaBatchAggregationService {
 				}
 			} else {
 				consecutiveAllFailed = 0;
+			}
+
+			if (pauseMsBetweenRounds > 0 && rounds < maxRounds) {
+				sleepQuiet(pauseMsBetweenRounds);
 			}
 		}
 		if (stopReason == null) {
@@ -171,6 +178,17 @@ public class RtaBatchAggregationService {
 			sc = row.get("season_code");
 		}
 		return sc != null ? String.valueOf(sc).trim() : "";
+	}
+
+	private static void sleepQuiet(int ms) {
+		if (ms <= 0) {
+			return;
+		}
+		try {
+			Thread.sleep(ms);
+		} catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+		}
 	}
 
 	private static Timestamp toTimestamp(Object o) {

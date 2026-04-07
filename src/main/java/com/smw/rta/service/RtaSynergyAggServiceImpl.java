@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -27,19 +28,21 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class RtaSynergyAggServiceImpl implements RtaSynergyAggService {
 
-	private static final int COUNTER_UPSERT_CHUNK = 400;
+	private static final int COUNTER_UPSERT_CHUNK = 500;
 
 	private final RtaMapper rtaMapper;
 	private final TransactionTemplate synergyOneRidTx;
 
-	public RtaSynergyAggServiceImpl(RtaMapper rtaMapper, PlatformTransactionManager transactionManager) {
+	public RtaSynergyAggServiceImpl(RtaMapper rtaMapper,
+			@Qualifier("rtaJdbcTransactionManager") PlatformTransactionManager transactionManager) {
 		this.rtaMapper = rtaMapper;
 		this.synergyOneRidTx = new TransactionTemplate(transactionManager);
 		this.synergyOneRidTx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
 	}
 
 	@Override
-	@Transactional(propagation = Propagation.REQUIRES_NEW, rollbackFor = Exception.class)
+	@Transactional(transactionManager = "rtaJdbcTransactionManager", propagation = Propagation.REQUIRES_NEW,
+			rollbackFor = Exception.class)
 	public void applyOneRid(long rid) {
 		applyOneRidInternal(rid);
 	}

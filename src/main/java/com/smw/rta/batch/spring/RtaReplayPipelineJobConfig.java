@@ -58,7 +58,7 @@ public class RtaReplayPipelineJobConfig {
 	public static final int DEFAULT_CHUNK = 1000;
 
 	/** 시너지 Step2: reader 페이지·청크 크기(회당 rid 처리량) */
-	public static final int SYNERGY_DEFAULT_CHUNK = 10000;
+	public static final int SYNERGY_DEFAULT_CHUNK = 500;
 
 	/** MyBatis foreach 안전 한도 */
 	private static final int SYNERGY_UPSERT_SLICE = 500;
@@ -173,7 +173,7 @@ public class RtaReplayPipelineJobConfig {
 	@Bean
 	@StepScope
 	public JdbcPagingItemReader<Long> synergyPendingReplayReader(
-			@Value("#{jobParameters['synergyPageSize'] != null ? T(Integer).parseInt(jobParameters['synergyPageSize'].toString()) : 10000}") int pageSize)
+			@Value("#{jobParameters['synergyPageSize'] != null ? T(Integer).parseInt(jobParameters['synergyPageSize'].toString()) : 500}") int pageSize)
 			throws Exception {
 		PostgresPagingQueryProvider queryProvider = new PostgresPagingQueryProvider();
 		queryProvider.setSelectClause("replay_id");

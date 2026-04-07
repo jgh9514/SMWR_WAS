@@ -14,9 +14,13 @@ smw:
       apply-chunk-size: ${SMW_RTA_RAW_APPLY_CHUNK_SIZE:200}
       max-rounds-per-unified-job: ${SMW_RTA_RAW_APPLY_MAX_ROUNDS:200}
     batch:
-      synergy-batch-size: ${SMW_RTA_SYNERGY_BATCH_SIZE:10000}
+      synergy-batch-size: ${SMW_RTA_SYNERGY_BATCH_SIZE:500}
       snapshot-batch-size: ${SMW_RTA_SNAPSHOT_BATCH_SIZE:3000}
       snapshot-max-rounds-per-job: ${SMW_RTA_SNAPSHOT_MAX_ROUNDS:500}
       synergy-max-rounds-per-job: ${SMW_RTA_SYNERGY_MAX_ROUNDS:2000}
+      synergy-pause-ms-between-rounds: ${SMW_RTA_SYNERGY_PAUSE_MS:0}
       # v2에서 스냅샷 단계가 no-op 이면 true 권장
       skip-legacy-snapshot-step: ${SMW_RTA_BATCH_SKIP_SNAPSHOT:true}
+      # 백필 시 통계·보유몬 재적재 필요하면 false (기본 application.yml 은 DB 보호용 true)
+      skip-monster-stats-in-unified-job: ${SMW_RTA_UNIFIED_SKIP_MONSTER_STATS:false}
+      skip-user-monster-owned-agg-in-unified-job: ${SMW_RTA_UNIFIED_SKIP_USER_OWNED_AGG:false}
