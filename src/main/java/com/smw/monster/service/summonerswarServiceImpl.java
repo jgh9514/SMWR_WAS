@@ -21,6 +21,7 @@ import java.util.Map;
 import java.util.Set;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
@@ -30,6 +31,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import jakarta.annotation.PostConstruct;
+
+import org.mybatis.spring.SqlSessionTemplate;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -42,6 +45,7 @@ import com.smw.monster.util.MonsterDetailContextBuilder;
 import com.smw.rta.cache.RtaCacheEvictor;
 import com.smw.rta.config.RtaRawApplyProperties;
 import com.smw.monster.util.MonsterIdEvolutionUtil;
+import com.sysconf.config.MybatisBatchConfig;
 import com.sysconf.exception.RtaUploadValidationException;
 
 @Slf4j
@@ -51,6 +55,10 @@ public class summonerswarServiceImpl implements summonerswarService {
 	
 	@Autowired
 	summonerswarMapper swMapper;
+
+	@Autowired
+	@Qualifier(MybatisBatchConfig.BATCH_SQL_SESSION_TEMPLATE)
+	private SqlSessionTemplate rtaBatchSqlSessionTemplate;
 
 	@Autowired
 	private PlatformTransactionManager platformTransactionManager;
@@ -1073,55 +1081,60 @@ public class summonerswarServiceImpl implements summonerswarService {
 		boolean writeNormalized = mode == ArenaRtaPersistMode.FULL || mode == ArenaRtaPersistMode.NORMALIZED_ONLY;
 		boolean markRawApplied = mode == ArenaRtaPersistMode.FULL || mode == ArenaRtaPersistMode.NORMALIZED_ONLY;
 
-		if (writeRaw) {
-			List<Map<String, Object>> rawRows = buildArenaReplayRawRows(arenaRows);
-			if (!rawRows.isEmpty()) {
-				for (int from = 0; from < rawRows.size(); from += ARENA_RTA_BULK_CHUNK) {
-					int to = Math.min(from + ARENA_RTA_BULK_CHUNK, rawRows.size());
-					swMapper.insertArenaReplayRawBulk(rawRows.subList(from, to));
-				}
-			}
-		}
-		if (writeNormalized) {
-			for (int from = 0; from < arenaRows.size(); from += ARENA_RTA_BULK_CHUNK) {
-				int to = Math.min(from + ARENA_RTA_BULK_CHUNK, arenaRows.size());
-				List<Map<String, ?>> chunk = arenaRows.subList(from, to);
-				for (Map<String, ?> row : chunk) {
-					if (row != null) {
-						@SuppressWarnings("unchecked")
-						Map<String, Object> mo = (Map<String, Object>) (Map<?, ?>) row;
-						normalizeArenaReplayDateAdd(mo);
+		summonerswarMapper batchMapper = rtaBatchSqlSessionTemplate.getMapper(summonerswarMapper.class);
+		try {
+			if (writeRaw) {
+				List<Map<String, Object>> rawRows = buildArenaReplayRawRows(arenaRows);
+				if (!rawRows.isEmpty()) {
+					for (int from = 0; from < rawRows.size(); from += ARENA_RTA_BULK_CHUNK) {
+						int to = Math.min(from + ARENA_RTA_BULK_CHUNK, rawRows.size());
+						batchMapper.insertArenaReplayRawBulk(rawRows.subList(from, to));
 					}
 				}
-				swMapper.insertArenaInfoBulk(chunk);
 			}
-			if (userBatch != null && !userBatch.isEmpty()) {
-				for (int from = 0; from < userBatch.size(); from += ARENA_RTA_BULK_CHUNK) {
-					int to = Math.min(from + ARENA_RTA_BULK_CHUNK, userBatch.size());
-					swMapper.insertArenaUserInfoBulk(userBatch.subList(from, to));
+			if (writeNormalized) {
+				for (int from = 0; from < arenaRows.size(); from += ARENA_RTA_BULK_CHUNK) {
+					int to = Math.min(from + ARENA_RTA_BULK_CHUNK, arenaRows.size());
+					List<Map<String, ?>> chunk = arenaRows.subList(from, to);
+					for (Map<String, ?> row : chunk) {
+						if (row != null) {
+							@SuppressWarnings("unchecked")
+							Map<String, Object> mo = (Map<String, Object>) (Map<?, ?>) row;
+							normalizeArenaReplayDateAdd(mo);
+						}
+					}
+					batchMapper.insertArenaInfoBulk(chunk);
+				}
+				if (userBatch != null && !userBatch.isEmpty()) {
+					for (int from = 0; from < userBatch.size(); from += ARENA_RTA_BULK_CHUNK) {
+						int to = Math.min(from + ARENA_RTA_BULK_CHUNK, userBatch.size());
+						batchMapper.insertArenaUserInfoBulk(userBatch.subList(from, to));
+					}
+				}
+				if (unitBatch != null && !unitBatch.isEmpty()) {
+					for (int from = 0; from < unitBatch.size(); from += ARENA_RTA_BULK_CHUNK) {
+						int to = Math.min(from + ARENA_RTA_BULK_CHUNK, unitBatch.size());
+						batchMapper.insertArenaUnitInfoBulk(unitBatch.subList(from, to));
+					}
 				}
 			}
-			if (unitBatch != null && !unitBatch.isEmpty()) {
-				for (int from = 0; from < unitBatch.size(); from += ARENA_RTA_BULK_CHUNK) {
-					int to = Math.min(from + ARENA_RTA_BULK_CHUNK, unitBatch.size());
-					swMapper.insertArenaUnitInfoBulk(unitBatch.subList(from, to));
+			if (markRawApplied) {
+				List<Long> appliedRids = new ArrayList<>();
+				for (Map<String, ?> row : arenaRows) {
+					Long rid = normalizeLong(row != null ? row.get("rid") : null);
+					if (rid != null) {
+						appliedRids.add(rid);
+					}
+				}
+				if (!appliedRids.isEmpty()) {
+					for (int from = 0; from < appliedRids.size(); from += ARENA_RTA_BULK_CHUNK) {
+						int to = Math.min(from + ARENA_RTA_BULK_CHUNK, appliedRids.size());
+						batchMapper.updateArenaReplayRawAppliedBulk(appliedRids.subList(from, to));
+					}
 				}
 			}
-		}
-		if (markRawApplied) {
-			List<Long> appliedRids = new ArrayList<>();
-			for (Map<String, ?> row : arenaRows) {
-				Long rid = normalizeLong(row != null ? row.get("rid") : null);
-				if (rid != null) {
-					appliedRids.add(rid);
-				}
-			}
-			if (!appliedRids.isEmpty()) {
-				for (int from = 0; from < appliedRids.size(); from += ARENA_RTA_BULK_CHUNK) {
-					int to = Math.min(from + ARENA_RTA_BULK_CHUNK, appliedRids.size());
-					swMapper.updateArenaReplayRawAppliedBulk(appliedRids.subList(from, to));
-				}
-			}
+		} finally {
+			rtaBatchSqlSessionTemplate.flushStatements();
 		}
 	}
 

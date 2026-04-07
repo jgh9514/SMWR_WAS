@@ -1,5 +1,6 @@
 package com.smw.rta.service;
 
+import java.sql.Timestamp;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -11,8 +12,8 @@ import org.springframework.stereotype.Service;
 import com.smw.rta.mapper.RtaMapper;
 
 /**
- * 랭크 컷 앵커는 {@code rta_rank_cutoff_anchor_snap} 배치 적재 결과를 조회한다. 1시간 캐시.
- * 테이블이 비어 있으면 빈 목록 — {@link com.smw.monster.batch.RtaRankCutSnapshotAggJob} 실행 필요.
+ * 랭크 컷 앵커는 티어 분포와 동일한 시즌 구간({@code rta_match.played_at})으로 라이브 집계한다. 1시간 캐시.
+ * 배치 {@code rta_rank_cutoff_anchor_snap} 은 별도 스냅 용도이며 대시보드 API는 라이브 경로를 사용한다.
  */
 @Service
 public class RtaRankCutoffLiveCacheService {
@@ -20,9 +21,10 @@ public class RtaRankCutoffLiveCacheService {
 	@Autowired
 	private RtaMapper rtaMapper;
 
-	@Cacheable(cacheNames = "rtaRankCutoffLive", cacheManager = "rtaOneHourCacheManager", key = "'anchors'")
-	public List<Map<String, Object>> getAnchors() {
-		List<Map<String, Object>> rows = rtaMapper.getRtaRankCutoffAnchorsFromAgg();
+	@Cacheable(cacheNames = "rtaRankCutoffLive", cacheManager = "rtaOneHourCacheManager",
+			key = "'anchors_' + (#seasonCode != null && !#seasonCode.isEmpty() ? #seasonCode : '_all')")
+	public List<Map<String, Object>> getAnchors(String seasonCode, Timestamp seasonStart, Timestamp seasonEnd) {
+		List<Map<String, Object>> rows = rtaMapper.getRtaRankCutoffAnchorsFromLive(seasonStart, seasonEnd);
 		return rows != null ? rows : Collections.emptyList();
 	}
 }

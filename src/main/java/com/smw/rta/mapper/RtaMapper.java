@@ -87,8 +87,9 @@ public interface RtaMapper {
     Map<String, Object> getRtaReplayDateRangeFromAgg(
             @Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd);
 
-    /** 랭크 컷 앵커 — 현재 시각 기준 되돌림 구간 [now-iv, now] 라이브 집계 (대시보드, 배치 미사용 시) */
-    List<Map<String, Object>> getRtaRankCutoffAnchorsFromLive();
+    /** 랭크 컷 앵커 — 현재 시각 기준 되돌림 구간 [now-iv, now] 라이브 집계 (대시보드). 시즌 경계는 티어 분포와 동일하게 전달 */
+    List<Map<String, Object>> getRtaRankCutoffAnchorsFromLive(
+            @Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd);
 
     /** 랭크 컷 앵커 — {@code rta_rank_cutoff_anchor_snap} 배치 적재 결과 */
     List<Map<String, Object>> getRtaRankCutoffAnchorsFromAgg();

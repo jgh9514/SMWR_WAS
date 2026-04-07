@@ -53,6 +53,7 @@ public class RtaCacheEvictor {
 				log.debug("[rta-cache] cleared: {}", name);
 			}
 		}
-		log.debug("[rta-cache] 무효화 대상 {}개 (RTA 서비스 캐시 미사용)", CACHE_NAMES.length);
+		evictRtaRankCutoffLiveCache();
+		log.debug("[rta-cache] short-lived {}개 + rtaRankCutoffLive 무효화", CACHE_NAMES.length);
 	}
 }

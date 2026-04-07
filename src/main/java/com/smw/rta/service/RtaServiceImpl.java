@@ -214,7 +214,7 @@ public class RtaServiceImpl implements RtaService {
     public Map<String, Object> getRtaDashboard(String seasonCode) {
         ResolvedSeason se = resolveSeason(seasonCode);
         Map<String, Object> tierPart = rtaDashboardTierCacheService.getTierPart(seasonCode);
-        List<Map<String, Object>> rankCutoffAnchors = rtaRankCutoffLiveCacheService.getAnchors();
+        List<Map<String, Object>> rankCutoffAnchors = rtaRankCutoffLiveCacheService.getAnchors(se.code, se.start, se.end);
 
         Map<String, Object> response = new HashMap<>();
         response.putAll(tierPart);

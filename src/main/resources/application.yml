@@ -27,6 +27,10 @@ spring:
       max-lifetime: 1800000
       connection-timeout: 30000
       leak-detection-threshold: ${SPRING_DATASOURCE_HIKARI_LEAK_DETECTION_THRESHOLD:0}
+      # PostgreSQL: PreparedStatement 배치를 멀티-INSERT로 재작성 → 왕복·파싱 부담 감소(MyBatis ExecutorType.BATCH 와 함께 권장)
+      # MySQL 계열은 JDBC URL 에 rewriteBatchedStatements=true (Hikari data-source-properties 가 아님)
+      data-source-properties:
+        reWriteBatchedInserts: ${SPRING_DATASOURCE_REWRITE_BATCHED_INSERTS:true}
   servlet:
     # 아레나 rta-upload(JSON body)·멀티파트 등 대용량 — 필요 시 SMW_MULTIPART_* 로 상향
     multipart.max-file-size: ${SMW_MULTIPART_MAX_FILE_SIZE:512MB}
