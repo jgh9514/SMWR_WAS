@@ -90,7 +90,6 @@ public class RtaBatchAggregationService {
 		int rounds = 0;
 		int totalOk = 0;
 		int totalFail = 0;
-		int consecutiveAllFailed = 0;
 		String stopReason = null;
 
 		while (rounds < maxRounds) {
@@ -99,26 +98,15 @@ public class RtaBatchAggregationService {
 				stopReason = "pending 없음";
 				break;
 			}
+			// 첫 rid 실패 시 예외로 상위 Quartz Job 이 FAILED 처리되도록 전파
 			RtaSynergyAggService.SynergyBatchApplyResult batch = synergyAggService.applySynergyBatch(rids);
 			int ok = batch.ok();
-			int fail = batch.fail();
 			totalOk += ok;
-			totalFail += fail;
+			totalFail += batch.fail();
 			rounds++;
 
 			if (evictCachesEachRound && ok > 0) {
 				cacheEvictor.evictAllRtaCaches();
-			}
-
-			if (ok == 0 && fail == rids.size()) {
-				consecutiveAllFailed++;
-				if (consecutiveAllFailed >= 3) {
-					stopReason = "시너지 rid 전부 실패 3회 연속 — 원천·스냅샷 점검 필요";
-					log.warn("[rta-batch] {}", stopReason);
-					break;
-				}
-			} else {
-				consecutiveAllFailed = 0;
 			}
 
 			if (pauseMsBetweenRounds > 0 && rounds < maxRounds) {

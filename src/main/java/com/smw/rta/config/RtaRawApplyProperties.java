@@ -24,4 +24,10 @@ public class RtaRawApplyProperties {
 	 * 다음 스케줄에서 이어서 처리한다.
 	 */
 	private int maxRoundsPerUnifiedJob = 5;
+
+	/**
+	 * true 이면 파싱·정규화 중 첫 오류 시 예외를 올려 Quartz 통합 Job 을 즉시 실패 처리한다.
+	 * false 이면 기존처럼 해당 행만 failed 표기하고 계속한다.
+	 */
+	private boolean failFastOnError = true;
 }

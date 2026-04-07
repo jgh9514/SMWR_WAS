@@ -22,7 +22,7 @@ public interface RtaSynergyAggService {
 	void applyOneRid(long rid);
 
 	/**
-	 * 한 라운드의 rid 목록을 하나의 트랜잭션에서 처리한다. 실패한 rid는 {@code markSynergyAggFailed} 후 다음 라운드에서 제외된다.
+	 * 한 라운드의 rid 목록을 순차 처리한다(rid 단위 커밋). 첫 실패 시 {@code markSynergyAggFailed} 시도 후 예외를 던져 상위 배치(Quartz 등)를 중단한다.
 	 */
 	SynergyBatchApplyResult applySynergyBatch(List<Long> rids);
 

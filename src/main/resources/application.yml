@@ -204,6 +204,8 @@ smw:
       apply-chunk-size: ${SMW_RTA_RAW_APPLY_CHUNK_SIZE:100}
       # 통합 Job 한 실행에서 raw 정규화 루프 상한(× max-rows-per-run). 나머지는 다음 스케줄.
       max-rounds-per-unified-job: ${SMW_RTA_RAW_APPLY_MAX_ROUNDS:5}
+      # 첫 파싱/정규화 오류 시 통합 Job 즉시 실패. 대량 백필은 bulkload 또는 SMW_RTA_RAW_APPLY_FAIL_FAST=false
+      fail-fast-on-error: ${SMW_RTA_RAW_APPLY_FAIL_FAST:true}
     # 통합 RTA 배치(스냅샷·시너지). 수치·스킵은 DB 여유에 맞게 조절.
     batch:
       synergy-batch-size: ${SMW_RTA_SYNERGY_BATCH_SIZE:500}

@@ -50,7 +50,6 @@ public class RtaSynergyAggServiceImpl implements RtaSynergyAggService {
 	@Override
 	public SynergyBatchApplyResult applySynergyBatch(List<Long> rids) {
 		int ok = 0;
-		int fail = 0;
 		if (rids == null) {
 			return new SynergyBatchApplyResult(0, 0);
 		}
@@ -64,16 +63,16 @@ public class RtaSynergyAggServiceImpl implements RtaSynergyAggService {
 				synergyOneRidTx.executeWithoutResult(status -> applyOneRidInternal(rid));
 				ok++;
 			} catch (Exception e) {
-				fail++;
 				try {
 					markSynergyFailedInNewTx(rid);
 				} catch (Exception markEx) {
 					log.warn("[rta-synergy] rid={} 실패 표시 중 오류: {}", rid, markEx.getMessage());
 				}
-				log.warn("[rta-synergy] rid={} 시너지 집계 실패: {}", rid, e.getMessage());
+				log.error("[rta-synergy] rid={} 시너지 집계 실패 — 통합 배치 중단", rid, e);
+				throw new IllegalStateException("시너지 집계 실패 rid=" + rid + ": " + e.getMessage(), e);
 			}
 		}
-		return new SynergyBatchApplyResult(ok, fail);
+		return new SynergyBatchApplyResult(ok, 0);
 	}
 
 	private void markSynergyFailedInNewTx(long rid) {
@@ -96,13 +95,8 @@ public class RtaSynergyAggServiceImpl implements RtaSynergyAggService {
 			throw new IllegalStateException("synergy_applied_at 갱신 0건 rid=" + rid);
 		}
 
-		try {
-			List<RtaCounterMatchupUpsertRow> counterRows = buildCounterMatchupRows(ctx);
-			flushCounterMatchupInChunks(counterRows);
-		} catch (Exception e) {
-			log.warn("[rta-synergy] rid={} 카운터 매치업 적재 실패 — 시너지(rta_agg_synergy_combo)는 반영됨: {}", rid,
-					e.getMessage());
-		}
+		List<RtaCounterMatchupUpsertRow> counterRows = buildCounterMatchupRows(ctx);
+		flushCounterMatchupInChunks(counterRows);
 	}
 
 	@Override

@@ -13,6 +13,7 @@ smw:
       # 정규화 INSERT 청크 (클수록 트랜잭션 수↓, 단일 트랜잭션 부담↑)
       apply-chunk-size: ${SMW_RTA_RAW_APPLY_CHUNK_SIZE:200}
       max-rounds-per-unified-job: ${SMW_RTA_RAW_APPLY_MAX_ROUNDS:200}
+      fail-fast-on-error: ${SMW_RTA_RAW_APPLY_FAIL_FAST:false}
     batch:
       synergy-batch-size: ${SMW_RTA_SYNERGY_BATCH_SIZE:500}
       snapshot-batch-size: ${SMW_RTA_SNAPSHOT_BATCH_SIZE:3000}

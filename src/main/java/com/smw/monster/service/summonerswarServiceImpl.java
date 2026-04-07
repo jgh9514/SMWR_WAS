@@ -1454,6 +1454,9 @@ public class summonerswarServiceImpl implements summonerswarService {
 				log.warn("[rta-raw-apply] rid/payload 없음 row={}", row);
 				if (rid != null) {
 					swMapper.updateArenaReplayRawFailedBulk(Collections.singletonList(rid), "payload 없음");
+					if (rtaRawApplyProperties.isFailFastOnError()) {
+						throw new IllegalStateException("rta raw apply rid=" + rid + ": missing payload");
+					}
 				}
 				continue;
 			}
@@ -1462,6 +1465,9 @@ public class summonerswarServiceImpl implements summonerswarService {
 			} catch (Exception e) {
 				log.warn("[rta-raw-apply] rid={} payload 파싱 실패", rid, e);
 				swMapper.updateArenaReplayRawFailedBulk(Collections.singletonList(rid), String.valueOf(e.getMessage()));
+				if (rtaRawApplyProperties.isFailFastOnError()) {
+					throw new IllegalStateException("rta raw apply rid=" + rid + " payload parse failed", e);
+				}
 			}
 		}
 		if (parsed.isEmpty()) {
@@ -1499,9 +1505,17 @@ public class summonerswarServiceImpl implements summonerswarService {
 				Map<String, Integer> counts = applyArenaRtaUploadFromParsedItemsWithMode(sub, ArenaRtaPersistMode.NORMALIZED_ONLY);
 				applied += counts.getOrDefault("success", 0);
 			} catch (RtaUploadValidationException e) {
+				if (rtaRawApplyProperties.isFailFastOnError()) {
+					log.error("[rta-raw-apply] 청크 검증 실패 — fail-fast", e);
+					throw new IllegalStateException("rta raw apply chunk validation: " + e.getMessage(), e);
+				}
 				log.warn("[rta-raw-apply] 청크 검증 실패, 건별 재시도: {}", e.getMessage());
 				applied += applyPendingArenaReplayRawFromDbOneByOne(sub);
 			} catch (Exception e) {
+				if (rtaRawApplyProperties.isFailFastOnError()) {
+					log.error("[rta-raw-apply] 청크 처리 실패 — fail-fast", e);
+					throw new IllegalStateException("rta raw apply chunk failed: " + e.getMessage(), e);
+				}
 				log.warn("[rta-raw-apply] 청크 처리 실패, 건별 재시도", e);
 				applied += applyPendingArenaReplayRawFromDbOneByOne(sub);
 			}
@@ -1536,13 +1550,22 @@ public class summonerswarServiceImpl implements summonerswarService {
 				} else {
 					swMapper.updateArenaReplayRawFailedBulk(Collections.singletonList(rid),
 							"정규화 스킵 또는 실패 (success=0)");
+					if (rtaRawApplyProperties.isFailFastOnError()) {
+						throw new IllegalStateException("rta raw apply rid=" + rid + " normalized success=0");
+					}
 				}
 			} catch (RtaUploadValidationException e) {
 				log.warn("[rta-raw-apply] 검증 실패 rid={}", rid, e);
 				swMapper.updateArenaReplayRawFailedBulk(Collections.singletonList(rid), e.getMessage());
+				if (rtaRawApplyProperties.isFailFastOnError()) {
+					throw new IllegalStateException("rta raw apply rid=" + rid + " validation failed", e);
+				}
 			} catch (Exception e) {
 				log.warn("[rta-raw-apply] 처리 실패 rid={}", rid, e);
 				swMapper.updateArenaReplayRawFailedBulk(Collections.singletonList(rid), String.valueOf(e.getMessage()));
+				if (rtaRawApplyProperties.isFailFastOnError()) {
+					throw new IllegalStateException("rta raw apply rid=" + rid + " failed: " + e.getMessage(), e);
+				}
 			}
 		}
 		return applied;
