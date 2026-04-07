@@ -219,6 +219,10 @@ smw:
       skip-monster-stats-in-unified-job: ${SMW_RTA_UNIFIED_SKIP_MONSTER_STATS:true}
       # 통합 Job에서 user_monster_owned_agg 전량 삭제·재적재 생략 — 필요 시 false
       skip-user-monster-owned-agg-in-unified-job: ${SMW_RTA_UNIFIED_SKIP_USER_OWNED_AGG:true}
+    # 대시보드(티어는 아직 라이브 SQL — 아래 주석). 랭크컷 앵커는 집계 스냅 우선 가능.
+    dashboard:
+      # rank_cutoff_anchors: snap | live | snap_then_live (스냅=rta_rank_cutoff_anchor_snap, 라이브=시즌 구간 rta_match)
+      rank-cut-anchor-source: ${SMW_RTA_DASHBOARD_RANK_CUT_ANCHOR_SOURCE:snap_then_live}
   ops:
     thresholds:
       heap-warning-percent: ${SMW_OPS_HEAP_WARNING_PERCENT:75}

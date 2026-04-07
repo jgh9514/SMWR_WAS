@@ -13,7 +13,7 @@ import com.smw.rta.mapper.RtaMapper;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * RTA 관련 집계 공통 로직 (raw 정규화·스냅샷·시너지·랭킹·몬스터 통계).
+ * RTA 관련 집계 공통 로직 (raw 정규화·스냅샷·시너지·랭킹·몬스터 통계·티어 일별).
  * <p>
  * 배치 Job 여러 개가 동일 규칙을 쓰도록 묶는다.
  */
@@ -150,6 +150,34 @@ public class RtaBatchAggregationService {
 	}
 
 	/**
+	 * {@code rta_agg_tier_daily} TRUNCATE 후 시즌별 일자×티어 집계 재적재 (participant 풀스캔은 여기서만).
+	 */
+	public TierDailyAggRebuildResult rebuildTierAggDaily(RtaMapper rtaMapper) {
+		rtaMapper.deleteAllRtaTierAggDaily();
+		List<Map<String, Object>> seasons = rtaMapper.listRtaSeasons();
+		int totalRows = 0;
+		for (Map<String, Object> row : seasons) {
+			String code = pickSeasonCode(row);
+			if (code == null || code.isEmpty()) {
+				continue;
+			}
+			Map<String, Object> bounds = rtaMapper.selectRtaSeasonBounds(code);
+			if (bounds == null || bounds.isEmpty()) {
+				log.warn("[rta-batch] 티어 일별 집계 시즌 경계 없음, 건너뜀: {}", code);
+				continue;
+			}
+			Timestamp start = toTimestamp(bounds.get("start_at"));
+			Timestamp end = toTimestamp(bounds.get("end_at"));
+			if (start == null || end == null) {
+				log.warn("[rta-batch] 티어 일별 집계 시즌 start/end 파싱 실패, 건너뜀: {}", code);
+				continue;
+			}
+			totalRows += rtaMapper.insertRtaTierAggDailyForSeason(code, start, end);
+		}
+		return new TierDailyAggRebuildResult(totalRows);
+	}
+
+	/**
 	 * 랭크 컷 앵커({@code rta_rank_cutoff_anchor_snap}) TRUNCATE 후 라이브와 동일 로직 적재,
 	 * 시즌×등급 컷({@code rta_snapshot_rank_cut}) 히스토리 1회 적재.
 	 */
@@ -210,6 +238,9 @@ public class RtaBatchAggregationService {
 	}
 
 	public record MonsterStatsRebuildResult(int metaRows, int pickRows) {
+	}
+
+	public record TierDailyAggRebuildResult(int totalRows) {
 	}
 
 	public record RankCutSnapshotRebuildResult(int anchorRows, int snapshotRows) {

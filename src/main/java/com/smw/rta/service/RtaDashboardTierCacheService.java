@@ -13,7 +13,7 @@ import org.springframework.stereotype.Service;
 import com.smw.rta.mapper.RtaMapper;
 
 /**
- * 대시보드 티어 일별·기간 범위는 라이브 SQL({@code getRtaTierDistributionDailyFromAgg}) + 5분 캐시 (shortLived).
+ * 대시보드 티어 일별·기간 범위는 {@code rta_agg_tier_daily} + {@code getRtaTierDistributionDaily} + 5분 캐시.
  */
 @Service
 public class RtaDashboardTierCacheService {
@@ -22,10 +22,12 @@ public class RtaDashboardTierCacheService {
 	private RtaMapper rtaMapper;
 
 	private static final class ResolvedSeason {
+		final String code;
 		final Timestamp start;
 		final Timestamp end;
 
-		ResolvedSeason(Timestamp start, Timestamp end) {
+		ResolvedSeason(String code, Timestamp start, Timestamp end) {
+			this.code = code;
 			this.start = start;
 			this.end = end;
 		}
@@ -42,7 +44,7 @@ public class RtaDashboardTierCacheService {
 			row = rtaMapper.selectRtaSeasonBounds(code);
 		}
 		if (row == null || row.isEmpty()) {
-			return new ResolvedSeason(null, null);
+			return new ResolvedSeason(null, null, null);
 		}
 		Object s = row.get("startAt");
 		if (s == null) {
@@ -54,7 +56,7 @@ public class RtaDashboardTierCacheService {
 		}
 		Timestamp start = toTimestamp(s);
 		Timestamp end = toTimestamp(e);
-		return new ResolvedSeason(start, end);
+		return new ResolvedSeason(code, start, end);
 	}
 
 	private static Timestamp toTimestamp(Object o) {
@@ -73,8 +75,15 @@ public class RtaDashboardTierCacheService {
 	@Cacheable(cacheNames = "rtaDashboardTiers", cacheManager = "shortLivedCacheManager", key = "'dt_' + #seasonCode")
 	public Map<String, Object> getTierPart(String seasonCode) {
 		ResolvedSeason se = resolveSeason(seasonCode);
-		List<Map<String, Object>> daily = rtaMapper.getRtaTierDistributionDailyFromAgg(se.start, se.end);
-		Map<String, Object> dateRange = rtaMapper.getRtaReplayDateRangeFromAgg(se.start, se.end);
+		List<Map<String, Object>> daily;
+		if (se.code == null || se.start == null || se.end == null) {
+			daily = Collections.emptyList();
+		} else {
+			daily = rtaMapper.getRtaTierDistributionDaily(se.code, se.start, se.end);
+		}
+		Map<String, Object> dateRange = (se.start != null && se.end != null)
+				? rtaMapper.getRtaReplayDateRangeFromAgg(se.start, se.end)
+				: new HashMap<>();
 		Map<String, Object> m = new HashMap<>();
 		m.put("daily_tiers", daily != null ? daily : Collections.emptyList());
 		m.put("date_range", dateRange != null ? dateRange : new HashMap<>());

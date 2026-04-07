@@ -34,6 +34,13 @@ public interface RtaMapper {
     /** RTA 몬스터 통계 집계 전체 삭제 후 재적재 */
     int deleteAllRtaMonsterStatsAgg();
 
+    /** 대시보드 일자×티어 집계 테이블 전체 비우기 (배치 재적재 전) */
+    int deleteAllRtaTierAggDaily();
+
+    /** 시즌별 일자×티어 집계 적재 (participant 스캔은 배치에서만) */
+    int insertRtaTierAggDailyForSeason(@Param("seasonCode") String seasonCode,
+            @Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd);
+
     int insertRtaMonsterStatsAggForSeason(@Param("seasonCode") String seasonCode,
             @Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd);
 
@@ -80,8 +87,11 @@ public interface RtaMapper {
     List<Map<String, Object>> getRtaMonsterRecentMatches(@Param("monsterId") int monsterId,
             @Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd);
 
-    /** 일자×티어별 출현 수 — 라이브 집계 (대시보드) */
-    List<Map<String, Object>> getRtaTierDistributionDailyFromAgg(
+    /**
+     * 일자×티어별 출현 수 (대시보드). {@code rta_agg_tier_daily} 배치 적재본.
+     */
+    List<Map<String, Object>> getRtaTierDistributionDaily(
+            @Param("seasonCode") String seasonCode,
             @Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd);
 
     /** 리플레이 기간 min/max — {@code rta_match.played_at} (대시보드) */

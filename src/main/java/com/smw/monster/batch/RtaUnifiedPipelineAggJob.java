@@ -23,7 +23,7 @@ import com.smw.rta.service.RtaSynergyAggService;
  * <li>몬스터 통계 agg 재적재</li>
  * <li>사용자 보유 몬스터 집계 (SWEX → {@code user_monster_owned_agg})</li>
  * </ol>
- * 대시보드 티어 일별 분포는 별도 배치 없이 {@code getRtaTierDistributionDailyFromAgg} 라이브 쿼리 + 캐시.
+ * 대시보드 티어 일별 분포는 {@code rta_agg_tier_daily} 배치 적재 + {@code getRtaTierDistributionDaily} + 캐시.
  * <p>
  * 스케줄: DB {@code sys_batch_config.cron_expr} (기본 5분, bat_id 10001).
  * <p>
@@ -111,6 +111,14 @@ public class RtaUnifiedPipelineAggJob extends BaseBatchJob {
 			addLog("몬스터 통계 집계 테이블 합계(meta/pick): meta=%d, pick=%d",
 					mon.metaRows(),
 					mon.pickRows());
+		}
+
+		if (rtaBatchProperties.isSkipTierAggDailyInUnifiedJob()) {
+			addLog("--- 5b) 티어 일별 집계(rta_agg_tier_daily): 설정에 의해 생략 (smw.rta.batch.skip-tier-agg-daily-in-unified-job=true) ---");
+		} else {
+			addLog("--- 5b) 티어 일별 집계 재적재 (rta_agg_tier_daily, participant 풀스캔) ---");
+			RtaBatchAggregationService.TierDailyAggRebuildResult tier = aggregationService.rebuildTierAggDaily(rtaMapper);
+			addLog("rta_agg_tier_daily 적재 행 합계: %d", tier.totalRows());
 		}
 
 		if (rtaBatchProperties.isSkipUserMonsterOwnedAggInUnifiedJob()) {

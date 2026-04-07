@@ -16,6 +16,59 @@
 	</sql>
 
 	<!--
+	  대시보드 일자×티어 집계 (rta_match_in_season + participant). 배치 적재·과거 라이브 조회 공통.
+	  파라미터: seasonStart, seasonEnd — CTE rta_match_in_season 에 사용.
+	-->
+	<sql id="rtaTierDistributionDailyInnerFromMatch">
+WITH <include refid="rtaMatchInSeasonCte"/>
+SELECT
+    bucket_date,
+    tier_key,
+    COUNT(*)::bigint AS player_count,
+    MIN(sort_order)::int AS sort_order
+FROM (
+    SELECT
+        t.bucket_date,
+        (
+            CASE
+                WHEN t.rating_val &gt;= 5000 THEN 'L'
+                WHEN t.rating_val &gt;= 4000 THEN 'G'
+                WHEN t.rating_val &gt;= 3500 THEN 'P'
+                WHEN t.rating_val &gt;= 3000 THEN 'C'
+                WHEN t.rating_val &gt;= 2000 THEN 'F'
+                ELSE 'Ch'
+            END
+        )
+        ||
+        CASE
+            WHEN (t.rating_val % 10) IN (1, 2, 3) THEN (t.rating_val % 10)::text
+            ELSE '2'
+        END AS tier_key,
+        (
+            CASE
+                WHEN t.rating_val &gt;= 5000 THEN 60
+                WHEN t.rating_val &gt;= 4000 THEN 50
+                WHEN t.rating_val &gt;= 3500 THEN 40
+                WHEN t.rating_val &gt;= 3000 THEN 30
+                WHEN t.rating_val &gt;= 2000 THEN 20
+                ELSE 10
+            END
+            + CASE WHEN (t.rating_val % 10) IN (1, 2, 3) THEN (t.rating_val % 10) ELSE 2 END
+        ) AS sort_order
+    FROM (
+        SELECT
+            r.date_add::date AS bucket_date,
+            MAX(u.rating_id) AS rating_val
+        FROM rta_match_in_season r
+        INNER JOIN public.rta_match_participant u ON u.replay_id = r.rid
+        WHERE u.rating_id &gt;= 1000
+        GROUP BY r.date_add::date, u.wizard_id
+    ) t
+) x
+GROUP BY bucket_date, tier_key
+	</sql>
+
+	<!--
 	  집계용 승패: wizard_id별 match_count / win_count (rta_match_in_season 조인)
 	-->
 	<sql id="rtaWinAggPairwise">

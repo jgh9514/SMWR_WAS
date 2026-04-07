@@ -4,7 +4,8 @@
 
     <!-- 공통 SQL: rta-fragments.xml -->
 
-    <!-- RTA 매치 목록 조회 (rta_match + participant + unit_pick, 콜라보는 적재 시 canonical 처리됨) -->
+    <!-- RTA 매치 목록 조회 (rta_match + participant + unit_pick, 콜라보는 적재 시 canonical 처리됨)
+         성능: 참가자 2명만 — 상관 COUNT 대신 (시즌 구간 participant→match) GROUP BY replay_id HAVING COUNT=2 한 번 집계 후 조인. -->
     <select id="getRtaMatches" resultType="map">
         WITH rms AS (
             SELECT
@@ -13,11 +14,35 @@
                 m.battle_type,
                 TRIM(BOTH FROM m.winner_wizard_id::text) AS winner_wizard_id
             FROM public.rta_match m
+            INNER JOIN (
+                SELECT p.replay_id
+                FROM public.rta_match_participant p
+                INNER JOIN public.rta_match m0 ON m0.replay_id = p.replay_id
+                WHERE 1 = 1
+                <if test="seasonStart != null and seasonEnd != null">
+                    AND m0.played_at &gt;= #{seasonStart}
+                    AND m0.played_at &lt; #{seasonEnd}
+                </if>
+                GROUP BY p.replay_id
+                HAVING COUNT(*)::int = 2
+            ) pair_only ON pair_only.replay_id = m.replay_id
             WHERE 1 = 1
             <if test="seasonStart != null and seasonEnd != null">
                 AND m.played_at &gt;= #{seasonStart}
                 AND m.played_at &lt; #{seasonEnd}
             </if>
+            ORDER BY m.played_at DESC NULLS LAST
+            LIMIT #{limit} OFFSET #{offset}
+        ),
+        banned_pick AS (
+            SELECT
+                ub.replay_id,
+                TRIM(BOTH FROM ub.wizard_id::text) AS wizard_id,
+                MIN(ub.unit_master_id::text) AS banned_unit
+            FROM public.rta_match_unit_pick ub
+            INNER JOIN rms ON rms.rid = ub.replay_id
+            WHERE ub.is_banned = true
+            GROUP BY ub.replay_id, TRIM(BOTH FROM ub.wizard_id::text)
         ),
         user_info AS (
             SELECT
@@ -32,10 +57,11 @@
                 CASE WHEN p.is_first_pick THEN '1' ELSE '0' END AS first_pick,
                 p.alive_count,
                 p.leader_pick_slot,
-                (SELECT ub.unit_master_id::text FROM public.rta_match_unit_pick ub
-                 WHERE ub.replay_id = p.replay_id AND ub.wizard_id = p.wizard_id AND ub.is_banned = true LIMIT 1) AS banned_unit
+                bp.banned_unit
             FROM public.rta_match_participant p
             INNER JOIN rms ON rms.rid = p.replay_id
+            LEFT JOIN banned_pick bp ON bp.replay_id = p.replay_id
+                AND bp.wizard_id = TRIM(BOTH FROM p.wizard_id::text)
         ),
         unit_info AS (
             SELECT
@@ -56,7 +82,6 @@
             FROM rms
             JOIN user_info ui ON ui.replay_id = rms.rid
             GROUP BY rms.rid
-            HAVING COUNT(*) = 2
         )
         SELECT
             rms.rid,
@@ -102,7 +127,6 @@
         LEFT JOIN unit_info un1 ON un1.replay_id = rms.rid AND TRIM(BOTH FROM un1.wizard_id::text) = u1.wizard_id
         LEFT JOIN unit_info un2 ON un2.replay_id = rms.rid AND TRIM(BOTH FROM un2.wizard_id::text) = u2.wizard_id
         ORDER BY rms.date_add DESC NULLS LAST
-        LIMIT #{limit} OFFSET #{offset}
     </select>
 
     <select id="getPlayerRtaMatches" resultType="map">
@@ -113,11 +137,37 @@
                 m.battle_type,
                 TRIM(BOTH FROM m.winner_wizard_id::text) AS winner_wizard_id
             FROM public.rta_match m
+            INNER JOIN public.rta_match_participant p0 ON p0.replay_id = m.replay_id
+                AND TRIM(BOTH FROM p0.wizard_id::text) = #{wizardId}
+            INNER JOIN (
+                SELECT p.replay_id
+                FROM public.rta_match_participant p
+                INNER JOIN public.rta_match m0 ON m0.replay_id = p.replay_id
+                WHERE 1 = 1
+                <if test="seasonStart != null and seasonEnd != null">
+                    AND m0.played_at &gt;= #{seasonStart}
+                    AND m0.played_at &lt; #{seasonEnd}
+                </if>
+                GROUP BY p.replay_id
+                HAVING COUNT(*)::int = 2
+            ) pair_only ON pair_only.replay_id = m.replay_id
             WHERE 1 = 1
             <if test="seasonStart != null and seasonEnd != null">
                 AND m.played_at &gt;= #{seasonStart}
                 AND m.played_at &lt; #{seasonEnd}
             </if>
+            ORDER BY m.played_at DESC NULLS LAST
+            LIMIT #{limit} OFFSET #{offset}
+        ),
+        banned_pick AS (
+            SELECT
+                ub.replay_id,
+                TRIM(BOTH FROM ub.wizard_id::text) AS wizard_id,
+                MIN(ub.unit_master_id::text) AS banned_unit
+            FROM public.rta_match_unit_pick ub
+            INNER JOIN rms ON rms.rid = ub.replay_id
+            WHERE ub.is_banned = true
+            GROUP BY ub.replay_id, TRIM(BOTH FROM ub.wizard_id::text)
         ),
         user_info AS (
             SELECT
@@ -132,10 +182,11 @@
                 CASE WHEN p.is_first_pick THEN '1' ELSE '0' END AS first_pick,
                 p.alive_count,
                 p.leader_pick_slot,
-                (SELECT ub.unit_master_id::text FROM public.rta_match_unit_pick ub
-                 WHERE ub.replay_id = p.replay_id AND ub.wizard_id = p.wizard_id AND ub.is_banned = true LIMIT 1) AS banned_unit
+                bp.banned_unit
             FROM public.rta_match_participant p
             INNER JOIN rms ON rms.rid = p.replay_id
+            LEFT JOIN banned_pick bp ON bp.replay_id = p.replay_id
+                AND bp.wizard_id = TRIM(BOTH FROM p.wizard_id::text)
         ),
         unit_info AS (
             SELECT
@@ -156,7 +207,6 @@
             FROM rms
             JOIN user_info ui ON ui.replay_id = rms.rid
             GROUP BY rms.rid
-            HAVING COUNT(*) = 2
         )
         SELECT
             rms.rid,
@@ -201,9 +251,7 @@
         JOIN user_info u2 ON u2.replay_id = rms.rid AND u2.wizard_id = pr.p2w
         LEFT JOIN unit_info un1 ON un1.replay_id = rms.rid AND TRIM(BOTH FROM un1.wizard_id::text) = u1.wizard_id
         LEFT JOIN unit_info un2 ON un2.replay_id = rms.rid AND TRIM(BOTH FROM un2.wizard_id::text) = u2.wizard_id
-        WHERE (u1.wizard_id = #{wizardId} OR u2.wizard_id = #{wizardId})
         ORDER BY rms.date_add DESC NULLS LAST
-        LIMIT #{limit} OFFSET #{offset}
     </select>
 
     <select id="getTotalRtaMatches" resultType="int">
@@ -275,6 +323,24 @@
     <delete id="deleteAllRtaMonsterStatsAgg">
         TRUNCATE TABLE public.rta_agg_monster_unit;
     </delete>
+
+    <delete id="deleteAllRtaTierAggDaily">
+        TRUNCATE TABLE public.rta_agg_tier_daily;
+    </delete>
+
+    <!-- 시즌 1회: participant 스캔 (배치 전용). 통합 Job 에서 TRUNCATE 후 시즌 루프로 호출 -->
+    <insert id="insertRtaTierAggDailyForSeason">
+        INSERT INTO public.rta_agg_tier_daily (season_code, bucket_date, tier_key, player_count, sort_order, computed_at)
+        SELECT #{seasonCode}, d.bucket_date, d.tier_key, d.player_count, d.sort_order, now()
+        FROM (
+            <include refid="rtaTierDistributionDailyInnerFromMatch"/>
+        ) d
+        WHERE 1 = 1
+        <if test="seasonStart != null and seasonEnd != null">
+            AND d.bucket_date &gt;= (#{seasonStart})::date
+            AND d.bucket_date &lt; (#{seasonEnd})::date
+        </if>
+    </insert>
 
     <insert id="insertRtaMonsterStatsAggForSeason">
         WITH deleted AS (
@@ -658,64 +724,20 @@
         ORDER BY mm.date_add DESC
     </select>
 
-    <!-- RTA 대시보드: 일자×티어별 — 라이브 집계 (집계 테이블 미사용) -->
-    <select id="getRtaTierDistributionDailyFromAgg" resultType="map">
-        SELECT d.bucket_date, d.tier_key, d.player_count, d.sort_order
-        FROM (
-        WITH <include refid="rtaMatchInSeasonCte"/>
+    <!-- RTA 대시보드: 일자×티어 — {@code rta_agg_tier_daily} (배치에서 insertRtaTierAggDailyForSeason 으로 적재) -->
+    <select id="getRtaTierDistributionDaily" resultType="map">
         SELECT
-            bucket_date,
-            tier_key,
-            COUNT(*)::bigint AS player_count,
-            MIN(sort_order)::int AS sort_order
-        FROM (
-            SELECT
-                t.bucket_date,
-                (
-                    CASE
-                        WHEN t.rating_val &gt;= 5000 THEN 'L'
-                        WHEN t.rating_val &gt;= 4000 THEN 'G'
-                        WHEN t.rating_val &gt;= 3500 THEN 'P'
-                        WHEN t.rating_val &gt;= 3000 THEN 'C'
-                        WHEN t.rating_val &gt;= 2000 THEN 'F'
-                        ELSE 'Ch'
-                    END
-                )
-                ||
-                CASE
-                    WHEN (t.rating_val % 10) IN (1, 2, 3) THEN (t.rating_val % 10)::text
-                    ELSE '2'
-                END AS tier_key,
-                (
-                    CASE
-                        WHEN t.rating_val &gt;= 5000 THEN 60
-                        WHEN t.rating_val &gt;= 4000 THEN 50
-                        WHEN t.rating_val &gt;= 3500 THEN 40
-                        WHEN t.rating_val &gt;= 3000 THEN 30
-                        WHEN t.rating_val &gt;= 2000 THEN 20
-                        ELSE 10
-                    END
-                    + CASE WHEN (t.rating_val % 10) IN (1, 2, 3) THEN (t.rating_val % 10) ELSE 2 END
-                ) AS sort_order
-            FROM (
-                SELECT
-                    r.date_add::date AS bucket_date,
-                    MAX(CAST(TRIM(u.rating_id::text) AS INT)) AS rating_val
-                FROM public.rta_match_participant u
-                INNER JOIN rta_match_in_season r ON u.replay_id = r.rid
-                WHERE TRIM(COALESCE(u.rating_id::text, '')) ~ '^[0-9]+$'
-                  AND CAST(TRIM(u.rating_id::text) AS INT) &gt;= 1000
-                GROUP BY r.date_add::date, u.wizard_id
-            ) t
-        ) x
-        GROUP BY bucket_date, tier_key
-        ) d
-        WHERE 1 = 1
+            a.bucket_date,
+            a.tier_key,
+            a.player_count,
+            a.sort_order
+        FROM public.rta_agg_tier_daily a
+        WHERE a.season_code = #{seasonCode}
         <if test="seasonStart != null and seasonEnd != null">
-            AND d.bucket_date &gt;= (#{seasonStart})::date
-            AND d.bucket_date &lt; (#{seasonEnd})::date
+            AND a.bucket_date &gt;= (#{seasonStart})::date
+            AND a.bucket_date &lt; (#{seasonEnd})::date
         </if>
-        ORDER BY d.bucket_date, d.sort_order
+        ORDER BY a.bucket_date, a.sort_order
     </select>
 
     <!-- 리플레이 기간 min/max — rta_match.played_at (대시보드 date_range) -->
@@ -731,9 +753,19 @@
         </if>
     </select>
 
-    <!-- 랭크 컷: 스냅샷 테이블 없이 현재 시각 기준 되돌림 구간 [now-iv, now] 내 리플레이로 계산 -->
+    <!-- 랭크 컷: 스냅샷 테이블 없이 현재 시각 기준 되돌림 구간 [now-iv, now] 내 리플레이로 계산.
+         성능: (1) 시즌 내 최신일 기준 120일만 rta_match 로 좁힌 뒤 participant 조인 (2) 30회 상관 서브쿼리 대신 GROUP BY 한 번 -->
     <select id="getRtaRankCutoffAnchorsFromLive" resultType="map">
         WITH <include refid="rtaMatchInSeasonCte"/>,
+        rank_window AS (
+            SELECT (MAX(r.date_add)::date - INTERVAL '120 days')::date AS min_date
+            FROM rta_match_in_season r
+        ),
+        rta_match_in_window AS (
+            SELECT r.rid, r.date_add, r.winner_wizard_id, r.battle_type
+            FROM rta_match_in_season r
+            INNER JOIN rank_window w ON r.date_add::date &gt;= w.min_date
+        ),
         anchors AS (
             SELECT * FROM (VALUES
                 (1, '3h',  INTERVAL '3 hours'),
@@ -764,15 +796,11 @@
                     ELSE '2'
                 END AS tier_key
             FROM public.rta_match_participant u
-            INNER JOIN rta_match_in_season r ON u.replay_id = r.rid
+            INNER JOIN rta_match_in_window r ON u.replay_id = r.rid
             WHERE TRIM(COALESCE(u.rating_id::text, '')) ~ '^[0-9]+$'
               AND CAST(TRIM(u.rating_id::text) AS INT) &gt;= 1000
               AND TRIM(COALESCE(u.ladder_score::text, '')) ~ '^[0-9]+$'
               AND CAST(TRIM(u.ladder_score::text) AS INT) &gt; 0
-              AND r.date_add::date &gt;= (
-                  SELECT (MAX(r2.date_add::date) - INTERVAL '120 days')::date
-                  FROM rta_match_in_season r2
-              )
         ),
         tiers AS (
             SELECT * FROM (VALUES
@@ -780,26 +808,17 @@
             ) AS tv(tier_key)
         )
         SELECT
-            sub.sort_order,
-            sub.anchor_key,
-            sub.tier_key,
-            sub.cutoff_score
-        FROM (
-            SELECT
-                a.sort_order,
-                a.anchor_key,
-                t.tier_key,
-                COALESCE(
-                    (SELECT MIN(b.score_val) FROM base b
-                     WHERE b.tier_key = t.tier_key
-                       AND b.date_add &gt;= CURRENT_TIMESTAMP - a.iv
-                       AND b.date_add &lt;= CURRENT_TIMESTAMP),
-                    0
-                )::bigint AS cutoff_score
-            FROM anchors a
-            CROSS JOIN tiers t
-        ) sub
-        ORDER BY sub.sort_order, sub.tier_key
+            a.sort_order,
+            a.anchor_key,
+            t.tier_key,
+            COALESCE(MIN(b.score_val), 0)::bigint AS cutoff_score
+        FROM anchors a
+        CROSS JOIN tiers t
+        LEFT JOIN base b ON b.tier_key = t.tier_key
+            AND b.date_add &gt;= CURRENT_TIMESTAMP - a.iv
+            AND b.date_add &lt;= CURRENT_TIMESTAMP
+        GROUP BY a.sort_order, a.anchor_key, a.iv, t.tier_key
+        ORDER BY a.sort_order, t.tier_key
     </select>
 
     <!-- 랭크 컷 앵커: 배치 적재 테이블 (rta_rank_cutoff_anchor_snap). 비어 있으면 빈 목록 — 배치 미실행 시 -->

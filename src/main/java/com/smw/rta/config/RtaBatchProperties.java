@@ -41,6 +41,11 @@ public class RtaBatchProperties {
 	private boolean skipMonsterStatsInUnifiedJob = false;
 
 	/**
+	 * true 이면 통합 Job 에서 {@link RtaBatchAggregationService#rebuildTierAggDaily} 단계 생략 (participant 풀스캔은 배치에서만).
+	 */
+	private boolean skipTierAggDailyInUnifiedJob = false;
+
+	/**
 	 * true 이면 통합 Job 에서 user_monster_owned_agg 전량 삭제·재적재 단계 생략.
 	 */
 	private boolean skipUserMonsterOwnedAggInUnifiedJob = false;

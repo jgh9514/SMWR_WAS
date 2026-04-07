@@ -399,68 +399,69 @@
     <!-- getRtaRankCutoffAnchorsFromLive 와 동일 로직 → 집계 테이블 적재 (배치 전용) -->
     <insert id="insertRtaRankCutoffAnchorSnapFromLive">
         INSERT INTO public.rta_rank_cutoff_anchor_snap (snapshot_at, sort_order, anchor_key, tier_key, cutoff_score)
-        SELECT CURRENT_TIMESTAMP, sub.sort_order, sub.anchor_key, sub.tier_key, sub.cutoff_score
-        FROM (
-            WITH <include refid="rtaMatchInSeasonCte"/>,
-            anchors AS (
-                SELECT * FROM (VALUES
-                    (1, '3h',  INTERVAL '3 hours'),
-                    (2, '6h',  INTERVAL '6 hours'),
-                    (3, '12h', INTERVAL '12 hours'),
-                    (4, '3d',  INTERVAL '3 days'),
-                    (5, '7d',  INTERVAL '7 days')
-                ) AS v(sort_order, anchor_key, iv)
-            ),
-            base AS (
-                SELECT
-                    r.date_add,
-                    CAST(TRIM(u.ladder_score::text) AS INT) AS score_val,
-                    (
-                        CASE
-                            WHEN CAST(TRIM(u.rating_id::text) AS INT) &gt;= 5000 THEN 'L'
-                            WHEN CAST(TRIM(u.rating_id::text) AS INT) &gt;= 4000 THEN 'G'
-                            WHEN CAST(TRIM(u.rating_id::text) AS INT) &gt;= 3500 THEN 'P'
-                            WHEN CAST(TRIM(u.rating_id::text) AS INT) &gt;= 3000 THEN 'C'
-                            WHEN CAST(TRIM(u.rating_id::text) AS INT) &gt;= 2000 THEN 'F'
-                            ELSE 'Ch'
-                        END
-                    )
-                    ||
-                    CASE
-                        WHEN (CAST(TRIM(u.rating_id::text) AS INT) % 10) IN (1, 2, 3)
-                        THEN (CAST(TRIM(u.rating_id::text) AS INT) % 10)::text
-                        ELSE '2'
-                    END AS tier_key
-                FROM public.rta_match_participant u
-                INNER JOIN rta_match_in_season r ON u.replay_id = r.rid
-                WHERE TRIM(COALESCE(u.rating_id::text, '')) ~ '^[0-9]+$'
-                  AND CAST(TRIM(u.rating_id::text) AS INT) &gt;= 1000
-                  AND TRIM(COALESCE(u.ladder_score::text, '')) ~ '^[0-9]+$'
-                  AND CAST(TRIM(u.ladder_score::text) AS INT) &gt; 0
-                  AND r.date_add::date &gt;= (
-                      SELECT (MAX(r2.date_add::date) - INTERVAL '120 days')::date
-                      FROM rta_match_in_season r2
-                  )
-            ),
-            tiers AS (
-                SELECT * FROM (VALUES
-                    ('G3'), ('G2'), ('G1'), ('P3'), ('P2'), ('P1')
-                ) AS tv(tier_key)
-            )
+        WITH <include refid="rtaMatchInSeasonCte"/>,
+        rank_window AS (
+            SELECT (MAX(r.date_add)::date - INTERVAL '120 days')::date AS min_date
+            FROM rta_match_in_season r
+        ),
+        rta_match_in_window AS (
+            SELECT r.rid, r.date_add, r.winner_wizard_id, r.battle_type
+            FROM rta_match_in_season r
+            INNER JOIN rank_window w ON r.date_add::date &gt;= w.min_date
+        ),
+        anchors AS (
+            SELECT * FROM (VALUES
+                (1, '3h',  INTERVAL '3 hours'),
+                (2, '6h',  INTERVAL '6 hours'),
+                (3, '12h', INTERVAL '12 hours'),
+                (4, '3d',  INTERVAL '3 days'),
+                (5, '7d',  INTERVAL '7 days')
+            ) AS v(sort_order, anchor_key, iv)
+        ),
+        base AS (
             SELECT
-                a.sort_order,
-                a.anchor_key,
-                t.tier_key,
-                COALESCE(
-                    (SELECT MIN(b.score_val) FROM base b
-                     WHERE b.tier_key = t.tier_key
-                       AND b.date_add &gt;= CURRENT_TIMESTAMP - a.iv
-                       AND b.date_add &lt;= CURRENT_TIMESTAMP),
-                    0
-                )::bigint AS cutoff_score
-            FROM anchors a
-            CROSS JOIN tiers t
-        ) sub
+                r.date_add,
+                CAST(TRIM(u.ladder_score::text) AS INT) AS score_val,
+                (
+                    CASE
+                        WHEN CAST(TRIM(u.rating_id::text) AS INT) &gt;= 5000 THEN 'L'
+                        WHEN CAST(TRIM(u.rating_id::text) AS INT) &gt;= 4000 THEN 'G'
+                        WHEN CAST(TRIM(u.rating_id::text) AS INT) &gt;= 3500 THEN 'P'
+                        WHEN CAST(TRIM(u.rating_id::text) AS INT) &gt;= 3000 THEN 'C'
+                        WHEN CAST(TRIM(u.rating_id::text) AS INT) &gt;= 2000 THEN 'F'
+                        ELSE 'Ch'
+                    END
+                )
+                ||
+                CASE
+                    WHEN (CAST(TRIM(u.rating_id::text) AS INT) % 10) IN (1, 2, 3)
+                    THEN (CAST(TRIM(u.rating_id::text) AS INT) % 10)::text
+                    ELSE '2'
+                END AS tier_key
+            FROM public.rta_match_participant u
+            INNER JOIN rta_match_in_window r ON u.replay_id = r.rid
+            WHERE TRIM(COALESCE(u.rating_id::text, '')) ~ '^[0-9]+$'
+              AND CAST(TRIM(u.rating_id::text) AS INT) &gt;= 1000
+              AND TRIM(COALESCE(u.ladder_score::text, '')) ~ '^[0-9]+$'
+              AND CAST(TRIM(u.ladder_score::text) AS INT) &gt; 0
+        ),
+        tiers AS (
+            SELECT * FROM (VALUES
+                ('G3'), ('G2'), ('G1'), ('P3'), ('P2'), ('P1')
+            ) AS tv(tier_key)
+        )
+        SELECT
+            CURRENT_TIMESTAMP,
+            a.sort_order,
+            a.anchor_key,
+            t.tier_key,
+            COALESCE(MIN(b.score_val), 0)::bigint AS cutoff_score
+        FROM anchors a
+        CROSS JOIN tiers t
+        LEFT JOIN base b ON b.tier_key = t.tier_key
+            AND b.date_add &gt;= CURRENT_TIMESTAMP - a.iv
+            AND b.date_add &lt;= CURRENT_TIMESTAMP
+        GROUP BY a.sort_order, a.anchor_key, a.iv, t.tier_key
     </insert>
 
     <!-- 시즌별 등급(rating_id) 최저 래더 점수 스냅샷 (히스토리 적재) -->
