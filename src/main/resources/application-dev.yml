@@ -32,6 +32,11 @@ smw:
   mybatis:
     log:
       inline-sql: true
+  # 개발 DB: 운영(application.yml)의 통계·보유몬 스킵을 덮어 전체 통합 Job 검증
+  rta:
+    batch:
+      skip-monster-stats-in-unified-job: false
+      skip-user-monster-owned-agg-in-unified-job: false
   security:
     jwt-signing-secret: ${SMW_JWT_SIGNING_SECRET}
     jwt-encryption-key: ${SMW_JWT_ENCRYPTION_KEY}
