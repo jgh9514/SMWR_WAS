@@ -745,7 +745,7 @@
 		             (deck_row.id IS NOT NULL AND v.deck_id = deck_row.id)
 		             OR
 		             (
-		               v.deck_id IS NULL
+		               (COALESCE(v.deck_id, 0) = 0)
 		               AND (
 		                 SELECT array_agg(u ORDER BY u)
 		                   FROM unnest(ARRAY[
@@ -771,7 +771,7 @@
 		             (deck_row.id IS NOT NULL AND v.deck_id = deck_row.id)
 		             OR
 		             (
-		               v.deck_id IS NULL
+		               (COALESCE(v.deck_id, 0) = 0)
 		               AND (
 		                 SELECT array_agg(u ORDER BY u)
 		                   FROM unnest(ARRAY[
@@ -799,7 +799,7 @@
 		             AND v.user_id = #{sess_user_id}::text
 		           LIMIT 1),
 		         (SELECT v.vote_type FROM siege_deck_user_vote v
-		           WHERE v.deck_id IS NULL
+		           WHERE (COALESCE(v.deck_id, 0) = 0)
 		             AND v.def_monster_1 = #{dm1}
 		             AND v.def_monster_2 = #{dm2}
 		             AND v.def_monster_3 = #{dm3}
@@ -1400,7 +1400,7 @@
 		     , (
 		         (SELECT COUNT(*)::int FROM siege_deck_user_vote v WHERE v.deck_id = srad.id AND v.def_monster_1 = srad.def_monster_1 AND v.def_monster_2 = srad.def_monster_2 AND v.def_monster_3 = srad.def_monster_3 AND v.vote_type = 'UP')
 		       + (SELECT COUNT(*)::int FROM siege_deck_user_vote v
-		           WHERE v.deck_id IS NULL
+		           WHERE (COALESCE(v.deck_id, 0) = 0)
 		             AND v.def_monster_1 = srad.def_monster_1 AND v.def_monster_2 = srad.def_monster_2 AND v.def_monster_3 = srad.def_monster_3
 		             AND v.vote_type = 'UP'
 		             AND (
@@ -1421,7 +1421,7 @@
 		     , (
 		         (SELECT COUNT(*)::int FROM siege_deck_user_vote v WHERE v.deck_id = srad.id AND v.def_monster_1 = srad.def_monster_1 AND v.def_monster_2 = srad.def_monster_2 AND v.def_monster_3 = srad.def_monster_3 AND v.vote_type = 'DOWN')
 		       + (SELECT COUNT(*)::int FROM siege_deck_user_vote v
-		           WHERE v.deck_id IS NULL
+		           WHERE (COALESCE(v.deck_id, 0) = 0)
 		             AND v.def_monster_1 = srad.def_monster_1 AND v.def_monster_2 = srad.def_monster_2 AND v.def_monster_3 = srad.def_monster_3
 		             AND v.vote_type = 'DOWN'
 		             AND (
@@ -1827,7 +1827,7 @@
 			 (SELECT COUNT(*)::int FROM siege_deck_user_vote v WHERE v.deck_id = srad.id AND v.def_monster_1 = srad.def_monster_1 AND v.def_monster_2 = srad.def_monster_2 AND v.def_monster_3 = srad.def_monster_3 AND v.vote_type = 'UP')
 			 +
 			 (SELECT COUNT(*)::int FROM siege_deck_user_vote v
-			   WHERE v.deck_id IS NULL
+			   WHERE (COALESCE(v.deck_id, 0) = 0)
 			     AND v.def_monster_1 = srad.def_monster_1 AND v.def_monster_2 = srad.def_monster_2 AND v.def_monster_3 = srad.def_monster_3
 			     AND v.vote_type = 'UP'
 			     AND (
@@ -1849,7 +1849,7 @@
 			 (SELECT COUNT(*)::int FROM siege_deck_user_vote v WHERE v.deck_id = srad.id AND v.def_monster_1 = srad.def_monster_1 AND v.def_monster_2 = srad.def_monster_2 AND v.def_monster_3 = srad.def_monster_3 AND v.vote_type = 'DOWN')
 			 +
 			 (SELECT COUNT(*)::int FROM siege_deck_user_vote v
-			   WHERE v.deck_id IS NULL
+			   WHERE (COALESCE(v.deck_id, 0) = 0)
 			     AND v.def_monster_1 = srad.def_monster_1 AND v.def_monster_2 = srad.def_monster_2 AND v.def_monster_3 = srad.def_monster_3
 			     AND v.vote_type = 'DOWN'
 			     AND (
@@ -1877,7 +1877,7 @@
 			     AND v.user_id = #{sess_user_id}::text
 			   LIMIT 1),
 			 (SELECT v.vote_type FROM siege_deck_user_vote v
-			   WHERE v.deck_id IS NULL
+			   WHERE (COALESCE(v.deck_id, 0) = 0)
 			     AND v.def_monster_1 = srad.def_monster_1 AND v.def_monster_2 = srad.def_monster_2 AND v.def_monster_3 = srad.def_monster_3
 			     AND #{sess_user_id} IS NOT NULL
 			     AND v.user_id = #{sess_user_id}::text
@@ -1971,9 +1971,9 @@
 	</insert>
 
 	<insert id="insertDeckVoteFree" parameterType="sqlMap">
-		/* insertDeckVoteFree - 추천 공덱 미등록 조합 투표(deck_id NULL, 공격 3마리) */
+		/* insertDeckVoteFree - 미등록 조합: deck_id=0 → FK가 siege_recommended_attack_deck.id=0 더미 행을 가리킴(PK에 deck_id 있으면 NULL 불가) */
 		INSERT INTO siege_deck_user_vote (def_monster_1, def_monster_2, def_monster_3, deck_id, user_id, vote_type, atk_monster_1, atk_monster_2, atk_monster_3, crt_date, upt_date)
-		VALUES (#{def_monster_1}, #{def_monster_2}, #{def_monster_3}, NULL, #{sess_user_id}, #{vote_type}, #{atk_monster_1}, #{atk_monster_2}, #{atk_monster_3}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		VALUES (#{def_monster_1}, #{def_monster_2}, #{def_monster_3}, 0, #{sess_user_id}, #{vote_type}, #{atk_monster_1}, #{atk_monster_2}, #{atk_monster_3}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 	</insert>
 
 	<delete id="deleteDeckVote" parameterType="sqlMap">
@@ -1988,7 +1988,7 @@
 		   AND deck_id = #{deck_id}::int
 			</when>
 			<otherwise>
-		   AND deck_id IS NULL
+		   AND COALESCE(deck_id, 0) = 0
 		   AND atk_monster_1 = #{atk_monster_1}
 		   AND atk_monster_2 = #{atk_monster_2}
 		   AND atk_monster_3 = #{atk_monster_3}
