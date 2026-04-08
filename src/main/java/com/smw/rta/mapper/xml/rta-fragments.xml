@@ -85,10 +85,37 @@ GROUP BY bucket_date, tier_key
 		)
 	</sql>
 
+	<!-- 시즌 ID가 있으면 played_at 구간보다 먼저 좁힘 → idx_rta_match_season_played_at 활용에 유리 -->
+	<sql id="rtaMatchSeasonIdFilter">
+		<if test="seasonId != null">
+			AND m.season_id = #{seasonId}
+		</if>
+	</sql>
+
 	<sql id="rtaMatchSeasonFilter">
 		<if test="seasonStart != null and seasonEnd != null">
 			AND m.played_at &gt;= #{seasonStart}
 			AND m.played_at &lt; #{seasonEnd}
+		</if>
+	</sql>
+
+	<!--
+	  티어 필터: 공식 등급 테이블 rta_rating_grade 의 rating_id 와 participant.rating_id 를 동등 비교.
+	  (구간·MOD 는 “점수 인코딩” 가정용 — 실제로는 FK/등급 id 한 개면 = / IN 이 맞음.)
+	  tier_key 가 동일한 rating_id 가 여러 개면 IN 서브쿼리로 모두 허용.
+	-->
+	<sql id="rtaMatchTierExistsFilter">
+		<if test="tierKey != null and tierKey != ''">
+			AND EXISTS (
+				SELECT 1
+				FROM public.rta_match_participant pp
+				WHERE pp.replay_id = m.replay_id
+				  AND pp.rating_id IN (
+					SELECT rg.rating_id
+					FROM public.rta_rating_grade rg
+					WHERE rg.tier_key = #{tierKey}
+				  )
+			)
 		</if>
 	</sql>
 

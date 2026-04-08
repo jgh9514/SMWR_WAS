@@ -6,8 +6,6 @@
         <Property name="LOG_FILE_PATH">${sys:user.dir}/log/test.log</Property>
         <!-- SQL 로그: log4jdbc → SLF4J → Log4j2. 기본은 application.yml jdbc.sqltiming(INFO)과 맞춤. 필요 시 -DSQL_LOG_LEVEL=DEBUG -->
         <Property name="SQL_LOG_LEVEL">${sys:SQL_LOG_LEVEL:-INFO}</Property>
-        <!-- MyBatis 인터셉터 로그 레벨: 기본 WARN, 필요 시 -DMYBATIS_LOG_LEVEL=DEBUG -->
-        <Property name="MYBATIS_LOG_LEVEL">${sys:MYBATIS_LOG_LEVEL:-WARN}</Property>
     </Properties>
     
     <Appenders>
@@ -97,8 +95,15 @@
             <AppenderRef ref="FileAppender"/>
         </Logger>
 
-        <!-- MybatisInterceptor: inline SQL(파라미터 합친 형태) 디버깅용 -->
-        <Logger name="com.sysconf.interceptor.MybatisInterceptor" level="DEBUG" additivity="false">
+        <!-- MybatisInterceptor: inline-sql 시 SQL(inlined) 는 INFO — 레벨 INFO 면 충분(DEBUG 은 intercept 디버그용) -->
+        <Logger name="com.sysconf.interceptor.MybatisInterceptor" level="INFO" additivity="false">
+            <AppenderRef ref="Console"/>
+            <AppenderRef ref="FileAppender"/>
+            <AppenderRef ref="SqlAppender"/>
+        </Logger>
+
+        <!-- MyBatis 코어는 NoLoggingImpl — org.apache.ibatis / *.mapper Preparing 로그는 나오지 않음 -->
+        <Logger name="org.apache.ibatis" level="WARN" additivity="false">
             <AppenderRef ref="Console"/>
             <AppenderRef ref="FileAppender"/>
         </Logger>

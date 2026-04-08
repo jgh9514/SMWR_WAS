@@ -4,33 +4,22 @@
 
     <!-- 공통 SQL: rta-fragments.xml -->
 
-    <!-- RTA 매치 목록 조회 (rta_match + participant + unit_pick, 콜라보는 적재 시 canonical 처리됨)
-         성능: 참가자 2명만 — 상관 COUNT 대신 (시즌 구간 participant→match) GROUP BY replay_id HAVING COUNT=2 한 번 집계 후 조인. -->
+    <!-- RTA 매치 목록: rms에서 시즌·시간·티어(EXISTS)·정렬·LIMIT 먼저 확정 후 MATERIALIZED로 하위 조인만 수행 -->
     <select id="getRtaMatches" resultType="map">
-        WITH rms AS (
+        WITH rms AS MATERIALIZED (
             SELECT
                 m.replay_id AS rid,
                 m.played_at AS date_add,
                 m.battle_type,
                 TRIM(BOTH FROM m.winner_wizard_id::text) AS winner_wizard_id
             FROM public.rta_match m
-            INNER JOIN (
-                SELECT p.replay_id
-                FROM public.rta_match_participant p
-                INNER JOIN public.rta_match m0 ON m0.replay_id = p.replay_id
-                WHERE 1 = 1
-                <if test="seasonStart != null and seasonEnd != null">
-                    AND m0.played_at &gt;= #{seasonStart}
-                    AND m0.played_at &lt; #{seasonEnd}
-                </if>
-                GROUP BY p.replay_id
-                HAVING COUNT(*)::int = 2
-            ) pair_only ON pair_only.replay_id = m.replay_id
             WHERE 1 = 1
+            <include refid="rtaMatchSeasonIdFilter"/>
             <if test="seasonStart != null and seasonEnd != null">
                 AND m.played_at &gt;= #{seasonStart}
                 AND m.played_at &lt; #{seasonEnd}
             </if>
+            <include refid="rtaMatchTierExistsFilter"/>
             ORDER BY m.played_at DESC NULLS LAST
             LIMIT #{limit} OFFSET #{offset}
         ),
@@ -130,7 +119,7 @@
     </select>
 
     <select id="getPlayerRtaMatches" resultType="map">
-        WITH rms AS (
+        WITH rms AS MATERIALIZED (
             SELECT
                 m.replay_id AS rid,
                 m.played_at AS date_add,
@@ -139,19 +128,8 @@
             FROM public.rta_match m
             INNER JOIN public.rta_match_participant p0 ON p0.replay_id = m.replay_id
                 AND TRIM(BOTH FROM p0.wizard_id::text) = #{wizardId}
-            INNER JOIN (
-                SELECT p.replay_id
-                FROM public.rta_match_participant p
-                INNER JOIN public.rta_match m0 ON m0.replay_id = p.replay_id
-                WHERE 1 = 1
-                <if test="seasonStart != null and seasonEnd != null">
-                    AND m0.played_at &gt;= #{seasonStart}
-                    AND m0.played_at &lt; #{seasonEnd}
-                </if>
-                GROUP BY p.replay_id
-                HAVING COUNT(*)::int = 2
-            ) pair_only ON pair_only.replay_id = m.replay_id
             WHERE 1 = 1
+            <include refid="rtaMatchSeasonIdFilter"/>
             <if test="seasonStart != null and seasonEnd != null">
                 AND m.played_at &gt;= #{seasonStart}
                 AND m.played_at &lt; #{seasonEnd}
@@ -254,25 +232,22 @@
         ORDER BY rms.date_add DESC NULLS LAST
     </select>
 
-    <select id="getTotalRtaMatches" resultType="int">
-        SELECT COUNT(*)::int
-        FROM public.rta_match m
-        WHERE 1 = 1
-        <include refid="rtaMatchSeasonFilter"/>
-    </select>
-
     <select id="getTodayRtaMatches" resultType="int">
         SELECT COUNT(*)::int
         FROM public.rta_match m
         WHERE DATE(m.played_at AT TIME ZONE 'UTC') = CURRENT_DATE
+        <include refid="rtaMatchSeasonIdFilter"/>
         <include refid="rtaMatchSeasonFilter"/>
+        <include refid="rtaMatchTierExistsFilter"/>
     </select>
 
     <select id="getWeeklyRtaMatches" resultType="int">
         SELECT COUNT(*)::int
         FROM public.rta_match m
         WHERE m.played_at &gt;= DATE_TRUNC('week', CURRENT_TIMESTAMP)
+        <include refid="rtaMatchSeasonIdFilter"/>
         <include refid="rtaMatchSeasonFilter"/>
+        <include refid="rtaMatchTierExistsFilter"/>
     </select>
 
     <!-- 데이터 확인용 테스트 쿼리 -->
@@ -1092,5 +1067,17 @@
         LEFT JOIN score_max_agg sm ON r.wizard_id = sm.wizard_id
         WHERE TRIM(BOTH FROM r.wizard_id::text) = TRIM(BOTH FROM #{wizardId})
         LIMIT 1
+    </select>
+
+    <select id="selectMonsterPortraitMetaByIds" resultType="map">
+        SELECT TRIM(BOTH FROM monster_id::text) AS monster_id,
+               image_url,
+               kr_name,
+               monster_elemental
+        FROM public.monster
+        WHERE TRIM(BOTH FROM monster_id::text) IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
     </select>
 </mapper>

@@ -17,22 +17,24 @@ import lombok.extern.slf4j.Slf4j;
 @Component
 public class RtaCacheEvictor {
 
-	/** {@link com.smw.infra.cache.CacheManagerConfig#shortLivedCacheManager()} 에 등록한 RTA 캐시 이름과 동일 */
-	private static final String[] CACHE_NAMES = {
+	/** {@link com.smw.infra.cache.CacheManagerConfig#shortLivedCacheManager()} RTA 캐시 이름 */
+	private static final String[] SHORT_LIVED_RTA_CACHE_NAMES = {
 			"rtaDashboardTiers",
-			"rtaMatchList",
 			"rtaMonster",
 			"rtaRanking",
 			"rtaSeasons",
 	};
 
 	private final CacheManager shortLivedCacheManager;
+	private final CacheManager rtaListReadCacheManager;
 	private final CacheManager rtaOneHourCacheManager;
 
 	public RtaCacheEvictor(
 			@Qualifier("shortLivedCacheManager") CacheManager shortLivedCacheManager,
+			@Qualifier("rtaListReadCacheManager") CacheManager rtaListReadCacheManager,
 			@Qualifier("rtaOneHourCacheManager") CacheManager rtaOneHourCacheManager) {
 		this.shortLivedCacheManager = shortLivedCacheManager;
+		this.rtaListReadCacheManager = rtaListReadCacheManager;
 		this.rtaOneHourCacheManager = rtaOneHourCacheManager;
 	}
 
@@ -46,14 +48,19 @@ public class RtaCacheEvictor {
 	}
 
 	public void evictAllRtaCaches() {
-		for (String name : CACHE_NAMES) {
+		for (String name : SHORT_LIVED_RTA_CACHE_NAMES) {
 			Cache cache = shortLivedCacheManager.getCache(name);
 			if (cache != null) {
 				cache.clear();
 				log.debug("[rta-cache] cleared: {}", name);
 			}
 		}
+		Cache matchList = rtaListReadCacheManager.getCache("rtaMatchList");
+		if (matchList != null) {
+			matchList.clear();
+			log.debug("[rta-cache] cleared: rtaMatchList (rtaListReadCacheManager)");
+		}
 		evictRtaRankCutoffLiveCache();
-		log.debug("[rta-cache] short-lived {}개 + rtaRankCutoffLive 무효화", CACHE_NAMES.length);
+		log.debug("[rta-cache] short-lived {}개 + rtaMatchList + rtaRankCutoffLive 무효화", SHORT_LIVED_RTA_CACHE_NAMES.length);
 	}
 }

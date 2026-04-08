@@ -72,23 +72,25 @@ public class MybatisInterceptor implements Interceptor {
             log.debug("MybatisInterceptor.intercept() start. mapperId={}", ms.getId());
         }
         
-        // selectUserInfo는 MybatisInterceptor를 거치지 않음 (userInfo 조회 시 SessionThread에 정보가 없을 수 있음)
-        if (ms.getId().contains("selectUserInfo")) {
+        final String mapperId = ms.getId();
+        final boolean skipSiegeInjection = mapperId.contains("RtaMapper");
+        final boolean isLogMapper = mapperId.contains("LogMapper");
+
+        // selectUserInfo: 세션·siege 주입 없이 실행 (SessionThread 비어 있을 수 있음). 인라인 SQL은 동일 적용.
+        if (mapperId.contains("selectUserInfo")) {
+            logInlinedSql(ms, parameter);
             return invocation.proceed();
         }
-        // LogMapper(API 실행 로그)는 siege_view_scope 등 불필요한 파라미터 주입 제외 (NumberFormatException 방지)
-        if (ms.getId().contains("LogMapper")) {
+        // LogMapper: siege 주입·시즌 캐시 제외, 숫자 파라미터만 보정
+        if (isLogMapper) {
             if (parameter instanceof Map) {
                 Map<String, Object> params = (Map<String, Object>) parameter;
                 sanitizeNumericParams(params);
             }
+            logInlinedSql(ms, parameter);
             return invocation.proceed();
         }
-        // RtaMapper(실시간대전)는 점령전(siege)과 무관 - siege_view_scope·몬스터ID 등 점령전 전용 로직 스킵
-        if (ms.getId().contains("RtaMapper")) {
-            return invocation.proceed();
-        }
-        
+
         Map<String, Object> userInfo = SessionThread.SESSION_USER_INFO.get();
         if (log.isDebugEnabled()) {
             log.debug("MybatisInterceptor - mapperId={}, userInfoPresent={}", ms.getId(), userInfo != null);
@@ -106,25 +108,25 @@ public class MybatisInterceptor implements Interceptor {
                 log.debug("MybatisInterceptor - siege_view_scope before={}", preSiegeViewScope);
             }
             
-            if (userInfo != null) {
+            if (!skipSiegeInjection && userInfo != null) {
                 // request body 우선이지만, 값이 null/빈문자열이면 세션값으로 보정
                 for (Map.Entry<String, Object> entry : userInfo.entrySet()) {
                     String key = entry.getKey();
                     Object incoming = entry.getValue();
                     if (shouldInject(parameters, key)) parameters.put(key, incoming);
                 }
-            } else {
+            } else if (!skipSiegeInjection) {
                 // 로그인 정보가 없는 경우에도, 일부 쿼리는 siege_view_scope 파라미터를 필수로 요구함.
                 // 기본값(C: 현재 시즌만)을 주입해서 BindingException을 방지한다.
                 if (shouldInject(parameters, "siege_view_scope")) {
                     parameters.put("siege_view_scope", "C");
                 }
             }
-            if (shouldInject(parameters, "global_dblink_nm")) {
+            if (!skipSiegeInjection && shouldInject(parameters, "global_dblink_nm")) {
                 parameters.put("global_dblink_nm", globalDblinkNm);
             }
             // siege_defense_deck_stats 조회 시 guild_siege_season 서브쿼리 제거 (조회 성능 개선)
-            if (currentSeasonCache != null && ms.getId().contains("summonerswarMapper")
+            if (!skipSiegeInjection && currentSeasonCache != null && ms.getId().contains("summonerswarMapper")
                     && shouldInject(parameters, "current_season_yyyymm")) {
                 Object scope = parameters.get("siege_view_scope");
                 if (scope == null || !"A".equals(scope.toString())) {
@@ -132,15 +134,17 @@ public class MybatisInterceptor implements Interceptor {
                 }
             }
             // NumberFormatException 방지: 숫자 파라미터·몬스터ID 컬렉션 검증
-            sanitizeNumericParams(parameters);
-            sanitizeMonsterIdCollections(parameters);
-            // ParamMap 등 래핑된 Map 내부도 검증
-            for (Object v : parameters.values()) {
-                if (v instanceof Map) {
-                    @SuppressWarnings("unchecked")
-                    Map<String, Object> nested = (Map<String, Object>) v;
-                    sanitizeNumericParams(nested);
-                    sanitizeMonsterIdCollections(nested);
+            if (!skipSiegeInjection) {
+                sanitizeNumericParams(parameters);
+                sanitizeMonsterIdCollections(parameters);
+                // ParamMap 등 래핑된 Map 내부도 검증
+                for (Object v : parameters.values()) {
+                    if (v instanceof Map) {
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> nested = (Map<String, Object>) v;
+                        sanitizeNumericParams(nested);
+                        sanitizeMonsterIdCollections(nested);
+                    }
                 }
             }
             
@@ -152,16 +156,7 @@ public class MybatisInterceptor implements Interceptor {
 
         long startedAt = System.currentTimeMillis();
 
-        BoundSql boundSql = ms.getBoundSql(parameter);
-        if (inlineSqlLogEnabled && log.isDebugEnabled()) {
-        	try {
-        		String inlined = buildInlinedSql(ms, boundSql, parameter);
-        		log.debug("SQL(inlined) mapperId={}\n{}", ms.getId(), inlined);
-        	} catch (Exception e) {
-        		// 인라인 SQL 로깅은 디버깅용이므로 실패해도 흐름에 영향 주지 않음
-        		log.debug("SQL(inlined) build failed. mapperId={}", ms.getId(), e);
-        	}
-        }
+        logInlinedSql(ms, parameter);
 
         Object result = invocation.proceed();
         logResultTotalIfNeeded(invocation, ms, startedAt, result);
@@ -169,6 +164,22 @@ public class MybatisInterceptor implements Interceptor {
             log.debug("MybatisInterceptor.intercept() end. mapperId={}", ms.getId());
         }
         return result;
+    }
+
+    /**
+     * smw.mybatis.log.inline-sql=true 이면 ? 를 리터럴로 치환한 SQL 을 INFO 로 출력 (별도 로거 DEBUG 불필요).
+     */
+    private void logInlinedSql(MappedStatement ms, Object parameter) {
+        if (!inlineSqlLogEnabled) {
+            return;
+        }
+        try {
+            BoundSql boundSql = ms.getBoundSql(parameter);
+            String inlined = buildInlinedSql(ms, boundSql, parameter);
+            log.info("SQL(inlined) mapperId={}\n{}", ms.getId(), inlined);
+        } catch (Exception e) {
+            log.warn("SQL(inlined) build failed. mapperId={}", ms.getId(), e);
+        }
     }
 
     private boolean shouldInject(Map<String, Object> parameters, String key) {
@@ -295,6 +306,15 @@ public class MybatisInterceptor implements Interceptor {
     	if (value instanceof java.util.Date) {
     		java.text.SimpleDateFormat fmt = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
     		return "'" + fmt.format((java.util.Date) value) + "'";
+    	}
+    	if (value instanceof java.time.LocalDateTime) {
+    		return "'" + value.toString().replace('T', ' ') + "'";
+    	}
+    	if (value instanceof java.time.LocalDate) {
+    		return "'" + value.toString() + "'";
+    	}
+    	if (value instanceof java.time.Instant) {
+    		return "'" + value.toString() + "'";
     	}
     	
     	String s = String.valueOf(value);

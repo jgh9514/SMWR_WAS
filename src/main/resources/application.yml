@@ -84,6 +84,11 @@ server:
         http-only: true
 
 # log4jdbc(local/dev/docker 프로필) 사용 시 jdbc.* 로거 — log4j2-spring.xml 의 jdbc.sqltiming 과 함께 Spring 이 부트 시 레벨 적용
+#
+# 왜 쿼리가 안 보일 수 있나:
+# - 기본 spring.datasource 는 postgresql 직접 드라이버 → log4jdbc 미사용 → jdbc.sqlonly/sqltiming 로그 없음 (local/dev 에서 log4jdbc URL 일 때만).
+# - jdbc.sqlonly: OFF 이면 문장 로그 차단 — local/dev 에서 INFO/DEBUG 로 덮어씀.
+# - MyBatis 코어 SQL 로그는 NoLoggingImpl 로 끔 — SQL(inlined)·log4jdbc 만 사용(Preparing 중복 없음).
 logging:
   level:
     org.springframework.boot.autoconfigure: WARN
@@ -241,6 +246,7 @@ smw:
       api-slow-rate-critical-percent: ${SMW_OPS_API_SLOW_RATE_CRITICAL_PERCENT:15}
   mybatis:
     log:
+      # true: MybatisInterceptor 가 ? 를 값으로 치환한 SQL(inlined) 를 INFO 로 출력 (전 매퍼·별도 로거 DEBUG 불필요)
       inline-sql: ${SMW_MYBATIS_INLINE_SQL:false}
       result-total: ${SMW_MYBATIS_RESULT_TOTAL:false}
 

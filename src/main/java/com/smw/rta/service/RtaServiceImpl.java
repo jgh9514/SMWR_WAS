@@ -1,8 +1,10 @@
 package com.smw.rta.service;
 
 import com.smw.rta.mapper.RtaMapper;
+import com.smw.rta.support.RtaTierKeyUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
 
@@ -11,6 +13,9 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
 
 @Service
 @Primary
@@ -22,8 +27,18 @@ public class RtaServiceImpl implements RtaService {
     /** 소환사 랭킹 API·화면: 상위 N위까지만 노출 (집계 테이블 전체 행 수와 무관) */
     private static final int RTA_SUMMONER_RANKING_MAX_ROWS = 500;
 
+    /**
+     * getRtaListPage: 목록만 DB 조회 — 전체 건수 COUNT(getTotalRtaMatches)는 부하가 커서 제외하고,
+     * stats.hasMore 로 다음 페이지 존재 여부만 반환(클라이언트는 최대 10페이지 상한과 함께 페이지 수 추정).
+     */
+    private static final Executor RTA_LIST_PAGE_ASYNC = Executors.newVirtualThreadPerTaskExecutor();
+
     @Autowired
     private RtaMapper rtaMapper;
+
+    @Autowired
+    @Lazy
+    private RtaService rtaServiceSelf;
 
     @Autowired
     private RtaDashboardTierCacheService rtaDashboardTierCacheService;
@@ -35,11 +50,14 @@ public class RtaServiceImpl implements RtaService {
         final String code;
         final Timestamp start;
         final Timestamp end;
+        /** rta_season.season_id — 목록/카운트에서 m.season_id = ? 로 인덱스 활용 */
+        final Long seasonId;
 
-        ResolvedSeason(String code, Timestamp start, Timestamp end) {
+        ResolvedSeason(String code, Timestamp start, Timestamp end, Long seasonId) {
             this.code = code;
             this.start = start;
             this.end = end;
+            this.seasonId = seasonId;
         }
     }
 
@@ -54,7 +72,7 @@ public class RtaServiceImpl implements RtaService {
             row = rtaMapper.selectRtaSeasonBounds(code);
         }
         if (row == null || row.isEmpty()) {
-            return new ResolvedSeason(null, null, null);
+            return new ResolvedSeason(null, null, null, null);
         }
         Object s = row.get("startAt");
         if (s == null) {
@@ -71,7 +89,21 @@ public class RtaServiceImpl implements RtaService {
             sc = row.get("season_code");
         }
         String c = sc != null ? String.valueOf(sc) : code;
-        return new ResolvedSeason(c, start, end);
+        Long seasonId = null;
+        Object sid = row.get("seasonId");
+        if (sid == null) {
+            sid = row.get("season_id");
+        }
+        if (sid instanceof Number) {
+            seasonId = ((Number) sid).longValue();
+        } else if (sid != null) {
+            try {
+                seasonId = Long.parseLong(String.valueOf(sid).trim());
+            } catch (NumberFormatException ignored) {
+                // seasonId stays null
+            }
+        }
+        return new ResolvedSeason(c, start, end, seasonId);
     }
 
     private static Timestamp toTimestamp(Object o) {
@@ -88,49 +120,80 @@ public class RtaServiceImpl implements RtaService {
     }
 
     @Override
-    @Cacheable(cacheNames = "rtaMatchList", cacheManager = "shortLivedCacheManager",
-            key = "'m_' + #seasonCode + '_' + #limit + '_' + #offset")
-    public List<Map<String, Object>> getRtaMatches(int limit, int offset, String seasonCode) {
+    @Cacheable(cacheNames = "rtaMatchList", cacheManager = "rtaListReadCacheManager",
+            key = "'m_' + #seasonCode + '_' + #limit + '_' + #offset + '_' + (#tierKey != null ? #tierKey : 'all')")
+    public List<Map<String, Object>> getRtaMatches(int limit, int offset, String seasonCode, String tierKey) {
         if (limit > 0 && offset >= (long) RTA_MATCH_LIST_MAX_PAGES * limit) {
             return Collections.emptyList();
         }
         ResolvedSeason se = resolveSeason(seasonCode);
-        return rtaMapper.getRtaMatches(limit, offset, se.start, se.end);
+        String tk = RtaTierKeyUtil.normalize(tierKey);
+        return rtaMapper.getRtaMatches(limit, offset, se.start, se.end, se.seasonId, tk);
     }
 
     @Override
-    @Cacheable(cacheNames = "rtaMatchList", cacheManager = "shortLivedCacheManager",
+    @Cacheable(cacheNames = "rtaMatchList", cacheManager = "rtaListReadCacheManager",
             key = "'p_' + #seasonCode + '_' + #wizardId + '_' + #limit + '_' + #offset")
     public List<Map<String, Object>> getPlayerRtaMatches(String wizardId, int limit, int offset, String seasonCode) {
         ResolvedSeason se = resolveSeason(seasonCode);
-        return rtaMapper.getPlayerRtaMatches(wizardId, limit, offset, se.start, se.end);
+        return rtaMapper.getPlayerRtaMatches(wizardId, limit, offset, se.start, se.end, se.seasonId);
     }
 
     @Override
-    @Cacheable(cacheNames = "rtaMatchList", cacheManager = "shortLivedCacheManager",
-            key = "'cnt_' + #seasonCode")
-    public long getRtaMatchesCount(String seasonCode) {
+    @Cacheable(cacheNames = "rtaMatchList", cacheManager = "rtaListReadCacheManager",
+            key = "'today_' + #seasonCode + '_' + (#tierKey != null ? #tierKey : 'all')")
+    public int countTodayRtaMatches(String seasonCode, String tierKey) {
         ResolvedSeason se = resolveSeason(seasonCode);
-        return rtaMapper.getTotalRtaMatches(se.start, se.end);
+        String tk = RtaTierKeyUtil.normalize(tierKey);
+        return rtaMapper.getTodayRtaMatches(se.start, se.end, se.seasonId, tk);
     }
 
     @Override
-    @Cacheable(cacheNames = "rtaMatchList", cacheManager = "shortLivedCacheManager",
-            key = "'stats_' + #seasonCode")
-    public Object getRtaStats(String seasonCode) {
+    @Cacheable(cacheNames = "rtaMatchList", cacheManager = "rtaListReadCacheManager",
+            key = "'week_' + #seasonCode + '_' + (#tierKey != null ? #tierKey : 'all')")
+    public int countWeeklyRtaMatches(String seasonCode, String tierKey) {
         ResolvedSeason se = resolveSeason(seasonCode);
+        String tk = RtaTierKeyUtil.normalize(tierKey);
+        return rtaMapper.getWeeklyRtaMatches(se.start, se.end, se.seasonId, tk);
+    }
+
+    @Override
+    @Cacheable(cacheNames = "rtaMatchList", cacheManager = "rtaListReadCacheManager",
+            key = "'stats_' + #seasonCode + '_' + (#tierKey != null ? #tierKey : 'all')")
+    public Object getRtaStats(String seasonCode, String tierKey) {
         Map<String, Object> stats = new HashMap<>();
 
-        int totalMatches = rtaMapper.getTotalRtaMatches(se.start, se.end);
-        stats.put("totalMatches", totalMatches);
-
-        int todayMatches = rtaMapper.getTodayRtaMatches(se.start, se.end);
+        int todayMatches = rtaServiceSelf.countTodayRtaMatches(seasonCode, tierKey);
         stats.put("todayMatches", todayMatches);
 
-        int weeklyMatches = rtaMapper.getWeeklyRtaMatches(se.start, se.end);
+        int weeklyMatches = rtaServiceSelf.countWeeklyRtaMatches(seasonCode, tierKey);
         stats.put("weeklyMatches", weeklyMatches);
 
         return stats;
+    }
+
+    @Override
+    @Cacheable(cacheNames = "rtaMatchList", cacheManager = "rtaListReadCacheManager",
+            key = "'page_' + #seasonCode + '_' + #limit + '_' + #offset + '_' + (#tierKey != null ? #tierKey : 'all')")
+    public Map<String, Object> getRtaListPage(int limit, int offset, String seasonCode, String tierKey) {
+        ResolvedSeason se = resolveSeason(seasonCode);
+        String tk = RtaTierKeyUtil.normalize(tierKey);
+        List<Map<String, Object>> matches;
+        if (limit > 0 && offset >= (long) RTA_MATCH_LIST_MAX_PAGES * limit) {
+            matches = Collections.emptyList();
+        } else {
+            matches = rtaMapper.getRtaMatches(limit, offset, se.start, se.end, se.seasonId, tk);
+        }
+        boolean hasMore = limit > 0
+                && matches.size() == limit
+                && (long) offset + limit < (long) RTA_MATCH_LIST_MAX_PAGES * limit;
+
+        Map<String, Object> stats = new HashMap<>();
+        stats.put("hasMore", hasMore);
+        Map<String, Object> out = new HashMap<>();
+        out.put("stats", stats);
+        out.put("matches", matches);
+        return out;
     }
 
     @Override
@@ -243,13 +306,24 @@ public class RtaServiceImpl implements RtaService {
         int total = 0;
         List<Map<String, Object>> rows = Collections.emptyList();
         if (!aggKey.isEmpty()) {
-            int rawCount = rtaMapper.getRtaSummonerRankingAggCount(aggKey, countryForMapper, se.start, se.end);
+            CompletableFuture<Integer> countF = CompletableFuture.supplyAsync(
+                    () -> rtaMapper.getRtaSummonerRankingAggCount(aggKey, countryForMapper, se.start, se.end),
+                    RTA_LIST_PAGE_ASYNC);
+            final int fetchLimit = (offset < RTA_SUMMONER_RANKING_MAX_ROWS && limit > 0)
+                    ? Math.min(limit, RTA_SUMMONER_RANKING_MAX_ROWS - offset)
+                    : 0;
+            CompletableFuture<List<Map<String, Object>>> rowsF = fetchLimit > 0
+                    ? CompletableFuture.supplyAsync(
+                            () -> rtaMapper.getRtaSummonerRankingFromAgg(
+                                    fetchLimit, offset, aggKey, countryForMapper, se.start, se.end),
+                            RTA_LIST_PAGE_ASYNC)
+                    : CompletableFuture.completedFuture(Collections.<Map<String, Object>>emptyList());
+            CompletableFuture.allOf(countF, rowsF).join();
+            int rawCount = countF.join();
             total = Math.min(rawCount, RTA_SUMMONER_RANKING_MAX_ROWS);
-            if (total > 0 && offset < RTA_SUMMONER_RANKING_MAX_ROWS) {
-                int fetchLimit = Math.min(limit, RTA_SUMMONER_RANKING_MAX_ROWS - offset);
-                if (fetchLimit > 0) {
-                    rows = rtaMapper.getRtaSummonerRankingFromAgg(fetchLimit, offset, aggKey, countryForMapper, se.start, se.end);
-                }
+            rows = rowsF.join();
+            if (rawCount == 0) {
+                rows = Collections.emptyList();
             }
         }
         Map<String, Object> response = new HashMap<>();

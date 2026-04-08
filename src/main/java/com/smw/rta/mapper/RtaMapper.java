@@ -14,16 +14,54 @@ import com.smw.rta.model.RtaSynergyAggUpsertRow;
 public interface RtaMapper {
     
     List<Map<String, Object>> getRtaMatches(@Param("limit") int limit, @Param("offset") int offset,
-            @Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd);
+            @Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd,
+            @Param("seasonId") Long seasonId, @Param("tierKey") String tierKey);
     
     List<Map<String, Object>> getPlayerRtaMatches(@Param("wizardId") String wizardId, @Param("limit") int limit, @Param("offset") int offset,
-            @Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd);
+            @Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd,
+            @Param("seasonId") Long seasonId);
     
-    int getTotalRtaMatches(@Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd);
+    int getTodayRtaMatches(@Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd,
+            @Param("seasonId") Long seasonId, @Param("tierKey") String tierKey);
     
-    int getTodayRtaMatches(@Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd);
-    
-    int getWeeklyRtaMatches(@Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd);
+    int getWeeklyRtaMatches(@Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd,
+            @Param("seasonId") Long seasonId, @Param("tierKey") String tierKey);
+
+    /**
+     * 이전 시그니처( seasonId 없음 )와의 바이너리 호환 — XML 은 5번째 파라미터만 매핑.
+     */
+    default List<Map<String, Object>> getRtaMatches(int limit, int offset, Timestamp seasonStart, Timestamp seasonEnd) {
+        return getRtaMatches(limit, offset, seasonStart, seasonEnd, null, null);
+    }
+
+    default List<Map<String, Object>> getRtaMatches(int limit, int offset, Timestamp seasonStart, Timestamp seasonEnd,
+            Long seasonId) {
+        return getRtaMatches(limit, offset, seasonStart, seasonEnd, seasonId, null);
+    }
+
+    default List<Map<String, Object>> getPlayerRtaMatches(String wizardId, int limit, int offset, Timestamp seasonStart,
+            Timestamp seasonEnd) {
+        return getPlayerRtaMatches(wizardId, limit, offset, seasonStart, seasonEnd, null);
+    }
+
+    default int getTodayRtaMatches(Timestamp seasonStart, Timestamp seasonEnd) {
+        return getTodayRtaMatches(seasonStart, seasonEnd, null, null);
+    }
+
+    default int getTodayRtaMatches(Timestamp seasonStart, Timestamp seasonEnd, Long seasonId) {
+        return getTodayRtaMatches(seasonStart, seasonEnd, seasonId, null);
+    }
+
+    default int getWeeklyRtaMatches(Timestamp seasonStart, Timestamp seasonEnd) {
+        return getWeeklyRtaMatches(seasonStart, seasonEnd, null, null);
+    }
+
+    default int getWeeklyRtaMatches(Timestamp seasonStart, Timestamp seasonEnd, Long seasonId) {
+        return getWeeklyRtaMatches(seasonStart, seasonEnd, seasonId, null);
+    }
+
+    /** (호환) 예전 빌드에서 참조할 수 있음 — 현재 서비스 경로에서는 미사용 가능 */
+    List<Map<String, Object>> selectMonsterPortraitMetaByIds(@Param("ids") List<String> ids);
     
     Map<String, Object> testRtaData();
     

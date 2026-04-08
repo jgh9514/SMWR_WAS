@@ -23,6 +23,12 @@ public class CacheManagerConfig {
     @Value("${smw.cache.short-lived.expire-after-write-minutes:5}")
     private long shortLivedExpireAfterWriteMinutes;
 
+    @Value("${smw.cache.rta-list-read.expire-after-write-minutes:15}")
+    private long rtaListReadExpireAfterWriteMinutes;
+
+    @Value("${smw.cache.rta-list-read.maximum-size:3000}")
+    private long rtaListReadMaximumSize;
+
     @Bean("shortLivedCacheManager")
     @Primary
     public CacheManager shortLivedCacheManager() {
@@ -43,7 +49,6 @@ public class CacheManagerConfig {
                 "monsterList",
                 "monsterInfo",
                 "rtaDashboardTiers",
-                "rtaMatchList",
                 "rtaMonster",
                 "rtaRanking",
                 "rtaSeasons"
@@ -51,6 +56,21 @@ public class CacheManagerConfig {
         cacheManager.setCaffeine(Caffeine.newBuilder()
                 .maximumSize(shortLivedMaximumSize)
                 .expireAfterWrite(java.time.Duration.ofMinutes(shortLivedExpireAfterWriteMinutes))
+                .recordStats());
+        return cacheManager;
+    }
+
+    /**
+     * RTA 매치 목록·건수·stats — 조회 전용 부하가 크므로 short-lived(5분)보다 긴 TTL.
+     * 배치 적재 후 {@link com.smw.rta.cache.RtaCacheEvictor} 로 무효화.
+     */
+    @Bean("rtaListReadCacheManager")
+    public CacheManager rtaListReadCacheManager() {
+        CaffeineCacheManager cacheManager = new CaffeineCacheManager();
+        cacheManager.setCacheNames(Arrays.asList("rtaMatchList"));
+        cacheManager.setCaffeine(Caffeine.newBuilder()
+                .maximumSize(rtaListReadMaximumSize)
+                .expireAfterWrite(Duration.ofMinutes(rtaListReadExpireAfterWriteMinutes))
                 .recordStats());
         return cacheManager;
     }

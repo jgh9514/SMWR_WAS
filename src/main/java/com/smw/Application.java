@@ -26,7 +26,19 @@ import com.sysconf.config.SessionListener;
 @EnableScheduling
 @EnableConfigurationProperties({ RtaExporterProperties.class, RtaBatchProperties.class, RtaRawApplyProperties.class,
 		RtaDashboardProperties.class })
-@MapperScan({"com.smw", "com.admin", "com.cf", "com.sysconf"})
+@MapperScan({
+		"com.smw.monster.mapper",
+		"com.smw.rta.mapper",
+		"com.smw.account.mapper",
+		"com.smw.guild.mapper",
+		"com.smw.admin.mapper",
+		"com.admin.multilang.mapper",
+		"com.admin.log.mapper",
+		"com.admin.user.mapper",
+		"com.admin.batch.mapper",
+		"com.cf.community.mapper",
+		"com.cf.notification.mapper"
+})
 public class Application extends SpringBootServletInitializer {
 
 	private static final Logger logger = LogManager.getLogger(Application.class);

@@ -8,23 +8,42 @@ public interface RtaService {
     /**
      * Get RTA match list
      * @param seasonCode rta_season.season_code (null/빈값이면 금일 기준 기본 시즌)
+     * @param tierKey 세부 티어 Ch1~G3 — null/빈값이면 전체 (해당 티어 플레이어가 한 명이라도 있는 매치)
      */
-    List<Map<String, Object>> getRtaMatches(int limit, int offset, String seasonCode);
+    List<Map<String, Object>> getRtaMatches(int limit, int offset, String seasonCode, String tierKey);
+
+    default List<Map<String, Object>> getRtaMatches(int limit, int offset, String seasonCode) {
+        return getRtaMatches(limit, offset, seasonCode, null);
+    }
     
     /**
      * Get player RTA match list
      */
     List<Map<String, Object>> getPlayerRtaMatches(String wizardId, int limit, int offset, String seasonCode);
     
-    /**
-     * Get RTA match count
-     */
-    long getRtaMatchesCount(String seasonCode);
+    /** 오늘(UTC) 매치 건수 — {@code getRtaStats} 등에서 캐시와 함께 사용 */
+    int countTodayRtaMatches(String seasonCode, String tierKey);
+
+    /** 이번 주 매치 건수 — {@code getRtaListPage}·stats 에서 캐시와 함께 사용 */
+    int countWeeklyRtaMatches(String seasonCode, String tierKey);
     
     /**
      * Get RTA statistics
      */
-    Object getRtaStats(String seasonCode);
+    Object getRtaStats(String seasonCode, String tierKey);
+
+    default Object getRtaStats(String seasonCode) {
+        return getRtaStats(seasonCode, null);
+    }
+
+    /**
+     * /rta 목록 화면용: 매치 목록 + stats.hasMore(다음 페이지 여부). 전체 건수 COUNT는 하지 않음.
+     */
+    Map<String, Object> getRtaListPage(int limit, int offset, String seasonCode, String tierKey);
+
+    default Map<String, Object> getRtaListPage(int limit, int offset, String seasonCode) {
+        return getRtaListPage(limit, offset, seasonCode, null);
+    }
     
     /**
      * Test RTA data
