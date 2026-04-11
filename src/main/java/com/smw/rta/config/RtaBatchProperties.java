@@ -13,17 +13,17 @@ import lombok.Setter;
 @ConfigurationProperties(prefix = "smw.rta.batch")
 public class RtaBatchProperties {
 
-	/** {@code synergy_applied_at IS NULL} rid 를 한 라운드에서 가져오는 건수 */
-	private int synergyBatchSize = 500;
+	/** {@code synergy_applied_at IS NULL}(미집계) rid 를 한 라운드에서 가져오는 건수. 집계 후 결과는 {@code synergy_apply_result}. */
+	private int synergyBatchSize = 100000;
 
 	/** 매치 스냅샷 pending 을 한 라운드에서 처리하는 rid 건수 */
-	private int snapshotBatchSize = 3000;
+	private int snapshotBatchSize = 100000;
 
 	/** 통합 Job 한 실행에서 스냅샷 drain 라운드 상한 (레거시 단계; 대부분 no-op) */
-	private int snapshotMaxRoundsPerJob = 200;
+	private int snapshotMaxRoundsPerJob = 80;
 
 	/** 통합 Job 한 실행에서 시너지 집계 라운드 상한 */
-	private int synergyMaxRoundsPerJob = 25;
+	private int synergyMaxRoundsPerJob = 40;
 
 	/**
 	 * 시너지 라운드 사이 대기(ms). 0 이면 생략. 연속 부하·락 완화에 사용.
@@ -36,14 +36,15 @@ public class RtaBatchProperties {
 	private boolean skipLegacySnapshotStep = false;
 
 	/**
-	 * true 이면 통합 Job 에서 {@link RtaBatchAggregationService#rebuildMonsterStatsAgg} 단계 생략(시즌별 전량 재적재는 부하 큼).
+	 * true 이면 통합 Job 에서 {@link RtaBatchAggregationService#rebuildMonsterStatsAgg} 단계 호출 생략 (해당 단계는 no-op).
 	 */
 	private boolean skipMonsterStatsInUnifiedJob = false;
 
 	/**
-	 * true 이면 통합 Job 에서 {@link RtaBatchAggregationService#rebuildTierAggDaily} 단계 생략 (participant 풀스캔은 배치에서만).
+	 * true 이면 통합 Job 에서 {@link RtaBatchAggregationService#rebuildTierAggDaily} 단계 생략.
+	 * 티어 일별은 부하가 커서 {@link com.smw.monster.batch.RtaTierDailyAggJob} 등 긴 주기로 분리하는 것을 권장(기본 true).
 	 */
-	private boolean skipTierAggDailyInUnifiedJob = false;
+	private boolean skipTierAggDailyInUnifiedJob = true;
 
 	/**
 	 * true 이면 통합 Job 에서 user_monster_owned_agg 전량 삭제·재적재 단계 생략.

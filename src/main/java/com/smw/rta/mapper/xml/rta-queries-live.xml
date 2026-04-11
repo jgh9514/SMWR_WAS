@@ -295,18 +295,15 @@
         WHERE replay_id = #{rid}
     </select>
 
-    <delete id="deleteAllRtaMonsterStatsAgg">
-        TRUNCATE TABLE public.rta_agg_monster_unit;
-    </delete>
-
-    <delete id="deleteAllRtaTierAggDaily">
-        TRUNCATE TABLE public.rta_agg_tier_daily;
-    </delete>
-
-    <!-- 시즌 1회: participant 스캔 (배치 전용). 통합 Job 에서 TRUNCATE 후 시즌 루프로 호출 -->
+    <!-- 시즌당 일자×티어: 해당 season 행만 지운 뒤 재적재. ON CONFLICT 로 동시 실행·잔존 행·SELECT 중복 시에도 실패하지 않음 -->
     <insert id="insertRtaTierAggDailyForSeason">
-        INSERT INTO public.rta_agg_tier_daily (season_code, bucket_date, tier_key, player_count, sort_order, computed_at)
-        SELECT #{seasonCode}, d.bucket_date, d.tier_key, d.player_count, d.sort_order, now()
+        WITH deleted AS (
+            DELETE FROM public.rta_agg_tier_daily
+            WHERE season_id = #{seasonId}
+            RETURNING 1
+        )
+        INSERT INTO public.rta_agg_tier_daily (season_id, bucket_date, tier_key, player_count, sort_order, computed_at)
+        SELECT #{seasonId}, d.bucket_date, d.tier_key, d.player_count, d.sort_order, now()
         FROM (
             <include refid="rtaTierDistributionDailyInnerFromMatch"/>
         ) d
@@ -315,41 +312,10 @@
             AND d.bucket_date &gt;= (#{seasonStart})::date
             AND d.bucket_date &lt; (#{seasonEnd})::date
         </if>
-    </insert>
-
-    <insert id="insertRtaMonsterStatsAggForSeason">
-        WITH deleted AS (
-            DELETE FROM public.rta_agg_monster_unit x
-            USING public.rta_season s
-            WHERE x.season_id = s.season_id AND s.season_code = #{seasonCode}
-            RETURNING 1
-        )
-        INSERT INTO public.rta_agg_monster_unit (
-            season_id, rating_id, unit_master_id, pick_cnt, ban_cnt, win_cnt, first_pick_cnt
-        )
-        SELECT
-            s.season_id,
-            0,
-            u.unit_master_id,
-            COUNT(*) FILTER (WHERE NOT u.is_banned)::bigint,
-            COUNT(*) FILTER (WHERE u.is_banned)::bigint,
-            COUNT(*) FILTER (WHERE NOT u.is_banned AND mp.is_winner)::bigint,
-            COUNT(*) FILTER (WHERE NOT u.is_banned AND u.pick_slot_no = 1)::bigint
-        FROM public.rta_match_unit_pick u
-        INNER JOIN public.rta_match m ON u.replay_id = m.replay_id
-        INNER JOIN public.rta_season s ON s.season_id = m.season_id
-        INNER JOIN public.rta_match_participant mp ON mp.replay_id = u.replay_id AND mp.wizard_id = u.wizard_id
-        LEFT JOIN public.monster mo ON mo.monster_id = u.unit_master_id::text
-        WHERE s.season_code = #{seasonCode}
-          AND m.played_at &gt;= #{seasonStart}
-          AND m.played_at &lt; #{seasonEnd}
-          AND mo.kr_name IS NOT NULL
-        GROUP BY s.season_id, u.unit_master_id
-        ON CONFLICT (season_id, rating_id, unit_master_id) DO UPDATE SET
-            pick_cnt = EXCLUDED.pick_cnt,
-            ban_cnt = EXCLUDED.ban_cnt,
-            win_cnt = EXCLUDED.win_cnt,
-            first_pick_cnt = EXCLUDED.first_pick_cnt
+        ON CONFLICT (season_id, bucket_date, tier_key) DO UPDATE SET
+            player_count = EXCLUDED.player_count,
+            sort_order = EXCLUDED.sort_order,
+            computed_at = EXCLUDED.computed_at
     </insert>
 
     <select id="getRtaMonsterStatsTotalFromAgg" resultType="java.lang.Long">
@@ -361,6 +327,186 @@
 
     <select id="getRtaMonsterStatsFromAgg" resultType="map">
         SELECT
+            s.combo_unit_key AS monster_id,
+            m.monster_elemental AS monster_elemental,
+            m.kr_name AS monster_name,
+            <include refid="monsterPortraitUrl"><property name="alias" value="m"/></include> AS monster_image,
+            s.match_cnt AS pick_count,
+            ROUND((s.match_cnt::numeric / NULLIF((SELECT COUNT(*)::numeric FROM public.rta_match mm INNER JOIN public.rta_season ss ON ss.season_id = mm.season_id WHERE ss.season_code = #{seasonCode}), 0) * 100)::numeric, 2) AS pick_rate,
+            CASE
+                WHEN s.match_cnt &gt; 0 THEN ROUND((COALESCE(s.win_cnt, 0)::numeric / s.match_cnt * 100)::numeric, 2)
+                ELSE 0
+            END AS win_rate,
+            0::numeric AS first_pick_rate,
+            0::numeric AS ban_rate
+        FROM (
+            <choose>
+                <when test="tierKey == null or tierKey == ''">
+                    SELECT sg.combo_unit_key, SUM(sg.match_cnt)::bigint AS match_cnt, SUM(sg.win_cnt)::bigint AS win_cnt
+                    FROM public.rta_agg_synergy_combo sg
+                    INNER JOIN public.rta_season rs0 ON rs0.season_id = sg.season_id
+                    WHERE rs0.season_code = #{seasonCode}
+                      AND sg.combo_size = 1
+                      AND sg.rating_id &gt; 0
+                    GROUP BY sg.combo_unit_key
+                </when>
+                <when test="tierKey == 'CH_ALL'">
+                    SELECT sg.combo_unit_key, SUM(sg.match_cnt)::bigint AS match_cnt, SUM(sg.win_cnt)::bigint AS win_cnt
+                    FROM public.rta_agg_synergy_combo sg
+                    INNER JOIN public.rta_season rs0 ON rs0.season_id = sg.season_id
+                    WHERE rs0.season_code = #{seasonCode}
+                      AND sg.combo_size = 1
+                      AND sg.rating_id IN (SELECT rg.rating_id FROM public.rta_rating_grade rg WHERE rg.tier_key IN ('Ch1', 'Ch2', 'Ch3'))
+                    GROUP BY sg.combo_unit_key
+                </when>
+                <when test="tierKey == 'F_ALL'">
+                    SELECT sg.combo_unit_key, SUM(sg.match_cnt)::bigint AS match_cnt, SUM(sg.win_cnt)::bigint AS win_cnt
+                    FROM public.rta_agg_synergy_combo sg
+                    INNER JOIN public.rta_season rs0 ON rs0.season_id = sg.season_id
+                    WHERE rs0.season_code = #{seasonCode}
+                      AND sg.combo_size = 1
+                      AND sg.rating_id IN (SELECT rg.rating_id FROM public.rta_rating_grade rg WHERE rg.tier_key IN ('F1', 'F2', 'F3'))
+                    GROUP BY sg.combo_unit_key
+                </when>
+                <when test="tierKey == 'C_ALL'">
+                    SELECT sg.combo_unit_key, SUM(sg.match_cnt)::bigint AS match_cnt, SUM(sg.win_cnt)::bigint AS win_cnt
+                    FROM public.rta_agg_synergy_combo sg
+                    INNER JOIN public.rta_season rs0 ON rs0.season_id = sg.season_id
+                    WHERE rs0.season_code = #{seasonCode}
+                      AND sg.combo_size = 1
+                      AND sg.rating_id IN (SELECT rg.rating_id FROM public.rta_rating_grade rg WHERE rg.tier_key IN ('C1', 'C2', 'C3'))
+                    GROUP BY sg.combo_unit_key
+                </when>
+                <when test="tierKey == 'P_ALL'">
+                    SELECT sg.combo_unit_key, SUM(sg.match_cnt)::bigint AS match_cnt, SUM(sg.win_cnt)::bigint AS win_cnt
+                    FROM public.rta_agg_synergy_combo sg
+                    INNER JOIN public.rta_season rs0 ON rs0.season_id = sg.season_id
+                    WHERE rs0.season_code = #{seasonCode}
+                      AND sg.combo_size = 1
+                      AND sg.rating_id IN (SELECT rg.rating_id FROM public.rta_rating_grade rg WHERE rg.tier_key IN ('P1', 'P2', 'P3'))
+                    GROUP BY sg.combo_unit_key
+                </when>
+                <when test="tierKey == 'G_ALL'">
+                    SELECT sg.combo_unit_key, SUM(sg.match_cnt)::bigint AS match_cnt, SUM(sg.win_cnt)::bigint AS win_cnt
+                    FROM public.rta_agg_synergy_combo sg
+                    INNER JOIN public.rta_season rs0 ON rs0.season_id = sg.season_id
+                    WHERE rs0.season_code = #{seasonCode}
+                      AND sg.combo_size = 1
+                      AND sg.rating_id IN (SELECT rg.rating_id FROM public.rta_rating_grade rg WHERE rg.tier_key IN ('G1', 'G2', 'G3'))
+                    GROUP BY sg.combo_unit_key
+                </when>
+                <otherwise>
+                    SELECT sg.combo_unit_key, sg.match_cnt, sg.win_cnt
+                    FROM public.rta_agg_synergy_combo sg
+                    INNER JOIN public.rta_season rs0 ON rs0.season_id = sg.season_id
+                    WHERE rs0.season_code = #{seasonCode}
+                      AND sg.combo_size = 1
+                      AND sg.rating_id = (SELECT rg.rating_id FROM public.rta_rating_grade rg WHERE rg.tier_key = #{tierKey} LIMIT 1)
+                </otherwise>
+            </choose>
+        ) s
+        LEFT JOIN public.monster m ON m.monster_id = s.combo_unit_key
+        WHERE m.kr_name IS NOT NULL
+          AND s.match_cnt &gt;= 100
+        ORDER BY s.match_cnt DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countRtaMonsterStatsFromAgg" resultType="java.lang.Long">
+        SELECT COUNT(*)::bigint
+        FROM (
+            <choose>
+                <when test="tierKey == null or tierKey == ''">
+                    SELECT sg.combo_unit_key, SUM(sg.match_cnt)::bigint AS match_cnt, SUM(sg.win_cnt)::bigint AS win_cnt
+                    FROM public.rta_agg_synergy_combo sg
+                    INNER JOIN public.rta_season rs0 ON rs0.season_id = sg.season_id
+                    WHERE rs0.season_code = #{seasonCode}
+                      AND sg.combo_size = 1
+                      AND sg.rating_id &gt; 0
+                    GROUP BY sg.combo_unit_key
+                </when>
+                <when test="tierKey == 'CH_ALL'">
+                    SELECT sg.combo_unit_key, SUM(sg.match_cnt)::bigint AS match_cnt, SUM(sg.win_cnt)::bigint AS win_cnt
+                    FROM public.rta_agg_synergy_combo sg
+                    INNER JOIN public.rta_season rs0 ON rs0.season_id = sg.season_id
+                    WHERE rs0.season_code = #{seasonCode}
+                      AND sg.combo_size = 1
+                      AND sg.rating_id IN (SELECT rg.rating_id FROM public.rta_rating_grade rg WHERE rg.tier_key IN ('Ch1', 'Ch2', 'Ch3'))
+                    GROUP BY sg.combo_unit_key
+                </when>
+                <when test="tierKey == 'F_ALL'">
+                    SELECT sg.combo_unit_key, SUM(sg.match_cnt)::bigint AS match_cnt, SUM(sg.win_cnt)::bigint AS win_cnt
+                    FROM public.rta_agg_synergy_combo sg
+                    INNER JOIN public.rta_season rs0 ON rs0.season_id = sg.season_id
+                    WHERE rs0.season_code = #{seasonCode}
+                      AND sg.combo_size = 1
+                      AND sg.rating_id IN (SELECT rg.rating_id FROM public.rta_rating_grade rg WHERE rg.tier_key IN ('F1', 'F2', 'F3'))
+                    GROUP BY sg.combo_unit_key
+                </when>
+                <when test="tierKey == 'C_ALL'">
+                    SELECT sg.combo_unit_key, SUM(sg.match_cnt)::bigint AS match_cnt, SUM(sg.win_cnt)::bigint AS win_cnt
+                    FROM public.rta_agg_synergy_combo sg
+                    INNER JOIN public.rta_season rs0 ON rs0.season_id = sg.season_id
+                    WHERE rs0.season_code = #{seasonCode}
+                      AND sg.combo_size = 1
+                      AND sg.rating_id IN (SELECT rg.rating_id FROM public.rta_rating_grade rg WHERE rg.tier_key IN ('C1', 'C2', 'C3'))
+                    GROUP BY sg.combo_unit_key
+                </when>
+                <when test="tierKey == 'P_ALL'">
+                    SELECT sg.combo_unit_key, SUM(sg.match_cnt)::bigint AS match_cnt, SUM(sg.win_cnt)::bigint AS win_cnt
+                    FROM public.rta_agg_synergy_combo sg
+                    INNER JOIN public.rta_season rs0 ON rs0.season_id = sg.season_id
+                    WHERE rs0.season_code = #{seasonCode}
+                      AND sg.combo_size = 1
+                      AND sg.rating_id IN (SELECT rg.rating_id FROM public.rta_rating_grade rg WHERE rg.tier_key IN ('P1', 'P2', 'P3'))
+                    GROUP BY sg.combo_unit_key
+                </when>
+                <when test="tierKey == 'G_ALL'">
+                    SELECT sg.combo_unit_key, SUM(sg.match_cnt)::bigint AS match_cnt, SUM(sg.win_cnt)::bigint AS win_cnt
+                    FROM public.rta_agg_synergy_combo sg
+                    INNER JOIN public.rta_season rs0 ON rs0.season_id = sg.season_id
+                    WHERE rs0.season_code = #{seasonCode}
+                      AND sg.combo_size = 1
+                      AND sg.rating_id IN (SELECT rg.rating_id FROM public.rta_rating_grade rg WHERE rg.tier_key IN ('G1', 'G2', 'G3'))
+                    GROUP BY sg.combo_unit_key
+                </when>
+                <otherwise>
+                    SELECT sg.combo_unit_key, sg.match_cnt, sg.win_cnt
+                    FROM public.rta_agg_synergy_combo sg
+                    INNER JOIN public.rta_season rs0 ON rs0.season_id = sg.season_id
+                    WHERE rs0.season_code = #{seasonCode}
+                      AND sg.combo_size = 1
+                      AND sg.rating_id = (SELECT rg.rating_id FROM public.rta_rating_grade rg WHERE rg.tier_key = #{tierKey} LIMIT 1)
+                </otherwise>
+            </choose>
+        ) s
+        LEFT JOIN public.monster m ON m.monster_id = s.combo_unit_key
+        WHERE m.kr_name IS NOT NULL
+          AND s.match_cnt &gt;= 100
+    </select>
+
+    <!-- 집계 테이블이 비었을 때: 시즌 구간에서 픽 원본으로 즉시 계산 (몬스터 단위 별도 테이블 없음) -->
+    <select id="getRtaMonsterStatsLive" resultType="map">
+        WITH ps AS (
+            SELECT
+                s.season_id,
+                u.unit_master_id,
+                COUNT(*) FILTER (WHERE NOT COALESCE(u.is_banned, false))::bigint AS pick_cnt,
+                COUNT(*) FILTER (WHERE COALESCE(u.is_banned, false))::bigint AS ban_cnt,
+                COUNT(*) FILTER (WHERE NOT COALESCE(u.is_banned, false) AND COALESCE(mp.is_winner, false))::bigint AS win_cnt,
+                COUNT(*) FILTER (WHERE NOT COALESCE(u.is_banned, false) AND u.pick_slot_no = 1)::bigint AS first_pick_cnt
+            FROM public.rta_match_unit_pick u
+            INNER JOIN public.rta_match m ON u.replay_id = m.replay_id
+            INNER JOIN public.rta_season s ON s.season_id = m.season_id
+            INNER JOIN public.rta_match_participant mp ON mp.replay_id = u.replay_id AND mp.wizard_id = u.wizard_id
+            LEFT JOIN public.monster mo ON mo.monster_id = u.unit_master_id::text
+            WHERE s.season_code = #{seasonCode}
+              AND m.played_at &gt;= #{seasonStart}
+              AND m.played_at &lt; #{seasonEnd}
+              AND mo.kr_name IS NOT NULL
+            GROUP BY s.season_id, u.unit_master_id
+        )
+        SELECT
             ps.unit_master_id::text AS monster_id,
             m.monster_elemental AS monster_elemental,
             m.kr_name AS monster_name,
@@ -368,23 +514,51 @@
             ps.pick_cnt AS pick_count,
             ROUND((ps.pick_cnt::numeric / NULLIF((SELECT COUNT(*)::numeric FROM public.rta_match mm INNER JOIN public.rta_season ss ON ss.season_id = mm.season_id WHERE ss.season_code = #{seasonCode}), 0) * 100)::numeric, 2) AS pick_rate,
             CASE
-                WHEN ps.pick_cnt > 0 THEN ROUND((COALESCE(ps.win_cnt, 0)::numeric / ps.pick_cnt * 100)::numeric, 2)
+                WHEN ps.pick_cnt &gt; 0 THEN ROUND((COALESCE(ps.win_cnt, 0)::numeric / ps.pick_cnt * 100)::numeric, 2)
                 ELSE 0
             END AS win_rate,
             CASE
-                WHEN ps.pick_cnt > 0 THEN ROUND((ps.first_pick_cnt::numeric / ps.pick_cnt * 100)::numeric, 2)
+                WHEN ps.pick_cnt &gt; 0 THEN ROUND((ps.first_pick_cnt::numeric / ps.pick_cnt * 100)::numeric, 2)
                 ELSE 0
             END AS first_pick_rate,
             ROUND((COALESCE(ps.ban_cnt, 0)::numeric / NULLIF((SELECT COUNT(*)::numeric FROM public.rta_match mm INNER JOIN public.rta_season ss ON ss.season_id = mm.season_id WHERE ss.season_code = #{seasonCode}), 0) * 100)::numeric, 2) AS ban_rate
-        FROM public.rta_agg_monster_unit ps
+        FROM ps
         INNER JOIN public.rta_season rs ON rs.season_id = ps.season_id
         LEFT JOIN public.monster m ON m.monster_id = ps.unit_master_id::text
         WHERE rs.season_code = #{seasonCode}
-          AND ps.rating_id = 0
           AND m.kr_name IS NOT NULL
-          AND ps.pick_cnt > 0
+          AND ps.pick_cnt &gt;= 100
         ORDER BY ps.pick_cnt DESC
         LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countRtaMonsterStatsLive" resultType="java.lang.Long">
+        WITH ps AS (
+            SELECT
+                s.season_id,
+                u.unit_master_id,
+                COUNT(*) FILTER (WHERE NOT COALESCE(u.is_banned, false))::bigint AS pick_cnt,
+                COUNT(*) FILTER (WHERE COALESCE(u.is_banned, false))::bigint AS ban_cnt,
+                COUNT(*) FILTER (WHERE NOT COALESCE(u.is_banned, false) AND COALESCE(mp.is_winner, false))::bigint AS win_cnt,
+                COUNT(*) FILTER (WHERE NOT COALESCE(u.is_banned, false) AND u.pick_slot_no = 1)::bigint AS first_pick_cnt
+            FROM public.rta_match_unit_pick u
+            INNER JOIN public.rta_match m ON u.replay_id = m.replay_id
+            INNER JOIN public.rta_season s ON s.season_id = m.season_id
+            INNER JOIN public.rta_match_participant mp ON mp.replay_id = u.replay_id AND mp.wizard_id = u.wizard_id
+            LEFT JOIN public.monster mo ON mo.monster_id = u.unit_master_id::text
+            WHERE s.season_code = #{seasonCode}
+              AND m.played_at &gt;= #{seasonStart}
+              AND m.played_at &lt; #{seasonEnd}
+              AND mo.kr_name IS NOT NULL
+            GROUP BY s.season_id, u.unit_master_id
+        )
+        SELECT COUNT(*)::bigint
+        FROM ps
+        INNER JOIN public.rta_season rs ON rs.season_id = ps.season_id
+        LEFT JOIN public.monster m ON m.monster_id = ps.unit_master_id::text
+        WHERE rs.season_code = #{seasonCode}
+          AND m.kr_name IS NOT NULL
+          AND ps.pick_cnt &gt;= 100
     </select>
 
     <select id="getRtaDuoComboStatsFromAgg" resultType="map">
@@ -399,13 +573,152 @@
             m2.monster_elemental AS monster_elemental_2,
             s.match_cnt AS match_count,
             ROUND((s.win_cnt::numeric / NULLIF(s.match_cnt, 0) * 100)::numeric, 2) AS win_rate
-        FROM public.rta_agg_synergy_combo s
+        FROM (
+            <choose>
+                <when test="tierKey == null or tierKey == ''">
+                    SELECT sg.combo_unit_key, SUM(sg.match_cnt)::bigint AS match_cnt, SUM(sg.win_cnt)::bigint AS win_cnt
+                    FROM public.rta_agg_synergy_combo sg
+                    INNER JOIN public.rta_season rs0 ON rs0.season_id = sg.season_id
+                    WHERE rs0.season_code = #{seasonCode}
+                      AND sg.combo_size = 2
+                      AND sg.rating_id &gt; 0
+                    GROUP BY sg.combo_unit_key
+                </when>
+                <when test="tierKey == 'CH_ALL'">
+                    SELECT sg.combo_unit_key, SUM(sg.match_cnt)::bigint AS match_cnt, SUM(sg.win_cnt)::bigint AS win_cnt
+                    FROM public.rta_agg_synergy_combo sg
+                    INNER JOIN public.rta_season rs0 ON rs0.season_id = sg.season_id
+                    WHERE rs0.season_code = #{seasonCode}
+                      AND sg.combo_size = 2
+                      AND sg.rating_id IN (SELECT rg.rating_id FROM public.rta_rating_grade rg WHERE rg.tier_key IN ('Ch1', 'Ch2', 'Ch3'))
+                    GROUP BY sg.combo_unit_key
+                </when>
+                <when test="tierKey == 'F_ALL'">
+                    SELECT sg.combo_unit_key, SUM(sg.match_cnt)::bigint AS match_cnt, SUM(sg.win_cnt)::bigint AS win_cnt
+                    FROM public.rta_agg_synergy_combo sg
+                    INNER JOIN public.rta_season rs0 ON rs0.season_id = sg.season_id
+                    WHERE rs0.season_code = #{seasonCode}
+                      AND sg.combo_size = 2
+                      AND sg.rating_id IN (SELECT rg.rating_id FROM public.rta_rating_grade rg WHERE rg.tier_key IN ('F1', 'F2', 'F3'))
+                    GROUP BY sg.combo_unit_key
+                </when>
+                <when test="tierKey == 'C_ALL'">
+                    SELECT sg.combo_unit_key, SUM(sg.match_cnt)::bigint AS match_cnt, SUM(sg.win_cnt)::bigint AS win_cnt
+                    FROM public.rta_agg_synergy_combo sg
+                    INNER JOIN public.rta_season rs0 ON rs0.season_id = sg.season_id
+                    WHERE rs0.season_code = #{seasonCode}
+                      AND sg.combo_size = 2
+                      AND sg.rating_id IN (SELECT rg.rating_id FROM public.rta_rating_grade rg WHERE rg.tier_key IN ('C1', 'C2', 'C3'))
+                    GROUP BY sg.combo_unit_key
+                </when>
+                <when test="tierKey == 'P_ALL'">
+                    SELECT sg.combo_unit_key, SUM(sg.match_cnt)::bigint AS match_cnt, SUM(sg.win_cnt)::bigint AS win_cnt
+                    FROM public.rta_agg_synergy_combo sg
+                    INNER JOIN public.rta_season rs0 ON rs0.season_id = sg.season_id
+                    WHERE rs0.season_code = #{seasonCode}
+                      AND sg.combo_size = 2
+                      AND sg.rating_id IN (SELECT rg.rating_id FROM public.rta_rating_grade rg WHERE rg.tier_key IN ('P1', 'P2', 'P3'))
+                    GROUP BY sg.combo_unit_key
+                </when>
+                <when test="tierKey == 'G_ALL'">
+                    SELECT sg.combo_unit_key, SUM(sg.match_cnt)::bigint AS match_cnt, SUM(sg.win_cnt)::bigint AS win_cnt
+                    FROM public.rta_agg_synergy_combo sg
+                    INNER JOIN public.rta_season rs0 ON rs0.season_id = sg.season_id
+                    WHERE rs0.season_code = #{seasonCode}
+                      AND sg.combo_size = 2
+                      AND sg.rating_id IN (SELECT rg.rating_id FROM public.rta_rating_grade rg WHERE rg.tier_key IN ('G1', 'G2', 'G3'))
+                    GROUP BY sg.combo_unit_key
+                </when>
+                <otherwise>
+                    SELECT sg.combo_unit_key, sg.match_cnt, sg.win_cnt
+                    FROM public.rta_agg_synergy_combo sg
+                    INNER JOIN public.rta_season rs0 ON rs0.season_id = sg.season_id
+                    WHERE rs0.season_code = #{seasonCode}
+                      AND sg.combo_size = 2
+                      AND sg.rating_id = (SELECT rg.rating_id FROM public.rta_rating_grade rg WHERE rg.tier_key = #{tierKey} LIMIT 1)
+                </otherwise>
+            </choose>
+        ) s
         LEFT JOIN public.monster m1 ON m1.monster_id = split_part(s.combo_unit_key, ',', 1)
         LEFT JOIN public.monster m2 ON m2.monster_id = split_part(s.combo_unit_key, ',', 2)
-        WHERE s.combo_size = 2 AND s.rating_id = 0
-          AND m1.kr_name IS NOT NULL AND m2.kr_name IS NOT NULL
-        ORDER BY (s.win_cnt::numeric / NULLIF(s.match_cnt, 0)) DESC NULLS LAST, s.match_cnt DESC
-        LIMIT #{limit}
+        WHERE m1.kr_name IS NOT NULL AND m2.kr_name IS NOT NULL
+          AND s.match_cnt &gt;= 100
+        ORDER BY s.match_cnt DESC, (s.win_cnt::numeric / NULLIF(s.match_cnt, 0)) DESC NULLS LAST
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countRtaDuoComboStatsFromAgg" resultType="java.lang.Long">
+        SELECT COUNT(*)::bigint
+        FROM (
+            <choose>
+                <when test="tierKey == null or tierKey == ''">
+                    SELECT sg.combo_unit_key, SUM(sg.match_cnt)::bigint AS match_cnt, SUM(sg.win_cnt)::bigint AS win_cnt
+                    FROM public.rta_agg_synergy_combo sg
+                    INNER JOIN public.rta_season rs0 ON rs0.season_id = sg.season_id
+                    WHERE rs0.season_code = #{seasonCode}
+                      AND sg.combo_size = 2
+                      AND sg.rating_id &gt; 0
+                    GROUP BY sg.combo_unit_key
+                </when>
+                <when test="tierKey == 'CH_ALL'">
+                    SELECT sg.combo_unit_key, SUM(sg.match_cnt)::bigint AS match_cnt, SUM(sg.win_cnt)::bigint AS win_cnt
+                    FROM public.rta_agg_synergy_combo sg
+                    INNER JOIN public.rta_season rs0 ON rs0.season_id = sg.season_id
+                    WHERE rs0.season_code = #{seasonCode}
+                      AND sg.combo_size = 2
+                      AND sg.rating_id IN (SELECT rg.rating_id FROM public.rta_rating_grade rg WHERE rg.tier_key IN ('Ch1', 'Ch2', 'Ch3'))
+                    GROUP BY sg.combo_unit_key
+                </when>
+                <when test="tierKey == 'F_ALL'">
+                    SELECT sg.combo_unit_key, SUM(sg.match_cnt)::bigint AS match_cnt, SUM(sg.win_cnt)::bigint AS win_cnt
+                    FROM public.rta_agg_synergy_combo sg
+                    INNER JOIN public.rta_season rs0 ON rs0.season_id = sg.season_id
+                    WHERE rs0.season_code = #{seasonCode}
+                      AND sg.combo_size = 2
+                      AND sg.rating_id IN (SELECT rg.rating_id FROM public.rta_rating_grade rg WHERE rg.tier_key IN ('F1', 'F2', 'F3'))
+                    GROUP BY sg.combo_unit_key
+                </when>
+                <when test="tierKey == 'C_ALL'">
+                    SELECT sg.combo_unit_key, SUM(sg.match_cnt)::bigint AS match_cnt, SUM(sg.win_cnt)::bigint AS win_cnt
+                    FROM public.rta_agg_synergy_combo sg
+                    INNER JOIN public.rta_season rs0 ON rs0.season_id = sg.season_id
+                    WHERE rs0.season_code = #{seasonCode}
+                      AND sg.combo_size = 2
+                      AND sg.rating_id IN (SELECT rg.rating_id FROM public.rta_rating_grade rg WHERE rg.tier_key IN ('C1', 'C2', 'C3'))
+                    GROUP BY sg.combo_unit_key
+                </when>
+                <when test="tierKey == 'P_ALL'">
+                    SELECT sg.combo_unit_key, SUM(sg.match_cnt)::bigint AS match_cnt, SUM(sg.win_cnt)::bigint AS win_cnt
+                    FROM public.rta_agg_synergy_combo sg
+                    INNER JOIN public.rta_season rs0 ON rs0.season_id = sg.season_id
+                    WHERE rs0.season_code = #{seasonCode}
+                      AND sg.combo_size = 2
+                      AND sg.rating_id IN (SELECT rg.rating_id FROM public.rta_rating_grade rg WHERE rg.tier_key IN ('P1', 'P2', 'P3'))
+                    GROUP BY sg.combo_unit_key
+                </when>
+                <when test="tierKey == 'G_ALL'">
+                    SELECT sg.combo_unit_key, SUM(sg.match_cnt)::bigint AS match_cnt, SUM(sg.win_cnt)::bigint AS win_cnt
+                    FROM public.rta_agg_synergy_combo sg
+                    INNER JOIN public.rta_season rs0 ON rs0.season_id = sg.season_id
+                    WHERE rs0.season_code = #{seasonCode}
+                      AND sg.combo_size = 2
+                      AND sg.rating_id IN (SELECT rg.rating_id FROM public.rta_rating_grade rg WHERE rg.tier_key IN ('G1', 'G2', 'G3'))
+                    GROUP BY sg.combo_unit_key
+                </when>
+                <otherwise>
+                    SELECT sg.combo_unit_key, sg.match_cnt, sg.win_cnt
+                    FROM public.rta_agg_synergy_combo sg
+                    INNER JOIN public.rta_season rs0 ON rs0.season_id = sg.season_id
+                    WHERE rs0.season_code = #{seasonCode}
+                      AND sg.combo_size = 2
+                      AND sg.rating_id = (SELECT rg.rating_id FROM public.rta_rating_grade rg WHERE rg.tier_key = #{tierKey} LIMIT 1)
+                </otherwise>
+            </choose>
+        ) s
+        LEFT JOIN public.monster m1 ON m1.monster_id = split_part(s.combo_unit_key, ',', 1)
+        LEFT JOIN public.monster m2 ON m2.monster_id = split_part(s.combo_unit_key, ',', 2)
+        WHERE m1.kr_name IS NOT NULL AND m2.kr_name IS NOT NULL
+          AND s.match_cnt &gt;= 100
     </select>
 
     <select id="getRtaTrioComboStatsFromAgg" resultType="map">
@@ -424,14 +737,154 @@
             m3.monster_elemental AS monster_elemental_3,
             s.match_cnt AS match_count,
             ROUND((s.win_cnt::numeric / NULLIF(s.match_cnt, 0) * 100)::numeric, 2) AS win_rate
-        FROM public.rta_agg_synergy_combo s
+        FROM (
+            <choose>
+                <when test="tierKey == null or tierKey == ''">
+                    SELECT sg.combo_unit_key, SUM(sg.match_cnt)::bigint AS match_cnt, SUM(sg.win_cnt)::bigint AS win_cnt
+                    FROM public.rta_agg_synergy_combo sg
+                    INNER JOIN public.rta_season rs0 ON rs0.season_id = sg.season_id
+                    WHERE rs0.season_code = #{seasonCode}
+                      AND sg.combo_size = 3
+                      AND sg.rating_id &gt; 0
+                    GROUP BY sg.combo_unit_key
+                </when>
+                <when test="tierKey == 'CH_ALL'">
+                    SELECT sg.combo_unit_key, SUM(sg.match_cnt)::bigint AS match_cnt, SUM(sg.win_cnt)::bigint AS win_cnt
+                    FROM public.rta_agg_synergy_combo sg
+                    INNER JOIN public.rta_season rs0 ON rs0.season_id = sg.season_id
+                    WHERE rs0.season_code = #{seasonCode}
+                      AND sg.combo_size = 3
+                      AND sg.rating_id IN (SELECT rg.rating_id FROM public.rta_rating_grade rg WHERE rg.tier_key IN ('Ch1', 'Ch2', 'Ch3'))
+                    GROUP BY sg.combo_unit_key
+                </when>
+                <when test="tierKey == 'F_ALL'">
+                    SELECT sg.combo_unit_key, SUM(sg.match_cnt)::bigint AS match_cnt, SUM(sg.win_cnt)::bigint AS win_cnt
+                    FROM public.rta_agg_synergy_combo sg
+                    INNER JOIN public.rta_season rs0 ON rs0.season_id = sg.season_id
+                    WHERE rs0.season_code = #{seasonCode}
+                      AND sg.combo_size = 3
+                      AND sg.rating_id IN (SELECT rg.rating_id FROM public.rta_rating_grade rg WHERE rg.tier_key IN ('F1', 'F2', 'F3'))
+                    GROUP BY sg.combo_unit_key
+                </when>
+                <when test="tierKey == 'C_ALL'">
+                    SELECT sg.combo_unit_key, SUM(sg.match_cnt)::bigint AS match_cnt, SUM(sg.win_cnt)::bigint AS win_cnt
+                    FROM public.rta_agg_synergy_combo sg
+                    INNER JOIN public.rta_season rs0 ON rs0.season_id = sg.season_id
+                    WHERE rs0.season_code = #{seasonCode}
+                      AND sg.combo_size = 3
+                      AND sg.rating_id IN (SELECT rg.rating_id FROM public.rta_rating_grade rg WHERE rg.tier_key IN ('C1', 'C2', 'C3'))
+                    GROUP BY sg.combo_unit_key
+                </when>
+                <when test="tierKey == 'P_ALL'">
+                    SELECT sg.combo_unit_key, SUM(sg.match_cnt)::bigint AS match_cnt, SUM(sg.win_cnt)::bigint AS win_cnt
+                    FROM public.rta_agg_synergy_combo sg
+                    INNER JOIN public.rta_season rs0 ON rs0.season_id = sg.season_id
+                    WHERE rs0.season_code = #{seasonCode}
+                      AND sg.combo_size = 3
+                      AND sg.rating_id IN (SELECT rg.rating_id FROM public.rta_rating_grade rg WHERE rg.tier_key IN ('P1', 'P2', 'P3'))
+                    GROUP BY sg.combo_unit_key
+                </when>
+                <when test="tierKey == 'G_ALL'">
+                    SELECT sg.combo_unit_key, SUM(sg.match_cnt)::bigint AS match_cnt, SUM(sg.win_cnt)::bigint AS win_cnt
+                    FROM public.rta_agg_synergy_combo sg
+                    INNER JOIN public.rta_season rs0 ON rs0.season_id = sg.season_id
+                    WHERE rs0.season_code = #{seasonCode}
+                      AND sg.combo_size = 3
+                      AND sg.rating_id IN (SELECT rg.rating_id FROM public.rta_rating_grade rg WHERE rg.tier_key IN ('G1', 'G2', 'G3'))
+                    GROUP BY sg.combo_unit_key
+                </when>
+                <otherwise>
+                    SELECT sg.combo_unit_key, sg.match_cnt, sg.win_cnt
+                    FROM public.rta_agg_synergy_combo sg
+                    INNER JOIN public.rta_season rs0 ON rs0.season_id = sg.season_id
+                    WHERE rs0.season_code = #{seasonCode}
+                      AND sg.combo_size = 3
+                      AND sg.rating_id = (SELECT rg.rating_id FROM public.rta_rating_grade rg WHERE rg.tier_key = #{tierKey} LIMIT 1)
+                </otherwise>
+            </choose>
+        ) s
         LEFT JOIN public.monster m1 ON m1.monster_id = split_part(s.combo_unit_key, ',', 1)
         LEFT JOIN public.monster m2 ON m2.monster_id = split_part(s.combo_unit_key, ',', 2)
         LEFT JOIN public.monster m3 ON m3.monster_id = split_part(s.combo_unit_key, ',', 3)
-        WHERE s.combo_size = 3 AND s.rating_id = 0
-          AND m1.kr_name IS NOT NULL AND m2.kr_name IS NOT NULL AND m3.kr_name IS NOT NULL
-        ORDER BY (s.win_cnt::numeric / NULLIF(s.match_cnt, 0)) DESC NULLS LAST, s.match_cnt DESC
-        LIMIT #{limit}
+        WHERE m1.kr_name IS NOT NULL AND m2.kr_name IS NOT NULL AND m3.kr_name IS NOT NULL
+          AND s.match_cnt &gt;= 100
+        ORDER BY s.match_cnt DESC, (s.win_cnt::numeric / NULLIF(s.match_cnt, 0)) DESC NULLS LAST
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countRtaTrioComboStatsFromAgg" resultType="java.lang.Long">
+        SELECT COUNT(*)::bigint
+        FROM (
+            <choose>
+                <when test="tierKey == null or tierKey == ''">
+                    SELECT sg.combo_unit_key, SUM(sg.match_cnt)::bigint AS match_cnt, SUM(sg.win_cnt)::bigint AS win_cnt
+                    FROM public.rta_agg_synergy_combo sg
+                    INNER JOIN public.rta_season rs0 ON rs0.season_id = sg.season_id
+                    WHERE rs0.season_code = #{seasonCode}
+                      AND sg.combo_size = 3
+                      AND sg.rating_id &gt; 0
+                    GROUP BY sg.combo_unit_key
+                </when>
+                <when test="tierKey == 'CH_ALL'">
+                    SELECT sg.combo_unit_key, SUM(sg.match_cnt)::bigint AS match_cnt, SUM(sg.win_cnt)::bigint AS win_cnt
+                    FROM public.rta_agg_synergy_combo sg
+                    INNER JOIN public.rta_season rs0 ON rs0.season_id = sg.season_id
+                    WHERE rs0.season_code = #{seasonCode}
+                      AND sg.combo_size = 3
+                      AND sg.rating_id IN (SELECT rg.rating_id FROM public.rta_rating_grade rg WHERE rg.tier_key IN ('Ch1', 'Ch2', 'Ch3'))
+                    GROUP BY sg.combo_unit_key
+                </when>
+                <when test="tierKey == 'F_ALL'">
+                    SELECT sg.combo_unit_key, SUM(sg.match_cnt)::bigint AS match_cnt, SUM(sg.win_cnt)::bigint AS win_cnt
+                    FROM public.rta_agg_synergy_combo sg
+                    INNER JOIN public.rta_season rs0 ON rs0.season_id = sg.season_id
+                    WHERE rs0.season_code = #{seasonCode}
+                      AND sg.combo_size = 3
+                      AND sg.rating_id IN (SELECT rg.rating_id FROM public.rta_rating_grade rg WHERE rg.tier_key IN ('F1', 'F2', 'F3'))
+                    GROUP BY sg.combo_unit_key
+                </when>
+                <when test="tierKey == 'C_ALL'">
+                    SELECT sg.combo_unit_key, SUM(sg.match_cnt)::bigint AS match_cnt, SUM(sg.win_cnt)::bigint AS win_cnt
+                    FROM public.rta_agg_synergy_combo sg
+                    INNER JOIN public.rta_season rs0 ON rs0.season_id = sg.season_id
+                    WHERE rs0.season_code = #{seasonCode}
+                      AND sg.combo_size = 3
+                      AND sg.rating_id IN (SELECT rg.rating_id FROM public.rta_rating_grade rg WHERE rg.tier_key IN ('C1', 'C2', 'C3'))
+                    GROUP BY sg.combo_unit_key
+                </when>
+                <when test="tierKey == 'P_ALL'">
+                    SELECT sg.combo_unit_key, SUM(sg.match_cnt)::bigint AS match_cnt, SUM(sg.win_cnt)::bigint AS win_cnt
+                    FROM public.rta_agg_synergy_combo sg
+                    INNER JOIN public.rta_season rs0 ON rs0.season_id = sg.season_id
+                    WHERE rs0.season_code = #{seasonCode}
+                      AND sg.combo_size = 3
+                      AND sg.rating_id IN (SELECT rg.rating_id FROM public.rta_rating_grade rg WHERE rg.tier_key IN ('P1', 'P2', 'P3'))
+                    GROUP BY sg.combo_unit_key
+                </when>
+                <when test="tierKey == 'G_ALL'">
+                    SELECT sg.combo_unit_key, SUM(sg.match_cnt)::bigint AS match_cnt, SUM(sg.win_cnt)::bigint AS win_cnt
+                    FROM public.rta_agg_synergy_combo sg
+                    INNER JOIN public.rta_season rs0 ON rs0.season_id = sg.season_id
+                    WHERE rs0.season_code = #{seasonCode}
+                      AND sg.combo_size = 3
+                      AND sg.rating_id IN (SELECT rg.rating_id FROM public.rta_rating_grade rg WHERE rg.tier_key IN ('G1', 'G2', 'G3'))
+                    GROUP BY sg.combo_unit_key
+                </when>
+                <otherwise>
+                    SELECT sg.combo_unit_key, sg.match_cnt, sg.win_cnt
+                    FROM public.rta_agg_synergy_combo sg
+                    INNER JOIN public.rta_season rs0 ON rs0.season_id = sg.season_id
+                    WHERE rs0.season_code = #{seasonCode}
+                      AND sg.combo_size = 3
+                      AND sg.rating_id = (SELECT rg.rating_id FROM public.rta_rating_grade rg WHERE rg.tier_key = #{tierKey} LIMIT 1)
+                </otherwise>
+            </choose>
+        ) s
+        LEFT JOIN public.monster m1 ON m1.monster_id = split_part(s.combo_unit_key, ',', 1)
+        LEFT JOIN public.monster m2 ON m2.monster_id = split_part(s.combo_unit_key, ',', 2)
+        LEFT JOIN public.monster m3 ON m3.monster_id = split_part(s.combo_unit_key, ',', 3)
+        WHERE m1.kr_name IS NOT NULL AND m2.kr_name IS NOT NULL AND m3.kr_name IS NOT NULL
+          AND s.match_cnt &gt;= 100
     </select>
 
     <!-- RTA 몬스터 기본 정보 조회 -->
@@ -699,7 +1152,8 @@
         ORDER BY mm.date_add DESC
     </select>
 
-    <!-- RTA 대시보드: 일자×티어 — {@code rta_agg_tier_daily} (배치에서 insertRtaTierAggDailyForSeason 으로 적재) -->
+    <!-- RTA 대시보드: 일자×티어 — {@code rta_agg_tier_daily} (배치에서 insertRtaTierAggDailyForSeason 으로 적재).
+         시즌 경계는 rta_season + Asia/Seoul 일자로만 잡아 JDBC 타임존과 무관하게 DB 화면·집계와 맞춘다. -->
     <select id="getRtaTierDistributionDaily" resultType="map">
         SELECT
             a.bucket_date,
@@ -707,25 +1161,21 @@
             a.player_count,
             a.sort_order
         FROM public.rta_agg_tier_daily a
-        WHERE a.season_code = #{seasonCode}
-        <if test="seasonStart != null and seasonEnd != null">
-            AND a.bucket_date &gt;= (#{seasonStart})::date
-            AND a.bucket_date &lt; (#{seasonEnd})::date
-        </if>
+        INNER JOIN public.rta_season s ON s.season_code = #{seasonCode} AND a.season_id = s.season_id
+        WHERE a.bucket_date &gt;= (s.start_at AT TIME ZONE 'Asia/Seoul')::date
+          AND a.bucket_date &lt; (s.end_at AT TIME ZONE 'Asia/Seoul')::date
         ORDER BY a.bucket_date, a.sort_order
     </select>
 
-    <!-- 리플레이 기간 min/max — rta_match.played_at (대시보드 date_range) -->
+    <!-- 리플레이 기간 min/max — rta_match.played_at (대시보드 date_range), 시즌은 코드로 조인 -->
     <select id="getRtaReplayDateRangeFromAgg" resultType="map">
         SELECT
-            MIN(m.played_at::date) AS min_date,
-            MAX(m.played_at::date) AS max_date
+            MIN((m.played_at AT TIME ZONE 'Asia/Seoul')::date) AS min_date,
+            MAX((m.played_at AT TIME ZONE 'Asia/Seoul')::date) AS max_date
         FROM public.rta_match m
-        WHERE 1 = 1
-        <if test="seasonStart != null and seasonEnd != null">
-            AND m.played_at &gt;= #{seasonStart}
-            AND m.played_at &lt; #{seasonEnd}
-        </if>
+        INNER JOIN public.rta_season s ON s.season_code = #{seasonCode}
+        WHERE m.played_at &gt;= s.start_at
+          AND m.played_at &lt; s.end_at
     </select>
 
     <!-- 랭크 컷: 스냅샷 테이블 없이 현재 시각 기준 되돌림 구간 [now-iv, now] 내 리플레이로 계산.

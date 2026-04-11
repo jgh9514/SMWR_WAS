@@ -127,7 +127,7 @@ public class BatchController {
 		if (!applicationContext.containsBean("batchConfig")) {
 			Map<String, Object> error = new HashMap<>();
 			error.put("result", Constant.FAIL);
-			error.put("message", "배치 설정이 비활성화되어 있습니다.");
+			error.put("message", "Quartz Scheduler 또는 BatchConfig 빈이 없습니다.");
 			return new ResponseEntity<>(error, HttpStatus.BAD_REQUEST);
 		}
 
@@ -174,7 +174,7 @@ public class BatchController {
 		if (!applicationContext.containsBean("batchConfig")) {
 			Map<String, Object> error = new HashMap<>();
 			error.put("result", Constant.FAIL);
-			error.put("message", "배치 설정이 비활성화되어 있습니다.");
+			error.put("message", "Quartz Scheduler 또는 BatchConfig 빈이 없습니다. spring-boot-starter-quartz 포함 여부를 확인하세요.");
 			return new ResponseEntity<>(error, HttpStatus.BAD_REQUEST);
 		}
 
@@ -196,7 +196,11 @@ public class BatchController {
 	public ResponseEntity<?> selectBatchRunHis(@RequestBody(required = false) Map<String, Object> param, HttpServletRequest request) {
 		ResponseEntity<?> guard = requireAdmin(request);
 		if (guard != null) return guard;
-		Map<String, Object> query = param == null ? new HashMap<>() : param;
+		Map<String, Object> query = param == null ? new HashMap<>() : new HashMap<>(param);
+		// 관리 화면 목록: 기본 최근 10건만 (미지정 시). 대량 필요 시 body 에 limit 명시.
+		if (!query.containsKey("limit")) {
+			query.put("limit", 10);
+		}
 		List<Map<String, ?>> list = batchMapper.selectBatchRunHisList(query);
 		return new ResponseEntity<>(list, HttpStatus.OK);
 	}

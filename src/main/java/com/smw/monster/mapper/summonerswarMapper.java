@@ -74,6 +74,9 @@ public interface summonerswarMapper {
 
 	int deleteArenaRtaOrphanUsersByRids(@Param("rids") List<Long> rids);
 
+	/** RTA 시즌 구간 매핑용 전체 행 (행마다 INSERT 서브쿼리 대비) */
+	List<Map<String, ?>> selectRtaSeasonsForRtaMatchMapping();
+
 	/** rta-upload 벌크: VALUES 다중 행 + ON CONFLICT DO NOTHING */
 	int insertArenaInfoBulk(@Param("rows") List<Map<String, ?>> rows);
 

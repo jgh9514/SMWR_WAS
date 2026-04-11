@@ -375,6 +375,10 @@
 		GROUP BY li.wizard_id, li.import_id, li.crt_date, sm.master_id
 	</insert>
 
+	<select id="countUserMonsterOwnedAgg" resultType="long">
+		SELECT COUNT(*)::bigint FROM public.user_monster_owned_agg
+	</select>
+
 </mapper>
 
 

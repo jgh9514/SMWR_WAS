@@ -255,7 +255,7 @@ public class RtaController {
         }
     }
 
-    @Operation(summary = "RTA 시즌 목록", description = "등록된 시즌 코드·기간(KST 저장값은 ISO로 직렬화)·표시명")
+    @Operation(summary = "RTA 시즌 목록", description = "rta_season 조회. startYmdKst·lastInclusiveYmdKst·endExclusiveYmdKst는 Asia/Seoul 일자(티어 bucket과 동일 기준)")
     @GetMapping("/seasons")
     public ResponseEntity<Map<String, Object>> getRtaSeasons() {
         try {
@@ -291,21 +291,54 @@ public class RtaController {
         }
     }
 
-    @Operation(summary = "RTA 몬스터별 통계 조회", description = "RTA 몬스터별 통계 데이터를 조회합니다. (픽횟수, 픽률, 승률, 선픽율, 벤율)")
+    @Operation(summary = "RTA 몬스터별 통계 조회", description = "RTA 몬스터별 통계. limit=페이지 크기(기본 20), offset 또는 stats_offset=솔로 오프셋, duo_offset, trio_offset=듀오·트리오 오프셋")
     @PostMapping("/monster-stats")
     public ResponseEntity<Map<String, Object>> getRtaMonsterStats(@RequestBody Map<String, Object> param) {
         
         try {
-            int limit = param.get("limit") != null ? Integer.parseInt(param.get("limit").toString()) : 20;
-            int offset = param.get("offset") != null ? Integer.parseInt(param.get("offset").toString()) : 0;
+            Map<String, Object> p = param != null ? param : new HashMap<>();
+            int pageSize = clampInt(parseIntOpt(p.get("limit"), 20), 1, 500);
+            Object statsOffObj = p.get("stats_offset");
+            if (statsOffObj == null) {
+                statsOffObj = p.get("offset");
+            }
+            int statsOffset = Math.max(0, parseIntOpt(statsOffObj, 0));
+            int duoOffset = Math.max(0, parseIntOpt(p.get("duo_offset"), 0));
+            int trioOffset = Math.max(0, parseIntOpt(p.get("trio_offset"), 0));
             String sc = pickSeasonCode(param);
             
-            Map<String, Object> response = rtaService.getRtaMonsterStats(limit, offset, sc);
+            Object tierObj = p.get("tierKey");
+            if (tierObj == null) {
+                tierObj = p.get("tier_key");
+            }
+            String tierKey = null;
+            if (tierObj != null) {
+                String ts = String.valueOf(tierObj).trim();
+                tierKey = ts.isEmpty() ? null : ts;
+            }
+
+            Map<String, Object> response = rtaService.getRtaMonsterStats(pageSize, statsOffset, duoOffset, trioOffset, sc,
+                    tierKey);
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             log.error("RTA monster stats 조회 실패", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
+    }
+
+    private static int parseIntOpt(Object o, int defaultVal) {
+        if (o == null) {
+            return defaultVal;
+        }
+        try {
+            return Integer.parseInt(String.valueOf(o).trim());
+        } catch (NumberFormatException e) {
+            return defaultVal;
+        }
+    }
+
+    private static int clampInt(int v, int min, int max) {
+        return Math.max(min, Math.min(max, v));
     }
 
     @Operation(summary = "RTA 몬스터 상세 정보 조회", description = "특정 몬스터의 상세 정보를 조회합니다. (기본정보, 강한상대, 좋은콤비, 3체인콤비, 카운터매치업, 최근경기)")

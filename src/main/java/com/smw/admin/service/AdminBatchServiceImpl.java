@@ -28,6 +28,9 @@ public class AdminBatchServiceImpl implements AdminBatchService {
     @Override
     public Map<String, Object> getBatchDiagnostics(Map<String, Object> param) {
         Map<String, Object> query = param != null ? new HashMap<>(param) : new HashMap<>();
+        if (!query.containsKey("limit")) {
+            query.put("limit", 1000);
+        }
         List<Map<String, ?>> runs = batchMapper.selectBatchRunHisList(query);
         Map<String, String> batchNameMap = loadBatchNameMap();
 

@@ -22,7 +22,7 @@ spring:
     driver-class-name: org.postgresql.Driver
     hikari:
       # 배치·API 공유 풀. 너무 크면 DB max_connections·I/O 경합 — 부하는 smw.rta.* 상한으로 조절
-      maximum-pool-size: 20
+      maximum-pool-size: ${SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE:28}
       minimum-idle: 5
       idle-timeout: 30000
       max-lifetime: 1800000
@@ -140,7 +140,8 @@ management:
         smw.swarfarm.sync.duration: true
 
 smw:
-  # Quartz: DB sys_batch_config 를 읽어 스케줄 등록(BatchConfig). 기본 OFF — 로컬은 application-local.yml, Docker 기본은 application-docker.yml 에서 켬. 운영은 prod 프로필 또는 SMW_BATCH_QUARTZ_ENABLED=false
+  # Quartz 크론만 제어: false 면 DB sys_batch_config 크론 미등록. 수동 실행(/api/v1/batch/run)은 Scheduler 있으면 동작.
+  # true: 로컬(application-local)·docker(application-docker) 등에서 켬. 운영 prod 는 보통 false + 수동/별도 워커.
   batch:
     quartz:
       enabled: ${SMW_BATCH_QUARTZ_ENABLED:false}
@@ -204,26 +205,41 @@ smw:
       stable-max-wait-ms: ${SMW_RTA_EXPORTER_STABLE_MAX_MS:60000}
     raw-apply:
       # 정규화 배치 한 번의 apply 호출당 SELECT 상한(너무 크면 한 스케줄에서 DB·WAL 폭주)
-      max-rows-per-run: ${SMW_RTA_RAW_APPLY_MAX_ROWS:2000}
+      max-rows-per-run: ${SMW_RTA_RAW_APPLY_MAX_ROWS:100000}
       # 한 트랜잭션에 묶는 건수(작을수록 락·롤백 범위 축소)
-      apply-chunk-size: ${SMW_RTA_RAW_APPLY_CHUNK_SIZE:100}
+      apply-chunk-size: ${SMW_RTA_RAW_APPLY_CHUNK_SIZE:100000}
+      # VALUES 다중행 INSERT 한 문당 행 수. 크면 PG JDBC I/O error while sending — 25~75 권장
+      bulk-insert-chunk-size: ${SMW_RTA_RAW_APPLY_BULK_INSERT_CHUNK_SIZE:50}
       # 통합 Job 한 실행에서 raw 정규화 루프 상한(× max-rows-per-run). 나머지는 다음 스케줄.
-      max-rounds-per-unified-job: ${SMW_RTA_RAW_APPLY_MAX_ROUNDS:5}
+      max-rounds-per-unified-job: ${SMW_RTA_RAW_APPLY_MAX_ROUNDS:12}
       # 첫 파싱/정규화 오류 시 통합 Job 즉시 실패. 대량 백필은 bulkload 또는 SMW_RTA_RAW_APPLY_FAIL_FAST=false
       fail-fast-on-error: ${SMW_RTA_RAW_APPLY_FAIL_FAST:true}
     # 통합 RTA 배치(스냅샷·시너지). 수치·스킵은 DB 여유에 맞게 조절.
     batch:
-      synergy-batch-size: ${SMW_RTA_SYNERGY_BATCH_SIZE:500}
-      snapshot-batch-size: ${SMW_RTA_SNAPSHOT_BATCH_SIZE:500}
-      snapshot-max-rounds-per-job: ${SMW_RTA_SNAPSHOT_MAX_ROUNDS:50}
-      synergy-max-rounds-per-job: ${SMW_RTA_SYNERGY_MAX_ROUNDS:25}
-      # 시너지 라운드 사이 대기(ms). 0=비활성. 연속 쓰기 완화.
-      synergy-pause-ms-between-rounds: ${SMW_RTA_SYNERGY_PAUSE_MS:75}
+      synergy-batch-size: ${SMW_RTA_SYNERGY_BATCH_SIZE:100000}
+      snapshot-batch-size: ${SMW_RTA_SNAPSHOT_BATCH_SIZE:100000}
+      snapshot-max-rounds-per-job: ${SMW_RTA_SNAPSHOT_MAX_ROUNDS:80}
+      synergy-max-rounds-per-job: ${SMW_RTA_SYNERGY_MAX_ROUNDS:40}
+      # 시너지 라운드 사이 대기(ms). 0=비활성(처리량 우선). 연속 쓰기 부하 완화 시 25~75 권장.
+      synergy-pause-ms-between-rounds: ${SMW_RTA_SYNERGY_PAUSE_MS:0}
       skip-legacy-snapshot-step: ${SMW_RTA_BATCH_SKIP_SNAPSHOT:true}
       # 통합 Job(짧은 주기)에서 시즌별 몬스터 통계 전량 재적재 생략 — 필요 시 별도 배치/수동 또는 false
       skip-monster-stats-in-unified-job: ${SMW_RTA_UNIFIED_SKIP_MONSTER_STATS:true}
       # 통합 Job에서 user_monster_owned_agg 전량 삭제·재적재 생략 — 필요 시 false
       skip-user-monster-owned-agg-in-unified-job: ${SMW_RTA_UNIFIED_SKIP_USER_OWNED_AGG:true}
+      # 티어 일별(rta_agg_tier_daily): 통합(짧은 주기)에서 빼고 RtaTierDailyAggJob(예: 1시간·bat_id 7)로만 돌리기 권장
+      skip-tier-agg-daily-in-unified-job: ${SMW_RTA_BATCH_SKIP_TIER_AGG_DAILY_IN_UNIFIED:true}
+    # 카운터 집계(rta_agg_counter_matchup) 대량 반영: COPY + UNLOGGED 스테이징 + 집합 UPSERT. DDL: sql/staging_matchup_agg.sql
+    counter-agg:
+      use-copy-staging: ${SMW_RTA_COUNTER_COPY_STAGING:true}
+      # 이 행 수 이하면 MyBatis 다건 UPSERT(소량). 초과 시 COPY 경로(스테이징에 한 번에 COPY FROM STDIN).
+      legacy-upsert-max-rows: ${SMW_RTA_COUNTER_LEGACY_UPSERT_MAX:8000}
+      # COPY+merge 를 이 크기마다 끊음 — 수백만 행 단일 merge 는 매우 오래 걸려 멈춘 것처럼 보일 수 있음
+      copy-staging-chunk-rows: ${SMW_RTA_COUNTER_COPY_STAGING_CHUNK_ROWS:600000}
+    # 시너지 집계(rta_agg_synergy_combo) 대량 반영: COPY + UNLOGGED 스테이징. DDL: sql/staging_synergy_agg.sql
+    synergy-agg:
+      use-copy-staging: ${SMW_RTA_SYNERGY_COPY_STAGING:true}
+      legacy-upsert-max-rows: ${SMW_RTA_SYNERGY_LEGACY_UPSERT_MAX:8000}
     # 대시보드(티어는 아직 라이브 SQL — 아래 주석). 랭크컷 앵커는 집계 스냅 우선 가능.
     dashboard:
       # rank_cutoff_anchors: snap | live | snap_then_live (스냅=rta_rank_cutoff_anchor_snap, 라이브=시즌 구간 rta_match)
@@ -249,6 +265,9 @@ smw:
       # true: MybatisInterceptor 가 ? 를 값으로 치환한 SQL(inlined) 를 INFO 로 출력 (전 매퍼·별도 로거 DEBUG 불필요)
       inline-sql: ${SMW_MYBATIS_INLINE_SQL:false}
       result-total: ${SMW_MYBATIS_RESULT_TOTAL:false}
+    interceptor:
+      # /api/v1/batch 요청 처리 중 intercept start/end·siege DEBUG 생략 (배치 수동 실행 시 노이즈 감소)
+      silent-trace-on-batch-api: ${SMW_MYBATIS_INTERCEPTOR_SILENT_BATCH_API:true}
 
 cloud:
   aws:

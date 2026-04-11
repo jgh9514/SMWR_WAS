@@ -4,8 +4,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import jakarta.annotation.PostConstruct;
-
 import org.quartz.CronScheduleBuilder;
 import org.quartz.Job;
 import org.quartz.JobBuilder;
@@ -16,23 +14,32 @@ import org.quartz.Scheduler;
 import org.quartz.SimpleScheduleBuilder;
 import org.quartz.Trigger;
 import org.quartz.TriggerBuilder;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.event.EventListener;
 
 import com.admin.batch.mapper.BatchMapper;
 
 import lombok.extern.slf4j.Slf4j;
 
+/**
+ * Quartz {@link Scheduler} 기반 배치.
+ * <ul>
+ *   <li>{@code smw.batch.quartz.enabled=true} 일 때만 DB {@code sys_batch_config} 크론 등록</li>
+ *   <li>수동 실행({@link #runOnce})은 크론 OFF여도 동작 — 운영에서 스케줄만 끄고 API로 돌릴 때 사용</li>
+ * </ul>
+ * <p>{@code @ConditionalOnBean(Scheduler)} 는 부팅 순서상 스킵될 수 있어 사용하지 않는다. 크론 등록은 {@link ApplicationReadyEvent} 이후에 수행한다.</p>
+ */
 @Slf4j
 @Configuration
-@ConditionalOnProperty(prefix = "smw.batch.quartz", name = "enabled", havingValue = "true", matchIfMissing = false)
 public class BatchConfig {
 
 	@Autowired
-	private Scheduler scheduler;
+	private ObjectProvider<Scheduler> schedulerProvider;
 
 	@Autowired 
 	private BatchMapper mapper;
@@ -40,13 +47,33 @@ public class BatchConfig {
 	@Autowired
 	private ApplicationContext applicationContext;
 	
-	@Value("${spring.profiles.active}")
+	@Value("${spring.profiles.active:}")
 	String profilesValue;
 
+	/** false 이면 크론 스케줄 미등록(수동 실행·단발 트리거는 가능) */
+	@Value("${smw.batch.quartz.enabled:false}")
+	private boolean quartzCronEnabled;
+
+	private Scheduler resolveScheduler() {
+		return schedulerProvider.getIfAvailable();
+	}
+
+	/**
+	 * Quartz {@link Scheduler} 빈이 준비된 뒤에만 크론 등록({@code @ConditionalOnBean} 으로는 빈 전체가 스킵되는 경우가 있음).
+	 */
 	@SuppressWarnings("unchecked")
-	@PostConstruct
-	public void start() {
-		log.info("===== JobController start invoked =====");
+	@EventListener(ApplicationReadyEvent.class)
+	public void registerCronJobsOnReady() {
+		log.info("===== BatchConfig registerCronJobsOnReady (quartzCronEnabled={}) =====", quartzCronEnabled);
+		if (!quartzCronEnabled) {
+			log.info("Quartz 크론 등록 생략됨. 수동 실행(/api/v1/batch/run)은 Scheduler 준비 후 사용 가능합니다.");
+			return;
+		}
+		Scheduler scheduler = resolveScheduler();
+		if (scheduler == null) {
+			log.error("Quartz Scheduler 빈이 없어 크론을 등록할 수 없습니다. spring-boot-starter-quartz 및 자동설정을 확인하세요.");
+			return;
+		}
 	    try {
 			List<Map<String, String>> scheduleList = loadScheduleList(null);
         	for(Map<String, String> scheduleMap : scheduleList) {
@@ -78,15 +105,25 @@ public class BatchConfig {
 	    }
 	}
 
+	/** 배치 재시작 API: 스케줄러 비우고 크론 재등록 */
 	public void clear() {
 		log.info("===== JobController Destroy =====");
 	    try {
-	    	// 초기??
+			Scheduler scheduler = resolveScheduler();
+			if (scheduler == null) {
+				log.warn("Quartz Scheduler 빈이 없어 clear 를 건너뜁니다.");
+				return;
+			}
 			scheduler.clear();
 	    }
 		catch (Exception e) {
 	        log.error(e.getMessage());
 	    }
+	}
+
+	/** {@link #clear()} 후 크론 재등록 */
+	public void start() {
+		registerCronJobsOnReady();
 	}
 	
 	public Trigger buildCronJobTrigger(String scheduleExp) {
@@ -146,8 +183,9 @@ public class BatchConfig {
 				return false;
 			}
 			
+			Scheduler scheduler = resolveScheduler();
 			if (scheduler == null) {
-				log.error("Scheduler가 null입니다.");
+				log.error("Quartz Scheduler 빈이 없습니다. spring-boot-starter-quartz 의존성과 자동설정을 확인하세요.");
 				return false;
 			}
 			

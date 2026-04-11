@@ -11,6 +11,11 @@ public interface UserMapper {
 	public Map<String, Object> selectUserInfo(Map<String, Object> param);
 
 	/**
+	 * SYS_USER_ROLE + SYS_ROLE 조인 — 세션/클라이언트 roles 목록용 (role_id, role_nm, usg_yn).
+	 */
+	public List<Map<String, Object>> selectUserRoles(Map<String, Object> param);
+
+	/**
 	 * 이메일 중복 체크 (del_yn='N' 기준)
 	 */
 	public int countUserByEmail(Map<String, Object> param);

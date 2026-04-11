@@ -1237,8 +1237,21 @@
 		WHERE NOT EXISTS (SELECT 1 FROM public.rta_match r WHERE r.replay_id = ul.replay_id)
 	</delete>
 
+	<!-- rta_match 적재 시 시즌 매핑용 — 서비스에서 played_at 기준으로 season_id 계산 (행마다 서브쿼리 제거) -->
+	<select id="selectRtaSeasonsForRtaMatchMapping" resultType="sqlMap">
+		SELECT
+			season_id,
+			season_code,
+			season_no,
+			sort_order,
+			start_at,
+			end_at
+		FROM public.rta_season
+		ORDER BY sort_order ASC, season_no DESC, season_code ASC
+	</select>
+
 	<insert id="insertArenaInfoBulk">
-		/* insertArenaInfoBulk — rta_match (시즌은 played_at 으로 rta_season 매핑, 실패 시 _FALLBACK) */
+		/* insertArenaInfoBulk — rta_match (season_id 는 Java 에서 rta_season 기준 산출 후 바인딩) */
 		INSERT INTO public.rta_match (
 			replay_id,
 			season_id,
@@ -1250,13 +1263,7 @@
 		<foreach collection="rows" item="m" separator=",">
 		(
 			#{m.rid}
-			, COALESCE(
-				(SELECT s.season_id FROM public.rta_season s
-				 WHERE s.start_at &lt;= (#{m.date_add})::timestamptz AND s.end_at &gt; (#{m.date_add})::timestamptz
-				 ORDER BY s.sort_order ASC, s.season_no DESC
-				 LIMIT 1),
-				(SELECT s2.season_id FROM public.rta_season s2 WHERE s2.season_code = '_FALLBACK' LIMIT 1)
-			)
+			, #{m.season_id}
 			, (#{m.date_add})::timestamptz
 			, #{m.wizard_id}
 			, #{m.battle_ver}

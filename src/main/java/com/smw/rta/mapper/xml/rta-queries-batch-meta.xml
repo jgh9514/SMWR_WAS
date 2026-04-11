@@ -29,25 +29,89 @@
         ORDER BY wizard_id, unit_master_id
     </select>
 
+    <select id="selectSynergyWizardRatings" resultType="map">
+        SELECT
+            TRIM(BOTH FROM mp.wizard_id::text) AS wizard_id,
+            CAST(mp.rating_id AS INTEGER) AS rating_id
+        FROM public.rta_match_participant mp
+        WHERE mp.replay_id = #{rid}
+    </select>
+
+    <!-- rid 전체를 bigint[] 한 개로 바인딩 — prefetch 시 청크 반복 없이 3회 round-trip -->
+    <select id="selectSynergyWizardRatingsByRids" resultType="map">
+        SELECT
+            mp.replay_id AS rid,
+            TRIM(BOTH FROM mp.wizard_id::text) AS wizard_id,
+            CAST(mp.rating_id AS INTEGER) AS rating_id
+        FROM public.rta_match_participant mp
+        WHERE mp.replay_id = ANY(#{rids})
+        ORDER BY mp.replay_id, mp.wizard_id
+    </select>
+
+    <select id="selectSynergyReplayRowsByRids" resultType="map">
+        SELECT
+            m.replay_id AS rid,
+            TRIM(BOTH FROM m.winner_wizard_id::text) AS winner_wizard_id,
+            m.played_at AS date_add,
+            m.season_id
+        FROM public.rta_match m
+        WHERE m.replay_id = ANY(#{rids})
+        ORDER BY m.replay_id ASC
+    </select>
+
+    <select id="selectSynergyFieldUnitsByRids" resultType="map">
+        SELECT DISTINCT
+            u.replay_id AS rid,
+            TRIM(BOTH FROM u.wizard_id::text) AS wizard_id,
+            u.unit_master_id AS unit_master_id
+        FROM public.rta_match_unit_pick u
+        WHERE u.replay_id = ANY(#{rids})
+          AND COALESCE(u.is_banned, false) = false
+        ORDER BY u.replay_id, wizard_id, unit_master_id
+    </select>
+
     <insert id="upsertRtaSynergyAgg">
         INSERT INTO public.rta_agg_synergy_combo (season_id, rating_id, combo_unit_key, combo_size, match_cnt, win_cnt)
         VALUES
         <foreach collection="rows" item="r" separator=",">
-            (#{r.seasonId}, 0, #{r.comboKey}, #{r.comboSize}, 1, #{r.winDelta})
+            (#{r.seasonId}, #{r.ratingId}, #{r.comboKey}, #{r.comboSize}, #{r.matchDelta}, #{r.winDelta})
         </foreach>
         ON CONFLICT (season_id, rating_id, combo_unit_key) DO UPDATE SET
             match_cnt = public.rta_agg_synergy_combo.match_cnt + EXCLUDED.match_cnt,
             win_cnt = public.rta_agg_synergy_combo.win_cnt + EXCLUDED.win_cnt
     </insert>
 
-    <!-- subject_unit_id: 필드에 나온 유닛, opponent_*: 같은 경기 상대 팀의 듀오/트리오(정렬된 유닛 ID 키) -->
+    <update id="truncateStagingSynergyAgg">
+        TRUNCATE public.staging_synergy_agg
+    </update>
+
+    <insert id="mergeStagingIntoRtaAggSynergyCombo">
+        INSERT INTO public.rta_agg_synergy_combo (
+            season_id, rating_id, combo_unit_key, combo_size, match_cnt, win_cnt
+        )
+        SELECT
+            s.season_id,
+            s.rating_id,
+            s.combo_unit_key,
+            MAX(s.combo_size)::smallint AS combo_size,
+            SUM(s.match_cnt)::bigint AS match_cnt,
+            SUM(s.win_cnt)::bigint AS win_cnt
+        FROM public.staging_synergy_agg s
+        GROUP BY s.season_id, s.rating_id, s.combo_unit_key
+        ON CONFLICT (season_id, rating_id, combo_unit_key) DO UPDATE SET
+            match_cnt = public.rta_agg_synergy_combo.match_cnt + EXCLUDED.match_cnt,
+            win_cnt = public.rta_agg_synergy_combo.win_cnt + EXCLUDED.win_cnt
+    </insert>
+
+    <!-- subject_unit_id: 필드에 나온 유닛, opponent_*: 같은 경기 상대 팀의 솔로/듀오/트리오(정렬된 유닛 ID 키, 콤마 구분). 시즌×rating_id×주제×상대콤보 단위 집계 -->
+    <!-- ON CONFLICT: UNIQUE(season_id, rating_id, subject_unit_id, opponent_combo_key) — sql/rta_agg_counter_matchup_add_rating_id.sql -->
     <insert id="upsertRtaCounterMatchupAgg">
         INSERT INTO public.rta_agg_counter_matchup (
             season_id, rating_id, subject_unit_id, opponent_combo_key, opponent_combo_size, win_cnt, lose_cnt
         )
         VALUES
         <foreach collection="rows" item="r" separator=",">
-            (#{r.seasonId}, 0, #{r.subjectUnitId}, #{r.opponentComboKey}, #{r.opponentComboSize}::smallint,
+            (#{r.seasonId}, #{r.ratingId}, #{r.subjectUnitId}, #{r.opponentComboKey}, #{r.opponentComboSize}::smallint,
              #{r.winDelta}::bigint, #{r.loseDelta}::bigint)
         </foreach>
         ON CONFLICT (season_id, rating_id, subject_unit_id, opponent_combo_key) DO UPDATE SET
@@ -56,24 +120,49 @@
             opponent_combo_size = EXCLUDED.opponent_combo_size
     </insert>
 
+    <update id="truncateStagingMatchupAgg">
+        TRUNCATE public.staging_matchup_agg
+    </update>
+
+    <!-- 스테이징 동일 키 다건 → 합산 후 본 테이블에 누적 -->
+    <insert id="mergeStagingIntoRtaAggCounterMatchup">
+        INSERT INTO public.rta_agg_counter_matchup (
+            season_id, rating_id, subject_unit_id, opponent_combo_key, opponent_combo_size, win_cnt, lose_cnt
+        )
+        SELECT
+            s.season_id,
+            s.rating_id,
+            s.subject_unit_id,
+            s.opponent_combo_key,
+            MAX(s.opponent_combo_size)::smallint AS opponent_combo_size,
+            SUM(s.win_cnt)::bigint AS win_cnt,
+            SUM(s.lose_cnt)::bigint AS lose_cnt
+        FROM public.staging_matchup_agg s
+        GROUP BY s.season_id, s.rating_id, s.subject_unit_id, s.opponent_combo_key
+        ON CONFLICT (season_id, rating_id, subject_unit_id, opponent_combo_key) DO UPDATE SET
+            win_cnt = public.rta_agg_counter_matchup.win_cnt + EXCLUDED.win_cnt,
+            lose_cnt = public.rta_agg_counter_matchup.lose_cnt + EXCLUDED.lose_cnt,
+            opponent_combo_size = EXCLUDED.opponent_combo_size
+    </insert>
+
     <update id="markSynergyAggDone">
         UPDATE public.rta_match
-        SET synergy_applied_at = CURRENT_TIMESTAMP
+        SET synergy_applied_at = CURRENT_TIMESTAMP,
+            synergy_apply_result = 'S'
         WHERE replay_id = #{rid}
     </update>
 
     <update id="markSynergyAggDoneForRids">
         UPDATE public.rta_match
-        SET synergy_applied_at = CURRENT_TIMESTAMP
-        WHERE replay_id IN
-        <foreach collection="rids" item="rid" open="(" separator="," close=")">
-            #{rid}
-        </foreach>
+        SET synergy_applied_at = CURRENT_TIMESTAMP,
+            synergy_apply_result = 'S'
+        WHERE replay_id = ANY(#{rids})
     </update>
 
     <update id="markSynergyAggFailed">
         UPDATE public.rta_match
-        SET synergy_applied_at = CURRENT_TIMESTAMP
+        SET synergy_applied_at = CURRENT_TIMESTAMP,
+            synergy_apply_result = 'F'
         WHERE replay_id = #{rid}
     </update>
 
@@ -311,6 +400,7 @@
 
     <select id="listRtaSeasons" resultType="map">
         SELECT
+            season_id AS "seasonId",
             season_code AS "seasonCode",
             season_no AS "seasonNo",
             league_type AS "leagueType",
@@ -318,7 +408,10 @@
             start_at AS "startAt",
             end_at AS "endAt",
             is_active AS "isActive",
-            sort_order AS "sortOrder"
+            sort_order AS "sortOrder",
+            to_char((start_at AT TIME ZONE 'Asia/Seoul')::date, 'YYYY-MM-DD') AS "startYmdKst",
+            to_char(((end_at AT TIME ZONE 'Asia/Seoul')::date - 1), 'YYYY-MM-DD') AS "lastInclusiveYmdKst",
+            to_char((end_at AT TIME ZONE 'Asia/Seoul')::date, 'YYYY-MM-DD') AS "endExclusiveYmdKst"
         FROM rta_season
         ORDER BY sort_order ASC, season_no DESC, season_code ASC
     </select>
@@ -490,28 +583,35 @@
         ORDER BY s.season_id, rg.rating_id
     </insert>
 
-    <!-- 몬스터 상세: 카운터 매치업 (rta_agg_counter_matchup, rating_id=0 전체 구간) -->
+    <!-- 몬스터 상세: 카운터 매치업 — 티어별 행을 상대 콤보 키 기준으로 합산 -->
     <select id="getRtaMonsterCounterMatchups" resultType="map">
         SELECT
-            c.opponent_combo_key AS "opponentComboKey",
-            c.opponent_combo_size AS "opponentComboSize",
-            c.win_cnt AS "winCnt",
-            c.lose_cnt AS "loseCnt",
+            x.opponent_combo_key AS "opponentComboKey",
+            x.opponent_combo_size AS "opponentComboSize",
+            x.win_cnt AS "winCnt",
+            x.lose_cnt AS "loseCnt",
             CASE
-                WHEN (c.win_cnt + c.lose_cnt) &gt; 0 THEN
-                    ROUND(100.0 * c.win_cnt::numeric / (c.win_cnt + c.lose_cnt)::numeric, 2)
+                WHEN (x.win_cnt + x.lose_cnt) &gt; 0 THEN
+                    ROUND(100.0 * x.win_cnt::numeric / (x.win_cnt + x.lose_cnt)::numeric, 2)
                 ELSE NULL
             END AS "winRate",
             (
                 SELECT string_agg(m.kr_name, ' + ' ORDER BY z.ord)
-                FROM unnest(string_to_array(c.opponent_combo_key, ',')) WITH ORDINALITY AS z(id, ord)
+                FROM unnest(string_to_array(x.opponent_combo_key, ',')) WITH ORDINALITY AS z(id, ord)
                 LEFT JOIN public.monster m ON m.monster_id = NULLIF(TRIM(BOTH FROM z.id), '')
             ) AS "opponentLabel"
-        FROM public.rta_agg_counter_matchup c
-        WHERE c.season_id = (SELECT season_id FROM public.rta_season WHERE season_code = #{seasonCode} LIMIT 1)
-          AND c.subject_unit_id = #{monsterId}
-          AND c.rating_id = 0
-        ORDER BY (c.win_cnt + c.lose_cnt) DESC NULLS LAST
+        FROM (
+            SELECT
+                c.opponent_combo_key,
+                MAX(c.opponent_combo_size)::smallint AS opponent_combo_size,
+                SUM(c.win_cnt)::bigint AS win_cnt,
+                SUM(c.lose_cnt)::bigint AS lose_cnt
+            FROM public.rta_agg_counter_matchup c
+            WHERE c.season_id = (SELECT season_id FROM public.rta_season WHERE season_code = #{seasonCode} LIMIT 1)
+              AND c.subject_unit_id = #{monsterId}
+            GROUP BY c.opponent_combo_key
+        ) x
+        ORDER BY (x.win_cnt + x.lose_cnt) DESC NULLS LAST
         LIMIT 40
     </select>
 </mapper>

@@ -203,33 +203,67 @@ public class RtaServiceImpl implements RtaService {
 
     @Override
     @Cacheable(cacheNames = "rtaMonster", cacheManager = "shortLivedCacheManager",
-            key = "'ms_' + #seasonCode + '_' + #limit + '_' + #offset")
-    public Map<String, Object> getRtaMonsterStats(int limit, int offset, String seasonCode) {
+            key = "'ms_' + #seasonCode + '_' + #pageSize + '_' + #statsOffset + '_' + #duoOffset + '_' + #trioOffset + '_' + (#tierKey != null ? #tierKey : 'all')")
+    public Map<String, Object> getRtaMonsterStats(int pageSize, int statsOffset, int duoOffset, int trioOffset,
+            String seasonCode, String tierKey) {
         ResolvedSeason se = resolveSeason(seasonCode);
         String aggKey = se.code != null ? se.code.trim() : "";
+        String tk = tierKey != null ? tierKey.trim() : "";
+        String tierParam = tk.isEmpty() ? null : tk;
 
         long totalMatches = 0L;
         List<Map<String, Object>> stats = Collections.emptyList();
         List<Map<String, Object>> duoStats = Collections.emptyList();
         List<Map<String, Object>> trioStats = Collections.emptyList();
+        long statsTotal = 0L;
+        long duoTotal = 0L;
+        long trioTotal = 0L;
 
         if (!aggKey.isEmpty()) {
             Long tm = rtaMapper.getRtaMonsterStatsTotalFromAgg(aggKey);
             totalMatches = tm != null ? tm.longValue() : 0L;
-            stats = rtaMapper.getRtaMonsterStatsFromAgg(limit, offset, aggKey);
-            duoStats = rtaMapper.getRtaDuoComboStatsFromAgg(50);
-            trioStats = rtaMapper.getRtaTrioComboStatsFromAgg(50);
+
+            Long cntAgg = rtaMapper.countRtaMonsterStatsFromAgg(aggKey, tierParam);
+            stats = rtaMapper.getRtaMonsterStatsFromAgg(pageSize, statsOffset, aggKey, tierParam);
+            boolean usedLive = false;
+            if ((stats == null || stats.isEmpty()) && se.start != null && se.end != null && tierParam == null) {
+                stats = rtaMapper.getRtaMonsterStatsLive(pageSize, statsOffset, aggKey, se.start, se.end);
+                usedLive = true;
+            }
+            if (usedLive) {
+                Long cLive = rtaMapper.countRtaMonsterStatsLive(aggKey, se.start, se.end);
+                statsTotal = cLive != null ? cLive.longValue() : 0L;
+            } else {
+                statsTotal = cntAgg != null ? cntAgg.longValue() : 0L;
+            }
+
+            Long dCnt = rtaMapper.countRtaDuoComboStatsFromAgg(aggKey, tierParam);
+            duoTotal = dCnt != null ? dCnt.longValue() : 0L;
+            duoStats = rtaMapper.getRtaDuoComboStatsFromAgg(pageSize, duoOffset, aggKey, tierParam);
+
+            Long tCnt = rtaMapper.countRtaTrioComboStatsFromAgg(aggKey, tierParam);
+            trioTotal = tCnt != null ? tCnt.longValue() : 0L;
+            trioStats = rtaMapper.getRtaTrioComboStatsFromAgg(pageSize, trioOffset, aggKey, tierParam);
         }
 
-        boolean hasMore = stats.size() == limit;
+        int statN = stats != null ? stats.size() : 0;
+        boolean hasMore = statN > 0 && (long) statsOffset + statN < statsTotal;
 
         Map<String, Object> response = new HashMap<>();
         response.put("stats", stats != null ? stats : Collections.emptyList());
         response.put("duo_stats", duoStats != null ? duoStats : Collections.emptyList());
         response.put("trio_stats", trioStats != null ? trioStats : Collections.emptyList());
         response.put("total_matches", totalMatches);
+        response.put("stats_total", statsTotal);
+        response.put("duo_total", duoTotal);
+        response.put("trio_total", trioTotal);
+        response.put("limit", pageSize);
+        response.put("stats_offset", statsOffset);
+        response.put("duo_offset", duoOffset);
+        response.put("trio_offset", trioOffset);
         response.put("has_more", hasMore);
         response.put("seasonCode", se.code);
+        response.put("tierKey", tierParam);
 
         return response;
     }

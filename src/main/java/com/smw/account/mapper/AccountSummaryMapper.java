@@ -43,6 +43,9 @@ public interface AccountSummaryMapper {
 	 * 시즌·RTA와 무관.
 	 */
 	int insertUserMonsterOwnedAggFromSwex();
+
+	/** {@link #insertUserMonsterOwnedAggFromSwex()} 직후 행 수 확인용 (INSERT 반환값은 PG JDBC에서 2^31 초과 시 int 오버플로로 음수가 될 수 있음) */
+	long countUserMonsterOwnedAgg();
 }
 
 

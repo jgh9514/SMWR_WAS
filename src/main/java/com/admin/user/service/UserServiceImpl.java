@@ -11,6 +11,7 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
 
 import com.admin.user.mapper.UserMapper;
+import com.sysconf.security.AdminPrivilegeResolver;
 import com.sysconf.util.DateUtil;
 
 @Service
@@ -22,6 +23,9 @@ public class UserServiceImpl implements UserService {
 	
 	@Autowired 
 	UserMapper mapper;
+
+	@Autowired
+	private AdminPrivilegeResolver adminPrivilegeResolver;
 	
     @Override
     public Map<String, Object> selectUserInfo(Map<String, Object> param) {
@@ -30,12 +34,40 @@ public class UserServiceImpl implements UserService {
     	if (userInfo == null) {
     		return null;
     	}
-    	
-		// 역할 테이블 제거: 세션/인터셉터 호환을 위해 빈 목록 유지
-		userInfo.put("roles", Collections.emptyList());
-
+    	enrichUserRolesAndAdminFlag(userInfo);
         return userInfo;
     }
+
+	@Override
+	public void enrichUserRolesAndAdminFlag(Map<String, Object> userInfo) {
+		if (userInfo == null) {
+			return;
+		}
+		Object uidObj = userInfo.get("user_id");
+		if (uidObj == null) {
+			uidObj = userInfo.get("sess_user_id");
+		}
+		if (uidObj == null) {
+			userInfo.put("roles", Collections.emptyList());
+			userInfo.put("is_admin", Boolean.FALSE);
+			return;
+		}
+		Map<String, Object> param = new HashMap<>();
+		param.put("user_id", uidObj.toString());
+		List<Map<String, Object>> rows = mapper.selectUserRoles(param);
+		List<Map<String, Object>> roles = new ArrayList<>();
+		if (rows != null) {
+			for (Map<String, Object> row : rows) {
+				Map<String, Object> one = new HashMap<>();
+				one.put("role_id", row.get("role_id"));
+				one.put("role_nm", row.get("role_nm"));
+				one.put("usg_yn", row.get("usg_yn"));
+				roles.add(one);
+			}
+		}
+		userInfo.put("roles", roles);
+		userInfo.put("is_admin", Boolean.valueOf(adminPrivilegeResolver.isAdminUser(userInfo)));
+	}
 
 	@Override
 	public int countUserByEmail(Map<String, Object> param) {

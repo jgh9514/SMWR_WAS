@@ -69,31 +69,44 @@ public interface RtaMapper {
     
     List<Map<String, Object>> debugMatchDetail(@Param("rid") String rid);
     
-    /** RTA 몬스터 통계 집계 전체 삭제 후 재적재 */
-    int deleteAllRtaMonsterStatsAgg();
-
-    /** 대시보드 일자×티어 집계 테이블 전체 비우기 (배치 재적재 전) */
-    int deleteAllRtaTierAggDaily();
-
-    /** 시즌별 일자×티어 집계 적재 (participant 스캔은 배치에서만) */
-    int insertRtaTierAggDailyForSeason(@Param("seasonCode") String seasonCode,
-            @Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd);
-
-    int insertRtaMonsterStatsAggForSeason(@Param("seasonCode") String seasonCode,
+    /** 시즌별 일자×티어 집계 적재 — 해당 시즌 행만 삭제 후 INSERT (배치 전용). {@code season_id} 기준. */
+    int insertRtaTierAggDailyForSeason(@Param("seasonId") long seasonId,
             @Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd);
 
     /** 시즌 총 매치 수 (집계 메타) */
     Long getRtaMonsterStatsTotalFromAgg(@Param("seasonCode") String seasonCode);
 
-    /** RTA 몬스터별 통계 — 집계 테이블만 */
+    /**
+     * RTA 몬스터별 통계 — {@code rta_agg_synergy_combo} (combo_size=1). 선픽/벤은 시너지 집계에 없음 → 0.
+     *
+     * @param tierKey null/빈값=전체 티어 합산, CH_ALL, F_ALL, 또는 rta_rating_grade.tier_key (Ch1, F3, G3…)
+     */
     List<Map<String, Object>> getRtaMonsterStatsFromAgg(@Param("limit") int limit, @Param("offset") int offset,
-            @Param("seasonCode") String seasonCode);
+            @Param("seasonCode") String seasonCode, @Param("tierKey") String tierKey);
+
+    /**
+     * 몬스터별 통계 — 집계 테이블이 비었을 때 시즌 구간에서 픽 원본으로 라이브 집계.
+     */
+    List<Map<String, Object>> getRtaMonsterStatsLive(@Param("limit") int limit, @Param("offset") int offset,
+            @Param("seasonCode") String seasonCode, @Param("seasonStart") Timestamp seasonStart,
+            @Param("seasonEnd") Timestamp seasonEnd);
+
+    Long countRtaMonsterStatsFromAgg(@Param("seasonCode") String seasonCode, @Param("tierKey") String tierKey);
+
+    Long countRtaMonsterStatsLive(@Param("seasonCode") String seasonCode, @Param("seasonStart") Timestamp seasonStart,
+            @Param("seasonEnd") Timestamp seasonEnd);
 
     /** 2마리 조합 — {@code rta_agg_synergy_combo} (combo_size=2) */
-    List<Map<String, Object>> getRtaDuoComboStatsFromAgg(@Param("limit") int limit);
+    List<Map<String, Object>> getRtaDuoComboStatsFromAgg(@Param("limit") int limit, @Param("offset") int offset,
+            @Param("seasonCode") String seasonCode, @Param("tierKey") String tierKey);
+
+    Long countRtaDuoComboStatsFromAgg(@Param("seasonCode") String seasonCode, @Param("tierKey") String tierKey);
 
     /** 3마리 조합 — {@code rta_agg_synergy_combo} (combo_size=3) */
-    List<Map<String, Object>> getRtaTrioComboStatsFromAgg(@Param("limit") int limit);
+    List<Map<String, Object>> getRtaTrioComboStatsFromAgg(@Param("limit") int limit, @Param("offset") int offset,
+            @Param("seasonCode") String seasonCode, @Param("tierKey") String tierKey);
+
+    Long countRtaTrioComboStatsFromAgg(@Param("seasonCode") String seasonCode, @Param("tierKey") String tierKey);
     
     /**
      * RTA 몬스터 기본 정보 조회
@@ -128,13 +141,10 @@ public interface RtaMapper {
     /**
      * 일자×티어별 출현 수 (대시보드). {@code rta_agg_tier_daily} 배치 적재본.
      */
-    List<Map<String, Object>> getRtaTierDistributionDaily(
-            @Param("seasonCode") String seasonCode,
-            @Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd);
+    List<Map<String, Object>> getRtaTierDistributionDaily(@Param("seasonCode") String seasonCode);
 
     /** 리플레이 기간 min/max — {@code rta_match.played_at} (대시보드) */
-    Map<String, Object> getRtaReplayDateRangeFromAgg(
-            @Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd);
+    Map<String, Object> getRtaReplayDateRangeFromAgg(@Param("seasonCode") String seasonCode);
 
     /** 랭크 컷 앵커 — 현재 시각 기준 되돌림 구간 [now-iv, now] 라이브 집계 (대시보드). 시즌 경계는 티어 분포와 동일하게 전달 */
     List<Map<String, Object>> getRtaRankCutoffAnchorsFromLive(
@@ -180,24 +190,47 @@ public interface RtaMapper {
             @Param("seasonCode") String seasonCode,
             @Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd);
 
-    /** 시너지 미집계 rid ({@code rta_match.synergy_applied_at IS NULL}, rid 오름차순) */
+    /** 시너지 미집계 rid ({@code rta_match.synergy_applied_at IS NULL}, rid 오름차순). 성공/실패는 {@code synergy_apply_result}. */
     List<Long> selectPendingSynergyAggRids(@Param("batchSize") int batchSize);
 
     Map<String, Object> selectSynergyReplayRow(@Param("rid") long rid);
 
     List<Map<String, Object>> selectSynergyFieldUnits(@Param("rid") long rid);
 
+    /** 시너지 집계: rta_match 다건 (rid·시즌·승자). {@code bigint[]} 한 번 바인딩. */
+    List<Map<String, Object>> selectSynergyReplayRowsByRids(@Param("rids") long[] rids);
+
+    /** 시너지 집계: 필드 유닛 다건 — 행마다 rid 포함 */
+    List<Map<String, Object>> selectSynergyFieldUnitsByRids(@Param("rids") long[] rids);
+
+    /** 시너지 집계: rid 당 wizard별 래더 rating_id */
+    List<Map<String, Object>> selectSynergyWizardRatings(@Param("rid") long rid);
+
+    /** 시너지 집계: participant 등급 다건 — 행마다 rid 포함 */
+    List<Map<String, Object>> selectSynergyWizardRatingsByRids(@Param("rids") long[] rids);
+
     int upsertRtaSynergyAgg(@Param("rows") List<RtaSynergyAggUpsertRow> rows);
+
+    void truncateStagingSynergyAgg();
+
+    int mergeStagingIntoRtaAggSynergyCombo();
 
     /** 몬스터 상세 카운터: 필드 유닛(subject) vs 상대 듀오·트리오(opponent_combo_key) 승·패 */
     int upsertRtaCounterMatchupAgg(@Param("rows") List<RtaCounterMatchupUpsertRow> rows);
 
-    /** pending 인 rid 만 done */
+    /** COPY 적재 전·후 스테이징 비우기 */
+    void truncateStagingMatchupAgg();
+
+    /** staging_matchup_agg 집계 → rta_agg_counter_matchup 누적 UPSERT (한 방) */
+    int mergeStagingIntoRtaAggCounterMatchup();
+
+    /** 집계 성공: {@code synergy_apply_result='S'} */
     int markSynergyAggDone(@Param("rid") long rid);
 
-    /** 청크 단위 시너지 집계 완료 (synergy_applied_at = now) */
-    int markSynergyAggDoneForRids(@Param("rids") List<Long> rids);
+    /** 청크 단위 시너지 집계 완료 ({@code synergy_applied_at}, {@code synergy_apply_result='S'}). {@code replay_id = ANY(#{rids}::bigint[])} 단일 바인딩 */
+    int markSynergyAggDoneForRids(@Param("rids") long[] rids);
 
+    /** 집계 스킵(실패): {@code synergy_apply_result='F'} — 재시도 대열에서 제외 */
     int markSynergyAggFailed(@Param("rid") long rid);
 
     /** RTA 시즌 목록 (sort_order, season_no 순) */
@@ -215,7 +248,7 @@ public interface RtaMapper {
     /** 시즌별 최신 스냅샷 컷 (rta_snapshot_rank_cut) */
     List<Map<String, Object>> getRtaSnapshotRankCutLatest(@Param("seasonCode") String seasonCode);
 
-    /** 몬스터 상세: 카운터 매치업 (rta_agg_counter_matchup, rating_id=0) */
+    /** 몬스터 상세: 카운터 매치업 (rta_agg_counter_matchup) */
     List<Map<String, Object>> getRtaMonsterCounterMatchups(@Param("monsterId") long monsterId,
             @Param("seasonCode") String seasonCode);
 }

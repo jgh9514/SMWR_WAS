@@ -19,6 +19,8 @@ import org.apache.ibatis.session.RowBounds;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 import com.sysconf.cache.CurrentSeasonCache;
 
@@ -59,6 +61,10 @@ public class MybatisInterceptor implements Interceptor {
 	@Value("${smw.mybatis.log.result-total:false}")
 	private boolean resultTotalLogEnabled;
 
+	/** true: 관리 배치 API(/api/v1/batch) 처리 중에는 intercept start/end·siege 관련 DEBUG 생략 */
+	@Value("${smw.mybatis.interceptor.silent-trace-on-batch-api:true}")
+	private boolean silentTraceOnBatchApi;
+
 	@Autowired(required = false)
 	private CurrentSeasonCache currentSeasonCache;
 
@@ -68,7 +74,7 @@ public class MybatisInterceptor implements Interceptor {
         MappedStatement ms = (MappedStatement) invocation.getArgs()[0];
         Object parameter = invocation.getArgs()[1];
 
-        if (log.isDebugEnabled()) {
+        if (emitInterceptorTraceDebug()) {
             log.debug("MybatisInterceptor.intercept() start. mapperId={}", ms.getId());
         }
         
@@ -76,8 +82,9 @@ public class MybatisInterceptor implements Interceptor {
         final boolean skipSiegeInjection = mapperId.contains("RtaMapper");
         final boolean isLogMapper = mapperId.contains("LogMapper");
 
-        // selectUserInfo: 세션·siege 주입 없이 실행 (SessionThread 비어 있을 수 있음). 인라인 SQL은 동일 적용.
-        if (mapperId.contains("selectUserInfo")) {
+        // selectUserInfo / selectUserRoles / selectDvcId: 로그인·역할·생체 조회 — 세션·siege 주입 없이 실행.
+        if (mapperId.contains("selectUserInfo") || mapperId.contains("selectUserRoles") || mapperId.contains("selectDvcId")
+                || mapperId.contains("selectRtaSeasonsForRtaMatchMapping")) {
             logInlinedSql(ms, parameter);
             return invocation.proceed();
         }
@@ -92,7 +99,7 @@ public class MybatisInterceptor implements Interceptor {
         }
 
         Map<String, Object> userInfo = SessionThread.SESSION_USER_INFO.get();
-        if (log.isDebugEnabled()) {
+        if (emitInterceptorTraceDebug()) {
             log.debug("MybatisInterceptor - mapperId={}, userInfoPresent={}", ms.getId(), userInfo != null);
             if (userInfo != null) {
                 log.debug("MybatisInterceptor - userInfo.siege_view_scope={}", userInfo.get("siege_view_scope"));
@@ -104,7 +111,7 @@ public class MybatisInterceptor implements Interceptor {
             
             // MyBatis의 MapperMethod.ParamMap은 존재하지 않는 키를 get() 하면 BindingException을 던질 수 있음
             Object preSiegeViewScope = parameters.containsKey("siege_view_scope") ? parameters.get("siege_view_scope") : null;
-            if (log.isDebugEnabled()) {
+            if (emitInterceptorTraceDebug()) {
                 log.debug("MybatisInterceptor - siege_view_scope before={}", preSiegeViewScope);
             }
             
@@ -149,7 +156,7 @@ public class MybatisInterceptor implements Interceptor {
             }
             
             Object postSiegeViewScope = parameters.containsKey("siege_view_scope") ? parameters.get("siege_view_scope") : null;
-            if (log.isDebugEnabled()) {
+            if (emitInterceptorTraceDebug()) {
                 log.debug("MybatisInterceptor - siege_view_scope after={}", postSiegeViewScope);
             }
         }
@@ -160,11 +167,35 @@ public class MybatisInterceptor implements Interceptor {
 
         Object result = invocation.proceed();
         logResultTotalIfNeeded(invocation, ms, startedAt, result);
-        if (log.isDebugEnabled()) {
+        if (emitInterceptorTraceDebug()) {
             log.debug("MybatisInterceptor.intercept() end. mapperId={}", ms.getId());
         }
         return result;
     }
+
+	/** 배치 관리 API 요청 스레드에서는 DEBUG 노이즈 억제(로거 레벨은 그대로). */
+	private boolean emitInterceptorTraceDebug() {
+		if (!log.isDebugEnabled()) {
+			return false;
+		}
+		if (silentTraceOnBatchApi && isBatchManagementApiRequest()) {
+			return false;
+		}
+		return true;
+	}
+
+	private static boolean isBatchManagementApiRequest() {
+		try {
+			var attrs = RequestContextHolder.getRequestAttributes();
+			if (!(attrs instanceof ServletRequestAttributes sra)) {
+				return false;
+			}
+			String uri = sra.getRequest().getRequestURI();
+			return uri != null && uri.contains("/api/v1/batch");
+		} catch (Exception e) {
+			return false;
+		}
+	}
 
     /**
      * smw.mybatis.log.inline-sql=true 이면 ? 를 리터럴로 치환한 SQL 을 INFO 로 출력 (별도 로거 DEBUG 불필요).
@@ -303,6 +334,9 @@ public class MybatisInterceptor implements Interceptor {
     	if (value instanceof Number || value instanceof Boolean) {
     		return String.valueOf(value);
     	}
+    	if (value instanceof long[] arr) {
+    		return formatLongArrayForSqlLog(arr);
+    	}
     	if (value instanceof java.util.Date) {
     		java.text.SimpleDateFormat fmt = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
     		return "'" + fmt.format((java.util.Date) value) + "'";
@@ -326,6 +360,28 @@ public class MybatisInterceptor implements Interceptor {
     	s = s.replace("'", "''");
     	return "'" + s + "'";
     }
+
+    /** 인라인 SQL 로그용 — 실제 바인딩은 TypeHandler 사용. 대량이면 앞부분만 + 개수 */
+    private static String formatLongArrayForSqlLog(long[] arr) {
+    	if (arr == null) {
+    		return "NULL";
+    	}
+    	int n = arr.length;
+    	int show = Math.min(n, 32);
+    	StringBuilder sb = new StringBuilder(show * 12 + 48);
+    	sb.append("ARRAY[");
+    	for (int i = 0; i < show; i++) {
+    		if (i > 0) {
+    			sb.append(',');
+    		}
+    		sb.append(arr[i]);
+    	}
+    	if (n > show) {
+    		sb.append(",… /* total=").append(n).append(" */");
+    	}
+    	sb.append("]::bigint[]");
+    	return sb.toString();
+    }
     
     @SuppressWarnings({ "rawtypes" })
     private void logResultTotalIfNeeded(Invocation invocation, MappedStatement ms, long startedAt, Object result) {
@@ -340,12 +396,12 @@ public class MybatisInterceptor implements Interceptor {
     			int total = -1;
     			if (result instanceof List) total = ((List) result).size();
     			// 조회 결과(total) 로그는 기본적으로 출력하지 않음 (필요 시 DEBUG + 설정으로만 확인)
-    			if (log.isDebugEnabled()) {
+    			if (emitInterceptorTraceDebug()) {
     				log.debug("MyBatis Total mapperId={}, total={}, elapsedMs={}", ms.getId(), total, elapsedMs);
     			}
     		} else if ("update".equals(method)) {
     			// update 요약도 DEBUG로만 출력 (노이즈 억제)
-    			if (log.isDebugEnabled()) {
+    			if (emitInterceptorTraceDebug()) {
     				log.debug("MyBatis Update mapperId={}, affected={}, elapsedMs={}", ms.getId(), result, elapsedMs);
     			}
     		}

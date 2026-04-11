@@ -79,10 +79,10 @@ public class RtaDashboardTierCacheService {
 		if (se.code == null || se.start == null || se.end == null) {
 			daily = Collections.emptyList();
 		} else {
-			daily = rtaMapper.getRtaTierDistributionDaily(se.code, se.start, se.end);
+			daily = rtaMapper.getRtaTierDistributionDaily(se.code);
 		}
 		Map<String, Object> dateRange = (se.start != null && se.end != null)
-				? rtaMapper.getRtaReplayDateRangeFromAgg(se.start, se.end)
+				? rtaMapper.getRtaReplayDateRangeFromAgg(se.code)
 				: new HashMap<>();
 		Map<String, Object> m = new HashMap<>();
 		m.put("daily_tiers", daily != null ? daily : Collections.emptyList());

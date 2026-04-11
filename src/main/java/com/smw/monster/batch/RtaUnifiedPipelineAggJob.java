@@ -24,6 +24,8 @@ import com.smw.rta.service.RtaSynergyAggService;
  * <li>사용자 보유 몬스터 집계 (SWEX → {@code user_monster_owned_agg})</li>
  * </ol>
  * 대시보드 티어 일별 분포는 {@code rta_agg_tier_daily} 배치 적재 + {@code getRtaTierDistributionDaily} + 캐시.
+ * 기본적으로 본 Job 의 5b 단계는 끄고({@code smw.rta.batch.skip-tier-agg-daily-in-unified-job}),
+ * {@link RtaTierDailyAggJob} 을 1시간 등 별도 스케줄로 돌리는 구성을 권장한다.
  * <p>
  * 스케줄: DB {@code sys_batch_config.cron_expr} (기본 5분, bat_id 10001).
  * <p>
@@ -104,13 +106,11 @@ public class RtaUnifiedPipelineAggJob extends BaseBatchJob {
 		addLog("소환사 랭킹 스냅샷 재적재(0행=no-op): %d행", rank.totalRows());
 
 		if (rtaBatchProperties.isSkipMonsterStatsInUnifiedJob()) {
-			addLog("--- 5) 몬스터 통계 집계: 설정에 의해 생략 (smw.rta.batch.skip-monster-stats-in-unified-job=true) ---");
+			addLog("--- 5) 몬스터 통계(레거시 단계): 설정에 의해 생략 ---");
 		} else {
-			addLog("--- 5) 몬스터 통계 집계 재적재 ---");
+			addLog("--- 5) 몬스터 통계(레거시 단계, no-op — API 는 rta_agg_synergy_combo) ---");
 			RtaBatchAggregationService.MonsterStatsRebuildResult mon = aggregationService.rebuildMonsterStatsAgg(rtaMapper);
-			addLog("몬스터 통계 집계 테이블 합계(meta/pick): meta=%d, pick=%d",
-					mon.metaRows(),
-					mon.pickRows());
+			addLog("몬스터 통계 단계 결과(meta/pick): meta=%d, pick=%d", mon.metaRows(), mon.pickRows());
 		}
 
 		if (rtaBatchProperties.isSkipTierAggDailyInUnifiedJob()) {
@@ -127,7 +127,8 @@ public class RtaUnifiedPipelineAggJob extends BaseBatchJob {
 			addLog("--- 6) 사용자 보유 몬스터 집계 (SWEX → user_monster_owned_agg) ---");
 			AccountSummaryMapper accountSummaryMapper = applicationContext.getBean(AccountSummaryMapper.class);
 			accountSummaryMapper.deleteAllUserMonsterOwnedAgg();
-			int ownedRows = accountSummaryMapper.insertUserMonsterOwnedAggFromSwex();
+			accountSummaryMapper.insertUserMonsterOwnedAggFromSwex();
+			long ownedRows = accountSummaryMapper.countUserMonsterOwnedAgg();
 			addLog("user_monster_owned_agg 적재: %d행", ownedRows);
 		}
 

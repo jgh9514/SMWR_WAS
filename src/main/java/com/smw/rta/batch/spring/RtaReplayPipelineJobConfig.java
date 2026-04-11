@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 import javax.sql.DataSource;
 
@@ -22,6 +23,7 @@ import org.springframework.batch.item.database.Order;
 import org.springframework.batch.item.database.support.PostgresPagingQueryProvider;
 import org.springframework.batch.item.file.FlatFileItemReader;
 import org.springframework.batch.item.file.mapping.PassThroughLineMapper;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -30,24 +32,19 @@ import org.springframework.transaction.PlatformTransactionManager;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smw.monster.service.summonerswarService;
-import com.smw.rta.mapper.RtaMapper;
-import com.smw.rta.model.RtaCounterMatchupUpsertRow;
-import com.smw.rta.model.RtaSynergyAggUpsertRow;
 import com.smw.rta.service.RtaSynergyAggService;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
  * RTA 2-Step 배치 파이프라인.
  * <ul>
  * <li>Step1: NDJSON(1경기=1행) → 기존 {@link summonerswarService#applyArenaRtaNormalizedChunk} 로 rta_match / participant / unit_pick 적재 (중복 rid 는 ON CONFLICT 무시)</li>
- * <li>Step2: {@code synergy_applied_at IS NULL} 인 rid 를 청크로 읽어 시너지·카운터 매치업 행을 배치 UPSERT 후 {@code markSynergyAggDoneForRids}</li>
+ * <li>Step2: rid 청크마다 {@link RtaSynergyAggService#applySynergyBatch} (prefetch → 키별 누적 → UPSERT → 완료 표시)</li>
  * </ul>
- * 미집계 여부는 {@code rta_match.synergy_applied_at} (사용자 설계의 is_summarized 와 동일 역할).
+ * 미집계 여부는 {@code rta_match.synergy_applied_at IS NULL}; 성공/실패는 {@code synergy_apply_result} (S/F).
  */
 @Configuration
-@RequiredArgsConstructor
 @Slf4j
 public class RtaReplayPipelineJobConfig {
 
@@ -55,27 +52,30 @@ public class RtaReplayPipelineJobConfig {
 	public static final String JOB_SYNERGY_ONLY = "rtaSynergyAggregateBatchJob";
 
 	/** NDJSON Step1: 한 청크 커밋당 라인 수 */
-	public static final int DEFAULT_CHUNK = 1000;
+	public static final int DEFAULT_CHUNK = 100000;
 
-	/** 시너지 Step2: reader 페이지·청크 크기(회당 rid 처리량) */
-	public static final int SYNERGY_DEFAULT_CHUNK = 500;
-
-	/** MyBatis foreach 안전 한도 */
-	private static final int SYNERGY_UPSERT_SLICE = 500;
-
-	private static final int COUNTER_UPSERT_SLICE = 500;
-
-	/** 시너지 집계 행 수: 필드 3마리(×2진영)=14, 4마리=28 */
-	private static boolean isValidSynergyAggRowCount(int rowCount) {
-		return rowCount == 14 || rowCount == 28;
-	}
+	/**
+	 * 시너지 Step2: Spring Batch 청크(회당 rid 수). 너무 크면 prefetch 맵·트랜잭션 시간이 커지므로 필요 시 jobParameters 로 줄일 것.
+	 * (집계 행은 서비스에서 키별 누적해 메모리 폭주를 막음.)
+	 */
+	public static final int SYNERGY_DEFAULT_CHUNK = 50_000;
 
 	private final DataSource dataSource;
 	private final ObjectMapper objectMapper;
 	private final summonerswarService summonerswarService;
 	private final RtaSynergyAggService rtaSynergyAggService;
-	private final RtaMapper rtaMapper;
+	/** RTA MyBatis·JdbcPagingItemReader 와 동일 DataSource JDBC 트랜잭션 (기본 JPA transactionManager 와 구분) */
 	private final PlatformTransactionManager transactionManager;
+
+	public RtaReplayPipelineJobConfig(DataSource dataSource, ObjectMapper objectMapper,
+			summonerswarService summonerswarService, RtaSynergyAggService rtaSynergyAggService,
+			@Qualifier("rtaJdbcTransactionManager") PlatformTransactionManager transactionManager) {
+		this.dataSource = dataSource;
+		this.objectMapper = objectMapper;
+		this.summonerswarService = summonerswarService;
+		this.rtaSynergyAggService = rtaSynergyAggService;
+		this.transactionManager = transactionManager;
+	}
 
 	@Bean
 	public Job rtaReplayPipelineJob(JobRepository jobRepository, Step rtaLoadRawNdjsonStep, Step rtaSynergyAggregateStep) {
@@ -173,7 +173,7 @@ public class RtaReplayPipelineJobConfig {
 	@Bean
 	@StepScope
 	public JdbcPagingItemReader<Long> synergyPendingReplayReader(
-			@Value("#{jobParameters['synergyPageSize'] != null ? T(Integer).parseInt(jobParameters['synergyPageSize'].toString()) : 500}") int pageSize)
+			@Value("#{jobParameters['synergyPageSize'] != null ? T(Integer).parseInt(jobParameters['synergyPageSize'].toString()) : 100000}") int pageSize)
 			throws Exception {
 		PostgresPagingQueryProvider queryProvider = new PostgresPagingQueryProvider();
 		queryProvider.setSelectClause("replay_id");
@@ -197,45 +197,18 @@ public class RtaReplayPipelineJobConfig {
 
 	@Bean
 	public ItemProcessor<Long, RtaSynergyBatchItem> rtaSynergyBatchItemProcessor() {
-		return rid -> {
-			List<RtaSynergyAggUpsertRow> rows = rtaSynergyAggService.buildSynergyRowsForRid(rid);
-			if (!isValidSynergyAggRowCount(rows.size())) {
-				throw new IllegalStateException(
-						"조합 행 수 불일치 rid=" + rid + " n=" + rows.size() + " (필드 3마리→14, 4마리→28)");
-			}
-			List<RtaCounterMatchupUpsertRow> counterRows = rtaSynergyAggService.buildCounterMatchupRowsForRid(rid);
-			return new RtaSynergyBatchItem(rid, rows, counterRows);
-		};
+		return rid -> new RtaSynergyBatchItem(rid);
 	}
 
 	@Bean
 	public ItemWriter<RtaSynergyBatchItem> rtaSynergyBatchItemWriter() {
 		return chunk -> {
-			List<RtaSynergyAggUpsertRow> all = new ArrayList<>();
-			List<RtaCounterMatchupUpsertRow> allCounter = new ArrayList<>();
-			List<Long> rids = new ArrayList<>();
-			for (RtaSynergyBatchItem item : chunk.getItems()) {
-				all.addAll(item.rows());
-				rids.add(item.replayId());
-				if (item.counterRows() != null) {
-					allCounter.addAll(item.counterRows());
-				}
-			}
+			List<RtaSynergyBatchItem> items = new ArrayList<>(chunk.getItems());
+			List<Long> rids = items.stream().map(RtaSynergyBatchItem::replayId).collect(Collectors.toList());
 			if (rids.isEmpty()) {
 				return;
 			}
-			for (int i = 0; i < all.size(); i += SYNERGY_UPSERT_SLICE) {
-				int end = Math.min(i + SYNERGY_UPSERT_SLICE, all.size());
-				rtaMapper.upsertRtaSynergyAgg(all.subList(i, end));
-			}
-			for (int i = 0; i < allCounter.size(); i += COUNTER_UPSERT_SLICE) {
-				int end = Math.min(i + COUNTER_UPSERT_SLICE, allCounter.size());
-				rtaMapper.upsertRtaCounterMatchupAgg(allCounter.subList(i, end));
-			}
-			int n = rtaMapper.markSynergyAggDoneForRids(rids);
-			if (n != rids.size()) {
-				log.warn("[rta-batch] Step2 mark done expected={} actual={}", rids.size(), n);
-			}
+			rtaSynergyAggService.applySynergyBatch(rids);
 		};
 	}
 }

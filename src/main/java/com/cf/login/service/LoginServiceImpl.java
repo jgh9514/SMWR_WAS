@@ -228,6 +228,8 @@ public class LoginServiceImpl implements LoginService {
                 userInfo.put("guild_name", userGuild.get("guild_name"));
                 userInfo.put("guild_role", userGuild.get("role"));
             }
+
+            userService.enrichUserRolesAndAdminFlag(userInfo);
             
             processUserLogin(request, response, userInfo);
             

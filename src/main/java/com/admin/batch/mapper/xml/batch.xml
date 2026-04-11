@@ -122,7 +122,14 @@
 			AND bat_id = #{bat_id}
 		</if>
 		ORDER BY run_sn DESC
-		LIMIT 1000
+		<choose>
+			<when test="limit != null">
+				LIMIT #{limit}
+			</when>
+			<otherwise>
+				LIMIT 1000
+			</otherwise>
+		</choose>
 	</select>
 
 	<!-- 배치 실행 이력 상세 조회 -->

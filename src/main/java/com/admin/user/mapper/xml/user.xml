@@ -70,6 +70,40 @@
 		  AND del_yn = 'N'
 	</select>
 
+	<!-- 사용자 권한: SYS_USER_ROLE + SYS_ROLE (비활성·삭제 제외) -->
+	<select id="selectUserRoles" parameterType="sqlMap" resultType="sqlMap">
+		/* selectUserRoles */
+		SELECT
+			ur.role_id,
+			r.role_nm,
+			ur.usg_yn
+		FROM SYS_USER_ROLE ur
+		INNER JOIN SYS_ROLE r
+			ON r.role_id = ur.role_id
+			AND r.del_yn = 'N'
+			AND r.usg_yn = 'Y'
+		WHERE ur.user_id = #{user_id}
+		  AND ur.del_yn = 'N'
+		ORDER BY r.sort_sn NULLS LAST, ur.role_id
+	</select>
+
+	<!-- 생체 로그인: 디바이스 ID로 사용자 조회 -->
+	<select id="selectDvcId" parameterType="sqlMap" resultType="sqlMap">
+		/* selectDvcId */
+		SELECT
+			user_id,
+			user_pw,
+			user_nm,
+			usg_yn,
+			del_yn,
+			lang_cd,
+			siege_view_scope
+		FROM SYS_USER
+		WHERE dvc_id = #{dvc_id}
+		  AND del_yn = 'N'
+		LIMIT 1
+	</select>
+
 	<!-- 사용자 목록 조회 -->
 	<select id="selectUserList" parameterType="sqlMap" resultType="sqlMap">
 		/* selectUserList */

@@ -114,6 +114,8 @@ public class LoginController {
 			return new ResponseEntity<>(result, HttpStatus.OK);
 		}
 
+		userService.enrichUserRolesAndAdminFlag(userInfo);
+
 		result.put("result", "SUCCESS");
 		result.put("userInfo", userInfo);
 

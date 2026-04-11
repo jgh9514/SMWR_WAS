@@ -13,4 +13,7 @@
 	<typeAliases>
 		<typeAlias alias="sqlMap" type="java.util.HashMap" />
 	</typeAliases>
+	<typeHandlers>
+		<typeHandler handler="com.smw.rta.mapper.type.PgBigintArrayTypeHandler" javaType="long[]" />
+	</typeHandlers>
 </configuration>

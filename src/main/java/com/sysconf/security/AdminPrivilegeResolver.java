@@ -15,7 +15,7 @@ import com.sysconf.constants.Constant;
 import jakarta.annotation.PostConstruct;
 
 /**
- * 관리자 여부 판별 (SYS_ROLE 제거 후: smw.admin-user-id 목록 + 세션 roles 하위호환).
+ * 관리자 여부 판별: {@code smw.admin-user-ids} 목록 + 세션/응답 {@code roles} 내 RL0001 (SYS_USER_ROLE·SYS_ROLE 연동).
  */
 @Component
 public class AdminPrivilegeResolver {

@@ -22,10 +22,10 @@ import lombok.extern.slf4j.Slf4j;
 public class RtaBatchAggregationService {
 
 	/** pending rid 한 번에 가져와 스냅샷 반영하는 건수 */
-	public static final int SNAPSHOT_BATCH_SIZE = 3000;
+	public static final int SNAPSHOT_BATCH_SIZE = 100000;
 
 	/** 시너지 집계: rid 한 번에 선택하는 건수 */
-	public static final int SYNERGY_BATCH_SIZE = 500;
+	public static final int SYNERGY_BATCH_SIZE = 100000;
 
 	/**
 	 * v2 레거시 매치 스냅샷 단계 없음 — 별도 집계 테이블/스텝 없이 즉시 완료.
@@ -75,7 +75,7 @@ public class RtaBatchAggregationService {
 	}
 
 	/**
-	 * {@code rta_match.synergy_applied_at IS NULL} 인 rid 를 배치 단위로 {@code rta_agg_synergy_combo}에 반영한다.
+	 * {@code rta_match.synergy_applied_at IS NULL} 인 rid 를 배치 단위로 {@code rta_agg_synergy_combo}에 반영한다. 완료 시 {@code synergy_apply_result='S'}.
 	 *
 	 * @param pauseMsBetweenRounds 라운드 사이 대기(ms), 0 이면 생략
 	 */
@@ -124,55 +124,37 @@ public class RtaBatchAggregationService {
 		return new SynergyDrainResult(rounds, totalOk, totalFail, stopReason);
 	}
 
+	/** {@code rta_agg_monster_unit} 미사용 — 몬스터 통계는 {@code rta_agg_synergy_combo} 경로만 사용. */
 	public MonsterStatsRebuildResult rebuildMonsterStatsAgg(RtaMapper rtaMapper) {
-		rtaMapper.deleteAllRtaMonsterStatsAgg();
-		List<Map<String, Object>> seasons = rtaMapper.listRtaSeasons();
-		int pickRows = 0;
-		for (Map<String, Object> row : seasons) {
-			String code = pickSeasonCode(row);
-			if (code == null || code.isEmpty()) {
-				continue;
-			}
-			Map<String, Object> bounds = rtaMapper.selectRtaSeasonBounds(code);
-			if (bounds == null || bounds.isEmpty()) {
-				log.warn("[rta-batch] 몬스터 통계 시즌 경계 없음, 건너뜀: {}", code);
-				continue;
-			}
-			Timestamp start = toTimestamp(bounds.get("start_at"));
-			Timestamp end = toTimestamp(bounds.get("end_at"));
-			if (start == null || end == null) {
-				log.warn("[rta-batch] 몬스터 통계 시즌 start/end 파싱 실패, 건너뜀: {}", code);
-				continue;
-			}
-			pickRows += rtaMapper.insertRtaMonsterStatsAggForSeason(code, start, end);
-		}
-		return new MonsterStatsRebuildResult(0, pickRows);
+		return new MonsterStatsRebuildResult(0, 0);
 	}
 
 	/**
-	 * {@code rta_agg_tier_daily} TRUNCATE 후 시즌별 일자×티어 집계 재적재 (participant 풀스캔은 여기서만).
+	 * 시즌별 {@code rta_agg_tier_daily} 재적재 — 시즌마다 해당 {@code season_id} 행만 삭제 후 INSERT (전역 TRUNCATE 없음).
 	 */
 	public TierDailyAggRebuildResult rebuildTierAggDaily(RtaMapper rtaMapper) {
-		rtaMapper.deleteAllRtaTierAggDaily();
 		List<Map<String, Object>> seasons = rtaMapper.listRtaSeasons();
 		int totalRows = 0;
 		for (Map<String, Object> row : seasons) {
-			String code = pickSeasonCode(row);
-			if (code == null || code.isEmpty()) {
+			Long seasonId = pickSeasonId(row);
+			if (seasonId == null) {
 				continue;
 			}
-			Map<String, Object> bounds = rtaMapper.selectRtaSeasonBounds(code);
-			if (bounds == null || bounds.isEmpty()) {
-				log.warn("[rta-batch] 티어 일별 집계 시즌 경계 없음, 건너뜀: {}", code);
-				continue;
+			Object startObj = row.get("startAt");
+			if (startObj == null) {
+				startObj = row.get("start_at");
 			}
-			Timestamp start = toTimestamp(bounds.get("start_at"));
-			Timestamp end = toTimestamp(bounds.get("end_at"));
+			Object endObj = row.get("endAt");
+			if (endObj == null) {
+				endObj = row.get("end_at");
+			}
+			Timestamp start = toTimestamp(startObj);
+			Timestamp end = toTimestamp(endObj);
 			if (start == null || end == null) {
-				log.warn("[rta-batch] 티어 일별 집계 시즌 start/end 파싱 실패, 건너뜀: {}", code);
+				log.warn("[rta-batch] 티어 일별 집계 시즌 start/end 없음, 건너뜀: seasonId={}", seasonId);
 				continue;
 			}
-			totalRows += rtaMapper.insertRtaTierAggDailyForSeason(code, start, end);
+			totalRows += rtaMapper.insertRtaTierAggDailyForSeason(seasonId.longValue(), start, end);
 		}
 		return new TierDailyAggRebuildResult(totalRows);
 	}
@@ -188,12 +170,15 @@ public class RtaBatchAggregationService {
 		return new RankCutSnapshotRebuildResult(anchorRows, snapshotRows);
 	}
 
-	private static String pickSeasonCode(Map<String, Object> row) {
-		Object sc = row.get("seasonCode");
-		if (sc == null) {
-			sc = row.get("season_code");
+	private static Long pickSeasonId(Map<String, Object> row) {
+		Object o = row.get("seasonId");
+		if (o == null) {
+			o = row.get("season_id");
 		}
-		return sc != null ? String.valueOf(sc).trim() : "";
+		if (o instanceof Number) {
+			return ((Number) o).longValue();
+		}
+		return null;
 	}
 
 	private static void sleepQuiet(int ms) {

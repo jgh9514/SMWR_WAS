@@ -8,6 +8,11 @@ public interface UserService {
 	public Map<String, Object> selectUserInfo(Map<String, Object> param);
 
 	/**
+	 * DB에서 SYS_USER_ROLE·SYS_ROLE 기준으로 roles 채우고 {@code is_admin} 설정 (쿠키/생체 등 경로 보강).
+	 */
+	void enrichUserRolesAndAdminFlag(Map<String, Object> userInfo);
+
+	/**
 	 * 이메일 중복 체크 (del_yn='N' 기준)
 	 */
 	public int countUserByEmail(Map<String, Object> param);

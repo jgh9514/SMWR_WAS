@@ -51,9 +51,15 @@ public interface RtaService {
     Map<String, Object> testRtaData();
     
     /**
-     * Get RTA monster statistics
+     * Get RTA monster statistics (솔로·듀오·트리오 각각 pageSize·오프셋 독립)
+     *
+     * @param pageSize 한 탭당 행 수(기본 20)
+     * @param statsOffset 솔로 목록 오프셋
+     * @param duoOffset 듀오 목록 오프셋
+     * @param trioOffset 트리오 목록 오프셋
      */
-    Map<String, Object> getRtaMonsterStats(int limit, int offset, String seasonCode);
+    Map<String, Object> getRtaMonsterStats(int pageSize, int statsOffset, int duoOffset, int trioOffset,
+            String seasonCode, String tierKey);
     
     /**
      * Get RTA monster detail information

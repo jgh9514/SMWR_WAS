@@ -12,6 +12,7 @@ import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -81,6 +82,12 @@ public class summonerswarServiceImpl implements summonerswarService {
 
 	@Autowired
 	private RtaRawApplyProperties rtaRawApplyProperties;
+
+	/** {@link #getRtaSeasonMappingCache()} — rta_season 전체 스냅샷 TTL */
+	private final Object rtaSeasonMappingCacheLock = new Object();
+	private volatile RtaSeasonMappingCache rtaSeasonMappingCache;
+	private volatile long rtaSeasonMappingCacheLoadedAtMs;
+	private static final long RTA_SEASON_CACHE_TTL_MS = 60_000L;
 
 	
 	@Override
@@ -461,7 +468,7 @@ public class summonerswarServiceImpl implements summonerswarService {
 		return total;
 	}
 	
-	private static final int ARENA_RTA_EXISTING_RID_CHUNK = 500;
+	private static final int ARENA_RTA_EXISTING_RID_CHUNK = 1500;
 
 	@Override
 	public Set<Long> selectArenaRidsExisting(Collection<Long> rids) {
@@ -569,6 +576,7 @@ public class summonerswarServiceImpl implements summonerswarService {
 			Map<String, Object> mo = (Map<String, Object>) param;
 			normalizeArenaReplayDateAdd(mo);
 		}
+		applyRtaSeasonIdsToArenaRows(Collections.singletonList(param));
 		return swMapper.insertArenaInfoBulk(Collections.singletonList(param));
 	}
 
@@ -594,11 +602,11 @@ public class summonerswarServiceImpl implements summonerswarService {
 		return swMapper.insertArenaUnitInfoBulk(Collections.singletonList(param));
 	}
 
-	/**
-	 * rta-upload VALUES 다중행 INSERT 시 한 문당 행 수 상한.
-	 * 한 번에 너무 많은 플레이스홀더를 보내면 PostgreSQL JDBC 에서 "An I/O error occurred while sending to the backend" 가 날 수 있음.
-	 */
-	private static final int ARENA_RTA_BULK_CHUNK = 40;
+	/** {@link RtaRawApplyProperties#getBulkInsertChunkSize()} — 최소 1 */
+	private int arenaRtaBulkChunkSize() {
+		int n = rtaRawApplyProperties.getBulkInsertChunkSize();
+		return Math.max(1, Math.min(n, 500));
+	}
 
 	@Override
 	public int insertArenaInfoBatch(List<Map<String, ?>> rows) {
@@ -606,8 +614,9 @@ public class summonerswarServiceImpl implements summonerswarService {
 			return 0;
 		}
 		int total = 0;
-		for (int from = 0; from < rows.size(); from += ARENA_RTA_BULK_CHUNK) {
-			int to = Math.min(from + ARENA_RTA_BULK_CHUNK, rows.size());
+		int step = arenaRtaBulkChunkSize();
+		for (int from = 0; from < rows.size(); from += step) {
+			int to = Math.min(from + step, rows.size());
 			List<Map<String, ?>> chunk = rows.subList(from, to);
 			for (Map<String, ?> row : chunk) {
 				if (row instanceof Map) {
@@ -616,6 +625,7 @@ public class summonerswarServiceImpl implements summonerswarService {
 					normalizeArenaReplayDateAdd(mo);
 				}
 			}
+			applyRtaSeasonIdsToArenaRows(chunk);
 			total += swMapper.insertArenaInfoBulk(chunk);
 		}
 		return total;
@@ -627,8 +637,9 @@ public class summonerswarServiceImpl implements summonerswarService {
 			return 0;
 		}
 		int total = 0;
-		for (int from = 0; from < rows.size(); from += ARENA_RTA_BULK_CHUNK) {
-			int to = Math.min(from + ARENA_RTA_BULK_CHUNK, rows.size());
+		int step = arenaRtaBulkChunkSize();
+		for (int from = 0; from < rows.size(); from += step) {
+			int to = Math.min(from + step, rows.size());
 			total += swMapper.insertArenaUserInfoBulk(rows.subList(from, to));
 		}
 		return total;
@@ -645,8 +656,9 @@ public class summonerswarServiceImpl implements summonerswarService {
 			return 0;
 		}
 		int total = 0;
-		for (int from = 0; from < rows.size(); from += ARENA_RTA_BULK_CHUNK) {
-			int to = Math.min(from + ARENA_RTA_BULK_CHUNK, rows.size());
+		int step = arenaRtaBulkChunkSize();
+		for (int from = 0; from < rows.size(); from += step) {
+			int to = Math.min(from + step, rows.size());
 			List<Map<String, ?>> chunk = rows.subList(from, to);
 			total += swMapper.insertArenaUnitInfoBulk(chunk);
 		}
@@ -1122,19 +1134,20 @@ public class summonerswarServiceImpl implements summonerswarService {
 		boolean markRawApplied = mode == ArenaRtaPersistMode.FULL || mode == ArenaRtaPersistMode.NORMALIZED_ONLY;
 
 		summonerswarMapper batchMapper = rtaBatchSqlSessionTemplate.getMapper(summonerswarMapper.class);
+		int step = arenaRtaBulkChunkSize();
 		try {
 			if (writeRaw) {
 				List<Map<String, Object>> rawRows = buildArenaReplayRawRows(arenaRows);
 				if (!rawRows.isEmpty()) {
-					for (int from = 0; from < rawRows.size(); from += ARENA_RTA_BULK_CHUNK) {
-						int to = Math.min(from + ARENA_RTA_BULK_CHUNK, rawRows.size());
+					for (int from = 0; from < rawRows.size(); from += step) {
+						int to = Math.min(from + step, rawRows.size());
 						batchMapper.insertArenaReplayRawBulk(rawRows.subList(from, to));
 					}
 				}
 			}
 			if (writeNormalized) {
-				for (int from = 0; from < arenaRows.size(); from += ARENA_RTA_BULK_CHUNK) {
-					int to = Math.min(from + ARENA_RTA_BULK_CHUNK, arenaRows.size());
+				for (int from = 0; from < arenaRows.size(); from += step) {
+					int to = Math.min(from + step, arenaRows.size());
 					List<Map<String, ?>> chunk = arenaRows.subList(from, to);
 					for (Map<String, ?> row : chunk) {
 						if (row != null) {
@@ -1143,17 +1156,18 @@ public class summonerswarServiceImpl implements summonerswarService {
 							normalizeArenaReplayDateAdd(mo);
 						}
 					}
+					applyRtaSeasonIdsToArenaRows(chunk);
 					batchMapper.insertArenaInfoBulk(chunk);
 				}
 				if (userBatch != null && !userBatch.isEmpty()) {
-					for (int from = 0; from < userBatch.size(); from += ARENA_RTA_BULK_CHUNK) {
-						int to = Math.min(from + ARENA_RTA_BULK_CHUNK, userBatch.size());
+					for (int from = 0; from < userBatch.size(); from += step) {
+						int to = Math.min(from + step, userBatch.size());
 						batchMapper.insertArenaUserInfoBulk(userBatch.subList(from, to));
 					}
 				}
 				if (unitBatch != null && !unitBatch.isEmpty()) {
-					for (int from = 0; from < unitBatch.size(); from += ARENA_RTA_BULK_CHUNK) {
-						int to = Math.min(from + ARENA_RTA_BULK_CHUNK, unitBatch.size());
+					for (int from = 0; from < unitBatch.size(); from += step) {
+						int to = Math.min(from + step, unitBatch.size());
 						batchMapper.insertArenaUnitInfoBulk(unitBatch.subList(from, to));
 					}
 				}
@@ -1167,8 +1181,8 @@ public class summonerswarServiceImpl implements summonerswarService {
 					}
 				}
 				if (!appliedRids.isEmpty()) {
-					for (int from = 0; from < appliedRids.size(); from += ARENA_RTA_BULK_CHUNK) {
-						int to = Math.min(from + ARENA_RTA_BULK_CHUNK, appliedRids.size());
+					for (int from = 0; from < appliedRids.size(); from += step) {
+						int to = Math.min(from + step, appliedRids.size());
 						batchMapper.updateArenaReplayRawAppliedBulk(appliedRids.subList(from, to));
 					}
 				}
@@ -1975,5 +1989,159 @@ public class summonerswarServiceImpl implements summonerswarService {
 			seen.add(sid);
 			dest.add(r);
 		}
+	}
+
+	/**
+	 * DB 의 {@code rta_season} 전체를 짧은 TTL 로 캐시한 뒤, 기존 INSERT 서브쿼리와 동일 규칙으로 {@code season_id} 를 산출한다.
+	 */
+	private RtaSeasonMappingCache getRtaSeasonMappingCache() {
+		long now = System.currentTimeMillis();
+		RtaSeasonMappingCache c = rtaSeasonMappingCache;
+		if (c != null && (now - rtaSeasonMappingCacheLoadedAtMs) < RTA_SEASON_CACHE_TTL_MS) {
+			return c;
+		}
+		synchronized (rtaSeasonMappingCacheLock) {
+			now = System.currentTimeMillis();
+			if (rtaSeasonMappingCache != null && (now - rtaSeasonMappingCacheLoadedAtMs) < RTA_SEASON_CACHE_TTL_MS) {
+				return rtaSeasonMappingCache;
+			}
+			List<Map<String, ?>> dbRows = swMapper.selectRtaSeasonsForRtaMatchMapping();
+			if (dbRows == null || dbRows.isEmpty()) {
+				throw new IllegalStateException("rta_season 테이블에 시즌 행이 없습니다.");
+			}
+			RtaSeasonMappingCache loaded = RtaSeasonMappingCache.fromRows(dbRows);
+			rtaSeasonMappingCache = loaded;
+			rtaSeasonMappingCacheLoadedAtMs = System.currentTimeMillis();
+			log.debug("[rta-upload] rta_season 매핑 캐시 갱신: rows={}, fallbackSeasonId={}", dbRows.size(),
+					loaded.getFallbackSeasonId());
+			return loaded;
+		}
+	}
+
+	/** {@code date_add}(played_at) 기준 — INSERT 직전에 호출(이미 {@link #normalizeArenaReplayDateAdd} 된 행) */
+	private void applyRtaSeasonIdsToArenaRows(List<Map<String, ?>> rows) {
+		if (rows == null || rows.isEmpty()) {
+			return;
+		}
+		RtaSeasonMappingCache cache = getRtaSeasonMappingCache();
+		for (Map<String, ?> row : rows) {
+			if (!(row instanceof Map)) {
+				continue;
+			}
+			@SuppressWarnings("unchecked")
+			Map<String, Object> m = (Map<String, Object>) row;
+			Object da = m.get("date_add");
+			Timestamp ts = da instanceof Timestamp ? (Timestamp) da : null;
+			int sid = cache.resolveSeasonId(ts);
+			m.put("season_id", sid);
+		}
+	}
+
+	private static final class RtaSeasonMappingCache {
+		private final int fallbackSeasonId;
+		private final List<SeasonSlice> slices;
+
+		private RtaSeasonMappingCache(int fallbackSeasonId, List<SeasonSlice> slices) {
+			this.fallbackSeasonId = fallbackSeasonId;
+			this.slices = slices;
+		}
+
+		int getFallbackSeasonId() {
+			return fallbackSeasonId;
+		}
+
+		static RtaSeasonMappingCache fromRows(List<Map<String, ?>> dbRows) {
+			Integer fb = null;
+			List<SeasonSlice> list = new ArrayList<>(dbRows.size());
+			for (Map<String, ?> raw : dbRows) {
+				if (raw == null) {
+					continue;
+				}
+				Integer sid = parseIntFlexible(raw.get("season_id"));
+				if (sid == null) {
+					continue;
+				}
+				String code = raw.get("season_code") != null ? String.valueOf(raw.get("season_code")) : null;
+				if ("_FALLBACK".equals(code)) {
+					fb = sid;
+				}
+				Integer so = parseIntFlexible(raw.get("sort_order"));
+				Integer sn = parseIntFlexible(raw.get("season_no"));
+				Timestamp sta = toTimestampFlexible(raw.get("start_at"));
+				Timestamp ena = toTimestampFlexible(raw.get("end_at"));
+				list.add(new SeasonSlice(sid, so, sn, sta, ena));
+			}
+			if (list.isEmpty()) {
+				throw new IllegalStateException("rta_season 파싱 결과가 비어 있습니다.");
+			}
+			int fbFinal = fb != null ? fb : list.get(0).seasonId;
+			return new RtaSeasonMappingCache(fbFinal, list);
+		}
+
+		int resolveSeasonId(Timestamp playedAt) {
+			if (playedAt == null) {
+				return fallbackSeasonId;
+			}
+			final long t = playedAt.getTime();
+			List<SeasonSlice> hit = new ArrayList<>();
+			for (SeasonSlice s : slices) {
+				if (s.startAt == null || s.endAt == null) {
+					continue;
+				}
+				if (s.startAt.getTime() <= t && t < s.endAt.getTime()) {
+					hit.add(s);
+				}
+			}
+			if (hit.isEmpty()) {
+				return fallbackSeasonId;
+			}
+			hit.sort(Comparator
+					.comparing((SeasonSlice s) -> s.sortOrder, Comparator.nullsLast(Comparator.naturalOrder()))
+					.thenComparing((SeasonSlice s) -> s.seasonNo, Comparator.nullsLast(Comparator.reverseOrder())));
+			return hit.get(0).seasonId;
+		}
+	}
+
+	private static final class SeasonSlice {
+		final int seasonId;
+		final Integer sortOrder;
+		final Integer seasonNo;
+		final Timestamp startAt;
+		final Timestamp endAt;
+
+		SeasonSlice(int seasonId, Integer sortOrder, Integer seasonNo, Timestamp startAt, Timestamp endAt) {
+			this.seasonId = seasonId;
+			this.sortOrder = sortOrder;
+			this.seasonNo = seasonNo;
+			this.startAt = startAt;
+			this.endAt = endAt;
+		}
+	}
+
+	private static Integer parseIntFlexible(Object o) {
+		if (o == null) {
+			return null;
+		}
+		if (o instanceof Number) {
+			return ((Number) o).intValue();
+		}
+		try {
+			return Integer.parseInt(o.toString().trim());
+		} catch (NumberFormatException e) {
+			return null;
+		}
+	}
+
+	private static Timestamp toTimestampFlexible(Object o) {
+		if (o == null) {
+			return null;
+		}
+		if (o instanceof Timestamp) {
+			return (Timestamp) o;
+		}
+		if (o instanceof java.util.Date) {
+			return new Timestamp(((java.util.Date) o).getTime());
+		}
+		return null;
 	}
 }
