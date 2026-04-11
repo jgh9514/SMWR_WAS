@@ -12,6 +12,9 @@ logging:
     com.sysconf.interceptor.MybatisInterceptor: DEBUG
 
 spring:
+  task:
+    scheduling:
+      enabled: ${SMW_SCHEDULER_ENABLED:false}
   datasource:
     driver-class-name: net.sf.log4jdbc.sql.jdbcapi.DriverSpy
     url: ${SPRING_DATASOURCE_URL:jdbc:log4jdbc:postgresql://13.236.20.39:30432/summonerswar}

@@ -2,6 +2,9 @@
 spring:
   application:
     name: smw
+  task:
+    scheduling:
+      enabled: ${SMW_SCHEDULER_ENABLED:false}
   # K8s(UTC Pod)에서도 날짜 JSON이 한국 시각 기준으로 직렬화되도록 (TZ·JAVA_TOOL_OPTIONS와 함께)
   jackson:
     time-zone: Asia/Seoul
@@ -133,10 +136,10 @@ management:
         smw.swarfarm.sync.duration: true
 
 smw:
-  # Quartz(BatchConfig): docker 단독일 때 스케줄 ON. 운영 API만이면 spring.profiles.active=docker,prod 로 prod 가 덮어 OFF, 또는 SMW_BATCH_QUARTZ_ENABLED=false
+  # Quartz(BatchConfig): 기본 OFF — API/WAS만 띄울 때 크론 미등록. 배치 전용 Pod 에서만 SMW_BATCH_QUARTZ_ENABLED=true
   batch:
     quartz:
-      enabled: ${SMW_BATCH_QUARTZ_ENABLED:true}
+      enabled: ${SMW_BATCH_QUARTZ_ENABLED:false}
   service-domain: localhost, localhost:3000, 13.236.20.39:32282, jgh9514.com, www.jgh9514.com
   globalDblinkNm: SMW_DBLINK
   front-url: http://localhost:3000

@@ -2,6 +2,10 @@
 spring:
   application:
     name: smw
+  # @Scheduled(RtaExporterFullLogIngestScheduler 등). 개발/도커/운영 프로필은 보통 false — SMW_SCHEDULER_ENABLED=true 로 켬
+  task:
+    scheduling:
+      enabled: ${SMW_SCHEDULER_ENABLED:true}
   mvc:
     pathmatch:
       matching-strategy: ANT_PATH_MATCHER  # Spring 6 PathPattern 대신 ANT 스타일 허용 (/**/*.js 등)
