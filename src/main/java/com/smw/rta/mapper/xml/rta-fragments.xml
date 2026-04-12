@@ -2,22 +2,26 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.smw.rta.mapper.RtaMapper">
 
-	<!-- 시즌 구간: rta_match.played_at ([start, end)) — CTE 별칭 rta_match_in_season -->
+	<!-- 시즌 매치 집합 — CTE 별칭 rta_match_in_season. {@code rta_match.season_id} 만 사용. -->
 	<sql id="rtaMatchInSeasonCte">
 		rta_match_in_season AS (
 			SELECT m.replay_id AS rid, m.played_at AS date_add, m.winner_wizard_id, m.battle_type
 			FROM public.rta_match m
-			WHERE 1 = 1
-			<if test="seasonStart != null and seasonEnd != null">
-				AND m.played_at &gt;= #{seasonStart}
-				AND m.played_at &lt; #{seasonEnd}
-			</if>
+			WHERE
+			<choose>
+				<when test="seasonId != null">
+					m.season_id = #{seasonId}
+				</when>
+				<otherwise>
+					FALSE
+				</otherwise>
+			</choose>
 		)
 	</sql>
 
 	<!--
 	  대시보드 일자×티어 집계 (rta_match_in_season + participant). 배치 적재·과거 라이브 조회 공통.
-	  파라미터: seasonStart, seasonEnd — CTE rta_match_in_season 에 사용.
+	  파라미터: {@code seasonId} — CTE rta_match_in_season 에 사용.
 	-->
 	<sql id="rtaTierDistributionDailyInnerFromMatch">
 WITH <include refid="rtaMatchInSeasonCte"/>
@@ -79,24 +83,113 @@ GROUP BY bucket_date, tier_key
 				SUM(CASE WHEN u.is_winner THEN 1 ELSE 0 END)::bigint AS win_count
 			FROM public.rta_match_participant u
 			INNER JOIN rta_match_in_season r ON u.replay_id = r.rid
-			WHERE TRIM(COALESCE(u.ladder_score::text, '')) ~ '^[0-9]+$'
-			  AND CAST(TRIM(u.ladder_score::text) AS INT) &gt; 0
+			WHERE u.ladder_score &gt; 0
 			GROUP BY u.wizard_id
 		)
 	</sql>
 
-	<!-- 시즌 ID가 있으면 played_at 구간보다 먼저 좁힘 → idx_rta_match_season_played_at 활용에 유리 -->
-	<sql id="rtaMatchSeasonIdFilter">
-		<if test="seasonId != null">
-			AND m.season_id = #{seasonId}
-		</if>
+	<!--
+	  소환사 랭킹·검색·요약 공통: [1] 시즌 내 위자드별 최신 경기 rid만 추출 → [2] participant + rta_match_in_season 조인으로 상세.
+	  선행 CTE: 동일 WITH 절에 rta_match_in_season 필수.
+	-->
+	<sql id="rtaSummonerLatestPerWizardCte">
+		wizard_last_match AS (
+			SELECT DISTINCT ON (u.wizard_id)
+				u.wizard_id,
+				u.replay_id AS last_rid
+			FROM public.rta_match_participant u
+			INNER JOIN rta_match_in_season r ON u.replay_id = r.rid
+			WHERE u.ladder_score &gt; 0
+			ORDER BY u.wizard_id, r.date_add DESC
+		),
+		latest AS (
+			SELECT
+				u.wizard_id,
+				u.wizard_name,
+				u.country_code AS country,
+				u.channel_uid,
+				u.ladder_score AS score,
+				u.rating_id AS rating_id,
+				r.date_add AS last_match_at
+			FROM wizard_last_match tw
+			INNER JOIN public.rta_match_participant u ON u.replay_id = tw.last_rid AND u.wizard_id = tw.wizard_id
+			INNER JOIN rta_match_in_season r ON r.rid = tw.last_rid
+		)
 	</sql>
 
-	<sql id="rtaMatchSeasonFilter">
-		<if test="seasonStart != null and seasonEnd != null">
-			AND m.played_at &gt;= #{seasonStart}
-			AND m.played_at &lt; #{seasonEnd}
-		</if>
+	<!--
+	  소환사 랭킹 목록 전용: 시즌 내 위자드별 최고 래더 점수가 나온 participant 행 1건(동점 시 replay_id 큰 쪽).
+	  rating_id 고정 필터 없음 — 실제 데이터는 등급마다 rating_id 가 달라질 수 있음.
+	  선행 WITH: rta_match_in_season. (국가 필터·상위 500명 풀은 {@code rtaSummonerRankingPool500AndFilterCte}.)
+	-->
+	<sql id="rtaSummonerRankingTopWizardsPairCte">
+		top_wizards AS (
+			SELECT DISTINCT ON (u.wizard_id)
+				u.wizard_id,
+				u.replay_id AS last_rid,
+				u.ladder_score AS max_score
+			FROM public.rta_match_participant u
+			INNER JOIN rta_match_in_season r ON u.replay_id = r.rid
+			WHERE u.ladder_score &gt; 0
+			ORDER BY u.wizard_id, u.ladder_score DESC, u.replay_id DESC
+		),
+		summoner_rank_detail AS (
+			SELECT
+				tw.wizard_id,
+				tw.max_score,
+				u.wizard_name,
+				u.country_code AS country,
+				u.channel_uid,
+				u.ladder_score AS score,
+				u.rating_id AS rating_id,
+				r.date_add AS last_match_at
+			FROM top_wizards tw
+			INNER JOIN public.rta_match_participant u ON u.replay_id = tw.last_rid AND u.wizard_id = tw.wizard_id
+			INNER JOIN rta_match_in_season r ON r.rid = tw.last_rid
+		)
+	</sql>
+
+	<!-- 소환사 랭킹: 점수 순 상위 500명만 풀로 두고, 그 안에서 글로벌 순위(rank_position) 부여 후 국가 필터. summoner_rank_detail 선행. -->
+	<sql id="rtaSummonerRankingPool500AndFilterCte">
+		pool_500 AS (
+			SELECT * FROM summoner_rank_detail
+			ORDER BY max_score DESC, wizard_id ASC
+			LIMIT 500
+		),
+		pool_scored AS (
+			SELECT
+				p.wizard_id,
+				p.max_score,
+				p.wizard_name,
+				p.country,
+				p.channel_uid,
+				p.score,
+				p.rating_id,
+				p.last_match_at,
+				ROW_NUMBER() OVER (ORDER BY p.max_score DESC, p.wizard_id ASC) AS rank_position
+			FROM pool_500 p
+		),
+		pool_filtered AS (
+			SELECT * FROM pool_scored
+			WHERE 1 = 1
+			<if test="countryFilter != null and countryFilter != ''">
+			AND (
+				CASE WHEN TRIM(COALESCE(country::text, '')) = '' THEN '—' ELSE TRIM(country::text) END
+			) = #{countryFilter}
+			</if>
+		)
+	</sql>
+
+	<!-- {@code rta_match.season_id} 만 사용 (날짜 구간 없음). -->
+	<sql id="rtaMatchSeasonIdFilter">
+		<choose>
+			<when test="seasonId != null">
+				AND m.season_id = #{seasonId}
+			</when>
+			<otherwise>
+				AND FALSE
+			</otherwise>
+		</choose>
 	</sql>
 
 	<!--

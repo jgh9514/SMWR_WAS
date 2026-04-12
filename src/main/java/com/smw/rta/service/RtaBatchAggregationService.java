@@ -1,6 +1,5 @@
 package com.smw.rta.service;
 
-import java.sql.Timestamp;
 import java.util.List;
 import java.util.Map;
 
@@ -140,21 +139,7 @@ public class RtaBatchAggregationService {
 			if (seasonId == null) {
 				continue;
 			}
-			Object startObj = row.get("startAt");
-			if (startObj == null) {
-				startObj = row.get("start_at");
-			}
-			Object endObj = row.get("endAt");
-			if (endObj == null) {
-				endObj = row.get("end_at");
-			}
-			Timestamp start = toTimestamp(startObj);
-			Timestamp end = toTimestamp(endObj);
-			if (start == null || end == null) {
-				log.warn("[rta-batch] 티어 일별 집계 시즌 start/end 없음, 건너뜀: seasonId={}", seasonId);
-				continue;
-			}
-			totalRows += rtaMapper.insertRtaTierAggDailyForSeason(seasonId.longValue(), start, end);
+			totalRows += rtaMapper.insertRtaTierAggDailyForSeason(seasonId.longValue());
 		}
 		return new TierDailyAggRebuildResult(totalRows);
 	}
@@ -165,7 +150,15 @@ public class RtaBatchAggregationService {
 	 */
 	public RankCutSnapshotRebuildResult rebuildRankCutSnapshots(RtaMapper rtaMapper) {
 		rtaMapper.deleteAllRtaRankCutoffAnchorSnap();
-		int anchorRows = rtaMapper.insertRtaRankCutoffAnchorSnapFromLive();
+		int anchorRows = 0;
+		String defaultCode = rtaMapper.selectDefaultSeasonCodeForNow();
+		if (defaultCode != null && !defaultCode.isEmpty()) {
+			Map<String, Object> bounds = rtaMapper.selectRtaSeasonBounds(defaultCode);
+			Long sid = bounds != null ? pickSeasonId(bounds) : null;
+			if (sid != null) {
+				anchorRows = rtaMapper.insertRtaRankCutoffAnchorSnapFromLive(sid.longValue());
+			}
+		}
 		int snapshotRows = rtaMapper.insertRtaSnapshotRankCutForAllSeasons();
 		return new RankCutSnapshotRebuildResult(anchorRows, snapshotRows);
 	}
@@ -190,19 +183,6 @@ public class RtaBatchAggregationService {
 		} catch (InterruptedException e) {
 			Thread.currentThread().interrupt();
 		}
-	}
-
-	private static Timestamp toTimestamp(Object o) {
-		if (o == null) {
-			return null;
-		}
-		if (o instanceof Timestamp) {
-			return (Timestamp) o;
-		}
-		if (o instanceof java.util.Date) {
-			return new Timestamp(((java.util.Date) o).getTime());
-		}
-		return null;
 	}
 
 	public record SnapshotDrainResult(

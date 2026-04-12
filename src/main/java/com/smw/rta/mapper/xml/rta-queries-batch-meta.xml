@@ -168,82 +168,18 @@
 
     <select id="getRtaSummonerRankingAggCount" resultType="int">
         WITH <include refid="rtaMatchInSeasonCte"/>,
-        latest AS (
-            SELECT DISTINCT ON (u.wizard_id)
-                u.wizard_id,
-                u.wizard_name,
-                u.country_code AS country,
-                u.channel_uid,
-                CAST(TRIM(u.ladder_score::text) AS INT) AS score,
-                CASE
-                    WHEN TRIM(COALESCE(u.rating_id::text, '')) ~ '^[0-9]+$'
-                    THEN CAST(TRIM(u.rating_id::text) AS INT)
-                    ELSE NULL
-                END AS rating_id,
-                r.date_add AS last_match_at
-            FROM public.rta_match_participant u
-            INNER JOIN rta_match_in_season r ON u.replay_id = r.rid
-            WHERE TRIM(COALESCE(u.ladder_score::text, '')) ~ '^[0-9]+$'
-              AND CAST(TRIM(u.ladder_score::text) AS INT) &gt; 0
-            ORDER BY u.wizard_id, r.date_add DESC
-        ),
-        latest_filtered AS (
-            SELECT l.* FROM latest l
-            WHERE 1 = 1
-            <if test="countryFilter != null and countryFilter != ''">
-            AND (
-                CASE WHEN TRIM(COALESCE(l.country::text, '')) = '' THEN '—' ELSE TRIM(l.country::text) END
-            ) = #{countryFilter}
-            </if>
-        )
-        SELECT COUNT(*)::int FROM latest_filtered
+        <include refid="rtaSummonerRankingTopWizardsPairCte"/>,
+        <include refid="rtaSummonerRankingPool500AndFilterCte"/>
+        SELECT COUNT(*)::int FROM pool_filtered
     </select>
 
-    <!-- 소환사 랭킹 목록 API: 라이브 집계 (국가 필터·페이징; 집계 테이블 미사용) -->
+    <!-- 소환사 랭킹 목록 API: rating_id 한정 MAX(점수)·MAX(replay_id) 후 상세 조인 (모스트 몬스터 없음) -->
     <select id="getRtaSummonerRankingFromAgg" resultType="map">
         WITH <include refid="rtaMatchInSeasonCte"/>,
-        latest AS (
-            SELECT DISTINCT ON (u.wizard_id)
-                u.wizard_id,
-                u.wizard_name,
-                u.country_code AS country,
-                u.channel_uid,
-                CAST(TRIM(u.ladder_score::text) AS INT) AS score,
-                CASE
-                    WHEN TRIM(COALESCE(u.rating_id::text, '')) ~ '^[0-9]+$'
-                    THEN CAST(TRIM(u.rating_id::text) AS INT)
-                    ELSE NULL
-                END AS rating_id,
-                r.date_add AS last_match_at
-            FROM public.rta_match_participant u
-            INNER JOIN rta_match_in_season r ON u.replay_id = r.rid
-            WHERE TRIM(COALESCE(u.ladder_score::text, '')) ~ '^[0-9]+$'
-              AND CAST(TRIM(u.ladder_score::text) AS INT) &gt; 0
-            ORDER BY u.wizard_id, r.date_add DESC
-        ),
-        ranked AS (
-            SELECT
-                latest.wizard_id,
-                latest.wizard_name,
-                latest.country,
-                latest.channel_uid,
-                latest.score,
-                latest.rating_id,
-                latest.last_match_at,
-                ROW_NUMBER() OVER (ORDER BY latest.score DESC, latest.wizard_id ASC) AS rank_position
-            FROM latest
-        ),
-        ranked_filtered AS (
-            SELECT r.* FROM ranked r
-            WHERE 1 = 1
-            <if test="countryFilter != null and countryFilter != ''">
-            AND (
-                CASE WHEN TRIM(COALESCE(r.country::text, '')) = '' THEN '—' ELSE TRIM(r.country::text) END
-            ) = #{countryFilter}
-            </if>
-        ),
+        <include refid="rtaSummonerRankingTopWizardsPairCte"/>,
+        <include refid="rtaSummonerRankingPool500AndFilterCte"/>,
         page_ranked AS (
-            SELECT * FROM ranked_filtered
+            SELECT * FROM pool_filtered
             ORDER BY rank_position
             LIMIT #{limit} OFFSET #{offset}
         ),
@@ -255,54 +191,8 @@
             FROM public.rta_match_participant u
             INNER JOIN rta_match_in_season r ON u.replay_id = r.rid
             INNER JOIN page_ranked pr ON pr.wizard_id = u.wizard_id
-            WHERE TRIM(COALESCE(u.ladder_score::text, '')) ~ '^[0-9]+$'
-              AND CAST(TRIM(u.ladder_score::text) AS INT) &gt; 0
+            WHERE u.ladder_score &gt; 0
             GROUP BY u.wizard_id
-        ),
-        score_max_agg AS (
-            SELECT
-                u.wizard_id,
-                MAX(CAST(TRIM(u.ladder_score::text) AS INT))::int AS max_season_score
-            FROM public.rta_match_participant u
-            INNER JOIN rta_match_in_season r ON u.replay_id = r.rid
-            INNER JOIN page_ranked pr2 ON pr2.wizard_id = u.wizard_id
-            WHERE TRIM(COALESCE(u.ladder_score::text, '')) ~ '^[0-9]+$'
-              AND CAST(TRIM(u.ladder_score::text) AS INT) &gt; 0
-            GROUP BY u.wizard_id
-        ),
-        field_pick_counts AS (
-            SELECT
-                u.wizard_id,
-                TRIM(BOTH FROM u.unit_master_id::text) AS unit_master_id,
-                COUNT(*)::bigint AS pick_count
-            FROM public.rta_match_unit_pick u
-            INNER JOIN page_ranked pr3 ON pr3.wizard_id = u.wizard_id
-            WHERE TRIM(BOTH FROM COALESCE(u.unit_master_id::text, '')) ~ '^[0-9]+$'
-              AND NOT u.is_banned
-            GROUP BY u.wizard_id, TRIM(BOTH FROM u.unit_master_id::text)
-        ),
-        ranked_monsters AS (
-            SELECT
-                wizard_id,
-                unit_master_id,
-                pick_count,
-                ROW_NUMBER() OVER (
-                    PARTITION BY wizard_id
-                    ORDER BY pick_count DESC, CAST(unit_master_id AS BIGINT) ASC
-                ) AS rn
-            FROM field_pick_counts
-        ),
-        most1 AS (
-            SELECT wizard_id, unit_master_id AS m1_id, pick_count AS m1_pick
-            FROM ranked_monsters WHERE rn = 1
-        ),
-        most2 AS (
-            SELECT wizard_id, unit_master_id AS m2_id, pick_count AS m2_pick
-            FROM ranked_monsters WHERE rn = 2
-        ),
-        most3 AS (
-            SELECT wizard_id, unit_master_id AS m3_id, pick_count AS m3_pick
-            FROM ranked_monsters WHERE rn = 3
         )
         SELECT
             pr.rank_position,
@@ -313,58 +203,18 @@
             pr.score,
             pr.rating_id,
             pr.last_match_at,
+            pr.max_score::int AS max_season_score,
             COALESCE(wa.match_count, 0)::bigint AS match_count,
-            COALESCE(wa.win_count, 0)::bigint AS win_count,
-            COALESCE(sm.max_season_score, pr.score)::int AS max_season_score,
-            m1.m1_id::text AS most_monster_1_id,
-            m1.m1_pick AS most_monster_1_pick_count,
-            COALESCE(mm1.kr_name, '') AS most_monster_1_name,
-            COALESCE(<include refid="monsterPortraitUrl"><property name="alias" value="mm1"/></include>, '') AS most_monster_1_image,
-            m2.m2_id::text AS most_monster_2_id,
-            m2.m2_pick AS most_monster_2_pick_count,
-            COALESCE(mm2.kr_name, '') AS most_monster_2_name,
-            COALESCE(<include refid="monsterPortraitUrl"><property name="alias" value="mm2"/></include>, '') AS most_monster_2_image,
-            m3.m3_id::text AS most_monster_3_id,
-            m3.m3_pick AS most_monster_3_pick_count,
-            COALESCE(mm3.kr_name, '') AS most_monster_3_name,
-            COALESCE(<include refid="monsterPortraitUrl"><property name="alias" value="mm3"/></include>, '') AS most_monster_3_image
+            COALESCE(wa.win_count, 0)::bigint AS win_count
         FROM page_ranked pr
         LEFT JOIN win_agg wa ON pr.wizard_id = wa.wizard_id
-        LEFT JOIN score_max_agg sm ON pr.wizard_id = sm.wizard_id
-        LEFT JOIN most1 m1 ON pr.wizard_id = m1.wizard_id
-        LEFT JOIN public.monster mm1 ON m1.m1_id IS NOT NULL AND TRIM(BOTH FROM m1.m1_id::text) ~ '^[0-9]+$'
-            AND mm1.monster_id = TRIM(BOTH FROM m1.m1_id::text)
-        LEFT JOIN most2 m2 ON pr.wizard_id = m2.wizard_id
-        LEFT JOIN public.monster mm2 ON m2.m2_id IS NOT NULL AND TRIM(BOTH FROM m2.m2_id::text) ~ '^[0-9]+$'
-            AND mm2.monster_id = TRIM(BOTH FROM m2.m2_id::text)
-        LEFT JOIN most3 m3 ON pr.wizard_id = m3.wizard_id
-        LEFT JOIN public.monster mm3 ON m3.m3_id IS NOT NULL AND TRIM(BOTH FROM m3.m3_id::text) ~ '^[0-9]+$'
-            AND mm3.monster_id = TRIM(BOTH FROM m3.m3_id::text)
         ORDER BY pr.rank_position
     </select>
 
     <!-- 닉네임: 부분 일치(POSITION). 위자드 ID: TRIM 후 정확 일치 — 라이브 집계 -->
     <select id="searchRtaSummonersInAgg" resultType="map">
         WITH <include refid="rtaMatchInSeasonCte"/>,
-        latest AS (
-            SELECT DISTINCT ON (u.wizard_id)
-                u.wizard_id,
-                u.wizard_name,
-                u.country_code AS country,
-                u.channel_uid,
-                CAST(TRIM(u.ladder_score::text) AS INT) AS score,
-                CASE
-                    WHEN TRIM(COALESCE(u.rating_id::text, '')) ~ '^[0-9]+$'
-                    THEN CAST(TRIM(u.rating_id::text) AS INT)
-                    ELSE NULL
-                END AS rating_id,
-                r.date_add AS last_match_at
-            FROM public.rta_match_participant u
-            INNER JOIN rta_match_in_season r ON u.replay_id = r.rid
-            WHERE TRIM(COALESCE(u.ladder_score::text, '')) ~ '^[0-9]+$'
-              AND CAST(TRIM(u.ladder_score::text) AS INT) &gt; 0
-            ORDER BY u.wizard_id, r.date_add DESC
-        ),
+        <include refid="rtaSummonerLatestPerWizardCte"/>,
         ranked AS (
             SELECT
                 latest.wizard_id,
@@ -423,6 +273,16 @@
                season_code AS "seasonCode"
         FROM rta_season
         WHERE season_code = #{seasonCode}
+        LIMIT 1
+    </select>
+
+    <select id="selectRtaSeasonBoundsBySeasonId" resultType="map">
+        SELECT season_id AS "seasonId",
+               start_at AS "startAt",
+               end_at AS "endAt",
+               season_code AS "seasonCode"
+        FROM rta_season
+        WHERE season_id = #{seasonId}
         LIMIT 1
     </select>
 
@@ -517,29 +377,27 @@
         base AS (
             SELECT
                 r.date_add,
-                CAST(TRIM(u.ladder_score::text) AS INT) AS score_val,
+                u.ladder_score AS score_val,
                 (
                     CASE
-                        WHEN CAST(TRIM(u.rating_id::text) AS INT) &gt;= 5000 THEN 'L'
-                        WHEN CAST(TRIM(u.rating_id::text) AS INT) &gt;= 4000 THEN 'G'
-                        WHEN CAST(TRIM(u.rating_id::text) AS INT) &gt;= 3500 THEN 'P'
-                        WHEN CAST(TRIM(u.rating_id::text) AS INT) &gt;= 3000 THEN 'C'
-                        WHEN CAST(TRIM(u.rating_id::text) AS INT) &gt;= 2000 THEN 'F'
+                        WHEN u.rating_id &gt;= 5000 THEN 'L'
+                        WHEN u.rating_id &gt;= 4000 THEN 'G'
+                        WHEN u.rating_id &gt;= 3500 THEN 'P'
+                        WHEN u.rating_id &gt;= 3000 THEN 'C'
+                        WHEN u.rating_id &gt;= 2000 THEN 'F'
                         ELSE 'Ch'
                     END
                 )
                 ||
                 CASE
-                    WHEN (CAST(TRIM(u.rating_id::text) AS INT) % 10) IN (1, 2, 3)
-                    THEN (CAST(TRIM(u.rating_id::text) AS INT) % 10)::text
+                    WHEN (u.rating_id % 10) IN (1, 2, 3)
+                    THEN (u.rating_id % 10)::text
                     ELSE '2'
                 END AS tier_key
             FROM public.rta_match_participant u
             INNER JOIN rta_match_in_window r ON u.replay_id = r.rid
-            WHERE TRIM(COALESCE(u.rating_id::text, '')) ~ '^[0-9]+$'
-              AND CAST(TRIM(u.rating_id::text) AS INT) &gt;= 1000
-              AND TRIM(COALESCE(u.ladder_score::text, '')) ~ '^[0-9]+$'
-              AND CAST(TRIM(u.ladder_score::text) AS INT) &gt; 0
+            WHERE u.rating_id &gt;= 1000
+              AND u.ladder_score &gt; 0
         ),
         tiers AS (
             SELECT * FROM (VALUES
@@ -568,15 +426,13 @@
             CURRENT_TIMESTAMP,
             rg.rating_id,
             COALESCE((
-                SELECT MIN(CAST(TRIM(u.ladder_score::text) AS INT))
+                SELECT MIN(u.ladder_score)
                 FROM public.rta_match_participant u
                 INNER JOIN public.rta_match m ON m.replay_id = u.replay_id
                 WHERE m.played_at &gt;= s.start_at
                   AND m.played_at &lt; s.end_at
-                  AND TRIM(COALESCE(u.rating_id::text, '')) ~ '^[0-9]+$'
-                  AND CAST(TRIM(u.rating_id::text) AS INT) = rg.rating_id
-                  AND TRIM(COALESCE(u.ladder_score::text, '')) ~ '^[0-9]+$'
-                  AND CAST(TRIM(u.ladder_score::text) AS INT) &gt; 0
+                  AND u.rating_id = rg.rating_id
+                  AND u.ladder_score &gt; 0
             ), 0)::bigint
         FROM public.rta_season s
         INNER JOIN public.rta_rating_grade rg ON rg.tier_key IS NOT NULL

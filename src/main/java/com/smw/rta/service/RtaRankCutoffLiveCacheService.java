@@ -1,6 +1,5 @@
 package com.smw.rta.service;
 
-import java.sql.Timestamp;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -28,7 +27,7 @@ public class RtaRankCutoffLiveCacheService {
 
 	@Cacheable(cacheNames = "rtaRankCutoffLive", cacheManager = "rtaOneHourCacheManager",
 			key = "'anchors_' + (#seasonCode != null && !#seasonCode.isEmpty() ? #seasonCode : '_all')")
-	public List<Map<String, Object>> getAnchors(String seasonCode, Timestamp seasonStart, Timestamp seasonEnd) {
+	public List<Map<String, Object>> getAnchors(String seasonCode, Long seasonId) {
 		String src = rtaDashboardProperties.getRankCutAnchorSource();
 		if (src == null) {
 			src = "snap_then_live";
@@ -46,11 +45,11 @@ public class RtaRankCutoffLiveCacheService {
 		}
 
 		if ("live".equals(src) || "snap_then_live".equals(src)) {
-			List<Map<String, Object>> live = rtaMapper.getRtaRankCutoffAnchorsFromLive(seasonStart, seasonEnd);
+			List<Map<String, Object>> live = rtaMapper.getRtaRankCutoffAnchorsFromLive(seasonId);
 			return live != null ? live : Collections.emptyList();
 		}
 
-		List<Map<String, Object>> live = rtaMapper.getRtaRankCutoffAnchorsFromLive(seasonStart, seasonEnd);
+		List<Map<String, Object>> live = rtaMapper.getRtaRankCutoffAnchorsFromLive(seasonId);
 		return live != null ? live : Collections.emptyList();
 	}
 }

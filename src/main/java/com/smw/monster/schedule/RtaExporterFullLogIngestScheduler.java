@@ -25,7 +25,8 @@ import lombok.extern.slf4j.Slf4j;
  * Exporter 가 만든 full_log 를 watch 디렉터리에서 {@code temp} 로 옮긴 뒤 파싱하여
  * <strong>원본 JSON 스테이징 테이블에만 INSERT</strong> 한다. {@code rta_match} 등 정규화는 WAS 배치가 수행한다.
  * 성공 시 temp 파일을 삭제한다. 처리 실패 시 {@code *.failed} 로 남기며, 이후 스캔에서는
- * watch 에 새 로그가 계속 있어도 temp 내 가장 오래된 {@code *.failed} 를 먼저 {@code retry_*} 로 재시도한다.
+ * watch 에 새 로그가 있어도 처리 순서는 (1) temp 의 {@code *.failed} (2) temp 의 그 외 대기 파일
+ * (3) {@code watch-directory} 의 {@code full_log*} 이다.
  * <p>
  * 스케줄: 이전 구간 종료 후 {@link RtaExporterProperties#getPollIntervalMs()} 만큼 대기한 뒤,
  * {@link RtaExporterProperties#getPollBurstDurationMs()} 동안 {@link RtaExporterProperties#getPollScanIntervalMs()} 간격으로 폴더를 반복 스캔한다.
@@ -90,7 +91,7 @@ public class RtaExporterFullLogIngestScheduler {
 		}
 	}
 
-	/** 한 번: temp 의 *.failed 재시도 1개 → 없으면 watch 에서 후보 1개 → 파싱·DB. */
+	/** 한 번: temp ({@code *.failed} → temp 기타 대기) → 없으면 watch 후보 1개 → 파싱·DB. */
 	private void tryIngestOneCandidate(Path watchDir, Path tempDir, String prefix, long maxBytes) {
 		Path workFile;
 		try {
@@ -130,7 +131,8 @@ public class RtaExporterFullLogIngestScheduler {
 
 	/**
 	 * 우선순위: (1) temp 내 가장 오래된 {@code *.failed} → 재시도용 이름으로 이동
-	 * (2) 없으면 watch 의 full_log 후보 → temp 로 이동. watch 에 로그가 끊이 없을 때도 실패 큐가 처리되도록 한다.
+	 * (2) temp 내 {@code *.failed} 가 아닌 대기 파일 중 가장 오래된 것(작업 중단 등 잔존 분)
+	 * (3) watch 의 full_log 후보 → temp 로 이동.
 	 * @return 작업 파일 경로, 없으면 null
 	 */
 	private Path prepareOneWorkFile(Path watchDir, Path tempDir, String prefix, long maxBytes) throws IOException {
@@ -151,6 +153,22 @@ public class RtaExporterFullLogIngestScheduler {
 			}
 			log.info("[rta-exporter] 이전 실패 파일 재시도: {} → {}", failed, workFile);
 			return workFile;
+		}
+
+		Path tempPending = findNextTempPendingNonFailed(tempDir);
+		if (tempPending != null) {
+			long size = Files.size(tempPending);
+			if (size > maxBytes) {
+				log.warn("[rta-exporter] temp 대기 파일이 너무 큼 ({} MB 한도), 건너뜀: {}", props.getMaxFileSizeMb(), tempPending);
+				return null;
+			}
+			boolean stable = waitUntilFileStable(tempPending, props.getStableMillis(), props.getStableMaxWaitMs());
+			if (!stable) {
+				log.debug("[rta-exporter] temp 대기 파일 크기 변동, 다음 스캔: {}", tempPending);
+				return null;
+			}
+			log.debug("[rta-exporter] temp 대기 파일 처리: {}", tempPending);
+			return tempPending;
 		}
 
 		Path candidate = findNextCandidate(watchDir, prefix);
@@ -193,6 +211,29 @@ public class RtaExporterFullLogIngestScheduler {
 			return fileName.substring(0, fileName.length() - ".failed".length());
 		}
 		return fileName != null ? fileName : "";
+	}
+
+	/**
+	 * temp 폴더에서 {@code *.failed} 가 아닌 일반 파일 중 수정 시각이 가장 오래된 1개.
+	 * {@code *.failed} 재처리 전에 비워 두어야 할 잔존 작업 파일용.
+	 */
+	private static Path findNextTempPendingNonFailed(Path tempDir) throws IOException {
+		if (!Files.isDirectory(tempDir)) {
+			return null;
+		}
+		try (Stream<Path> stream = Files.list(tempDir)) {
+			return stream
+					.filter(Files::isRegularFile)
+					.filter(p -> !p.getFileName().toString().endsWith(".failed"))
+					.min(Comparator.comparingLong(path -> {
+						try {
+							return Files.getLastModifiedTime(path).toMillis();
+						} catch (IOException e) {
+							return Long.MAX_VALUE;
+						}
+					}))
+					.orElse(null);
+		}
 	}
 
 	/** temp 폴더에서 {@code *.failed} 중 수정 시각이 가장 오래된 1개 (FIFO 재시도). */

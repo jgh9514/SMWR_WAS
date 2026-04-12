@@ -3,7 +3,6 @@ package com.smw.rta.mapper;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
-import java.sql.Timestamp;
 import java.util.List;
 import java.util.Map;
 
@@ -14,51 +13,14 @@ import com.smw.rta.model.RtaSynergyAggUpsertRow;
 public interface RtaMapper {
     
     List<Map<String, Object>> getRtaMatches(@Param("limit") int limit, @Param("offset") int offset,
-            @Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd,
-            @Param("seasonId") Long seasonId, @Param("tierKey") String tierKey);
-    
-    List<Map<String, Object>> getPlayerRtaMatches(@Param("wizardId") String wizardId, @Param("limit") int limit, @Param("offset") int offset,
-            @Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd,
-            @Param("seasonId") Long seasonId);
-    
-    int getTodayRtaMatches(@Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd,
-            @Param("seasonId") Long seasonId, @Param("tierKey") String tierKey);
-    
-    int getWeeklyRtaMatches(@Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd,
             @Param("seasonId") Long seasonId, @Param("tierKey") String tierKey);
 
-    /**
-     * 이전 시그니처( seasonId 없음 )와의 바이너리 호환 — XML 은 5번째 파라미터만 매핑.
-     */
-    default List<Map<String, Object>> getRtaMatches(int limit, int offset, Timestamp seasonStart, Timestamp seasonEnd) {
-        return getRtaMatches(limit, offset, seasonStart, seasonEnd, null, null);
-    }
+    List<Map<String, Object>> getPlayerRtaMatches(@Param("wizardId") String wizardId, @Param("limit") int limit,
+            @Param("offset") int offset, @Param("seasonId") Long seasonId);
 
-    default List<Map<String, Object>> getRtaMatches(int limit, int offset, Timestamp seasonStart, Timestamp seasonEnd,
-            Long seasonId) {
-        return getRtaMatches(limit, offset, seasonStart, seasonEnd, seasonId, null);
-    }
+    int getTodayRtaMatches(@Param("seasonId") Long seasonId, @Param("tierKey") String tierKey);
 
-    default List<Map<String, Object>> getPlayerRtaMatches(String wizardId, int limit, int offset, Timestamp seasonStart,
-            Timestamp seasonEnd) {
-        return getPlayerRtaMatches(wizardId, limit, offset, seasonStart, seasonEnd, null);
-    }
-
-    default int getTodayRtaMatches(Timestamp seasonStart, Timestamp seasonEnd) {
-        return getTodayRtaMatches(seasonStart, seasonEnd, null, null);
-    }
-
-    default int getTodayRtaMatches(Timestamp seasonStart, Timestamp seasonEnd, Long seasonId) {
-        return getTodayRtaMatches(seasonStart, seasonEnd, seasonId, null);
-    }
-
-    default int getWeeklyRtaMatches(Timestamp seasonStart, Timestamp seasonEnd) {
-        return getWeeklyRtaMatches(seasonStart, seasonEnd, null, null);
-    }
-
-    default int getWeeklyRtaMatches(Timestamp seasonStart, Timestamp seasonEnd, Long seasonId) {
-        return getWeeklyRtaMatches(seasonStart, seasonEnd, seasonId, null);
-    }
+    int getWeeklyRtaMatches(@Param("seasonId") Long seasonId, @Param("tierKey") String tierKey);
 
     /** (호환) 예전 빌드에서 참조할 수 있음 — 현재 서비스 경로에서는 미사용 가능 */
     List<Map<String, Object>> selectMonsterPortraitMetaByIds(@Param("ids") List<String> ids);
@@ -70,8 +32,7 @@ public interface RtaMapper {
     List<Map<String, Object>> debugMatchDetail(@Param("rid") String rid);
     
     /** 시즌별 일자×티어 집계 적재 — 해당 시즌 행만 삭제 후 INSERT (배치 전용). {@code season_id} 기준. */
-    int insertRtaTierAggDailyForSeason(@Param("seasonId") long seasonId,
-            @Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd);
+    int insertRtaTierAggDailyForSeason(@Param("seasonId") long seasonId);
 
     /** 시즌 총 매치 수 (집계 메타) */
     Long getRtaMonsterStatsTotalFromAgg(@Param("seasonCode") String seasonCode);
@@ -88,13 +49,11 @@ public interface RtaMapper {
      * 몬스터별 통계 — 집계 테이블이 비었을 때 시즌 구간에서 픽 원본으로 라이브 집계.
      */
     List<Map<String, Object>> getRtaMonsterStatsLive(@Param("limit") int limit, @Param("offset") int offset,
-            @Param("seasonCode") String seasonCode, @Param("seasonStart") Timestamp seasonStart,
-            @Param("seasonEnd") Timestamp seasonEnd);
+            @Param("seasonCode") String seasonCode, @Param("seasonId") Long seasonId);
 
     Long countRtaMonsterStatsFromAgg(@Param("seasonCode") String seasonCode, @Param("tierKey") String tierKey);
 
-    Long countRtaMonsterStatsLive(@Param("seasonCode") String seasonCode, @Param("seasonStart") Timestamp seasonStart,
-            @Param("seasonEnd") Timestamp seasonEnd);
+    Long countRtaMonsterStatsLive(@Param("seasonCode") String seasonCode, @Param("seasonId") Long seasonId);
 
     /** 2마리 조합 — {@code rta_agg_synergy_combo} (combo_size=2) */
     List<Map<String, Object>> getRtaDuoComboStatsFromAgg(@Param("limit") int limit, @Param("offset") int offset,
@@ -111,32 +70,23 @@ public interface RtaMapper {
     /**
      * RTA 몬스터 기본 정보 조회
      */
-    Map<String, Object> getRtaMonsterBasicInfo(@Param("monsterId") int monsterId,
-            @Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd);
-    
-    /**
-     * RTA 몬스터 강한 상대 조회
-     */
+    Map<String, Object> getRtaMonsterBasicInfo(@Param("monsterId") int monsterId, @Param("seasonId") Long seasonId);
+
+    /** RTA 몬스터 강한 상대 조회 */
     List<Map<String, Object>> getRtaMonsterStrongAgainst(@Param("monsterId") int monsterId,
-            @Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd);
-    
-    /**
-     * RTA 몬스터 좋은 콤비 조회
-     */
+            @Param("seasonId") Long seasonId);
+
+    /** RTA 몬스터 좋은 콤비 조회 */
     List<Map<String, Object>> getRtaMonsterGoodCombos(@Param("monsterId") int monsterId,
-            @Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd);
-    
-    /**
-     * RTA 몬스터 좋은 3체인 콤비 조회
-     */
+            @Param("seasonId") Long seasonId);
+
+    /** RTA 몬스터 좋은 3체인 콤비 조회 */
     List<Map<String, Object>> getRtaMonsterGoodTripleCombos(@Param("monsterId") int monsterId,
-            @Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd);
-    
-    /**
-     * RTA 몬스터 최근 경기 조회
-     */
+            @Param("seasonId") Long seasonId);
+
+    /** RTA 몬스터 최근 경기 조회 */
     List<Map<String, Object>> getRtaMonsterRecentMatches(@Param("monsterId") int monsterId,
-            @Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd);
+            @Param("seasonId") Long seasonId);
 
     /**
      * 일자×티어별 출현 수 (대시보드). {@code rta_agg_tier_daily} 배치 적재본.
@@ -146,9 +96,8 @@ public interface RtaMapper {
     /** 리플레이 기간 min/max — {@code rta_match.played_at} (대시보드) */
     Map<String, Object> getRtaReplayDateRangeFromAgg(@Param("seasonCode") String seasonCode);
 
-    /** 랭크 컷 앵커 — 현재 시각 기준 되돌림 구간 [now-iv, now] 라이브 집계 (대시보드). 시즌 경계는 티어 분포와 동일하게 전달 */
-    List<Map<String, Object>> getRtaRankCutoffAnchorsFromLive(
-            @Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd);
+    /** 랭크 컷 앵커 — 현재 시각 기준 되돌림 구간 [now-iv, now] 라이브 집계 (대시보드). */
+    List<Map<String, Object>> getRtaRankCutoffAnchorsFromLive(@Param("seasonId") Long seasonId);
 
     /** 랭크 컷 앵커 — {@code rta_rank_cutoff_anchor_snap} 배치 적재 결과 */
     List<Map<String, Object>> getRtaRankCutoffAnchorsFromAgg();
@@ -156,39 +105,34 @@ public interface RtaMapper {
     /** 앵커 스냅샷 전체 삭제 후 라이브와 동일 로직으로 재적재 */
     int deleteAllRtaRankCutoffAnchorSnap();
 
-    int insertRtaRankCutoffAnchorSnapFromLive();
+    int insertRtaRankCutoffAnchorSnapFromLive(@Param("seasonId") long seasonId);
 
     /** 시즌×등급별 컷 히스토리 1회 적재 */
     int insertRtaSnapshotRankCutForAllSeasons();
 
-    /** 소환사 랭킹 (최근 리플레이 기준 점수 순) */
-    int getRtaSummonerRankingCount(
-            @Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd);
+    /** 소환사 랭킹 — 시즌 내 위자드별 최고 래더 점수 행 기준 상위 풀·페이지 */
+    int getRtaSummonerRankingCount(@Param("seasonId") Long seasonId);
 
     List<Map<String, Object>> getRtaSummonerRanking(@Param("limit") int limit, @Param("offset") int offset,
-            @Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd);
+            @Param("seasonId") Long seasonId);
 
     int getRtaSummonerRankingAggCount(@Param("seasonCode") String seasonCode,
-            @Param("countryFilter") String countryFilter,
-            @Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd);
+            @Param("countryFilter") String countryFilter, @Param("seasonId") Long seasonId);
 
     List<Map<String, Object>> getRtaSummonerRankingFromAgg(@Param("limit") int limit, @Param("offset") int offset,
             @Param("seasonCode") String seasonCode, @Param("countryFilter") String countryFilter,
-            @Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd);
+            @Param("seasonId") Long seasonId);
 
     /** 랭킹 라이브 검색(닉네임 부분 일치 또는 위자드 ID 정확 일치) */
     List<Map<String, Object>> searchRtaSummonersInAgg(@Param("seasonCode") String seasonCode, @Param("query") String query,
-            @Param("limit") int limit,
-            @Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd);
+            @Param("limit") int limit, @Param("seasonId") Long seasonId);
 
     /** 소환사 상세 헤더용 요약 (수집 리플레이 기준 최신 점수·글로벌 순위) */
-    Map<String, Object> getRtaPlayerSummary(@Param("wizardId") String wizardId,
-            @Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd);
+    Map<String, Object> getRtaPlayerSummary(@Param("wizardId") String wizardId, @Param("seasonId") Long seasonId);
 
     /** 소환사 요약 — {@link #getRtaPlayerSummary} 와 동일 라이브 집계 */
     Map<String, Object> getRtaPlayerSummaryFromAgg(@Param("wizardId") String wizardId,
-            @Param("seasonCode") String seasonCode,
-            @Param("seasonStart") Timestamp seasonStart, @Param("seasonEnd") Timestamp seasonEnd);
+            @Param("seasonCode") String seasonCode, @Param("seasonId") Long seasonId);
 
     /** 시너지 미집계 rid ({@code rta_match.synergy_applied_at IS NULL}, rid 오름차순). 성공/실패는 {@code synergy_apply_result}. */
     List<Long> selectPendingSynergyAggRids(@Param("batchSize") int batchSize);
@@ -241,6 +185,9 @@ public interface RtaMapper {
 
     /** 시즌 코드로 start_at, end_at 조회 */
     Map<String, Object> selectRtaSeasonBounds(@Param("seasonCode") String seasonCode);
+
+    /** 시즌 PK로 start_at, end_at, season_code 조회 */
+    Map<String, Object> selectRtaSeasonBoundsBySeasonId(@Param("seasonId") long seasonId);
 
     /** 공식 티어 규칙 참고 (rta_rating_grade.tier_key 등) */
     List<Map<String, Object>> listRtaRatingGradeReference();
