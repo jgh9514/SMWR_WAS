@@ -13,6 +13,12 @@ spring:
   jackson:
     time-zone: Asia/Seoul
   batch:
+    jdbc:
+      # K8s(docker) 환경: log4jdbc URL(jdbc:log4jdbc:postgresql://...) 을 DatabaseDriver 가 인식 못해
+      # "Failed to determine DatabaseDriver" 발생 방지.
+      # 배치 메타 테이블(BATCH_JOB_INSTANCE 등)은 최초 always 실행 또는 수동 DDL로 이미 생성되어 있음.
+      initialize-schema: never
+      platform: postgresql
     job:
       # Spring Batch Job 빈이 여러 개(rtaReplayPipelineJob 등) — true 면 기동 시 Job 이름 미지정으로 실패할 수 있음.
       # Quartz 스케줄은 smw.batch.quartz.enabled (또는 SMW_BATCH_QUARTZ_ENABLED). NDJSON Job 은 JobLauncher 로만 실행.

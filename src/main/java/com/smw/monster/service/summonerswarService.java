@@ -117,12 +117,6 @@ public interface summonerswarService {
 	Map<String, Integer> applyArenaRtaUploadFromParsedItems(List<Map<String, ?>> log_list);
 
 	/**
-	 * Exporter {@code watch-directory} 전용: 검증 후 원본 JSON 스테이징 테이블에만 적재(pending).
-	 * 정규화는 {@link com.smw.monster.batch.RtaUnifiedPipelineAggJob}(bat_id 10001)가 수행한다.
-	 */
-	Map<String, Integer> applyArenaRtaUploadRawOnlyFromParsedItems(List<Map<String, ?>> log_list);
-
-	/**
 	 * NDJSON/API 청크용: 정규화 테이블만 적재 (기존 rid 는 ON CONFLICT 로 스킵).
 	 * Spring Batch Step1 에서 chunk 단위로 호출한다.
 	 */

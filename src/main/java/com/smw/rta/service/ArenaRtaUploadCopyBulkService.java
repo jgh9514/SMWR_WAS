@@ -203,7 +203,7 @@ public class ArenaRtaUploadCopyBulkService {
 				}
 			}
 			ArenaRtaPersistMode m = mode != null ? mode : ArenaRtaPersistMode.FULL;
-			boolean writeRaw = m == ArenaRtaPersistMode.FULL || m == ArenaRtaPersistMode.RAW_ONLY;
+			boolean writeRaw = m == ArenaRtaPersistMode.FULL;
 			boolean writeNorm = m == ArenaRtaPersistMode.FULL || m == ArenaRtaPersistMode.NORMALIZED_ONLY;
 			boolean markApplied = m == ArenaRtaPersistMode.FULL || m == ArenaRtaPersistMode.NORMALIZED_ONLY;
 
@@ -261,11 +261,11 @@ public class ArenaRtaUploadCopyBulkService {
 				st.execute("RELEASE SAVEPOINT " + SP);
 			}
 			log.debug("[rta-upload] COPY 벌크 적재 완료 (raw={}, match={}, user={}, unit={}, applied={})",
-					rawReplayRows != null ? rawReplayRows.size() : 0,
-					arenaRows != null ? arenaRows.size() : 0,
-					userBatch != null ? userBatch.size() : 0,
-					unitBatch != null ? unitBatch.size() : 0,
-					appliedRids != null ? appliedRids.size() : 0);
+					writeRaw  && rawReplayRows != null ? rawReplayRows.size() : 0,
+					writeNorm && arenaRows     != null ? arenaRows.size()     : 0,
+					writeNorm && userBatch     != null ? userBatch.size()     : 0,
+					writeNorm && unitBatch     != null ? unitBatch.size()     : 0,
+					markApplied && appliedRids != null ? appliedRids.size()   : 0);
 			return true;
 		} catch (SQLException | IOException | RuntimeException e) {
 			try (Statement st = conn.createStatement()) {

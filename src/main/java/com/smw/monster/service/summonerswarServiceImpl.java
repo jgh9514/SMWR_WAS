@@ -1163,8 +1163,8 @@ public class summonerswarServiceImpl implements summonerswarService {
 			try {
 				conn = DataSourceUtils.getConnection(dataSource);
 				ArenaRtaPersistMode mode = persistMode != null ? persistMode : ArenaRtaPersistMode.FULL;
-				boolean writeRaw = mode == ArenaRtaPersistMode.FULL || mode == ArenaRtaPersistMode.RAW_ONLY;
-				List<Map<String, Object>> rawForCopy = Collections.emptyList();
+			boolean writeRaw = mode == ArenaRtaPersistMode.FULL;
+			List<Map<String, Object>> rawForCopy = Collections.emptyList();
 				if (writeRaw) {
 					rawForCopy = buildArenaReplayRawRows(arenaRows);
 				}
@@ -1199,7 +1199,7 @@ public class summonerswarServiceImpl implements summonerswarService {
 			List<Map<String, ?>> unitBatch,
 			ArenaRtaPersistMode persistMode) {
 		ArenaRtaPersistMode mode = persistMode != null ? persistMode : ArenaRtaPersistMode.FULL;
-		boolean writeRaw = mode == ArenaRtaPersistMode.FULL || mode == ArenaRtaPersistMode.RAW_ONLY;
+		boolean writeRaw = mode == ArenaRtaPersistMode.FULL;
 		boolean writeNormalized = mode == ArenaRtaPersistMode.FULL || mode == ArenaRtaPersistMode.NORMALIZED_ONLY;
 		boolean markRawApplied = mode == ArenaRtaPersistMode.FULL || mode == ArenaRtaPersistMode.NORMALIZED_ONLY;
 
@@ -1345,17 +1345,11 @@ public class summonerswarServiceImpl implements summonerswarService {
 
 	@Override
 	@SuppressWarnings("unchecked")
-	public Map<String, Integer> applyArenaRtaUploadRawOnlyFromParsedItems(List<Map<String, ?>> log_list) {
-		return applyArenaRtaUploadFromParsedItemsWithMode(log_list, ArenaRtaPersistMode.RAW_ONLY);
-	}
-
-	@Override
-	@SuppressWarnings("unchecked")
 	public Map<String, Integer> applyArenaRtaNormalizedChunk(List<Map<String, ?>> log_list) {
 		return applyArenaRtaUploadFromParsedItemsWithMode(log_list, ArenaRtaPersistMode.NORMALIZED_ONLY);
 	}
 
-	/** Exporter / API 공통: 파싱 로그 → 배치 적재 (FULL 또는 RAW_ONLY). */
+	/** API 공통: 파싱 로그 → 배치 적재 (FULL 또는 NORMALIZED_ONLY). */
 	@SuppressWarnings("unchecked")
 	private Map<String, Integer> applyArenaRtaUploadFromParsedItemsWithMode(
 			List<Map<String, ?>> log_list,

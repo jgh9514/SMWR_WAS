@@ -222,7 +222,17 @@ jobs:
             echo "WARNING: k8s/deployment.yaml 파일을 찾을 수 없음"
           fi
           
-          # 백엔드 배포
+          # Redis 배포 (smw-app·smw-batch 보다 먼저 기동되어야 함)
+          echo "=== Redis 배포 ==="
+          if [ -f k8s/redis.yaml ]; then
+            ${KUBECTL} apply -f k8s/redis.yaml --request-timeout=180s || {
+              echo "WARNING: redis 적용 실패"
+            }
+          else
+            echo "WARNING: k8s/redis.yaml 파일을 찾을 수 없음"
+          fi
+          
+          # 백엔드(API) 배포
           echo "=== 배포 시작 ==="
           if [ -f k8s/deployment.yaml ]; then
             ${KUBECTL} apply -f k8s/deployment.yaml --request-timeout=180s || {
@@ -243,8 +253,22 @@ jobs:
             exit 1
           fi
           
+          # 배치 서버 배포
+          echo "=== 배치 서버 배포 ==="
+          if [ -f k8s/batch-deployment.yaml ]; then
+            ${KUBECTL} apply -f k8s/batch-deployment.yaml --request-timeout=180s || {
+              echo "WARNING: batch 배포 실패, 재시도 중..."
+              sleep 5
+              ${KUBECTL} apply -f k8s/batch-deployment.yaml --request-timeout=180s || {
+                echo "WARNING: batch 배포 최종 실패 (API 배포는 계속 진행)"
+              }
+            }
+          else
+            echo "WARNING: k8s/batch-deployment.yaml 파일을 찾을 수 없음"
+          fi
+          
           echo "=== Pod 재시작 (최신 이미지 적용) ==="
-          for DEPLOY in smw-app; do
+          for DEPLOY in smw-app smw-batch; do
             ${KUBECTL} rollout restart deployment/${DEPLOY} --request-timeout=180s || {
               echo "WARNING: ${DEPLOY} rollout restart 실패, Pod 직접 삭제 시도"
               ${KUBECTL} delete pod -l app=${DEPLOY} --request-timeout=180s || {
@@ -263,7 +287,7 @@ jobs:
           }
           
           echo "=== 배포 완료 대기 (최대 5분) ==="
-          for DEPLOY in smw-app; do
+          for DEPLOY in smw-app smw-batch; do
             ${KUBECTL} rollout status deployment/${DEPLOY} --timeout=5m || {
               echo "WARNING: ${DEPLOY} 배포 완료 대기 시간 초과"
               echo "현재 Pod 상태:"
@@ -277,7 +301,7 @@ jobs:
           
           # Pod 상태 상세 확인
           echo "=== Pod 상세 상태 ==="
-          for APP_LABEL in smw-app; do
+          for APP_LABEL in smw-app smw-batch smw-redis; do
             POD_NAME=$(${KUBECTL} get pods -l app=${APP_LABEL} -o jsonpath='{.items[0].metadata.name}' --request-timeout=15s 2>/dev/null || echo "")
             if [ -n "$POD_NAME" ] && [ "$POD_NAME" != "null" ]; then
               echo "Pod 이름: $POD_NAME"
@@ -292,8 +316,9 @@ jobs:
           # 배포 성공 여부 확인
           echo "=== 배포 성공 여부 확인 ==="
           API_READY_PODS=$(${KUBECTL} get pods -l app=smw-app -o jsonpath='{.items[?(@.status.phase=="Running")].metadata.name}' --request-timeout=15s 2>/dev/null | wc -w)
+          BATCH_READY_PODS=$(${KUBECTL} get pods -l app=smw-batch -o jsonpath='{.items[?(@.status.phase=="Running")].metadata.name}' --request-timeout=15s 2>/dev/null | wc -w)
           if [ "$API_READY_PODS" -gt 0 ]; then
-            echo "✅ 배포 성공: api=${API_READY_PODS}개 Pod가 Running 상태입니다."
+            echo "✅ 배포 성공: api=${API_READY_PODS}개, batch=${BATCH_READY_PODS}개 Pod가 Running 상태입니다."
           else
             echo "❌ 배포 실패: api=${API_READY_PODS}개 Pod가 Running 상태입니다."
             exit 1

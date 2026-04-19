@@ -15,8 +15,8 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import com.smw.monster.config.RtaExporterProperties;
-import com.smw.monster.service.summonerswarService;
 import com.smw.monster.util.RankerRtpvpReplayLogParser;
+import com.smw.rta.service.RtaExporterRawIngestService;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -40,7 +40,7 @@ import lombok.extern.slf4j.Slf4j;
 public class RtaExporterFullLogIngestScheduler {
 
 	private final RtaExporterProperties props;
-	private final summonerswarService summonerswarService;
+	private final RtaExporterRawIngestService rawIngestService;
 
 	private final Object ingestLock = new Object();
 
@@ -112,9 +112,7 @@ public class RtaExporterFullLogIngestScheduler {
 				Files.deleteIfExists(workFile);
 				return;
 			}
-			@SuppressWarnings("unchecked")
-			List<Map<String, ?>> items = (List<Map<String, ?>>) (List<?>) parsed;
-			Map<String, Integer> counts = summonerswarService.applyArenaRtaUploadRawOnlyFromParsedItems(items);
+			Map<String, Integer> counts = rawIngestService.ingestRawItems(parsed);
 			log.info("[rta-exporter] raw 적재 완료 {} → success={} fail={}", workFile,
 					counts.get("success"), counts.get("fail"));
 			Files.deleteIfExists(workFile);
