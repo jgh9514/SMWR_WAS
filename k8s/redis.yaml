@@ -1,0 +1,65 @@
+# 클러스터 내부 RTA 조회 캐시. WAS·배치 Pod 가 동일 호스트로 연결한다.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: smw-redis
+  labels:
+    app: smw-redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: smw-redis
+  template:
+    metadata:
+      labels:
+        app: smw-redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          ports:
+            - containerPort: 6379
+              name: redis
+          args:
+            - redis-server
+            - --appendonly
+            - "yes"
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "50m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          readinessProbe:
+            exec:
+              command:
+                - redis-cli
+                - ping
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command:
+                - redis-cli
+                - ping
+            initialDelaySeconds: 15
+            periodSeconds: 20
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: smw-redis
+  labels:
+    app: smw-redis
+spec:
+  type: ClusterIP
+  selector:
+    app: smw-redis
+  ports:
+    - port: 6379
+      targetPort: 6379
+      protocol: TCP
+      name: redis

@@ -62,9 +62,10 @@ public class WebConfig implements WebMvcConfigurer {
 	public void addInterceptors(InterceptorRegistry registry) {
 		WebMvcConfigurer.super.addInterceptors(registry);
 		
-		// 일반용: 세션 주입 + @RequireLogin 분기
+		// 일반용: 세션 주입 + @RequireLogin 분기 (rta는 로그인 불필요 → 인터셉터 제외)
 		registry.addInterceptor(authSessionInterceptor)
-		        .addPathPatterns("/api/v1/**");
+		        .addPathPatterns("/api/v1/**")
+		        .excludePathPatterns("/api/v1/rta/**");
 
 		// 관리자용: @RequireAdmin 분기 (ROLE_ADMIN 권한 체크)
 		registry.addInterceptor(adminAuthInterceptor)

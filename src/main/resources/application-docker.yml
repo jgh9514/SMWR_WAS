@@ -1,5 +1,9 @@
 # Docker 환경 설정 (SPRING_PROFILES_ACTIVE=docker 로 활성화)
 spring:
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
   application:
     name: smw
   task:
@@ -125,6 +129,8 @@ management:
   health:
     mail:
       enabled: false  # 메일 헬스 체크 비활성화 (메일 인증 실패로 인한 DOWN 방지)
+    redis:
+      enabled: ${SMW_CACHE_RTA_USE_REDIS:false}
   metrics:
     tags:
       application: ${spring.application.name}
@@ -154,6 +160,9 @@ smw:
     short-lived:
       maximum-size: ${SMW_SHORT_CACHE_MAXIMUM_SIZE:500}
       expire-after-write-minutes: ${SMW_SHORT_CACHE_EXPIRE_AFTER_WRITE_MINUTES:5}
+    rta:
+      # K8s: Redis Service 호스트 + true 권장. Redis 없이 docker 프로필만 쓸 때는 false
+      use-redis: ${SMW_CACHE_RTA_USE_REDIS:false}
   ops:
     thresholds:
       heap-warning-percent: ${SMW_OPS_HEAP_WARNING_PERCENT:75}

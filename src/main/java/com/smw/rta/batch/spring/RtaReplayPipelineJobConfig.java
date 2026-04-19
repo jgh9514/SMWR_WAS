@@ -52,7 +52,7 @@ public class RtaReplayPipelineJobConfig {
 	public static final String JOB_SYNERGY_ONLY = "rtaSynergyAggregateBatchJob";
 
 	/** NDJSON Step1: 한 청크 커밋당 라인 수 */
-	public static final int DEFAULT_CHUNK = 100000;
+	public static final int DEFAULT_CHUNK = 1000;
 
 	/**
 	 * 시너지 Step2: Spring Batch 청크(회당 rid 수). 너무 크면 prefetch 맵·트랜잭션 시간이 커지므로 필요 시 jobParameters 로 줄일 것.
@@ -173,7 +173,7 @@ public class RtaReplayPipelineJobConfig {
 	@Bean
 	@StepScope
 	public JdbcPagingItemReader<Long> synergyPendingReplayReader(
-			@Value("#{jobParameters['synergyPageSize'] != null ? T(Integer).parseInt(jobParameters['synergyPageSize'].toString()) : 100000}") int pageSize)
+			@Value("#{jobParameters['synergyPageSize'] != null ? T(Integer).parseInt(jobParameters['synergyPageSize'].toString()) : 1000}") int pageSize)
 			throws Exception {
 		PostgresPagingQueryProvider queryProvider = new PostgresPagingQueryProvider();
 		queryProvider.setSelectClause("replay_id");

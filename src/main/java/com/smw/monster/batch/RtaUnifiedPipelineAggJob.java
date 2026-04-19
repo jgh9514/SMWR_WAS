@@ -4,7 +4,6 @@ import org.quartz.DisallowConcurrentExecution;
 import org.quartz.JobExecutionContext;
 
 import com.smw.account.mapper.AccountSummaryMapper;
-import com.smw.monster.mapper.summonerswarMapper;
 import com.smw.monster.service.summonerswarService;
 import com.smw.rta.cache.RtaCacheEvictor;
 import com.smw.rta.config.RtaBatchProperties;
@@ -16,16 +15,17 @@ import com.smw.rta.service.RtaSynergyAggService;
 /**
  * RTA 관련 집계를 한 번의 스케줄로 순서대로 수행한다.
  * <ol>
- * <li>리플레이 raw 정규화 (설정 라운드·건수 상한, 나머지는 다음 스케줄)</li>
- * <li>매치 스냅샷 pending (설정 라운드 상한)</li>
- * <li>시너지 집계 pending (설정 라운드 상한)</li>
- * <li>소환사 랭킹 agg 재적재</li>
- * <li>몬스터 통계 agg 재적재</li>
- * <li>사용자 보유 몬스터 집계 (SWEX → {@code user_monster_owned_agg})</li>
+ * <li>리플레이 raw 정규화 ({@code max-rows-per-run} 행을 1회 SELECT·처리. 잔여는 다음 스케줄에서)</li>
+ * <li>시너지 집계 pending — pending 이 모두 소진될 때까지 전량 처리</li>
+ * <li>부가 집계 — 설정에서 켠 항목만 실행. 티어 일별·랭크컷·레거시 몬스터 통계는 대부분 <b>별도 Quartz Job</b>이 담당.</li>
  * </ol>
- * 대시보드 티어 일별 분포는 {@code rta_agg_tier_daily} 배치 적재 + {@code getRtaTierDistributionDaily} + 캐시.
- * 기본적으로 본 Job 의 5b 단계는 끄고({@code smw.rta.batch.skip-tier-agg-daily-in-unified-job}),
- * {@link RtaTierDailyAggJob} 을 1시간 등 별도 스케줄로 돌리는 구성을 권장한다.
+ * <p>
+ * <b>통합 Job 밖에서 도는 것들</b> (짧은 주기 통합과 주기·부하가 다름):
+ * <ul>
+ * <li>{@code rta_agg_tier_daily} → {@link RtaTierDailyAggJob}</li>
+ * <li>랭크컷 앵커·등급 컷 스냅샷 → {@link RtaRankCutSnapshotAggJob}</li>
+ * </ul>
+ * 대시보드 티어 일별 분포는 {@code getRtaTierDistributionDaily} + 캐시이며, 풀스캔 재적재는 {@link RtaTierDailyAggJob} 권장.
  * <p>
  * 스케줄: DB {@code sys_batch_config.cron_expr} (기본 5분, bat_id 10001).
  * <p>
@@ -34,10 +34,14 @@ import com.smw.rta.service.RtaSynergyAggService;
 @DisallowConcurrentExecution
 public class RtaUnifiedPipelineAggJob extends BaseBatchJob {
 
+	/**
+	 * 로그 상 고정 단계: ① raw ② 시너지(+선택 보유몬) ③ 부가(레거시 몬스터·티어일별, 설정 시만).
+	 */
+	private static final int PIPELINE_STEPS = 3;
+
 	@Override
 	protected void executeBatch(JobExecutionContext context) throws Exception {
 		summonerswarService summonerswarService = applicationContext.getBean(summonerswarService.class);
-		summonerswarMapper summonerswarMapper = applicationContext.getBean(summonerswarMapper.class);
 		RtaMapper rtaMapper = applicationContext.getBean(RtaMapper.class);
 		RtaCacheEvictor rtaCacheEvictor = applicationContext.getBean(RtaCacheEvictor.class);
 		RtaBatchAggregationService aggregationService = applicationContext.getBean(RtaBatchAggregationService.class);
@@ -45,95 +49,79 @@ public class RtaUnifiedPipelineAggJob extends BaseBatchJob {
 		RtaBatchProperties rtaBatchProperties = applicationContext.getBean(RtaBatchProperties.class);
 		RtaRawApplyProperties rtaRawApplyProperties = applicationContext.getBean(RtaRawApplyProperties.class);
 
-		addLog("--- 1) RTA raw 정규화 (라운드·건수 상한) ---");
-		int notApplied = summonerswarMapper.selectRtaReplayRawNotAppliedCount();
-		addLog("미적용 raw 건수(참고): %d", notApplied);
-		int rawMaxRounds = Math.max(1, rtaRawApplyProperties.getMaxRoundsPerUnifiedJob());
-		addLog("raw 정규화 최대 라운드: %d (회당 최대 %d행)", rawMaxRounds, rtaRawApplyProperties.getMaxRowsPerRun());
-		RtaBatchAggregationService.RawApplyDrainResult raw = aggregationService.drainReplayRawPending(
-				summonerswarService,
-				rawMaxRounds);
-		addLog("raw: 고아 정리 %d건, 라운드 %d, 적용 누적 %d건, 종료: %s",
-				raw.orphansDeleted(),
-				raw.rounds(),
+		int step = 0;
+
+		addLog("[시작] RTA 통합 파이프라인 — 핵심 %d단계 (raw → 시너지·보유몬 → 부가)", PIPELINE_STEPS);
+
+		step++;
+		addLog("[%d/%d] RTA raw 정규화 — LIMIT %d행 1회 처리 (잔여 있어도 다음 스케줄에서)",
+				step, PIPELINE_STEPS,
+				rtaRawApplyProperties.getMaxRowsPerRun());
+		RtaBatchAggregationService.RawApplyDrainResult raw = aggregationService.drainReplayRawPending(summonerswarService);
+		addLog("[%d/%d] · 완료 — 누적 적용 %d건, %s",
+				step, PIPELINE_STEPS,
 				raw.totalApplied(),
 				raw.stopReason());
 
-		int snapshotBatch = Math.max(1, rtaBatchProperties.getSnapshotBatchSize());
 		int synergyBatch = Math.max(1, rtaBatchProperties.getSynergyBatchSize());
 
-		if (rtaBatchProperties.isSkipLegacySnapshotStep()) {
-			addLog("--- 2) 매치 스냅샷: 설정에 의해 단계 생략 (smw.rta.batch.skip-legacy-snapshot-step=true) ---");
-		} else {
-			addLog("--- 2) 매치 스냅샷 pending 소진 (배치 %d건/라운드) ---", snapshotBatch);
-			int snapMaxRounds = Math.max(1, rtaBatchProperties.getSnapshotMaxRoundsPerJob());
-			RtaBatchAggregationService.SnapshotDrainResult snap = aggregationService.drainPendingSnapshots(
-					rtaMapper,
-					rtaCacheEvictor,
-					snapshotBatch,
-					snapMaxRounds,
-					false);
-			addLog("스냅샷: 라운드 %d, rids 누적 %d건, upsert %d, done %d, 종료: %s",
-					snap.rounds(),
-					snap.totalRidsTouched(),
-					snap.totalUpserted(),
-					snap.totalMarked(),
-					snap.stopReason());
-		}
+		step++;
+		addLog("[%d/%d] 시너지 집계 pending — 배치 %d건/라운드, 완료까지 전량 처리", step, PIPELINE_STEPS, synergyBatch);
 
-		addLog("--- 3) 시너지 집계 pending 소진 (배치 %d건/라운드) ---", synergyBatch);
-		int synMaxRounds = Math.max(1, rtaBatchProperties.getSynergyMaxRoundsPerJob());
 		int synPause = Math.max(0, rtaBatchProperties.getSynergyPauseMsBetweenRounds());
 		if (synPause > 0) {
-			addLog("시너지 라운드 간 대기: %dms", synPause);
+			addLog("[%d/%d] · 라운드 간 대기: %dms", step, PIPELINE_STEPS, synPause);
 		}
 		RtaBatchAggregationService.SynergyDrainResult syn = aggregationService.drainSynergyPending(
 				rtaMapper,
 				synergyAggService,
 				rtaCacheEvictor,
 				synergyBatch,
-				synMaxRounds,
 				false,
 				synPause);
-		addLog("시너지: 라운드 %d, ok %d, fail %d, 종료: %s",
+		addLog("[%d/%d] · 시너지 완료 — 라운드 %d, ok %d, fail %d, %s",
+				step, PIPELINE_STEPS,
 				syn.rounds(),
 				syn.totalOk(),
 				syn.totalFail(),
 				syn.stopReason());
 
-		addLog("--- 4) 소환사 랭킹 집계 재적재 ---");
-		RtaBatchAggregationService.SummonerRankingRebuildResult rank = aggregationService.rebuildSummonerRankingAgg(rtaMapper);
-		addLog("소환사 랭킹 스냅샷 재적재(0행=no-op): %d행", rank.totalRows());
-
-		if (rtaBatchProperties.isSkipMonsterStatsInUnifiedJob()) {
-			addLog("--- 5) 몬스터 통계(레거시 단계): 설정에 의해 생략 ---");
-		} else {
-			addLog("--- 5) 몬스터 통계(레거시 단계, no-op — API 는 rta_agg_synergy_combo) ---");
-			RtaBatchAggregationService.MonsterStatsRebuildResult mon = aggregationService.rebuildMonsterStatsAgg(rtaMapper);
-			addLog("몬스터 통계 단계 결과(meta/pick): meta=%d, pick=%d", mon.metaRows(), mon.pickRows());
-		}
-
-		if (rtaBatchProperties.isSkipTierAggDailyInUnifiedJob()) {
-			addLog("--- 5b) 티어 일별 집계(rta_agg_tier_daily): 설정에 의해 생략 (smw.rta.batch.skip-tier-agg-daily-in-unified-job=true) ---");
-		} else {
-			addLog("--- 5b) 티어 일별 집계 재적재 (rta_agg_tier_daily, participant 풀스캔) ---");
-			RtaBatchAggregationService.TierDailyAggRebuildResult tier = aggregationService.rebuildTierAggDaily(rtaMapper);
-			addLog("rta_agg_tier_daily 적재 행 합계: %d", tier.totalRows());
-		}
-
-		if (rtaBatchProperties.isSkipUserMonsterOwnedAggInUnifiedJob()) {
-			addLog("--- 6) 사용자 보유 몬스터 집계: 설정에 의해 생략 (smw.rta.batch.skip-user-monster-owned-agg-in-unified-job=true) ---");
-		} else {
-			addLog("--- 6) 사용자 보유 몬스터 집계 (SWEX → user_monster_owned_agg) ---");
+		if (!rtaBatchProperties.isSkipUserMonsterOwnedAggInUnifiedJob()) {
+			addLog("[%d/%d] · 사용자 보유 몬스터(SWEX → user_monster_owned_agg)", step, PIPELINE_STEPS);
 			AccountSummaryMapper accountSummaryMapper = applicationContext.getBean(AccountSummaryMapper.class);
 			accountSummaryMapper.deleteAllUserMonsterOwnedAgg();
 			accountSummaryMapper.insertUserMonsterOwnedAggFromSwex();
 			long ownedRows = accountSummaryMapper.countUserMonsterOwnedAgg();
-			addLog("user_monster_owned_agg 적재: %d행", ownedRows);
+			addLog("[%d/%d] · 보유 몬스터 완료 — %d행", step, PIPELINE_STEPS, ownedRows);
+		} else {
+			addLog("[%d/%d] · 보유 몬스터 집계 생략 (smw.rta.batch.skip-user-monster-owned-agg-in-unified-job)", step, PIPELINE_STEPS);
 		}
 
+		step++;
+		boolean runMonster = !rtaBatchProperties.isSkipMonsterStatsInUnifiedJob();
+		boolean runTier = !rtaBatchProperties.isSkipTierAggDailyInUnifiedJob();
+		addLog("[%d/%d] RTA 부가 집계 — 실행: 레거시몬스터=%s, 티어일별=%s",
+				step, PIPELINE_STEPS,
+				runMonster ? "Y" : "N",
+				runTier ? "Y" : "N");
+
+		if (runMonster) {
+			addLog("[%d/%d] · 몬스터 통계(레거시, API는 rta_agg_synergy_combo)", step, PIPELINE_STEPS);
+			RtaBatchAggregationService.MonsterStatsRebuildResult mon = aggregationService.rebuildMonsterStatsAgg(rtaMapper);
+			addLog("[%d/%d] · 몬스터 통계 완료 — meta=%d, pick=%d", step, PIPELINE_STEPS, mon.metaRows(), mon.pickRows());
+		}
+		if (runTier) {
+			addLog("[%d/%d] · 티어 일별(rta_agg_tier_daily) participant 풀스캔", step, PIPELINE_STEPS);
+			RtaBatchAggregationService.TierDailyAggRebuildResult tier = aggregationService.rebuildTierAggDaily(rtaMapper);
+			addLog("[%d/%d] · 티어 일별 완료 — %d행", step, PIPELINE_STEPS, tier.totalRows());
+		}
+		if (!runMonster && !runTier) {
+			addLog("[%d/%d] · 부가 실행 없음 — 티어 일별은 RtaTierDailyAggJob, 랭크컷 스냅샷은 RtaRankCutSnapshotAggJob 등 별도 스케줄에서 처리하는 구성이 일반적입니다.",
+					step, PIPELINE_STEPS);
+		}
+
+		addLog("[종료] (%d/%d) RTA 조회 캐시 무효화", PIPELINE_STEPS, PIPELINE_STEPS);
 		rtaCacheEvictor.evictAllRtaCaches();
-		addLog("RTA 조회 캐시 무효화 (전체 파이프라인 완료)");
 	}
 
 	@Override

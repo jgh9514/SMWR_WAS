@@ -1,17 +1,25 @@
 package com.smw.rta.service;
 
+import java.io.IOException;
+import java.sql.Connection;
+import java.sql.SQLException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+
+import javax.sql.DataSource;
 
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Primary;
+import org.springframework.jdbc.datasource.DataSourceUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -21,6 +29,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import com.smw.rta.mapper.RtaMapper;
 import com.smw.rta.model.RtaCounterMatchupUpsertRow;
+import com.smw.rta.model.RtaSynergyBanDeltaRow;
 import com.smw.rta.model.RtaSynergyAggUpsertRow;
 import com.smw.rta.util.PgJdbcUpdateCount;
 
@@ -37,6 +46,9 @@ public class RtaSynergyAggServiceImpl implements RtaSynergyAggService {
 	 */
 	private static final int AGG_UPSERT_FLUSH_CHUNK = 9300;
 
+	/** 이보다 많으면 완료 UPDATE 를 MyBatis {@code unnest} 대신 COPY→tmp_bulk_rids→JOIN (동일 트랜잭션 커넥션). */
+	private static final int MARK_DONE_JDBC_MIN = 2048;
+
 	/** 이 개수 이하이면 MyBatis 다건 UPSERT(소량·단건에 유리). 초과 시 COPY+스테이징(대량). */
 	@Value("${smw.rta.counter-agg.legacy-upsert-max-rows:8000}")
 	private int counterLegacyUpsertMaxRows;
@@ -51,6 +63,10 @@ public class RtaSynergyAggServiceImpl implements RtaSynergyAggService {
 	@Value("${smw.rta.synergy-agg.legacy-upsert-max-rows:8000}")
 	private int synergyLegacyUpsertMaxRows;
 
+	/** COPY+merge 를 이 행 수마다 끊어 실행 — 600만 행을 단일 merge 하면 수십 분 걸릴 수 있음 */
+	@Value("${smw.rta.synergy-agg.copy-staging-chunk-rows:600000}")
+	private int synergyChunkRows;
+
 	@Value("${smw.rta.synergy-agg.use-copy-staging:true}")
 	private boolean synergyUseCopyStaging;
 
@@ -58,16 +74,25 @@ public class RtaSynergyAggServiceImpl implements RtaSynergyAggService {
 	private final TransactionTemplate synergyOneRidTx;
 	private final RtaCounterMatchupCopyStagingService counterCopyStagingService;
 	private final RtaSynergyAggCopyStagingService synergyCopyStagingService;
+	private final RtaBulkRidLookupService bulkRidLookupService;
+	private final RtaSynergyBanCntBulkService synergyBanCntBulkService;
+	private final DataSource dataSource;
 
 	public RtaSynergyAggServiceImpl(RtaMapper rtaMapper,
 			@Qualifier("rtaJdbcTransactionManager") PlatformTransactionManager transactionManager,
 			RtaCounterMatchupCopyStagingService counterCopyStagingService,
-			RtaSynergyAggCopyStagingService synergyCopyStagingService) {
+			RtaSynergyAggCopyStagingService synergyCopyStagingService,
+			RtaBulkRidLookupService bulkRidLookupService,
+			RtaSynergyBanCntBulkService synergyBanCntBulkService,
+			DataSource dataSource) {
 		this.rtaMapper = rtaMapper;
 		this.synergyOneRidTx = new TransactionTemplate(transactionManager);
 		this.synergyOneRidTx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
 		this.counterCopyStagingService = counterCopyStagingService;
 		this.synergyCopyStagingService = synergyCopyStagingService;
+		this.bulkRidLookupService = bulkRidLookupService;
+		this.synergyBanCntBulkService = synergyBanCntBulkService;
+		this.dataSource = dataSource;
 	}
 
 	@Override
@@ -90,15 +115,18 @@ public class RtaSynergyAggServiceImpl implements RtaSynergyAggService {
 				ordered.add(rid);
 			}
 		}
-		Map<Long, Map<String, Object>> replayByRid = new HashMap<>();
-		Map<Long, List<Map<String, Object>>> unitsByRid = new HashMap<>();
-		Map<Long, List<Map<String, Object>>> ratingsByRid = new HashMap<>();
+		int n = ordered.size();
+		// 초기 용량 사전 설정 → 리해시 제거 (기본 16에서 수백만 항목 → 20회+ 리해시 발생)
+		Map<Long, Map<String, Object>> replayByRid = new HashMap<>(n * 4 / 3 + 1);
+		Map<Long, List<Map<String, Object>>> unitsByRid = new HashMap<>(n * 4 / 3 + 1);
+		Map<Long, List<Map<String, Object>>> ratingsByRid = new HashMap<>(n * 4 / 3 + 1);
 		prefetchSynergyLookup(ordered, replayByRid, unitsByRid, ratingsByRid);
 
-		Map<SynergyMergeKey, long[]> synAcc = new HashMap<>();
-		Map<SynergyMergeKey, Integer> synComboSizes = new HashMap<>();
-		Map<CounterMergeKey, long[]> cntAcc = new HashMap<>();
-		Map<CounterMergeKey, Integer> cntOppSizes = new HashMap<>();
+		// 경기당 고유 시너지 키 ~15개, 카운터 키 ~50개 추정 (4/3 = load factor 역수)
+		Map<SynergyMergeKey, long[]> synAcc = new HashMap<>(n * 15 * 4 / 3 + 1);
+		Map<SynergyMergeKey, Integer> synComboSizes = new HashMap<>(n * 15 * 4 / 3 + 1);
+		Map<CounterMergeKey, long[]> cntAcc = new HashMap<>(n * 50 * 4 / 3 + 1);
+		Map<CounterMergeKey, Integer> cntOppSizes = new HashMap<>(n * 50 * 4 / 3 + 1);
 
 		List<Long> processed = new ArrayList<>(ordered.size());
 		for (Long rid : ordered) {
@@ -128,8 +156,24 @@ public class RtaSynergyAggServiceImpl implements RtaSynergyAggService {
 			throw new IllegalStateException(
 					"시너지 집계 행이 비어 있는데 처리된 rid 가 있음(버그·데이터 불일치) — 완료 표시 금지, processed=" + processed.size());
 		}
-		flushSynergyInChunks(mergedSyn);
-		flushCounterMatchupInChunks(mergedCnt);
+		// COPY 전 인덱스 키 순 정렬 → B-tree 순차 프로브 → 버퍼 캐시 히트율 향상
+		mergedSyn.sort(Comparator.comparingLong(RtaSynergyAggUpsertRow::getSeasonId)
+				.thenComparingInt(RtaSynergyAggUpsertRow::getRatingId)
+				.thenComparing(RtaSynergyAggUpsertRow::getComboKey));
+		mergedCnt.sort(Comparator.comparingLong(RtaCounterMatchupUpsertRow::getSeasonId)
+				.thenComparingInt(RtaCounterMatchupUpsertRow::getRatingId)
+				.thenComparingLong(RtaCounterMatchupUpsertRow::getSubjectUnitId)
+				.thenComparing(RtaCounterMatchupUpsertRow::getOpponentComboKey));
+		// 시너지·카운터는 서로 다른 staging 테이블(staging_synergy_agg / staging_matchup_agg)을 쓰므로 병렬 flush 가능
+		CompletableFuture<Void> synFlush = CompletableFuture.runAsync(() -> flushSynergyInChunks(mergedSyn));
+		CompletableFuture<Void> cntFlush = CompletableFuture.runAsync(() -> flushCounterMatchupInChunks(mergedCnt));
+		try {
+			CompletableFuture.allOf(synFlush, cntFlush).join();
+		} catch (CompletionException ce) {
+			Throwable cause = ce.getCause();
+			throw new IllegalStateException("병렬 flush 실패: " + cause.getMessage(), cause);
+		}
+		flushSynergyBanDeltas(bulkRidLookupService.aggregateSynergyBanIncrements(ordered));
 		int marked = markSynergyAggDoneForRidsAll(processed);
 		long markedRows = PgJdbcUpdateCount.toLong(marked);
 		if (marked >= 0 && markedRows != processed.size()) {
@@ -147,12 +191,25 @@ public class RtaSynergyAggServiceImpl implements RtaSynergyAggService {
 		return markSynergyAggDoneForRidsAll(rids);
 	}
 
-	/** {@code replay_id = ANY(bigint[])} 단일 호출 — 배치당 rid 수(통상 ≤ synergy 배치 크기)면 한 번이면 충분 */
+	/**
+	 * 소량은 ANY(bigint[]), 대량은 COPY→tmp_bulk_rids→UPDATE … FROM (동일 트랜잭션 커넥션).
+	 */
 	private int markSynergyAggDoneForRidsAll(List<Long> rids) {
 		if (rids == null || rids.isEmpty()) {
 			return 0;
 		}
-		return rtaMapper.markSynergyAggDoneForRids(toLongArray(rids, 0, rids.size()));
+		if (rids.size() <= MARK_DONE_JDBC_MIN) {
+			return rtaMapper.markSynergyAggDoneForRids(toLongArray(rids, 0, rids.size()));
+		}
+		Connection conn = DataSourceUtils.getConnection(dataSource);
+		try {
+			long n = RtaBulkRidTempTable.markRtaMatchSynergyAppliedSuccess(conn, rids);
+			return n > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) n;
+		} catch (SQLException | IOException e) {
+			throw new IllegalStateException("markSynergyAggDone JDBC 실패: " + e.getMessage(), e);
+		} finally {
+			DataSourceUtils.releaseConnection(conn, dataSource);
+		}
 	}
 
 	private static long[] toLongArray(List<Long> rids, int from, int to) {
@@ -273,39 +330,8 @@ public class RtaSynergyAggServiceImpl implements RtaSynergyAggService {
 		if (rids == null || rids.isEmpty()) {
 			return;
 		}
-		long[] ridArr = new long[rids.size()];
-		for (int i = 0; i < rids.size(); i++) {
-			ridArr[i] = rids.get(i).longValue();
-		}
-		List<Map<String, Object>> replayRows = rtaMapper.selectSynergyReplayRowsByRids(ridArr);
-		if (replayRows != null) {
-			for (Map<String, Object> row : replayRows) {
-				Object ro = row.get("rid");
-				if (ro instanceof Number) {
-					replayByRid.put(((Number) ro).longValue(), row);
-				}
-			}
-		}
-		List<Map<String, Object>> unitRows = rtaMapper.selectSynergyFieldUnitsByRids(ridArr);
-		if (unitRows != null) {
-			for (Map<String, Object> row : unitRows) {
-				Object ro = row.get("rid");
-				if (ro instanceof Number) {
-					long rid = ((Number) ro).longValue();
-					unitsByRid.computeIfAbsent(rid, k -> new ArrayList<>()).add(row);
-				}
-			}
-		}
-		List<Map<String, Object>> ratingRows = rtaMapper.selectSynergyWizardRatingsByRids(ridArr);
-		if (ratingRows != null) {
-			for (Map<String, Object> row : ratingRows) {
-				Object ro = row.get("rid");
-				if (ro instanceof Number) {
-					long rid = ((Number) ro).longValue();
-					ratingsByRid.computeIfAbsent(rid, k -> new ArrayList<>()).add(row);
-				}
-			}
-		}
+		/* COPY→tmp_bulk_rids→JOIN — ANY(bigint[]) 대량 전달 대비 인덱스 친화·플래너 유리 */
+		bulkRidLookupService.prefetchSynergyLookupMaps(rids, replayByRid, unitsByRid, ratingsByRid);
 	}
 
 	@Override
@@ -322,6 +348,7 @@ public class RtaSynergyAggServiceImpl implements RtaSynergyAggService {
 	private void applyOneRidInternal(long rid) {
 		BuiltRows built = buildAllRowsForRid(rid);
 		rtaMapper.upsertRtaSynergyAgg(built.synergy());
+		flushSynergyBanDeltas(bulkRidLookupService.aggregateSynergyBanIncrements(Collections.singletonList(rid)));
 		int marked = rtaMapper.markSynergyAggDone(rid);
 		if (marked == 0) {
 			throw new IllegalStateException("synergy 완료 표시 갱신 0건 rid=" + rid);
@@ -493,22 +520,27 @@ public class RtaSynergyAggServiceImpl implements RtaSynergyAggService {
 
 	private static void collectOppSoloDuoTrioKeys(long[] oppIds, List<String> soloKeys, List<String> duoKeys,
 			List<String> trioKeys) {
+		// oppIds 는 toDistinctSortedFieldUnits() 로 이미 정렬됨 → comboKey() 오버로드 사용
 		int n = oppIds.length;
 		for (int i = 0; i < n; i++) {
-			soloKeys.add(comboKeySorted(oppIds[i]));
+			soloKeys.add(comboKey(oppIds[i]));
 		}
 		for (int i = 0; i < n; i++) {
 			for (int j = i + 1; j < n; j++) {
-				duoKeys.add(comboKeySorted(oppIds[i], oppIds[j]));
+				duoKeys.add(comboKey(oppIds[i], oppIds[j]));
 			}
 		}
 		for (int i = 0; i < n; i++) {
 			for (int j = i + 1; j < n; j++) {
 				for (int k = j + 1; k < n; k++) {
-					trioKeys.add(comboKeySorted(oppIds[i], oppIds[j], oppIds[k]));
+					trioKeys.add(comboKey(oppIds[i], oppIds[j], oppIds[k]));
 				}
 			}
 		}
+	}
+
+	private void flushSynergyBanDeltas(List<RtaSynergyBanDeltaRow> rows) {
+		synergyBanCntBulkService.applyBanCntDeltas(rows);
 	}
 
 	private void flushSynergyInChunks(List<RtaSynergyAggUpsertRow> rows) {
@@ -516,7 +548,16 @@ public class RtaSynergyAggServiceImpl implements RtaSynergyAggService {
 			return;
 		}
 		if (synergyUseCopyStaging && rows.size() > synergyLegacyUpsertMaxRows) {
-			synergyCopyStagingService.flushSynergyAggViaCopyStaging(rows);
+			int chunk = Math.max(1, synergyChunkRows);
+			int total = rows.size();
+			if (total > chunk) {
+				int rounds = (total + chunk - 1) / chunk;
+				log.info("[rta-synergy] 시너지 staging: 총 {}행 → COPY·merge {}회 분할 (청크당 최대 {}행)", total, rounds, chunk);
+			}
+			for (int from = 0; from < total; from += chunk) {
+				int to = Math.min(from + chunk, total);
+				synergyCopyStagingService.flushSynergyAggViaCopyStaging(rows.subList(from, to));
+			}
 			return;
 		}
 		for (int i = 0; i < rows.size(); i += AGG_UPSERT_FLUSH_CHUNK) {
@@ -530,17 +571,9 @@ public class RtaSynergyAggServiceImpl implements RtaSynergyAggService {
 			return;
 		}
 		if (counterUseCopyStaging && rows.size() > counterLegacyUpsertMaxRows) {
-			int chunk = Math.max(1, counterCopyStagingChunkRows);
-			int total = rows.size();
-			if (total > chunk) {
-				int rounds = (total + chunk - 1) / chunk;
-				log.info("[rta-synergy] 카운터 matchup staging: 총 {}행 → COPY·merge {}회 분할 (청크당 최대 {}행)", total, rounds,
-						chunk);
-			}
-			for (int from = 0; from < total; from += chunk) {
-				int to = Math.min(from + chunk, total);
-				counterCopyStagingService.flushCounterMatchupViaCopyStaging(rows.subList(from, to));
-			}
+			// 청크 분할 없이 전체를 한 번에 COPY → 단일 merge
+			log.info("[rta-synergy] 카운터 matchup staging: 총 {}행 → 단일 COPY·merge", rows.size());
+			counterCopyStagingService.flushCounterMatchupViaCopyStaging(rows);
 			return;
 		}
 		for (int i = 0; i < rows.size(); i += AGG_UPSERT_FLUSH_CHUNK) {
@@ -616,32 +649,42 @@ public class RtaSynergyAggServiceImpl implements RtaSynergyAggService {
 			throw new IllegalStateException("집계 rating_id 는 1 이상이어야 함 got=" + ratingId);
 		}
 		int rid = ratingId;
+		// ids 는 toDistinctSortedFieldUnits() 로 이미 정렬됨 → comboKey() 오버로드 사용 (copy·sort 생략)
 		for (long id : ids) {
-			out.add(new RtaSynergyAggUpsertRow(seasonId, rid, Long.toString(id), 1, 1, wd));
+			out.add(new RtaSynergyAggUpsertRow(seasonId, rid, comboKey(id), 1, 1, wd));
 		}
 		for (int i = 0; i < n; i++) {
 			for (int j = i + 1; j < n; j++) {
-				out.add(new RtaSynergyAggUpsertRow(seasonId, rid, comboKeySorted(ids[i], ids[j]), 2, 1, wd));
+				out.add(new RtaSynergyAggUpsertRow(seasonId, rid, comboKey(ids[i], ids[j]), 2, 1, wd));
 			}
 		}
 		for (int i = 0; i < n; i++) {
 			for (int j = i + 1; j < n; j++) {
 				for (int k = j + 1; k < n; k++) {
-					out.add(new RtaSynergyAggUpsertRow(seasonId, rid, comboKeySorted(ids[i], ids[j], ids[k]), 3, 1, wd));
+					out.add(new RtaSynergyAggUpsertRow(seasonId, rid, comboKey(ids[i], ids[j], ids[k]), 3, 1, wd));
 				}
 			}
 		}
 	}
 
-	private static String comboKeySorted(long... raw) {
-		long[] a = Arrays.copyOf(raw, raw.length);
-		Arrays.sort(a);
-		String[] s = new String[a.length];
-		for (int i = 0; i < a.length; i++) {
-			s[i] = Long.toString(a[i]);
-		}
-		return String.join(",", s);
+	/**
+	 * ids 배열이 이미 정렬된 경우 전용 — copy·sort·String[] 없이 직접 직렬화.
+	 * {@link #appendSide}, {@link #collectOppSoloDuoTrioKeys} 는 정렬된 배열을 오름차순으로 순회하므로 사용 가능.
+	 */
+	private static String comboKey(long a) {
+		return Long.toString(a);
 	}
+
+	private static String comboKey(long a, long b) {
+		// a < b 보장 (정렬된 ids 오름차순 순회)
+		return Long.toString(a) + ',' + Long.toString(b);
+	}
+
+	private static String comboKey(long a, long b, long c) {
+		// a < b < c 보장
+		return Long.toString(a) + ',' + Long.toString(b) + ',' + Long.toString(c);
+	}
+
 
 	/**
 	 * unit_pick / participant / replay 의 wizard_id 가 Number·문자열 등으로 달라도 동일 키로 맞춘다.

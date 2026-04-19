@@ -69,7 +69,8 @@ public interface summonerswarService {
 	int deleteArenaRtaOrphanChildrenByRids(Collection<Long> rids);
 
 	/**
-	 * 부모 {@code rta_match} 행이 없는 user/pick/unit 고아 행 전수 삭제. 배치({@link com.smw.monster.batch.RtaUnifiedPipelineAggJob})에서 호출.
+	 * 부모 {@code rta_match} 행이 없는 user/pick/unit 고아 행 전수 삭제.
+	 * 통합 파이프라인에서는 호출하지 않으며, {@link com.smw.monster.batch.ArenaRtaOrphanCleanupBatchJob} 등 별도 스케줄로 실행한다.
 	 */
 	int deleteArenaRtaOrphanChildrenGlobal();
 	
@@ -129,7 +130,8 @@ public interface summonerswarService {
 
 	/**
 	 * 원본 스테이징 중 미적용 건을 정규화({@code rta_match} 등)로 반영하고 applied 로 표시한다.
-	 * @return 이번 호출에서 정규화에 성공한 rid 수
+	 * {@code smw.rta.raw-apply.max-rows-per-run} 행씩 SELECT 하여 처리하고, 빈 결과(또는 {@code max-batches-per-job})까지 반복한다.
+	 * @return 이번 호출 전체에서 정규화에 성공한 rid 수(누적)
 	 */
 	int applyPendingArenaReplayRawFromDb();
 

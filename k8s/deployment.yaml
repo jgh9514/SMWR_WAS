@@ -113,6 +113,14 @@ spec:
               name: smw-app-secret
               key: jwt-encryption-key
               optional: true
+        # API Pod: Quartz 크론은 배치 Pod(smw-batch)에서만 등록
+        - name: SMW_BATCH_QUARTZ_ENABLED
+          value: "false"
+        # RTA 조회 캐시 — Redis(smw-redis Service) 공유, 배치가 갱신 후 워밍업
+        - name: SPRING_DATA_REDIS_HOST
+          value: "smw-redis"
+        - name: SMW_CACHE_RTA_USE_REDIS
+          value: "true"
         # 단일 노드/소형 EC2에서 Insufficient memory 스케줄 실패 시 requests·limits 낮춤 (kubectl describe node 로 allocatable 확인)
         resources:
           requests:

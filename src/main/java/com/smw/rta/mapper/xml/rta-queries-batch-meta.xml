@@ -2,10 +2,17 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.smw.rta.mapper.RtaMapper">
     <select id="selectPendingSynergyAggRids" resultType="long">
+        /*
+         * idx_rta_match_synergy_pending (replay_id ASC) WHERE synergy_applied_at IS NULL
+         * 을 타도록 설계된 쿼리. 인덱스 생성 후 ANALYZE 실행 필수.
+         * NULL 행이 0건이면 인덱스(빈 트리)에서 즉시 반환 — Seq Scan 불필요.
+         * ANALYZE 후에도 Parallel Seq Scan 이 계속된다면 아래 힌트 주석 해제.
+         */
+        -- SET LOCAL enable_seqscan = OFF;
         SELECT m.replay_id
         FROM public.rta_match m
         WHERE m.synergy_applied_at IS NULL
-        ORDER BY m.replay_id ASC
+        ORDER BY m.replay_id
         LIMIT #{batchSize}
     </select>
 
@@ -25,7 +32,7 @@
             u.unit_master_id AS unit_master_id
         FROM public.rta_match_unit_pick u
         WHERE u.replay_id = #{rid}
-          AND COALESCE(u.is_banned, false) = false
+          AND u.is_banned = false
         ORDER BY wizard_id, unit_master_id
     </select>
 
@@ -37,7 +44,8 @@
         WHERE mp.replay_id = #{rid}
     </select>
 
-    <!-- rid 전체를 bigint[] 한 개로 바인딩 — prefetch 시 청크 반복 없이 3회 round-trip -->
+    <!-- 대량 rid(수만~)는 RtaBulkRidLookupService.prefetchSynergyLookupMaps(COPY→tmp_bulk_rids→JOIN) 권장.
+         아래 ANY(bigint[]) 는 소량·호환용. -->
     <select id="selectSynergyWizardRatingsByRids" resultType="map">
         SELECT
             mp.replay_id AS rid,
@@ -45,7 +53,6 @@
             CAST(mp.rating_id AS INTEGER) AS rating_id
         FROM public.rta_match_participant mp
         WHERE mp.replay_id = ANY(#{rids})
-        ORDER BY mp.replay_id, mp.wizard_id
     </select>
 
     <select id="selectSynergyReplayRowsByRids" resultType="map">
@@ -56,7 +63,6 @@
             m.season_id
         FROM public.rta_match m
         WHERE m.replay_id = ANY(#{rids})
-        ORDER BY m.replay_id ASC
     </select>
 
     <select id="selectSynergyFieldUnitsByRids" resultType="map">
@@ -67,18 +73,18 @@
         FROM public.rta_match_unit_pick u
         WHERE u.replay_id = ANY(#{rids})
           AND COALESCE(u.is_banned, false) = false
-        ORDER BY u.replay_id, wizard_id, unit_master_id
     </select>
 
     <insert id="upsertRtaSynergyAgg">
-        INSERT INTO public.rta_agg_synergy_combo (season_id, rating_id, combo_unit_key, combo_size, match_cnt, win_cnt)
+        INSERT INTO public.rta_agg_synergy_combo (season_id, rating_id, combo_unit_key, combo_size, match_cnt, win_cnt, ban_cnt)
         VALUES
         <foreach collection="rows" item="r" separator=",">
-            (#{r.seasonId}, #{r.ratingId}, #{r.comboKey}, #{r.comboSize}, #{r.matchDelta}, #{r.winDelta})
+            (#{r.seasonId}, #{r.ratingId}, #{r.comboKey}, #{r.comboSize}, #{r.matchDelta}, #{r.winDelta}, 0)
         </foreach>
         ON CONFLICT (season_id, rating_id, combo_unit_key) DO UPDATE SET
             match_cnt = public.rta_agg_synergy_combo.match_cnt + EXCLUDED.match_cnt,
-            win_cnt = public.rta_agg_synergy_combo.win_cnt + EXCLUDED.win_cnt
+            win_cnt = public.rta_agg_synergy_combo.win_cnt + EXCLUDED.win_cnt,
+            ban_cnt = public.rta_agg_synergy_combo.ban_cnt
     </insert>
 
     <update id="truncateStagingSynergyAgg">
@@ -87,7 +93,7 @@
 
     <insert id="mergeStagingIntoRtaAggSynergyCombo">
         INSERT INTO public.rta_agg_synergy_combo (
-            season_id, rating_id, combo_unit_key, combo_size, match_cnt, win_cnt
+            season_id, rating_id, combo_unit_key, combo_size, match_cnt, win_cnt, ban_cnt
         )
         SELECT
             s.season_id,
@@ -95,12 +101,14 @@
             s.combo_unit_key,
             MAX(s.combo_size)::smallint AS combo_size,
             SUM(s.match_cnt)::bigint AS match_cnt,
-            SUM(s.win_cnt)::bigint AS win_cnt
+            SUM(s.win_cnt)::bigint AS win_cnt,
+            MAX(COALESCE(s.ban_cnt, 0))::bigint AS ban_cnt
         FROM public.staging_synergy_agg s
         GROUP BY s.season_id, s.rating_id, s.combo_unit_key
         ON CONFLICT (season_id, rating_id, combo_unit_key) DO UPDATE SET
             match_cnt = public.rta_agg_synergy_combo.match_cnt + EXCLUDED.match_cnt,
-            win_cnt = public.rta_agg_synergy_combo.win_cnt + EXCLUDED.win_cnt
+            win_cnt = public.rta_agg_synergy_combo.win_cnt + EXCLUDED.win_cnt,
+            ban_cnt = public.rta_agg_synergy_combo.ban_cnt
     </insert>
 
     <!-- subject_unit_id: 필드에 나온 유닛, opponent_*: 같은 경기 상대 팀의 솔로/듀오/트리오(정렬된 유닛 ID 키, 콤마 구분). 시즌×rating_id×주제×상대콤보 단위 집계 -->
@@ -153,10 +161,15 @@
     </update>
 
     <update id="markSynergyAggDoneForRids">
-        UPDATE public.rta_match
+        UPDATE public.rta_match m
         SET synergy_applied_at = CURRENT_TIMESTAMP,
             synergy_apply_result = 'S'
-        WHERE replay_id = ANY(#{rids})
+        FROM unnest(ARRAY[
+        <foreach collection="rids" item="rid" separator=",">
+            #{rid}
+        </foreach>
+        ]::bigint[]) AS u(rid)
+        WHERE m.replay_id = u.rid
     </update>
 
     <update id="markSynergyAggFailed">
@@ -166,19 +179,14 @@
         WHERE replay_id = #{rid}
     </update>
 
-    <select id="getRtaSummonerRankingAggCount" resultType="int">
-        WITH <include refid="rtaMatchInSeasonCte"/>,
-        <include refid="rtaSummonerRankingTopWizardsPairCte"/>,
-        <include refid="rtaSummonerRankingPool500AndFilterCte"/>
-        SELECT COUNT(*)::int FROM pool_filtered
-    </select>
-
-    <!-- 소환사 랭킹 목록 API: rating_id 한정 MAX(점수)·MAX(replay_id) 후 상세 조인 (모스트 몬스터 없음) -->
+    <!-- 소환사 랭킹 목록 API: rating_id 한정 MAX(점수)·MAX(replay_id) 후 상세 조인 (모스트 몬스터 없음). pool_meta 로 total 포함 -->
     <select id="getRtaSummonerRankingFromAgg" resultType="map">
-        WITH <include refid="rtaMatchInSeasonCte"/>,
-        <include refid="rtaSummonerRankingTopWizardsPairCte"/>,
+        WITH <include refid="rtaSummonerRankingTopWizardsPairCte"/>,
         <include refid="rtaSummonerRankingPool500AndFilterCte"/>,
-        page_ranked AS (
+        pool_meta AS (
+            SELECT COUNT(*)::int AS "rankingPoolTotal" FROM pool_filtered
+        ),
+        page AS (
             SELECT * FROM pool_filtered
             ORDER BY rank_position
             LIMIT #{limit} OFFSET #{offset}
@@ -189,62 +197,49 @@
                 COUNT(*)::bigint AS match_count,
                 SUM(CASE WHEN u.is_winner THEN 1 ELSE 0 END)::bigint AS win_count
             FROM public.rta_match_participant u
-            INNER JOIN rta_match_in_season r ON u.replay_id = r.rid
-            INNER JOIN page_ranked pr ON pr.wizard_id = u.wizard_id
-            WHERE u.ladder_score &gt; 0
+            INNER JOIN page p ON p.wizard_id = u.wizard_id
+            WHERE u.season_id = #{seasonId}
+              AND u.ladder_score &gt; 0
             GROUP BY u.wizard_id
         )
         SELECT
-            pr.rank_position,
-            pr.wizard_id,
-            pr.wizard_name,
-            pr.country,
-            pr.channel_uid,
-            pr.score,
-            pr.rating_id,
-            pr.last_match_at,
-            pr.max_score::int AS max_season_score,
+            pm."rankingPoolTotal",
+            p.rank_position,
+            p.wizard_id,
+            p.wizard_name,
+            p.country,
+            p.channel_uid,
+            p.max_score AS score,
+            p.rating_id,
+            p.max_score::int AS max_season_score,
             COALESCE(wa.match_count, 0)::bigint AS match_count,
             COALESCE(wa.win_count, 0)::bigint AS win_count
-        FROM page_ranked pr
-        LEFT JOIN win_agg wa ON pr.wizard_id = wa.wizard_id
-        ORDER BY pr.rank_position
+        FROM pool_meta pm
+        LEFT JOIN page p ON true
+        LEFT JOIN win_agg wa ON wa.wizard_id = p.wizard_id
+        ORDER BY p.rank_position NULLS LAST
     </select>
 
-    <!-- 닉네임: 부분 일치(POSITION). 위자드 ID: TRIM 후 정확 일치 — 라이브 집계 -->
+    <!--
+      닉네임 부분 일치(GIN trigram ILIKE) 또는 위자드ID 정확 일치.
+      rta_match_participant 직접 조회 — wizard_id별 최고 래더 점수 행 1건.
+      pg_trgm GIN 인덱스(idx_rta_participant_wizard_name_trgm) 필수.
+    -->
     <select id="searchRtaSummonersInAgg" resultType="map">
-        WITH <include refid="rtaMatchInSeasonCte"/>,
-        <include refid="rtaSummonerLatestPerWizardCte"/>,
-        ranked AS (
-            SELECT
-                latest.wizard_id,
-                latest.wizard_name,
-                latest.country,
-                latest.channel_uid,
-                latest.score,
-                latest.rating_id,
-                latest.last_match_at,
-                ROW_NUMBER() OVER (ORDER BY latest.score DESC, latest.wizard_id ASC) AS rank_position
-            FROM latest
-        )
-        SELECT
-            r.rank_position,
-            r.wizard_id,
-            r.wizard_name,
-            r.country,
-            r.channel_uid,
-            r.score,
-            r.rating_id
-        FROM ranked r
-        WHERE LENGTH(TRIM(#{query})) &gt;= 1
+        SELECT DISTINCT ON (wizard_id)
+            wizard_id,
+            wizard_name,
+            country_code AS country,
+            channel_uid,
+            ladder_score AS score,
+            rating_id
+        FROM public.rta_match_participant
+        WHERE season_id = #{seasonId}
           AND (
-              TRIM(BOTH FROM r.wizard_id::text) = TRIM(#{query})
-              OR (
-                  r.wizard_name IS NOT NULL
-                  AND POSITION(LOWER(TRIM(#{query})) IN LOWER(r.wizard_name)) &gt; 0
-              )
+              wizard_id::text = #{query}
+              OR wizard_name ILIKE '%' || #{query} || '%'
           )
-        ORDER BY r.rank_position ASC
+        ORDER BY wizard_id, ladder_score DESC
         LIMIT #{limit}
     </select>
 
@@ -266,16 +261,6 @@
         ORDER BY sort_order ASC, season_no DESC, season_code ASC
     </select>
 
-    <select id="selectRtaSeasonBounds" resultType="map">
-        SELECT season_id AS "seasonId",
-               start_at AS "startAt",
-               end_at AS "endAt",
-               season_code AS "seasonCode"
-        FROM rta_season
-        WHERE season_code = #{seasonCode}
-        LIMIT 1
-    </select>
-
     <select id="selectRtaSeasonBoundsBySeasonId" resultType="map">
         SELECT season_id AS "seasonId",
                start_at AS "startAt",
@@ -286,75 +271,79 @@
         LIMIT 1
     </select>
 
-    <!-- 금일 기준 진행 중 시즌 → 없으면 DB에 등록된 최신 시즌 코드 -->
-    <select id="selectDefaultSeasonCodeForNow" resultType="string">
+    <!-- is_active=true 시즌 우선 → 없으면 DB에 등록된 최신 시즌 season_id -->
+    <select id="selectDefaultSeasonIdForNow" resultType="long">
         SELECT COALESCE(
             (
-                SELECT season_code
+                SELECT season_id
                 FROM rta_season
-                WHERE start_at &lt;= CURRENT_TIMESTAMP
-                  AND end_at &gt; CURRENT_TIMESTAMP
+                WHERE is_active = true
                 ORDER BY sort_order ASC, season_no DESC
                 LIMIT 1
             ),
             (
-                SELECT season_code
+                SELECT season_id
                 FROM rta_season
-                ORDER BY season_no DESC, season_code DESC
+                ORDER BY season_no DESC, season_id DESC
                 LIMIT 1
             )
         )
     </select>
 
-    <!-- 참고용 공식 티어 규칙 (rta_rating_grade.tier_key 등) -->
+    <!-- 참고용 공식 티어 규칙 (시즌별 커트라인 포함) -->
     <select id="listRtaRatingGradeReference" resultType="map">
         SELECT
-            rating_id AS "ratingId",
-            grade_name AS "gradeName",
-            grade_abbr AS "gradeAbbr",
-            tier_key AS "tierKey",
-            min_win_points AS "minWinPoints",
-            rank_rule AS "rankRule",
-            icon_url AS "iconUrl",
-            tier_sort AS "tierSort"
-        FROM public.rta_rating_grade
-        WHERE tier_key IS NOT NULL
-        ORDER BY tier_sort NULLS LAST, rating_id
+            rg.rating_id    AS "ratingId",
+            rg.grade_name   AS "gradeName",
+            rg.grade_abbr   AS "gradeAbbr",
+            rg.icon_url     AS "iconUrl",
+            rg.tier_sort    AS "tierSort",
+            rgs.min_win_points AS "minWinPoints",
+            rgs.rank_rule      AS "rankRule"
+        FROM public.rta_rating_grade rg
+        LEFT JOIN public.rta_rating_grade_season rgs
+               ON rgs.rating_id = rg.rating_id
+              AND rgs.season_id = #{seasonId}
+        WHERE rg.grade_slot IS NOT NULL
+        ORDER BY rg.tier_sort NULLS LAST, rg.rating_id
     </select>
 
-    <!-- 대시보드: 시즌별 최신 스냅샷 시각의 등급별 컷 (rta_snapshot_rank_cut) -->
+    <!-- 대시보드: 시즌별 최신 스냅샷 시각의 등급별 컷 (rta_snapshot_rank_cut).
+         min_win_points IS NOT NULL 인 등급만 포함 — P1처럼 최소 컷이 없는 등급은 제외. -->
+    <!-- seasonId(Long) 직접 수신 — 호출부에서 이미 resolve 됨. seasonCode 재조회 제거. -->
     <select id="getRtaSnapshotRankCutLatest" resultType="map">
-        WITH sid AS (
-            SELECT season_id FROM public.rta_season WHERE season_code = #{seasonCode} LIMIT 1
-        ),
-        mx AS (
+        WITH mx AS (
             SELECT MAX(s.snapshot_at) AS ts
             FROM public.rta_snapshot_rank_cut s
-            WHERE s.season_id = (SELECT season_id FROM sid)
+            WHERE s.season_id = #{seasonId}
         )
         SELECT
             s.snapshot_at AS "snapshotAt",
             s.rating_id AS "ratingId",
-            rg.tier_key AS "tierKey",
             rg.grade_name AS "gradeName",
             rg.grade_abbr AS "gradeAbbr",
             s.cutoff_score AS "cutoffScore"
         FROM public.rta_snapshot_rank_cut s
         INNER JOIN public.rta_rating_grade rg ON rg.rating_id = s.rating_id
+        INNER JOIN public.rta_rating_grade_season rgs
+               ON rgs.rating_id = s.rating_id
+              AND rgs.season_id = #{seasonId}
         CROSS JOIN mx
-        WHERE s.season_id = (SELECT season_id FROM sid)
+        WHERE s.season_id = #{seasonId}
           AND mx.ts IS NOT NULL
           AND s.snapshot_at = mx.ts
+          AND rgs.min_win_points IS NOT NULL
         ORDER BY rg.tier_sort NULLS LAST, s.rating_id
     </select>
 
+    <!-- 랭크컷 앵커 스냅: TRUNCATE 후 재적재 -->
     <update id="deleteAllRtaRankCutoffAnchorSnap">
         TRUNCATE TABLE public.rta_rank_cutoff_anchor_snap
     </update>
 
     <!-- getRtaRankCutoffAnchorsFromLive 와 동일 로직 → 집계 테이블 적재 (배치 전용) -->
     <insert id="insertRtaRankCutoffAnchorSnapFromLive">
-        INSERT INTO public.rta_rank_cutoff_anchor_snap (snapshot_at, sort_order, anchor_key, tier_key, cutoff_score)
+        INSERT INTO public.rta_rank_cutoff_anchor_snap (snapshot_at, sort_order, anchor_key, grade_slot, cutoff_score)
         WITH <include refid="rtaMatchInSeasonCte"/>,
         rank_window AS (
             SELECT (MAX(r.date_add)::date - INTERVAL '120 days')::date AS min_date
@@ -393,7 +382,7 @@
                     WHEN (u.rating_id % 10) IN (1, 2, 3)
                     THEN (u.rating_id % 10)::text
                     ELSE '2'
-                END AS tier_key
+                END AS grade_slot
             FROM public.rta_match_participant u
             INNER JOIN rta_match_in_window r ON u.replay_id = r.rid
             WHERE u.rating_id &gt;= 1000
@@ -401,21 +390,23 @@
         ),
         tiers AS (
             SELECT * FROM (VALUES
-                ('G3'), ('G2'), ('G1'), ('P3'), ('P2'), ('P1')
-            ) AS tv(tier_key)
-        )
+                ('G3'), ('G2'), ('G1'), ('P3'), ('P2')
+            ) AS tv(grade_slot)
+        ),
+        <include refid="rtaRankCutoffOfficialTierFloorCte"/>
         SELECT
             CURRENT_TIMESTAMP,
             a.sort_order,
             a.anchor_key,
-            t.tier_key,
-            COALESCE(MIN(b.score_val), 0)::bigint AS cutoff_score
+            t.grade_slot,
+            COALESCE(MIN(b.score_val), MAX(tof.min_pts), 0)::bigint AS cutoff_score
         FROM anchors a
         CROSS JOIN tiers t
-        LEFT JOIN base b ON b.tier_key = t.tier_key
+        LEFT JOIN tier_official tof ON tof.grade_slot = t.grade_slot
+        LEFT JOIN base b ON b.grade_slot = t.grade_slot
             AND b.date_add &gt;= CURRENT_TIMESTAMP - a.iv
             AND b.date_add &lt;= CURRENT_TIMESTAMP
-        GROUP BY a.sort_order, a.anchor_key, a.iv, t.tier_key
+        GROUP BY a.sort_order, a.anchor_key, a.iv, t.grade_slot
     </insert>
 
     <!-- 시즌별 등급(rating_id) 최저 래더 점수 스냅샷 (히스토리 적재) -->
@@ -433,13 +424,27 @@
                   AND m.played_at &lt; s.end_at
                   AND u.rating_id = rg.rating_id
                   AND u.ladder_score &gt; 0
-            ), 0)::bigint
+            ), rgs.min_win_points, 0)::bigint
         FROM public.rta_season s
-        INNER JOIN public.rta_rating_grade rg ON rg.tier_key IS NOT NULL
+        INNER JOIN public.rta_rating_grade rg ON rg.grade_slot IS NOT NULL
+        LEFT JOIN public.rta_rating_grade_season rgs
+            ON rgs.season_id = s.season_id AND rgs.rating_id = rg.rating_id
         ORDER BY s.season_id, rg.rating_id
     </insert>
 
-    <!-- 몬스터 상세: 카운터 매치업 — 티어별 행을 상대 콤보 키 기준으로 합산 -->
+    <!-- 배치 로깅용: JDBC updateCount 가 INSERT…SELECT 에서 부정확할 수 있어 실측 COUNT 사용 -->
+    <select id="countRtaRankCutoffAnchorSnapRows" resultType="long">
+        SELECT COUNT(*)::bigint FROM public.rta_rank_cutoff_anchor_snap
+    </select>
+
+    <select id="countRtaSnapshotRankCutAtLatestSnapshot" resultType="long">
+        SELECT COUNT(*)::bigint
+        FROM public.rta_snapshot_rank_cut s
+        WHERE s.snapshot_at = (SELECT MAX(snapshot_at) FROM public.rta_snapshot_rank_cut)
+    </select>
+
+    <!-- 몬스터 상세: 카운터 매치업 — 티어별 행을 상대 콤보 키 기준으로 합산.
+         seasonId 직접 수신 → idx_rta_agg_counter_matchup_season_subject 활용 (index-only scan). -->
     <select id="getRtaMonsterCounterMatchups" resultType="map">
         SELECT
             x.opponent_combo_key AS "opponentComboKey",
@@ -463,11 +468,22 @@
                 SUM(c.win_cnt)::bigint AS win_cnt,
                 SUM(c.lose_cnt)::bigint AS lose_cnt
             FROM public.rta_agg_counter_matchup c
-            WHERE c.season_id = (SELECT season_id FROM public.rta_season WHERE season_code = #{seasonCode} LIMIT 1)
+            WHERE c.season_id = #{seasonId}
               AND c.subject_unit_id = #{monsterId}
             GROUP BY c.opponent_combo_key
         ) x
         ORDER BY (x.win_cnt + x.lose_cnt) DESC NULLS LAST
         LIMIT 40
     </select>
+
+    <!-- 카운터 matchup 조회용 인덱스 배치 전 DROP (merge 속도 향상) -->
+    <update id="dropCounterMatchupQueryIndex" statementType="STATEMENT">
+        DROP INDEX IF EXISTS public.idx_rta_agg_counter_matchup_season_subject
+    </update>
+
+    <!-- 카운터 matchup 조회용 인덱스 배치 후 REBUILD (CONCURRENTLY 미지원 — 배치 전용) -->
+    <update id="rebuildCounterMatchupQueryIndex" statementType="STATEMENT">
+        CREATE INDEX IF NOT EXISTS idx_rta_agg_counter_matchup_season_subject
+        ON public.rta_agg_counter_matchup (season_id, subject_unit_id)
+    </update>
 </mapper>

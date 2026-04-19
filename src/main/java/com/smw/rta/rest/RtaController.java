@@ -1,7 +1,6 @@
 package com.smw.rta.rest;
 
 import com.smw.rta.service.RtaService;
-import com.smw.rta.support.RtaTierKeyUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -13,6 +12,7 @@ import static org.springframework.web.bind.annotation.RequestMethod.*;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.HashMap;
@@ -26,22 +26,7 @@ public class RtaController {
     @Autowired
     private RtaService rtaService;
 
-    private static String pickSeasonCode(Map<String, Object> param) {
-        if (param == null) {
-            return null;
-        }
-        Object sc = param.get("seasonCode");
-        if (sc == null) {
-            sc = param.get("season_code");
-        }
-        if (sc == null) {
-            return null;
-        }
-        String s = String.valueOf(sc).trim();
-        return s.isEmpty() ? null : s;
-    }
-
-    /** body/query: seasonId / season_id — 양수일 때만. seasonCode보다 우선해 시즌을 특정한다. */
+    /** body/query: seasonId / season_id — 양수일 때만 */
     private static Long pickSeasonId(Map<String, Object> param) {
         if (param == null) {
             return null;
@@ -80,39 +65,61 @@ public class RtaController {
         return null;
     }
 
-    /** 세부 티어 키 Ch1~G3 — body/query: tierKey / tier_key (구 tierLeague 도 허용) */
-    private static String pickTierKey(Map<String, Object> param) {
+    /** body/query: ratingId (Integer) */
+    private static Integer pickRatingId(Map<String, Object> param) {
+        if (param == null) return null;
+        Object v = param.get("ratingId");
+        if (v == null) v = param.get("rating_id");
+        if (v == null) return null;
+        try {
+            int i = Integer.parseInt(v.toString().trim());
+            return i > 0 ? i : null;
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<Integer> pickRatingIds(Map<String, Object> param) {
         if (param == null) {
             return null;
         }
-        Object t = param.get("tierKey");
-        if (t == null) {
-            t = param.get("tier_key");
+        Object o = param.get("ratingIds");
+        if (o == null) {
+            o = param.get("rating_ids");
         }
-        if (t == null) {
-            t = param.get("tierLeague");
-        }
-        if (t == null) {
-            t = param.get("tier_league");
-        }
-        if (t == null) {
+        if (o == null) {
             return null;
         }
-        String s = String.valueOf(t).trim();
-        return s.isEmpty() ? null : s;
+        if (!(o instanceof List)) {
+            return null;
+        }
+        List<?> raw = (List<?>) o;
+        List<Integer> out = new ArrayList<>();
+        for (Object x : raw) {
+            if (x == null) {
+                continue;
+            }
+            try {
+                int i = Integer.parseInt(x.toString().trim());
+                if (i > 0) {
+                    out.add(i);
+                }
+            } catch (NumberFormatException ignored) {
+                // skip
+            }
+        }
+        return out.isEmpty() ? null : out;
     }
 
-    @Operation(summary = "RTA 매치 목록 조회", description = "RTA 매치 목록을 페이지네이션하여 조회합니다. seasonId(우선) 또는 seasonCode로 시즌 필터. "
-            + "목록은 최대 10페이지(요청 limit를 페이지 크기로 볼 때 offset이 10페이지 이상이면 DB 미조회, 빈 배열).")
+    @Operation(summary = "RTA 매치 목록 조회", description = "RTA 매치 목록을 페이지네이션하여 조회합니다.")
     @RequestMapping(value = "/matches", method = { GET, POST })
     public ResponseEntity<List<Map<String, Object>>> getRtaMatches(
             @RequestBody(required = false) Map<String, Object> param,
             @RequestParam(required = false) Integer limit,
             @RequestParam(required = false) Integer offset,
-            @RequestParam(required = false) String seasonCode,
             @RequestParam(required = false) Long seasonId,
-            @RequestParam(required = false) String tierKey) {
-        
+            @RequestParam(required = false) Integer ratingId) {
         try {
             int l = 50;
             int o = 0;
@@ -122,12 +129,11 @@ public class RtaController {
             }
             if (limit != null) l = limit;
             if (offset != null) o = offset;
-            String sc = seasonCode != null && !seasonCode.trim().isEmpty() ? seasonCode.trim() : pickSeasonCode(param);
             Long sid = mergeSeasonId(param, seasonId);
-            String tkRaw = tierKey != null && !tierKey.trim().isEmpty() ? tierKey.trim() : pickTierKey(param);
-            String tk = RtaTierKeyUtil.normalize(tkRaw);
-            
-            List<Map<String, Object>> matches = rtaService.getRtaMatches(l, o, sc, sid, tk);
+            Integer rid = ratingId != null ? ratingId : pickRatingId(param);
+            List<Integer> rids = pickRatingIds(param);
+
+            List<Map<String, Object>> matches = rtaService.getRtaMatches(l, o, sid, rid, rids);
             return ResponseEntity.ok(matches);
         } catch (Exception e) {
             log.error("RTA matches 조회 실패", e);
@@ -140,15 +146,13 @@ public class RtaController {
     public ResponseEntity<List<Map<String, Object>>> getPlayerRtaMatches(
             @PathVariable String wizardId,
             @RequestBody(required = false) Map<String, Object> param) {
-        
         try {
             Map<String, Object> p = param != null ? param : new HashMap<>();
             int limit = p.get("limit") != null ? Integer.parseInt(p.get("limit").toString()) : 50;
             int offset = p.get("offset") != null ? Integer.parseInt(p.get("offset").toString()) : 0;
-            String sc = pickSeasonCode(p);
             Long sid = pickSeasonId(p);
-            
-            List<Map<String, Object>> matches = rtaService.getPlayerRtaMatches(wizardId, limit, offset, sc, sid);
+
+            List<Map<String, Object>> matches = rtaService.getPlayerRtaMatches(wizardId, limit, offset, sid);
             return ResponseEntity.ok(matches);
         } catch (Exception e) {
             log.error("RTA player matches 조회 실패 wizardId={}", wizardId, e);
@@ -156,37 +160,27 @@ public class RtaController {
         }
     }
 
-    @Operation(summary = "RTA 목록 페이지 묶음", description = "매치 목록 + stats.hasMore(다음 페이지 여부). 시즌 전체 건수 COUNT는 하지 않음(부하). /rta 화면 권장(HTTP 1회).")
+    @Operation(summary = "RTA 목록 페이지 묶음", description = "매치 목록 + stats.hasMore.")
     @RequestMapping(value = "/page", method = { GET, POST })
     public ResponseEntity<Map<String, Object>> getRtaListPage(
             @RequestBody(required = false) Map<String, Object> param,
             @RequestParam(required = false) Integer limit,
             @RequestParam(required = false) Integer offset,
-            @RequestParam(required = false) String seasonCode,
             @RequestParam(required = false) Long seasonId,
-            @RequestParam(required = false) String tierKey) {
+            @RequestParam(required = false) Integer ratingId) {
         try {
             int l = 50;
             int o = 0;
             if (param != null) {
-                if (param.get("limit") != null) {
-                    l = Integer.parseInt(param.get("limit").toString());
-                }
-                if (param.get("offset") != null) {
-                    o = Integer.parseInt(param.get("offset").toString());
-                }
+                if (param.get("limit") != null) l = Integer.parseInt(param.get("limit").toString());
+                if (param.get("offset") != null) o = Integer.parseInt(param.get("offset").toString());
             }
-            if (limit != null) {
-                l = limit;
-            }
-            if (offset != null) {
-                o = offset;
-            }
-            String sc = seasonCode != null && !seasonCode.trim().isEmpty() ? seasonCode.trim() : pickSeasonCode(param);
+            if (limit != null) l = limit;
+            if (offset != null) o = offset;
             Long sid = mergeSeasonId(param, seasonId);
-            String tkRaw = tierKey != null && !tierKey.trim().isEmpty() ? tierKey.trim() : pickTierKey(param);
-            String tk = RtaTierKeyUtil.normalize(tkRaw);
-            Map<String, Object> body = rtaService.getRtaListPage(l, o, sc, sid, tk);
+            Integer rid = ratingId != null ? ratingId : pickRatingId(param);
+            List<Integer> rids = pickRatingIds(param);
+            Map<String, Object> body = rtaService.getRtaListPage(l, o, sid, rid, rids);
             return ResponseEntity.ok(body);
         } catch (Exception e) {
             log.error("RTA page 조회 실패", e);
@@ -198,43 +192,38 @@ public class RtaController {
     @PostMapping("/stats")
     public ResponseEntity<Object> getRtaStats(
             @RequestBody(required = false) Map<String, Object> param,
-            @RequestParam(required = false) String tierKey) {
-        
+            @RequestParam(required = false) Integer ratingId) {
         try {
-            String sc = pickSeasonCode(param);
             Long sid = pickSeasonId(param);
-            String tkRaw = tierKey != null && !tierKey.trim().isEmpty() ? tierKey.trim() : pickTierKey(param);
-            String tk = RtaTierKeyUtil.normalize(tkRaw);
-            Object stats = rtaService.getRtaStats(sc, sid, tk);
+            Integer rid = ratingId != null ? ratingId : pickRatingId(param);
+            List<Integer> rids = pickRatingIds(param);
+            Object stats = rtaService.getRtaStats(sid, rid, rids);
             return ResponseEntity.ok(stats);
         } catch (Exception e) {
             log.error("RTA stats 조회 실패", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
-    
-    @Operation(summary = "RTA 테스트 데이터 조회", description = "RTA 테스트용 데이터를 조회합니다.")
+
+    @Operation(summary = "RTA 테스트 데이터 조회")
     @PostMapping("/test")
     public ResponseEntity<Object> testRtaData() {
-        
         try {
-            Object testData = rtaService.testRtaData();
-            return ResponseEntity.ok(testData);
+            return ResponseEntity.ok(rtaService.testRtaData());
         } catch (Exception e) {
             log.error("RTA test data 조회 실패", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
 
-    @Operation(summary = "RTA 소환사 요약", description = "수집 리플레이 기준 최신 점수·글로벌 순위·승패 집계 (상세 헤더용)")
+    @Operation(summary = "RTA 소환사 요약", description = "수집 리플레이 기준 최신 점수·글로벌 순위·승패 집계")
     @PostMapping("/player/{wizardId}/summary")
     public ResponseEntity<Map<String, Object>> getRtaPlayerSummary(
             @PathVariable String wizardId,
             @RequestBody(required = false) Map<String, Object> param) {
         try {
-            String sc = pickSeasonCode(param);
             Long sid = pickSeasonId(param);
-            Map<String, Object> response = rtaService.getRtaPlayerSummary(wizardId, sc, sid);
+            Map<String, Object> response = rtaService.getRtaPlayerSummary(wizardId, sid);
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             log.error("RTA player summary 조회 실패 wizardId={}", wizardId, e);
@@ -242,11 +231,10 @@ public class RtaController {
         }
     }
 
-    @Operation(summary = "RTA 소환사 랭킹", description = "시즌·등급 행 기준 상위 500명 풀 내 MAX(래더) 순위. 페이지당 최대 50명·최대 10페이지. 국가 필터는 해당 500명 풀 안에서만 적용")
+    @Operation(summary = "RTA 소환사 랭킹")
     @PostMapping("/summoner-ranking")
     public ResponseEntity<Map<String, Object>> getRtaSummonerRanking(@RequestBody(required = false) Map<String, Object> param) {
         try {
-            /** {@link com.smw.rta.service.RtaServiceImpl} 와 동일: 페이지당 50명·상위 500명 풀 내 최대 10페이지 */
             final int pageSize = 50;
             final int maxPages = 10;
             final int maxOffset = pageSize * (maxPages - 1);
@@ -255,33 +243,24 @@ public class RtaController {
             if (param != null) {
                 if (param.get("limit") != null) {
                     int parsed = Integer.parseInt(param.get("limit").toString());
-                    if (parsed >= 1) {
-                        limit = Math.min(parsed, pageSize);
-                    }
+                    if (parsed >= 1) limit = Math.min(parsed, pageSize);
                 }
                 if (param.get("offset") != null) {
                     offset = Integer.parseInt(param.get("offset").toString());
                 }
             }
-            if (offset < 0) {
-                offset = 0;
-            }
-            if (offset > maxOffset) {
-                offset = maxOffset;
-            }
-            String sc = pickSeasonCode(param);
+            if (offset < 0) offset = 0;
+            if (offset > maxOffset) offset = maxOffset;
             Long sid = pickSeasonId(param);
             String countryFilter = null;
             if (param != null) {
                 Object co = param.get("country");
                 if (co != null) {
                     String cf = co.toString().trim();
-                    if (!cf.isEmpty()) {
-                        countryFilter = cf;
-                    }
+                    if (!cf.isEmpty()) countryFilter = cf;
                 }
             }
-            Map<String, Object> response = rtaService.getRtaSummonerRanking(limit, offset, sc, sid, countryFilter);
+            Map<String, Object> response = rtaService.getRtaSummonerRanking(limit, offset, sid, countryFilter);
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             log.error("RTA summoner ranking 조회 실패", e);
@@ -289,7 +268,7 @@ public class RtaController {
         }
     }
 
-    @Operation(summary = "RTA 소환사 검색", description = "시즌 구간 내 라이브 랭킹에서 닉네임 부분 일치 또는 위자드 ID 정확 일치 검색")
+    @Operation(summary = "RTA 소환사 검색")
     @PostMapping("/summoner-search")
     public ResponseEntity<Map<String, Object>> searchRtaSummoners(@RequestBody(required = false) Map<String, Object> param) {
         try {
@@ -297,9 +276,8 @@ public class RtaController {
             if (param != null && param.get("q") != null) {
                 q = param.get("q").toString();
             }
-            String sc = pickSeasonCode(param);
             Long sid = pickSeasonId(param);
-            Map<String, Object> response = rtaService.searchRtaSummoners(q, sc, sid);
+            Map<String, Object> response = rtaService.searchRtaSummoners(q, sid);
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             log.error("RTA summoner search 실패", e);
@@ -307,36 +285,39 @@ public class RtaController {
         }
     }
 
-    @Operation(summary = "RTA 시즌 목록", description = "rta_season 조회. startYmdKst·lastInclusiveYmdKst·endExclusiveYmdKst는 Asia/Seoul 일자(티어 bucket과 동일 기준)")
+    @Operation(summary = "RTA 시즌 목록")
     @GetMapping("/seasons")
     public ResponseEntity<Map<String, Object>> getRtaSeasons() {
         try {
-            Map<String, Object> response = rtaService.getRtaSeasons();
-            return ResponseEntity.ok(response);
+            return ResponseEntity.ok(rtaService.getRtaSeasons());
         } catch (Exception e) {
             log.error("RTA seasons 조회 실패", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
 
-    @Operation(summary = "RTA 공식 티어 규칙(참고)", description = "rta_rating_grade 에 등록된 tier_key·승점·랭킹 설명")
+    @Operation(summary = "RTA 공식 티어 규칙(참고)")
     @GetMapping("/rating-grade-rules")
-    public ResponseEntity<List<Map<String, Object>>> listRtaRatingGradeRules() {
+    public ResponseEntity<List<Map<String, Object>>> listRtaRatingGradeRules(
+            @RequestParam(value = "seasonId", required = false) Long seasonId) {
         try {
-            return ResponseEntity.ok(rtaService.listRtaRatingGradeReference());
+            Long sid = rtaService.resolveSeasonId(seasonId);
+            if (sid == null) {
+                return ResponseEntity.ok(java.util.Collections.emptyList());
+            }
+            return ResponseEntity.ok(rtaService.listRtaRatingGradeReference(sid));
         } catch (Exception e) {
             log.error("RTA rating grade rules 조회 실패", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
 
-    @Operation(summary = "RTA 대시보드", description = "일별×티어 집계 전체 + 날짜 범위 (seasonId 우선, 없으면 seasonCode)")
+    @Operation(summary = "RTA 대시보드", description = "일별×티어 + 랭크 컷(호환용 단일 응답)")
     @PostMapping("/dashboard")
     public ResponseEntity<Map<String, Object>> getRtaDashboard(@RequestBody(required = false) Map<String, Object> param) {
         try {
-            String sc = pickSeasonCode(param);
             Long sid = pickSeasonId(param);
-            Map<String, Object> response = rtaService.getRtaDashboard(sc, sid);
+            Map<String, Object> response = rtaService.getRtaDashboard(sid);
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             log.error("RTA dashboard 조회 실패", e);
@@ -344,35 +325,51 @@ public class RtaController {
         }
     }
 
-    @Operation(summary = "RTA 몬스터별 통계 조회", description = "RTA 몬스터별 통계. limit=페이지 크기(기본 20), offset 또는 stats_offset=솔로 오프셋, duo_offset, trio_offset=듀오·트리오 오프셋")
+    @Operation(summary = "RTA 대시보드 — 티어별 분포", description = "일별×티어 집계만 (소환사 티어별 분포 카드용)")
+    @PostMapping("/dashboard/tier-distribution")
+    public ResponseEntity<Map<String, Object>> getRtaDashboardTierDistribution(
+            @RequestBody(required = false) Map<String, Object> param) {
+        try {
+            Long sid = pickSeasonId(param);
+            Map<String, Object> response = rtaService.getRtaDashboardTierDistribution(sid);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("RTA dashboard tier-distribution 조회 실패", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    @Operation(summary = "RTA 대시보드 — 랭크 컷", description = "앵커·스냅샷만 (랭크 컷 섹션용)")
+    @PostMapping("/dashboard/rank-cutoff")
+    public ResponseEntity<Map<String, Object>> getRtaDashboardRankCutoff(
+            @RequestBody(required = false) Map<String, Object> param) {
+        try {
+            Long sid = pickSeasonId(param);
+            Map<String, Object> response = rtaService.getRtaDashboardRankCutoff(sid);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("RTA dashboard rank-cutoff 조회 실패", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    @Operation(summary = "RTA 몬스터별 통계 조회")
     @PostMapping("/monster-stats")
     public ResponseEntity<Map<String, Object>> getRtaMonsterStats(@RequestBody Map<String, Object> param) {
-        
         try {
             Map<String, Object> p = param != null ? param : new HashMap<>();
             int pageSize = clampInt(parseIntOpt(p.get("limit"), 20), 1, 500);
-            Object statsOffObj = p.get("stats_offset");
-            if (statsOffObj == null) {
-                statsOffObj = p.get("offset");
-            }
-            int statsOffset = Math.max(0, parseIntOpt(statsOffObj, 0));
-            int duoOffset = Math.max(0, parseIntOpt(p.get("duo_offset"), 0));
-            int trioOffset = Math.max(0, parseIntOpt(p.get("trio_offset"), 0));
-            String sc = pickSeasonCode(param);
+            int offset = Math.max(0, parseIntOpt(p.get("offset"), 0));
             Long sid = pickSeasonId(param);
-            
-            Object tierObj = p.get("tierKey");
-            if (tierObj == null) {
-                tierObj = p.get("tier_key");
-            }
-            String tierKey = null;
-            if (tierObj != null) {
-                String ts = String.valueOf(tierObj).trim();
-                tierKey = ts.isEmpty() ? null : ts;
-            }
 
-            Map<String, Object> response = rtaService.getRtaMonsterStats(pageSize, statsOffset, duoOffset, trioOffset, sc,
-                    sid, tierKey);
+            Integer ratingId = pickRatingId(p);
+            List<Integer> ratingIds = pickRatingIds(p);
+
+            Object typeObj = p.get("type");
+            String type = typeObj != null ? String.valueOf(typeObj).trim() : "solo";
+
+            Map<String, Object> response = rtaService.getRtaMonsterStats(pageSize, offset, type, sid, ratingId,
+                    ratingIds);
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             log.error("RTA monster stats 조회 실패", e);
@@ -381,9 +378,7 @@ public class RtaController {
     }
 
     private static int parseIntOpt(Object o, int defaultVal) {
-        if (o == null) {
-            return defaultVal;
-        }
+        if (o == null) return defaultVal;
         try {
             return Integer.parseInt(String.valueOf(o).trim());
         } catch (NumberFormatException e) {
@@ -395,20 +390,16 @@ public class RtaController {
         return Math.max(min, Math.min(max, v));
     }
 
-    @Operation(summary = "RTA 몬스터 상세 정보 조회", description = "특정 몬스터의 상세 정보를 조회합니다. (기본정보, 강한상대, 좋은콤비, 3체인콤비, 카운터매치업, 최근경기)")
+    @Operation(summary = "RTA 몬스터 상세 정보 조회")
     @PostMapping("/monster-detail")
     public ResponseEntity<Map<String, Object>> getRtaMonsterDetail(@RequestBody Map<String, Object> param) {
-        
         try {
             int monsterId = param.get("monster_id") != null ? Integer.parseInt(param.get("monster_id").toString()) : 0;
-            
             if (monsterId == 0) {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
             }
-            String sc = pickSeasonCode(param);
             Long sid = pickSeasonId(param);
-            
-            Map<String, Object> response = rtaService.getRtaMonsterDetail(monsterId, sc, sid);
+            Map<String, Object> response = rtaService.getRtaMonsterDetail(monsterId, sid);
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             log.error("RTA monster detail 조회 실패 param={}", param, e);

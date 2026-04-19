@@ -1,0 +1,163 @@
+# 동일 이미지(smw-app): Quartz 크론·RTA 배치만 이 Pod 에서 실행. API Pod(smw-app)와 DB·Redis 공유.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: smw-batch
+  labels:
+    app: smw-batch
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: smw-batch
+  template:
+    metadata:
+      labels:
+        app: smw-batch
+    spec:
+      containers:
+        - name: smw-batch
+          image: gilhwanjeon/smw-app:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: s3-credentials
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: s3-credentials
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: AWS_REGION
+              valueFrom:
+                secretKeyRef:
+                  name: s3-credentials
+                  key: AWS_REGION
+            - name: SPRING_PROFILES_ACTIVE
+              value: "docker"
+            - name: TZ
+              value: "Asia/Seoul"
+            - name: JAVA_TOOL_OPTIONS
+              value: "-Duser.timezone=Asia/Seoul"
+            - name: SPRING_DATASOURCE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: smw-db-secret
+                  key: url
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: smw-db-secret
+                  key: username
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: smw-db-secret
+                  key: password
+            - name: SPRING_DATASOURCE_HIKARI_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: smw-db-secret
+                  key: username
+            - name: SPRING_DATASOURCE_HIKARI_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: smw-db-secret
+                  key: password
+            - name: SPRING_MAIL_ENABLED
+              valueFrom:
+                secretKeyRef:
+                  name: smw-mail-secret
+                  key: enabled
+                  optional: true
+            - name: SPRING_MAIL_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: smw-mail-secret
+                  key: username
+                  optional: true
+            - name: SPRING_MAIL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: smw-mail-secret
+                  key: password
+                  optional: true
+            - name: SPRING_MAIL_FROM
+              valueFrom:
+                secretKeyRef:
+                  name: smw-mail-secret
+                  key: from
+                  optional: true
+            - name: SMW_JWT_SIGNING_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: smw-app-secret
+                  key: jwt-signing-secret
+                  optional: true
+            - name: SMW_JWT_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: smw-app-secret
+                  key: jwt-encryption-key
+                  optional: true
+            - name: SMW_BATCH_QUARTZ_ENABLED
+              value: "true"
+            - name: SMW_SCHEDULER_ENABLED
+              value: "true"
+            - name: SPRING_DATA_REDIS_HOST
+              value: "smw-redis"
+            - name: SMW_CACHE_RTA_USE_REDIS
+              value: "true"
+          resources:
+            requests:
+              memory: "768Mi"
+              cpu: "400m"
+            limits:
+              memory: "2048Mi"
+              cpu: "1500m"
+          startupProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 24
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8080
+            initialDelaySeconds: 0
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8080
+            initialDelaySeconds: 0
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: smw-batch-service
+  labels:
+    app: smw-batch
+spec:
+  type: ClusterIP
+  selector:
+    app: smw-batch
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP
+      name: http

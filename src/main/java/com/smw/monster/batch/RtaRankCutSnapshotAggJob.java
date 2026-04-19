@@ -9,6 +9,8 @@ import com.smw.rta.service.RtaBatchAggregationService;
 /**
  * RTA 랭크 컷 집계: 앵커(3h~7d×티어) {@code rta_rank_cutoff_anchor_snap}, 등급별 컷 {@code rta_snapshot_rank_cut}.
  * <p>
+ * 메인 화면 <b>소환사 티어별 분포</b>({@code rta_agg_tier_daily})는 이 Job 이 채우지 않는다 — {@link com.smw.monster.batch.RtaTierDailyAggJob} 별도 실행.
+ * <p>
  * 통합 raw/시너지 Job 과 분리 — 부하·주기 다름. DB {@code sys_batch_config} 에 등록 (예: 매시 정각 {@code 0 0 * * * ?}).
  */
 public class RtaRankCutSnapshotAggJob extends BaseBatchJob {

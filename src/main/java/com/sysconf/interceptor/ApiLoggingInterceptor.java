@@ -102,7 +102,7 @@ public class ApiLoggingInterceptor implements HandlerInterceptor {
 	public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex) throws Exception {
 		recordApiMetrics(request, response, ex);
 
-		// 비동기 API 로그 적재 (등록된 API만 저장됨)
+		// API 실행 로그 DB 적재는 비활성(LogService.insertApiLogAsync no-op) — Micrometer 메트릭만 유효
 		Object p = request.getAttribute("__api_log_param");
 		if (p instanceof Map) {
 			@SuppressWarnings("unchecked")

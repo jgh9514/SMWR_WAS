@@ -63,17 +63,6 @@ public interface summonerswarMapper {
 	/** view_battle_deck_info 다건 INSERT */
 	int insertGuildSiegeBattleDeckBatch(@Param("rows") List<Map<String, String>> rows);
 	
-	/** 이미 저장된 rid만 조회 (rta-upload 중복 검사 N회 → 1~N/500회) */
-	List<Long> selectArenaRidsExisting(@Param("rids") List<Long> rids);
-
-	/** user_list PK (rid, wizard_id) 이미 존재 여부 — rta_match 와 불일치 시에도 중복 INSERT 방지 */
-	List<Map<String, ?>> selectArenaUserPairsByRids(@Param("rids") List<Long> rids);
-
-	/** rta_match 에 부모가 없는 rid 에 대해 자식만 남은 행 삭제 (업로드 중단 복구용). unit → user 순 */
-	int deleteArenaRtaOrphanUnitsByRids(@Param("rids") List<Long> rids);
-
-	int deleteArenaRtaOrphanUsersByRids(@Param("rids") List<Long> rids);
-
 	/** RTA 시즌 구간 매핑용 전체 행 (행마다 INSERT 서브쿼리 대비) */
 	List<Map<String, ?>> selectRtaSeasonsForRtaMatchMapping();
 
@@ -84,20 +73,11 @@ public interface summonerswarMapper {
 
 	int insertArenaUnitInfoBulk(@Param("rows") List<Map<String, ?>> rows);
 
-	/** rta-upload: 원본 JSON 벌크 (rid + payload). ON CONFLICT 시 payload 갱신 */
+	/** rta-upload: 메타 벌크 적재 (rid). ON CONFLICT 시 apply_status='pending' 으로 리셋 */
 	int insertArenaReplayRawBulk(@Param("rows") List<Map<String, Object>> rows);
 
-	/** rta-upload: 정규화 반영 완료 표시 */
-	int updateArenaReplayRawAppliedBulk(@Param("rids") List<Long> rids);
-
-	/** rta-upload: 정규화 실패 표시(재시도·점검). retry_count 증가 */
-	int updateArenaReplayRawFailedBulk(@Param("rids") List<Long> rids, @Param("message") String message);
-
-	/** RTA raw: 아직 정규화 반영 전인 건수 (배치 모니터링) */
-	int selectRtaReplayRawNotAppliedCount();
-
-	/** RTA raw: pending + failed 건수 (배치 진단용) */
-	int countRtaReplayRawPendingPf();
+	/** rta-upload: 페이로드 벌크 적재 (rid + payload). ON CONFLICT 시 payload 갱신 */
+	int insertArenaReplayRawPayloadBulk(@Param("rows") List<Map<String, Object>> rows);
 
 	/** RTA raw: pending/failed 조회 (rid 오름차순, 한 실행당 {@code limit}건 상한). */
 	List<Map<String, ?>> selectRtaReplayRawPending(@Param("limit") int limit);

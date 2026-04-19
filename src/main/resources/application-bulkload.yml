@@ -9,19 +9,25 @@ smw:
   rta:
     raw-apply:
       # 한 번의 applyPending 호출에서 SELECT 할 최대 행 수 (환경변수로 더 올려 백필 가능)
-      max-rows-per-run: ${SMW_RTA_RAW_APPLY_MAX_ROWS:100000}
+      max-rows-per-run: ${SMW_RTA_RAW_APPLY_MAX_ROWS:1000}
       # 정규화 INSERT 청크 (클수록 트랜잭션 수↓, 단일 트랜잭션 부담↑)
-      apply-chunk-size: ${SMW_RTA_RAW_APPLY_CHUNK_SIZE:100000}
-      max-rounds-per-unified-job: ${SMW_RTA_RAW_APPLY_MAX_ROUNDS:200}
+      apply-chunk-size: ${SMW_RTA_RAW_APPLY_CHUNK_SIZE:1000}
       fail-fast-on-error: ${SMW_RTA_RAW_APPLY_FAIL_FAST:false}
+      max-batches-per-job: ${SMW_RTA_RAW_APPLY_MAX_BATCHES:5000}
     batch:
-      synergy-batch-size: ${SMW_RTA_SYNERGY_BATCH_SIZE:100000}
-      snapshot-batch-size: ${SMW_RTA_SNAPSHOT_BATCH_SIZE:100000}
-      snapshot-max-rounds-per-job: ${SMW_RTA_SNAPSHOT_MAX_ROUNDS:500}
+      synergy-batch-size: ${SMW_RTA_SYNERGY_BATCH_SIZE:1000}
       synergy-max-rounds-per-job: ${SMW_RTA_SYNERGY_MAX_ROUNDS:2000}
       synergy-pause-ms-between-rounds: ${SMW_RTA_SYNERGY_PAUSE_MS:0}
-      # v2에서 스냅샷 단계가 no-op 이면 true 권장
-      skip-legacy-snapshot-step: ${SMW_RTA_BATCH_SKIP_SNAPSHOT:true}
       # 백필 시 통계·보유몬 재적재 필요하면 false (기본 application.yml 은 DB 보호용 true)
       skip-monster-stats-in-unified-job: ${SMW_RTA_UNIFIED_SKIP_MONSTER_STATS:false}
       skip-user-monster-owned-agg-in-unified-job: ${SMW_RTA_UNIFIED_SKIP_USER_OWNED_AGG:false}
+    counter-agg:
+      analyze-target-after-merge: ${SMW_RTA_COUNTER_ANALYZE_AFTER_MERGE:true}
+      copy-staging-chunk-rows: ${SMW_RTA_COUNTER_COPY_STAGING_CHUNK_ROWS:400000}
+    synergy-agg:
+      copy-staging-chunk-rows: ${SMW_RTA_SYNERGY_COPY_STAGING_CHUNK_ROWS:400000}
+    staging-merge:
+      analyze-staging-before-merge: ${SMW_RTA_STAGING_MERGE_ANALYZE:true}
+      jit-off-for-merge: ${SMW_RTA_STAGING_MERGE_JIT_OFF:true}
+      work-mem-mb: ${SMW_RTA_STAGING_MERGE_WORK_MEM_MB:128}
+      max-parallel-workers-per-gather: ${SMW_RTA_STAGING_MERGE_PARALLEL:4}

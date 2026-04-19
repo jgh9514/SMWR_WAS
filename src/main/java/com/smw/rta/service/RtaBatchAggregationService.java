@@ -12,32 +12,13 @@ import com.smw.rta.mapper.RtaMapper;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * RTA 관련 집계 공통 로직 (raw 정규화·스냅샷·시너지·랭킹·몬스터 통계·티어 일별).
+ * RTA 관련 집계 공통 로직 (raw 정규화·시너지·랭킹·몬스터 통계·티어 일별).
  * <p>
  * 배치 Job 여러 개가 동일 규칙을 쓰도록 묶는다.
  */
 @Slf4j
 @Service
 public class RtaBatchAggregationService {
-
-	/** pending rid 한 번에 가져와 스냅샷 반영하는 건수 */
-	public static final int SNAPSHOT_BATCH_SIZE = 100000;
-
-	/** 시너지 집계: rid 한 번에 선택하는 건수 */
-	public static final int SYNERGY_BATCH_SIZE = 100000;
-
-	/**
-	 * v2 레거시 매치 스냅샷 단계 없음 — 별도 집계 테이블/스텝 없이 즉시 완료.
-	 */
-	@SuppressWarnings("unused")
-	public SnapshotDrainResult drainPendingSnapshots(
-			RtaMapper rtaMapper,
-			RtaCacheEvictor cacheEvictor,
-			int batchSize,
-			int maxRounds,
-			boolean evictCachesEachRound) {
-		return new SnapshotDrainResult(0, 0, 0, 0, "v2: 레거시 매치 스냅샷 단계 없음");
-	}
 
 	/** 소환사 랭킹 스냅샷 agg 테이블 미사용 — API 는 라이브/집계 CTE 집계. */
 	@SuppressWarnings("unused")
@@ -47,34 +28,18 @@ public class RtaBatchAggregationService {
 
 	/**
 	 * 원본 스테이징 미적용 건을 정규화 테이블로 반영한다.
-	 *
-	 * @param maxRounds 루프 상한 (통합 Job은 {@code smw.rta.raw-apply.max-rounds-per-unified-job}, 단발은 1 권장)
+	 * {@link summonerswarService#applyPendingArenaReplayRawFromDb()} 는 {@code max-rows-per-run} 행을
+	 * 1회만 조회·처리하고 종료한다. 잔여 행은 다음 스케줄에서 처리된다. 고아 행 삭제는 통합 Job 에서 하지 않는다.
 	 */
-	public RawApplyDrainResult drainReplayRawPending(summonerswarService service, int maxRounds) {
-		int orphansDeleted = service.deleteArenaRtaOrphanChildrenGlobal();
-		int rounds = 0;
-		int totalApplied = 0;
-		while (rounds < maxRounds) {
-			int applied = service.applyPendingArenaReplayRawFromDb();
-			if (applied == 0) {
-				break;
-			}
-			totalApplied += applied;
-			rounds++;
-		}
-		String stopReason;
-		if (totalApplied == 0 && orphansDeleted == 0) {
-			stopReason = "적용할 raw 없음";
-		} else if (rounds >= maxRounds && maxRounds > 1) {
-			stopReason = "라운드 상한 도달 (" + maxRounds + ") — 남은 raw 는 다음 실행에서 계속";
-		} else {
-			stopReason = "완료";
-		}
-		return new RawApplyDrainResult(orphansDeleted, rounds, totalApplied, stopReason);
+	public RawApplyDrainResult drainReplayRawPending(summonerswarService service) {
+		int totalApplied = service.applyPendingArenaReplayRawFromDb();
+		String stopReason = totalApplied == 0 ? "적용할 raw 없음" : "완료";
+		return new RawApplyDrainResult(totalApplied, stopReason);
 	}
 
 	/**
 	 * {@code rta_match.synergy_applied_at IS NULL} 인 rid 를 배치 단위로 {@code rta_agg_synergy_combo}에 반영한다. 완료 시 {@code synergy_apply_result='S'}.
+	 * pending 이 모두 소진될 때까지 반복한다 (라운드 상한 없음).
 	 *
 	 * @param pauseMsBetweenRounds 라운드 사이 대기(ms), 0 이면 생략
 	 */
@@ -83,18 +48,15 @@ public class RtaBatchAggregationService {
 			RtaSynergyAggService synergyAggService,
 			RtaCacheEvictor cacheEvictor,
 			int batchSize,
-			int maxRounds,
 			boolean evictCachesEachRound,
 			int pauseMsBetweenRounds) {
 		int rounds = 0;
 		int totalOk = 0;
 		int totalFail = 0;
-		String stopReason = null;
 
-		while (rounds < maxRounds) {
+		while (true) {
 			List<Long> rids = rtaMapper.selectPendingSynergyAggRids(batchSize);
 			if (rids == null || rids.isEmpty()) {
-				stopReason = "pending 없음";
 				break;
 			}
 			// 첫 rid 실패 시 예외로 상위 Quartz Job 이 FAILED 처리되도록 전파
@@ -108,19 +70,11 @@ public class RtaBatchAggregationService {
 				cacheEvictor.evictAllRtaCaches();
 			}
 
-			if (pauseMsBetweenRounds > 0 && rounds < maxRounds) {
+			if (pauseMsBetweenRounds > 0) {
 				sleepQuiet(pauseMsBetweenRounds);
 			}
 		}
-		if (stopReason == null) {
-			List<Long> still = rtaMapper.selectPendingSynergyAggRids(1);
-			if (still != null && !still.isEmpty() && rounds >= maxRounds) {
-				stopReason = "라운드 상한 도달 (" + maxRounds + "), pending 남음 — 다음 스케줄에서 계속";
-			} else {
-				stopReason = "완료";
-			}
-		}
-		return new SynergyDrainResult(rounds, totalOk, totalFail, stopReason);
+		return new SynergyDrainResult(rounds, totalOk, totalFail, "완료");
 	}
 
 	/** {@code rta_agg_monster_unit} 미사용 — 몬스터 통계는 {@code rta_agg_synergy_combo} 경로만 사용. */
@@ -129,7 +83,11 @@ public class RtaBatchAggregationService {
 	}
 
 	/**
-	 * 시즌별 {@code rta_agg_tier_daily} 재적재 — 시즌마다 해당 {@code season_id} 행만 삭제 후 INSERT (전역 TRUNCATE 없음).
+	 * 시즌별 {@code rta_agg_tier_daily} 전량 재적재.
+	 * <p>
+	 * 당일만 MERGE하는 증분이 아니라, 시즌마다 해당 {@code season_id} 행을 모두 DELETE 한 뒤
+	 * {@code rta_season} 기준(서울) 일자 구간에 대해 누적 집계를 처음부터 다시 넣는다.
+	 * 배치가 중간에 실패했더라도 다음 실행에서 같은 방식으로 전 일자가 일관되게 복구된다.
 	 */
 	public TierDailyAggRebuildResult rebuildTierAggDaily(RtaMapper rtaMapper) {
 		List<Map<String, Object>> seasons = rtaMapper.listRtaSeasons();
@@ -150,17 +108,18 @@ public class RtaBatchAggregationService {
 	 */
 	public RankCutSnapshotRebuildResult rebuildRankCutSnapshots(RtaMapper rtaMapper) {
 		rtaMapper.deleteAllRtaRankCutoffAnchorSnap();
-		int anchorRows = 0;
-		String defaultCode = rtaMapper.selectDefaultSeasonCodeForNow();
-		if (defaultCode != null && !defaultCode.isEmpty()) {
-			Map<String, Object> bounds = rtaMapper.selectRtaSeasonBounds(defaultCode);
-			Long sid = bounds != null ? pickSeasonId(bounds) : null;
-			if (sid != null) {
-				anchorRows = rtaMapper.insertRtaRankCutoffAnchorSnapFromLive(sid.longValue());
-			}
+		Long defaultSid = rtaMapper.selectDefaultSeasonIdForNow();
+		if (defaultSid != null) {
+			rtaMapper.insertRtaRankCutoffAnchorSnapFromLive(defaultSid.longValue());
 		}
-		int snapshotRows = rtaMapper.insertRtaSnapshotRankCutForAllSeasons();
+		rtaMapper.insertRtaSnapshotRankCutForAllSeasons();
+		long anchorRows = safeCount(rtaMapper.countRtaRankCutoffAnchorSnapRows());
+		long snapshotRows = safeCount(rtaMapper.countRtaSnapshotRankCutAtLatestSnapshot());
 		return new RankCutSnapshotRebuildResult(anchorRows, snapshotRows);
+	}
+
+	private static long safeCount(Long n) {
+		return n != null && n >= 0 ? n : 0L;
 	}
 
 	private static Long pickSeasonId(Map<String, Object> row) {
@@ -185,18 +144,10 @@ public class RtaBatchAggregationService {
 		}
 	}
 
-	public record SnapshotDrainResult(
-			int rounds,
-			int totalRidsTouched,
-			long totalUpserted,
-			long totalMarked,
-			String stopReason) {
-	}
-
 	public record SummonerRankingRebuildResult(int totalRows) {
 	}
 
-	public record RawApplyDrainResult(int orphansDeleted, int rounds, int totalApplied, String stopReason) {
+	public record RawApplyDrainResult(int totalApplied, String stopReason) {
 	}
 
 	public record SynergyDrainResult(int rounds, int totalOk, int totalFail, String stopReason) {
@@ -208,6 +159,6 @@ public class RtaBatchAggregationService {
 	public record TierDailyAggRebuildResult(int totalRows) {
 	}
 
-	public record RankCutSnapshotRebuildResult(int anchorRows, int snapshotRows) {
+	public record RankCutSnapshotRebuildResult(long anchorRows, long snapshotRows) {
 	}
 }

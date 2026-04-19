@@ -21,7 +21,11 @@
 		     , CAST(m.family_id AS INTEGER) AS family_id
 		     , m.obtainable
 		     , m.usg_yn
+		     /* RTA 집계·통계 테이블 키(콜라보 스킨은 원본 몬스터 id) */
+		     , COALESCE(mcm.original_monster_id, m.monster_id) AS rta_stats_monster_id
 		  FROM monster m
+		  LEFT JOIN monster_collaboration_mapping mcm
+		         ON TRIM(BOTH FROM mcm.collaboration_monster_id) = TRIM(BOTH FROM m.monster_id)
 		  LEFT JOIN monster m2 ON m2.monster_id = SUBSTR(m.monster_id, 1, 3) || '0' || SUBSTR(m.monster_id, 5)
 		 WHERE m.usg_yn = 'Y'
 		   AND m.obtainable IS TRUE
@@ -1191,42 +1195,6 @@
 		</foreach>
 	</insert>
 	
-	<select id="selectArenaRidsExisting" resultType="long">
-		/* selectArenaRidsExisting — v2 정규화 리플레이 PK (replay_id) */
-		SELECT replay_id FROM public.rta_match
-		WHERE replay_id IN
-		<foreach collection="rids" item="r" open="(" separator="," close=")">
-			#{r}
-		</foreach>
-	</select>
-
-	<select id="selectArenaUserPairsByRids" resultType="sqlMap">
-		/* selectArenaUserPairsByRids */
-		SELECT replay_id AS rid, wizard_id FROM public.rta_match_participant
-		WHERE replay_id IN
-		<foreach collection="rids" item="r" open="(" separator="," close=")">
-			#{r}
-		</foreach>
-	</select>
-
-	<delete id="deleteArenaRtaOrphanUnitsByRids">
-		DELETE FROM public.rta_match_unit_pick u
-		WHERE u.replay_id IN
-		<foreach collection="rids" item="r" open="(" separator="," close=")">
-			#{r}
-		</foreach>
-		AND NOT EXISTS (SELECT 1 FROM public.rta_match r WHERE r.replay_id = u.replay_id)
-	</delete>
-
-	<delete id="deleteArenaRtaOrphanUsersByRids">
-		DELETE FROM public.rta_match_participant ul
-		WHERE ul.replay_id IN
-		<foreach collection="rids" item="r" open="(" separator="," close=")">
-			#{r}
-		</foreach>
-		AND NOT EXISTS (SELECT 1 FROM public.rta_match r WHERE r.replay_id = ul.replay_id)
-	</delete>
-
 	<delete id="deleteArenaRtaOrphanUnitsGlobal">
 		DELETE FROM public.rta_match_unit_pick u
 		WHERE NOT EXISTS (SELECT 1 FROM public.rta_match r WHERE r.replay_id = u.replay_id)
@@ -1275,42 +1243,53 @@
 
 	<insert id="insertArenaUserInfoBulk">
 		INSERT INTO public.rta_match_participant (
-			replay_id,
-			wizard_id,
-			wizard_name,
-			channel_uid,
-			team_side,
-			country_code,
-			rating_id,
-			ladder_score,
-			ladder_rank,
-			is_winner,
-			is_first_pick,
-			alive_count,
-			leader_pick_slot
-		) VALUES
-		<foreach collection="rows" item="m" separator=",">
-		(
-			#{m.rid}
-			, #{m.wizard_id}
-			, #{m.wizard_name}
-			, #{m.channel_uid}
-			, COALESCE(#{m.team_no,jdbcType=SMALLINT}, 1)
-			, #{m.country}
-			, (SELECT r.rating_id FROM public.rta_rating_grade r WHERE r.rating_id = #{m.rating_id,jdbcType=INTEGER} LIMIT 1)
-			, #{m.score,jdbcType=INTEGER}
-			, #{m.rank_no,jdbcType=INTEGER}
-			, COALESCE(#{m.is_winner,jdbcType=BOOLEAN}, false)
-			, CASE
-				WHEN #{m.is_first_pick} IS NULL THEN NULL::boolean
-				WHEN trim(#{m.is_first_pick}::text) IN ('1','true','t','TRUE') THEN true
-				WHEN trim(#{m.is_first_pick}::text) IN ('0','false','f','F','FALSE') THEN false
-				ELSE NULL::boolean
-			END
-			, #{m.alive_count,jdbcType=SMALLINT}
-			, #{m.leader_pick_slot,jdbcType=SMALLINT}
+			replay_id, wizard_id, season_id, played_at,
+			wizard_name, channel_uid, team_side, country_code,
+			rating_id, ladder_score, ladder_rank,
+			is_winner, is_first_pick, alive_count, leader_pick_slot
 		)
-		</foreach>
+		SELECT
+			v.rid,
+			v.wizard_id,
+			m.season_id,
+			m.played_at,
+			v.wizard_name,
+			v.channel_uid,
+			COALESCE(v.team_no, 1::smallint),
+			v.country,
+			r.rating_id,
+			v.score,
+			v.rank_no,
+			COALESCE(v.is_winner, false),
+			CASE
+				WHEN v.fp IS NULL THEN NULL::boolean
+				WHEN trim(v.fp) IN ('1','true','t','TRUE') THEN true
+				WHEN trim(v.fp) IN ('0','false','f','F','FALSE') THEN false
+				ELSE NULL::boolean
+			END,
+			v.alive_count,
+			v.leader_pick_slot
+		FROM (VALUES
+			<foreach collection="rows" item="m" separator=",">
+			(
+				#{m.rid}::bigint
+				, #{m.wizard_id}::varchar
+				, #{m.wizard_name}::varchar
+				, #{m.channel_uid}::varchar
+				, #{m.team_no,jdbcType=SMALLINT}::smallint
+				, #{m.country}::varchar
+				, #{m.rating_id,jdbcType=INTEGER}::int
+				, #{m.score,jdbcType=INTEGER}::int
+				, #{m.rank_no,jdbcType=INTEGER}::int
+				, #{m.is_winner,jdbcType=BOOLEAN}::boolean
+				, #{m.is_first_pick}::text
+				, #{m.alive_count,jdbcType=SMALLINT}::smallint
+				, #{m.leader_pick_slot,jdbcType=SMALLINT}::smallint
+			)
+			</foreach>
+		) AS v(rid, wizard_id, wizard_name, channel_uid, team_no, country, rating_id_raw, score, rank_no, is_winner, fp, alive_count, leader_pick_slot)
+		JOIN public.rta_match m ON m.replay_id = v.rid
+		LEFT JOIN public.rta_rating_grade r ON r.rating_id = v.rating_id_raw
 		ON CONFLICT (replay_id, wizard_id) DO NOTHING
 	</insert>
 
@@ -1334,9 +1313,23 @@
 		ON CONFLICT (replay_id, wizard_id, pick_slot_no) DO NOTHING
 	</insert>
 
-	<!-- v2: 원본 JSON만 적재. 테이블명은 기존 DB 호환으로 ranker_rtpvp_replay_raw 유지 -->
+	<!-- 메타 적재: rid + 상태 컬럼만. payload 는 insertArenaReplayRawPayloadBulk 에서 별도 적재 -->
 	<insert id="insertArenaReplayRawBulk" parameterType="java.util.List">
-		INSERT INTO ranker_rtpvp_replay_raw (rid, payload) VALUES
+		INSERT INTO ranker_rtpvp_replay_raw (rid) VALUES
+		<foreach collection="rows" item="m" separator=",">
+		(#{m.rid})
+		</foreach>
+		ON CONFLICT (rid) DO UPDATE SET
+			  inserted_at = CURRENT_TIMESTAMP
+			, apply_status = 'pending'
+			, applied_at = NULL
+			, last_error = NULL
+			, retry_count = 0
+	</insert>
+
+	<!-- 페이로드 적재: rid + payload(jsonb) 만. 메타는 insertArenaReplayRawBulk 에서 별도 적재 -->
+	<insert id="insertArenaReplayRawPayloadBulk" parameterType="java.util.List">
+		INSERT INTO ranker_rtpvp_replay_raw_payload (rid, payload) VALUES
 		<foreach collection="rows" item="m" separator=",">
 		(
 			  #{m.rid}
@@ -1345,53 +1338,22 @@
 		</foreach>
 		ON CONFLICT (rid) DO UPDATE SET
 			  payload = EXCLUDED.payload
-			, inserted_at = CURRENT_TIMESTAMP
-			, apply_status = 'pending'
-			, applied_at = NULL
-			, last_error = NULL
-			, retry_count = 0
 	</insert>
 
-	<update id="updateArenaReplayRawAppliedBulk">
-		UPDATE ranker_rtpvp_replay_raw SET
-			  apply_status = 'applied'
-			, applied_at = CURRENT_TIMESTAMP
-			, last_error = NULL
-		WHERE rid IN
-		<foreach collection="rids" item="rid" open="(" separator="," close=")">
-			#{rid}
-		</foreach>
-	</update>
-
-	<update id="updateArenaReplayRawFailedBulk">
-		UPDATE ranker_rtpvp_replay_raw SET
-			  apply_status = 'failed'
-			, last_error = SUBSTRING(COALESCE(#{message}, '') FROM 1 FOR 4000)
-			, retry_count = retry_count + 1
-		WHERE rid IN
-		<foreach collection="rids" item="rid" open="(" separator="," close=")">
-			#{rid}
-		</foreach>
-	</update>
-
-	<select id="selectRtaReplayRawNotAppliedCount" resultType="int">
-		SELECT COUNT(*)::int
-		FROM ranker_rtpvp_replay_raw
-		WHERE apply_status &lt;&gt; 'applied'
-	</select>
-
-	<select id="countRtaReplayRawPendingPf" resultType="int">
-		SELECT COUNT(*)::int
-		FROM ranker_rtpvp_replay_raw
-		WHERE apply_status IN ('pending', 'failed')
-	</select>
-
+	<!--
+	  메타 테이블에서 rid 인덱스 스캔(Deferred Join) → LIMIT 확정 후 payload 테이블 JOIN.
+	  idx_ranker_rtpvp_replay_raw_pending_rid (rid ASC) WHERE apply_status IN ('pending','failed') 활용.
+	-->
 	<select id="selectRtaReplayRawPending" resultType="sqlMap">
-		SELECT rid, payload::text AS payload
-		FROM ranker_rtpvp_replay_raw
-		WHERE apply_status IN ('pending', 'failed')
-		ORDER BY rid ASC
-		LIMIT #{limit}
+		SELECT p.rid, p.payload::text AS payload
+		FROM (
+			SELECT rid
+			FROM ranker_rtpvp_replay_raw
+			WHERE apply_status IN ('pending', 'failed')
+			ORDER BY rid ASC
+			LIMIT #{limit}
+		) AS t
+		JOIN ranker_rtpvp_replay_raw_payload p ON p.rid = t.rid
 	</select>
 		
 	<select id="selectRecommendedAttackDeckList" parameterType="sqlMap" resultType="sqlMap">

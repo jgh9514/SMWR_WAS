@@ -16,12 +16,18 @@ final class RtaAggStagingJdbc {
 
 	static long executeInsertMergeReturningRows(Connection conn, String sql) throws SQLException {
 		try (Statement st = conn.createStatement()) {
-			try {
-				return st.executeLargeUpdate(sql);
-			} catch (AbstractMethodError | UnsupportedOperationException e) {
-				// log4jdbc 등 Statement 래퍼가 executeLargeUpdate 미구현
-				return PgJdbcUpdateCount.toLong(st.executeUpdate(sql));
-			}
+			return executeLargeUpdateCompatible(st, sql);
+		}
+	}
+
+	/**
+	 * log4jdbc 등 Statement 래퍼는 {@link Statement#executeLargeUpdate(String)} 미구현일 수 있음.
+	 */
+	static long executeLargeUpdateCompatible(Statement st, String sql) throws SQLException {
+		try {
+			return st.executeLargeUpdate(sql);
+		} catch (AbstractMethodError | UnsupportedOperationException e) {
+			return PgJdbcUpdateCount.toLong(st.executeUpdate(sql));
 		}
 	}
 }

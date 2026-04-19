@@ -1,6 +1,9 @@
 package com.smw.monster.service;
 
+import java.io.IOException;
 import java.math.BigDecimal;
+import java.sql.Connection;
+import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -20,11 +23,15 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
+
+import javax.sql.DataSource;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.context.annotation.Primary;
+import org.springframework.jdbc.datasource.DataSourceUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -45,6 +52,8 @@ import com.smw.monster.mapper.summonerswarMapper;
 import com.smw.monster.util.MonsterDetailContextBuilder;
 import com.smw.rta.cache.RtaCacheEvictor;
 import com.smw.rta.config.RtaRawApplyProperties;
+import com.smw.rta.service.ArenaRtaUploadCopyBulkService;
+import com.smw.rta.service.RtaBulkRidTempTable;
 import com.smw.monster.util.MonsterIdEvolutionUtil;
 import com.sysconf.config.MybatisBatchConfig;
 import com.sysconf.exception.RtaUploadValidationException;
@@ -82,6 +91,15 @@ public class summonerswarServiceImpl implements summonerswarService {
 
 	@Autowired
 	private RtaRawApplyProperties rtaRawApplyProperties;
+
+	@Autowired
+	private DataSource dataSource;
+
+	@Autowired
+	private ArenaRtaUploadCopyBulkService arenaRtaUploadCopyBulkService;
+
+	@Autowired
+	private com.smw.rta.service.RtaBulkRidLookupService bulkRidLookupService;
 
 	/** {@link #getRtaSeasonMappingCache()} — rta_season 전체 스냅샷 TTL */
 	private final Object rtaSeasonMappingCacheLock = new Object();
@@ -468,29 +486,12 @@ public class summonerswarServiceImpl implements summonerswarService {
 		return total;
 	}
 	
-	private static final int ARENA_RTA_EXISTING_RID_CHUNK = 1500;
-
 	@Override
 	public Set<Long> selectArenaRidsExisting(Collection<Long> rids) {
 		if (rids == null || rids.isEmpty()) {
 			return Collections.emptySet();
 		}
-		List<Long> distinct = new ArrayList<>(new LinkedHashSet<>(rids));
-		Set<Long> out = new HashSet<>();
-		for (int from = 0; from < distinct.size(); from += ARENA_RTA_EXISTING_RID_CHUNK) {
-			int to = Math.min(from + ARENA_RTA_EXISTING_RID_CHUNK, distinct.size());
-			List<Long> sub = new ArrayList<>(distinct.subList(from, to));
-			List<Long> found = swMapper.selectArenaRidsExisting(sub);
-			if (found != null) {
-				for (Object x : found) {
-					Long n = normalizeLong(x);
-					if (n != null) {
-						out.add(n);
-					}
-				}
-			}
-		}
-		return out;
+		return bulkRidLookupService.selectExistingReplayIds(rids);
 	}
 
 	@Override
@@ -498,25 +499,7 @@ public class summonerswarServiceImpl implements summonerswarService {
 		if (rids == null || rids.isEmpty()) {
 			return Collections.emptySet();
 		}
-		List<Long> distinct = new ArrayList<>(new LinkedHashSet<>(rids));
-		Set<String> out = new HashSet<>();
-		for (int from = 0; from < distinct.size(); from += ARENA_RTA_EXISTING_RID_CHUNK) {
-			int to = Math.min(from + ARENA_RTA_EXISTING_RID_CHUNK, distinct.size());
-			List<Long> sub = new ArrayList<>(distinct.subList(from, to));
-			List<Map<String, ?>> rows = swMapper.selectArenaUserPairsByRids(sub);
-			if (rows == null) {
-				continue;
-			}
-			for (Map<String, ?> row : rows) {
-				Long rid = normalizeLong(row != null ? row.get("rid") : null);
-				Object w = row != null ? row.get("wizard_id") : null;
-				String pk = arenaUserPkKeyString(rid, w);
-				if (pk != null) {
-					out.add(pk);
-				}
-			}
-		}
-		return out;
+		return bulkRidLookupService.selectExistingUserPkKeys(rids);
 	}
 
 	@Override
@@ -524,15 +507,36 @@ public class summonerswarServiceImpl implements summonerswarService {
 		if (rids == null || rids.isEmpty()) {
 			return 0;
 		}
-		List<Long> distinct = new ArrayList<>(new LinkedHashSet<>(rids));
-		int total = 0;
-		for (int from = 0; from < distinct.size(); from += ARENA_RTA_EXISTING_RID_CHUNK) {
-			int to = Math.min(from + ARENA_RTA_EXISTING_RID_CHUNK, distinct.size());
-			List<Long> sub = new ArrayList<>(distinct.subList(from, to));
-			total += swMapper.deleteArenaRtaOrphanUnitsByRids(sub);
-			total += swMapper.deleteArenaRtaOrphanUsersByRids(sub);
+		return bulkRidLookupService.deleteOrphanArenaChildrenByRids(new ArrayList<>(new LinkedHashSet<>(rids)));
+	}
+
+	/** 업로드 트랜잭션과 동일 커넥션 — {@code tmp_bulk_rids} COPY 후 JOIN UPDATE */
+	private void updateRankerRtpvpReplayRawAppliedOnTxConnection(Collection<Long> rids) {
+		if (rids == null || rids.isEmpty()) {
+			return;
 		}
-		return total;
+		Connection conn = DataSourceUtils.getConnection(dataSource);
+		try {
+			RtaBulkRidTempTable.updateRankerRtpvpReplayRawApplied(conn, rids);
+		} catch (SQLException | IOException e) {
+			throw new IllegalStateException("ranker_rtpvp_replay_raw applied marking failed", e);
+		} finally {
+			DataSourceUtils.releaseConnection(conn, dataSource);
+		}
+	}
+
+	private void updateRankerRtpvpReplayRawFailedOnTxConnection(Collection<Long> rids, String message) {
+		if (rids == null || rids.isEmpty()) {
+			return;
+		}
+		Connection conn = DataSourceUtils.getConnection(dataSource);
+		try {
+			RtaBulkRidTempTable.updateRankerRtpvpReplayRawFailed(conn, rids, message);
+		} catch (SQLException | IOException e) {
+			throw new IllegalStateException("ranker_rtpvp_replay_raw failed marking failed", e);
+		} finally {
+			DataSourceUtils.releaseConnection(conn, dataSource);
+		}
 	}
 
 	@Override
@@ -1112,12 +1116,29 @@ public class summonerswarServiceImpl implements summonerswarService {
 				throw new IllegalStateException("RTA 원본 JSON 직렬화 실패 rid=" + rid, e);
 			}
 		}
+		out.sort(Comparator.comparingLong(m -> (Long) m.get("rid")));
 		return out;
 	}
 
 	/**
-	 * rta-upload: 테이블별 다중 행 INSERT (VALUES …, …) + ON CONFLICT DO NOTHING.
-	 * rid마다 커밋하던 방식 대비 DB 왕복·트랜잭션 오버헤드 감소.
+	 * ranker_rtpvp_replay_raw 갱신 시 세션 간 행 잠금 순서를 맞추기 위해 rid 오름차순·유일화.
+	 */
+	private List<Long> sortedUniqueRidsFromArenaRows(List<Map<String, ?>> arenaRows) {
+		if (arenaRows == null || arenaRows.isEmpty()) {
+			return Collections.emptyList();
+		}
+		TreeSet<Long> unique = new TreeSet<>();
+		for (Map<String, ?> row : arenaRows) {
+			Long rid = normalizeLong(row != null ? row.get("rid") : null);
+			if (rid != null) {
+				unique.add(rid);
+			}
+		}
+		return new ArrayList<>(unique);
+	}
+
+	/**
+	 * rta-upload: 우선 {@code COPY FROM STDIN} + TEMP → 본 테이블(설정 시), 실패 시 VALUES 다중행 + ON CONFLICT.
 	 */
 	private void insertArenaRtaBulkInChunks(
 			List<Map<String, ?>> arenaRows,
@@ -1128,6 +1149,55 @@ public class summonerswarServiceImpl implements summonerswarService {
 		if (arenaRows == null || arenaRows.isEmpty()) {
 			return;
 		}
+		for (Map<String, ?> row : arenaRows) {
+			if (row != null) {
+				@SuppressWarnings("unchecked")
+				Map<String, Object> mo = (Map<String, Object>) (Map<?, ?>) row;
+				normalizeArenaReplayDateAdd(mo);
+			}
+		}
+		applyRtaSeasonIdsToArenaRows(arenaRows);
+
+		if (rtaRawApplyProperties.isCopyBulkInsertEnabled()) {
+			Connection conn = null;
+			try {
+				conn = DataSourceUtils.getConnection(dataSource);
+				ArenaRtaPersistMode mode = persistMode != null ? persistMode : ArenaRtaPersistMode.FULL;
+				boolean writeRaw = mode == ArenaRtaPersistMode.FULL || mode == ArenaRtaPersistMode.RAW_ONLY;
+				List<Map<String, Object>> rawForCopy = Collections.emptyList();
+				if (writeRaw) {
+					rawForCopy = buildArenaReplayRawRows(arenaRows);
+				}
+				List<Long> appliedRids = Collections.emptyList();
+				boolean markApplied = mode == ArenaRtaPersistMode.FULL || mode == ArenaRtaPersistMode.NORMALIZED_ONLY;
+				if (markApplied) {
+					appliedRids = sortedUniqueRidsFromArenaRows(arenaRows);
+				}
+				if (arenaRtaUploadCopyBulkService.flushViaCopy(conn, rawForCopy, arenaRows, userBatch, unitBatch,
+						appliedRids, mode)) {
+					return;
+				}
+			} catch (Exception e) {
+				log.warn("[rta-upload] COPY 벌크 예외 — VALUES 다중행으로 폴백: {}", e.toString());
+			} finally {
+				if (conn != null) {
+					DataSourceUtils.releaseConnection(conn, dataSource);
+				}
+			}
+		}
+
+		insertArenaRtaBulkInChunksLegacy(arenaRows, userBatch, pickBatch, unitBatch, persistMode);
+	}
+
+	/**
+	 * {@link #insertArenaRtaBulkInChunks} 폴백: MyBatis 다중 행 INSERT (이미 date_add·season_id 정규화됨).
+	 */
+	private void insertArenaRtaBulkInChunksLegacy(
+			List<Map<String, ?>> arenaRows,
+			List<Map<String, ?>> userBatch,
+			@SuppressWarnings("unused") List<Map<String, ?>> pickBatch,
+			List<Map<String, ?>> unitBatch,
+			ArenaRtaPersistMode persistMode) {
 		ArenaRtaPersistMode mode = persistMode != null ? persistMode : ArenaRtaPersistMode.FULL;
 		boolean writeRaw = mode == ArenaRtaPersistMode.FULL || mode == ArenaRtaPersistMode.RAW_ONLY;
 		boolean writeNormalized = mode == ArenaRtaPersistMode.FULL || mode == ArenaRtaPersistMode.NORMALIZED_ONLY;
@@ -1141,7 +1211,9 @@ public class summonerswarServiceImpl implements summonerswarService {
 				if (!rawRows.isEmpty()) {
 					for (int from = 0; from < rawRows.size(); from += step) {
 						int to = Math.min(from + step, rawRows.size());
-						batchMapper.insertArenaReplayRawBulk(rawRows.subList(from, to));
+						List<Map<String, Object>> chunk = rawRows.subList(from, to);
+						batchMapper.insertArenaReplayRawBulk(chunk);
+						batchMapper.insertArenaReplayRawPayloadBulk(chunk);
 					}
 				}
 			}
@@ -1149,20 +1221,13 @@ public class summonerswarServiceImpl implements summonerswarService {
 				for (int from = 0; from < arenaRows.size(); from += step) {
 					int to = Math.min(from + step, arenaRows.size());
 					List<Map<String, ?>> chunk = arenaRows.subList(from, to);
-					for (Map<String, ?> row : chunk) {
-						if (row != null) {
-							@SuppressWarnings("unchecked")
-							Map<String, Object> mo = (Map<String, Object>) (Map<?, ?>) row;
-							normalizeArenaReplayDateAdd(mo);
-						}
-					}
-					applyRtaSeasonIdsToArenaRows(chunk);
 					batchMapper.insertArenaInfoBulk(chunk);
 				}
 				if (userBatch != null && !userBatch.isEmpty()) {
+					// INSERT...SELECT FROM VALUES — reWriteBatchedInserts 대상 아님, BATCH executor 불필요
 					for (int from = 0; from < userBatch.size(); from += step) {
 						int to = Math.min(from + step, userBatch.size());
-						batchMapper.insertArenaUserInfoBulk(userBatch.subList(from, to));
+						swMapper.insertArenaUserInfoBulk(userBatch.subList(from, to));
 					}
 				}
 				if (unitBatch != null && !unitBatch.isEmpty()) {
@@ -1173,18 +1238,9 @@ public class summonerswarServiceImpl implements summonerswarService {
 				}
 			}
 			if (markRawApplied) {
-				List<Long> appliedRids = new ArrayList<>();
-				for (Map<String, ?> row : arenaRows) {
-					Long rid = normalizeLong(row != null ? row.get("rid") : null);
-					if (rid != null) {
-						appliedRids.add(rid);
-					}
-				}
+				List<Long> appliedRids = sortedUniqueRidsFromArenaRows(arenaRows);
 				if (!appliedRids.isEmpty()) {
-					for (int from = 0; from < appliedRids.size(); from += step) {
-						int to = Math.min(from + step, appliedRids.size());
-						batchMapper.updateArenaReplayRawAppliedBulk(appliedRids.subList(from, to));
-					}
+					updateRankerRtpvpReplayRawAppliedOnTxConnection(appliedRids);
 				}
 			}
 		} finally {
@@ -1444,12 +1500,22 @@ public class summonerswarServiceImpl implements summonerswarService {
 
 	@Override
 	public int applyPendingArenaReplayRawFromDb() {
-		int pfCount = swMapper.countRtaReplayRawPendingPf();
 		int maxRows = Math.max(1, rtaRawApplyProperties.getMaxRowsPerRun());
+
+		long t0 = System.currentTimeMillis();
 		List<Map<String, ?>> pending = swMapper.selectRtaReplayRawPending(maxRows);
-		log.info("[rta-raw-apply] pending/failed DB 건수(count)={}, 이번 실행 조회 상한={}, 조회 rows={}", pfCount, maxRows,
-				pending.size());
-		return applyPendingArenaReplayRawRows(pending);
+		long selectMs = System.currentTimeMillis() - t0;
+
+		if (pending.isEmpty()) {
+			log.info("[rta-raw-apply] 종료: 미처리 조회 0건 (select {}ms)", selectMs);
+			return 0;
+		}
+
+		log.info("[rta-raw-apply] 시작: 조회 {}건 (select {}ms)", pending.size(), selectMs);
+		int applied = applyPendingArenaReplayRawRows(pending);
+		log.info("[rta-raw-apply] 완료: 적용 {}건 / 조회 {}건, 전체 {}ms — 잔여 raw 는 다음 스케줄에서 계속",
+				applied, pending.size(), System.currentTimeMillis() - t0);
+		return applied;
 	}
 
 	/** pending/failed 행 목록에 대해 파싱·이미 replay 존재 시 bulk 적용·정규화 청크 처리. */
@@ -1460,6 +1526,8 @@ public class summonerswarServiceImpl implements summonerswarService {
 		int chunk = Math.max(1, rtaRawApplyProperties.getApplyChunkSize());
 		int applied = 0;
 
+		// [단계 1] payload 파싱
+		long t1 = System.currentTimeMillis();
 		List<Map<String, ?>> parsed = new ArrayList<>();
 		for (Map<String, ?> row : pending) {
 			Long rid = normalizeLong(row.get("rid"));
@@ -1467,7 +1535,7 @@ public class summonerswarServiceImpl implements summonerswarService {
 			if (rid == null || payloadObj == null) {
 				log.warn("[rta-raw-apply] rid/payload 없음 row={}", row);
 				if (rid != null) {
-					swMapper.updateArenaReplayRawFailedBulk(Collections.singletonList(rid), "payload 없음");
+					updateRankerRtpvpReplayRawFailedOnTxConnection(Collections.singletonList(rid), "payload 없음");
 					if (rtaRawApplyProperties.isFailFastOnError()) {
 						throw new IllegalStateException("rta raw apply rid=" + rid + ": missing payload");
 					}
@@ -1478,16 +1546,20 @@ public class summonerswarServiceImpl implements summonerswarService {
 				parsed.add(parseReplayPayloadToMap(payloadObj));
 			} catch (Exception e) {
 				log.warn("[rta-raw-apply] rid={} payload 파싱 실패", rid, e);
-				swMapper.updateArenaReplayRawFailedBulk(Collections.singletonList(rid), String.valueOf(e.getMessage()));
+				updateRankerRtpvpReplayRawFailedOnTxConnection(Collections.singletonList(rid), String.valueOf(e.getMessage()));
 				if (rtaRawApplyProperties.isFailFastOnError()) {
 					throw new IllegalStateException("rta raw apply rid=" + rid + " payload parse failed", e);
 				}
 			}
 		}
+		log.info("[rta-raw-apply] [1] payload 파싱: {}건 → {}건 성공 ({}ms)",
+				pending.size(), parsed.size(), System.currentTimeMillis() - t1);
+
 		if (parsed.isEmpty()) {
 			return 0;
 		}
 
+		// [단계 2] bulk rid 중복 조회 (이미 rta_match 에 있는 rid)
 		LinkedHashSet<Long> candidateRids = new LinkedHashSet<>();
 		for (Map<String, ?> m : parsed) {
 			Long rid = normalizeLong(m.get("rid"));
@@ -1495,12 +1567,23 @@ public class summonerswarServiceImpl implements summonerswarService {
 				candidateRids.add(rid);
 			}
 		}
-		Set<Long> alreadyInReplay = selectArenaRidsExisting(candidateRids);
+		long t2 = System.currentTimeMillis();
+		// 대량 rid: COPY + temp table JOIN — IN 청킹 다회 왕복보다 단일 왕복으로 빠름
+		Set<Long> alreadyInReplay = bulkRidLookupService.selectExistingReplayIds(candidateRids);
+		log.info("[rta-raw-apply] [2] bulk rid 중복조회: 후보 {}건 → 기존 {}건 ({}ms)",
+				candidateRids.size(), alreadyInReplay.size(), System.currentTimeMillis() - t2);
+
 		if (!alreadyInReplay.isEmpty()) {
-			swMapper.updateArenaReplayRawAppliedBulk(new ArrayList<>(alreadyInReplay));
+			long t2m = System.currentTimeMillis();
+			List<Long> toMarkApplied = new ArrayList<>(alreadyInReplay);
+			Collections.sort(toMarkApplied);
+			updateRankerRtpvpReplayRawAppliedOnTxConnection(toMarkApplied);
 			applied += alreadyInReplay.size();
+			log.info("[rta-raw-apply] [2] 기존 rid applied 마킹: {}건 ({}ms)",
+					alreadyInReplay.size(), System.currentTimeMillis() - t2m);
 		}
 
+		// [단계 3] 신규 rid 정규화 청크 처리
 		List<Map<String, ?>> toNormalize = new ArrayList<>();
 		for (Map<String, ?> one : parsed) {
 			Long rid = normalizeLong(one.get("rid"));
@@ -1512,25 +1595,36 @@ public class summonerswarServiceImpl implements summonerswarService {
 			return applied;
 		}
 
+		log.info("[rta-raw-apply] [3] 정규화 대상: {}건, 청크 크기: {}", toNormalize.size(), chunk);
+		int chunkIdx = 0;
 		for (int from = 0; from < toNormalize.size(); from += chunk) {
 			int to = Math.min(from + chunk, toNormalize.size());
 			List<Map<String, ?>> sub = new ArrayList<>(toNormalize.subList(from, to));
+			long tc = System.currentTimeMillis();
+			chunkIdx++;
 			try {
 				Map<String, Integer> counts = applyArenaRtaUploadFromParsedItemsWithMode(sub, ArenaRtaPersistMode.NORMALIZED_ONLY);
-				applied += counts.getOrDefault("success", 0);
+				int ok = counts.getOrDefault("success", 0);
+				applied += ok;
+				log.info("[rta-raw-apply] [3] 청크 #{}: {}건 → ok={} ({}ms)",
+						chunkIdx, sub.size(), ok, System.currentTimeMillis() - tc);
 			} catch (RtaUploadValidationException e) {
 				if (rtaRawApplyProperties.isFailFastOnError()) {
-					log.error("[rta-raw-apply] 청크 검증 실패 — fail-fast", e);
+					log.error("[rta-raw-apply] [3] 청크 #{} 검증 실패 — fail-fast ({}ms)",
+							chunkIdx, System.currentTimeMillis() - tc, e);
 					throw new IllegalStateException("rta raw apply chunk validation: " + e.getMessage(), e);
 				}
-				log.warn("[rta-raw-apply] 청크 검증 실패, 건별 재시도: {}", e.getMessage());
+				log.warn("[rta-raw-apply] [3] 청크 #{} 검증 실패, 건별 재시도 ({}ms): {}",
+						chunkIdx, System.currentTimeMillis() - tc, e.getMessage());
 				applied += applyPendingArenaReplayRawFromDbOneByOne(sub);
 			} catch (Exception e) {
 				if (rtaRawApplyProperties.isFailFastOnError()) {
-					log.error("[rta-raw-apply] 청크 처리 실패 — fail-fast", e);
+					log.error("[rta-raw-apply] [3] 청크 #{} 처리 실패 — fail-fast ({}ms)",
+							chunkIdx, System.currentTimeMillis() - tc, e);
 					throw new IllegalStateException("rta raw apply chunk failed: " + e.getMessage(), e);
 				}
-				log.warn("[rta-raw-apply] 청크 처리 실패, 건별 재시도", e);
+				log.warn("[rta-raw-apply] [3] 청크 #{} 처리 실패, 건별 재시도 ({}ms)",
+						chunkIdx, System.currentTimeMillis() - tc, e);
 				applied += applyPendingArenaReplayRawFromDbOneByOne(sub);
 			}
 		}
@@ -1549,7 +1643,7 @@ public class summonerswarServiceImpl implements summonerswarService {
 			}
 			try {
 				if (selectArenaRidsExisting(Collections.singleton(rid)).contains(rid)) {
-					swMapper.updateArenaReplayRawAppliedBulk(Collections.singletonList(rid));
+					updateRankerRtpvpReplayRawAppliedOnTxConnection(Collections.singletonList(rid));
 					applied++;
 					continue;
 				}
@@ -1559,10 +1653,10 @@ public class summonerswarServiceImpl implements summonerswarService {
 				if (ok > 0) {
 					applied++;
 				} else if (selectArenaRidsExisting(Collections.singleton(rid)).contains(rid)) {
-					swMapper.updateArenaReplayRawAppliedBulk(Collections.singletonList(rid));
+					updateRankerRtpvpReplayRawAppliedOnTxConnection(Collections.singletonList(rid));
 					applied++;
 				} else {
-					swMapper.updateArenaReplayRawFailedBulk(Collections.singletonList(rid),
+					updateRankerRtpvpReplayRawFailedOnTxConnection(Collections.singletonList(rid),
 							"정규화 스킵 또는 실패 (success=0)");
 					if (rtaRawApplyProperties.isFailFastOnError()) {
 						throw new IllegalStateException("rta raw apply rid=" + rid + " normalized success=0");
@@ -1570,13 +1664,13 @@ public class summonerswarServiceImpl implements summonerswarService {
 				}
 			} catch (RtaUploadValidationException e) {
 				log.warn("[rta-raw-apply] 검증 실패 rid={}", rid, e);
-				swMapper.updateArenaReplayRawFailedBulk(Collections.singletonList(rid), e.getMessage());
+				updateRankerRtpvpReplayRawFailedOnTxConnection(Collections.singletonList(rid), e.getMessage());
 				if (rtaRawApplyProperties.isFailFastOnError()) {
 					throw new IllegalStateException("rta raw apply rid=" + rid + " validation failed", e);
 				}
 			} catch (Exception e) {
 				log.warn("[rta-raw-apply] 처리 실패 rid={}", rid, e);
-				swMapper.updateArenaReplayRawFailedBulk(Collections.singletonList(rid), String.valueOf(e.getMessage()));
+				updateRankerRtpvpReplayRawFailedOnTxConnection(Collections.singletonList(rid), String.valueOf(e.getMessage()));
 				if (rtaRawApplyProperties.isFailFastOnError()) {
 					throw new IllegalStateException("rta raw apply rid=" + rid + " failed: " + e.getMessage(), e);
 				}

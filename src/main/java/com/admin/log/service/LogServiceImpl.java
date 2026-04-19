@@ -3,20 +3,13 @@ package com.admin.log.service;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.atomic.AtomicInteger;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 
-import jakarta.annotation.PreDestroy;
-
-import org.apache.logging.log4j.ThreadContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
@@ -29,18 +22,7 @@ import com.sysconf.util.DateUtil;
 @Primary
 public class LogServiceImpl implements LogService {
 	
-	private static final String API_ID_NONE = "__NONE__";
-	private final ConcurrentHashMap<String, String> apiIdCache = new ConcurrentHashMap<>();
 	private volatile Set<String> apiExecutionLogColumns;
-	private final ExecutorService apiLogExecutor = Executors.newSingleThreadExecutor(new ThreadFactory() {
-		private final AtomicInteger seq = new AtomicInteger(1);
-		@Override
-		public Thread newThread(Runnable r) {
-			Thread t = new Thread(r, "api-log-" + seq.getAndIncrement());
-			t.setDaemon(true);
-			return t;
-		}
-	});
 
 	@Autowired
 	DateUtil dateUtil;
@@ -68,6 +50,10 @@ public class LogServiceImpl implements LogService {
 		return mapper.selectApiHisCount(queryParam);
 	}
 
+	/**
+	 * 운영 개요(health)용: 기간 내 건수·에러·슬로우 집계 1회만 조회.
+	 * 상위 URL·샘플 행은 DB 부하가 커서 생략 — 상세는 {@link LogService#selectApiHisList} 등으로 조회.
+	 */
 	@Override
 	public Map<String, Object> getRecentApiDiagnostics(Map<String, Object> param) {
 		Map<String, Object> queryParam = buildApiDiagnosticsQuery(param);
@@ -80,10 +66,10 @@ public class LogServiceImpl implements LogService {
 		result.put("httpStatusEnabled", queryParam.get("api_log_has_http_status"));
 		result.put("elapsedMsEnabled", queryParam.get("api_log_has_elapsed_ms"));
 		result.put("summary", mapper.selectRecentApiLogSummary(queryParam));
-		result.put("topErrors", mapper.selectTopErrorApiLogs(queryParam));
-		result.put("topSlow", mapper.selectTopSlowApiLogs(queryParam));
-		result.put("recentErrorSamples", mapper.selectRecentErrorApiLogSamples(queryParam));
-		result.put("recentSlowSamples", mapper.selectRecentSlowApiLogSamples(queryParam));
+		result.put("topErrors", Collections.emptyList());
+		result.put("topSlow", Collections.emptyList());
+		result.put("recentErrorSamples", Collections.emptyList());
+		result.put("recentSlowSamples", Collections.emptyList());
 		return result;
 	}
 	
@@ -104,65 +90,12 @@ public class LogServiceImpl implements LogService {
 
 	@Override
 	public void insertApiLog(Map<String, Object> param) {
-		if (param == null) {
-			return;
-		}
-		// URL이 없으면 스킵
-		Object urlObj = param != null ? param.get("url") : null;
-		String url = urlObj != null ? urlObj.toString() : null;
-		if (url == null || url.isEmpty()) {
-			return;
-		}
-
-		// API URL -> api_id 캐시 (DB select 최소화)
-		String cached = apiIdCache.get(url);
-		if (API_ID_NONE.equals(cached)) {
-			return; // 등록되지 않은 API
-		}
-		if (cached == null) {
-			Map<String, Object> api = mapper.selectApiByUrl(param);
-			if (api == null || api.get("api_id") == null) {
-				apiIdCache.put(url, API_ID_NONE);
-				return;
-			}
-			cached = api.get("api_id").toString();
-			apiIdCache.put(url, cached);
-		}
-
-		param.put("api_id", cached);
-		param.put("exe_dtm", dateUtil.now());
-		applyOptionalApiLogColumns(param);
-		mapper.insertApiExecutionLog(param);
+		// sys_api(URL→api_id) 제거로 sys_api_exe_log 적재 경로 없음 — 호출은 인터셉터 호환용 no-op
 	}
-	
+
 	@Override
 	public void insertApiLogAsync(Map<String, Object> param) {
-		// 요청 thread에서 분리 (copy해서 동시성 이슈 방지)
-		final Map<String, Object> copy = param != null ? new HashMap<>(param) : new HashMap<>();
-		final java.util.Map<String, String> mdc = ThreadContext.getImmutableContext();
-		apiLogExecutor.submit(() -> {
-			if (mdc != null && !mdc.isEmpty()) {
-				ThreadContext.putAll(mdc);
-			}
-			try {
-				insertApiLog(copy);
-			} catch (Exception ignore) {
-				// 로깅 실패는 업무 흐름에 영향 주지 않음
-			} finally {
-				if (mdc != null && !mdc.isEmpty()) {
-					for (String k : mdc.keySet()) ThreadContext.remove(k);
-				}
-			}
-		});
-	}
-	
-	@PreDestroy
-	public void shutdown() {
-		try {
-			apiLogExecutor.shutdown();
-		} catch (Exception ignore) {
-			// no-op
-		}
+		// 적재 비활성 — 매 요청마다 스레드풀·MDC·맵 복사 생략 (insertApiLog 도 DB 미사용)
 	}
 
 	@Override

@@ -74,13 +74,14 @@ public class MybatisInterceptor implements Interceptor {
         MappedStatement ms = (MappedStatement) invocation.getArgs()[0];
         Object parameter = invocation.getArgs()[1];
 
-        if (emitInterceptorTraceDebug()) {
-            log.debug("MybatisInterceptor.intercept() start. mapperId={}", ms.getId());
-        }
-        
         final String mapperId = ms.getId();
+        /** RTA 등 점령(siege) 스코프·세션 주입과 무관한 매퍼 — trace/siege_view_scope DEBUG 생략 */
         final boolean skipSiegeInjection = mapperId.contains("RtaMapper");
         final boolean isLogMapper = mapperId.contains("LogMapper");
+
+        if (emitInterceptorTraceDebug() && !skipSiegeInjection) {
+            log.debug("MybatisInterceptor.intercept() start. mapperId={}", mapperId);
+        }
 
         // selectUserInfo / selectUserRoles / selectDvcId: 로그인·역할·생체 조회 — 세션·siege 주입 없이 실행.
         if (mapperId.contains("selectUserInfo") || mapperId.contains("selectUserRoles") || mapperId.contains("selectDvcId")
@@ -99,8 +100,8 @@ public class MybatisInterceptor implements Interceptor {
         }
 
         Map<String, Object> userInfo = SessionThread.SESSION_USER_INFO.get();
-        if (emitInterceptorTraceDebug()) {
-            log.debug("MybatisInterceptor - mapperId={}, userInfoPresent={}", ms.getId(), userInfo != null);
+        if (emitInterceptorTraceDebug() && !skipSiegeInjection) {
+            log.debug("MybatisInterceptor - mapperId={}, userInfoPresent={}", mapperId, userInfo != null);
             if (userInfo != null) {
                 log.debug("MybatisInterceptor - userInfo.siege_view_scope={}", userInfo.get("siege_view_scope"));
             }
@@ -111,7 +112,7 @@ public class MybatisInterceptor implements Interceptor {
             
             // MyBatis의 MapperMethod.ParamMap은 존재하지 않는 키를 get() 하면 BindingException을 던질 수 있음
             Object preSiegeViewScope = parameters.containsKey("siege_view_scope") ? parameters.get("siege_view_scope") : null;
-            if (emitInterceptorTraceDebug()) {
+            if (emitInterceptorTraceDebug() && !skipSiegeInjection) {
                 log.debug("MybatisInterceptor - siege_view_scope before={}", preSiegeViewScope);
             }
             
@@ -156,7 +157,7 @@ public class MybatisInterceptor implements Interceptor {
             }
             
             Object postSiegeViewScope = parameters.containsKey("siege_view_scope") ? parameters.get("siege_view_scope") : null;
-            if (emitInterceptorTraceDebug()) {
+            if (emitInterceptorTraceDebug() && !skipSiegeInjection) {
                 log.debug("MybatisInterceptor - siege_view_scope after={}", postSiegeViewScope);
             }
         }
@@ -167,8 +168,8 @@ public class MybatisInterceptor implements Interceptor {
 
         Object result = invocation.proceed();
         logResultTotalIfNeeded(invocation, ms, startedAt, result);
-        if (emitInterceptorTraceDebug()) {
-            log.debug("MybatisInterceptor.intercept() end. mapperId={}", ms.getId());
+        if (emitInterceptorTraceDebug() && !skipSiegeInjection) {
+            log.debug("MybatisInterceptor.intercept() end. mapperId={}", mapperId);
         }
         return result;
     }

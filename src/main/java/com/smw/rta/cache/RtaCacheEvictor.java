@@ -1,5 +1,6 @@
 package com.smw.rta.cache;
 
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
@@ -17,25 +18,29 @@ import lombok.extern.slf4j.Slf4j;
 @Component
 public class RtaCacheEvictor {
 
-	/** {@link com.smw.infra.cache.CacheManagerConfig#shortLivedCacheManager()} RTA 캐시 이름 */
+	/** {@link com.smw.infra.cache.RtaCaffeineCacheManagersConfig} / {@link com.smw.infra.cache.RtaRedisCacheManagersConfig} 의 RTA short-lived 캐시 이름 */
 	private static final String[] SHORT_LIVED_RTA_CACHE_NAMES = {
+			"rtaDashboardRankCut",
 			"rtaDashboardTiers",
 			"rtaMonster",
 			"rtaRanking",
 			"rtaSeasons",
 	};
 
-	private final CacheManager shortLivedCacheManager;
+	private final CacheManager rtaShortLivedCacheManager;
 	private final CacheManager rtaListReadCacheManager;
 	private final CacheManager rtaOneHourCacheManager;
+	private final ObjectProvider<RtaRedisCacheWarmup> rtaRedisCacheWarmup;
 
 	public RtaCacheEvictor(
-			@Qualifier("shortLivedCacheManager") CacheManager shortLivedCacheManager,
+			@Qualifier("rtaShortLivedCacheManager") CacheManager rtaShortLivedCacheManager,
 			@Qualifier("rtaListReadCacheManager") CacheManager rtaListReadCacheManager,
-			@Qualifier("rtaOneHourCacheManager") CacheManager rtaOneHourCacheManager) {
-		this.shortLivedCacheManager = shortLivedCacheManager;
+			@Qualifier("rtaOneHourCacheManager") CacheManager rtaOneHourCacheManager,
+			ObjectProvider<RtaRedisCacheWarmup> rtaRedisCacheWarmup) {
+		this.rtaShortLivedCacheManager = rtaShortLivedCacheManager;
 		this.rtaListReadCacheManager = rtaListReadCacheManager;
 		this.rtaOneHourCacheManager = rtaOneHourCacheManager;
+		this.rtaRedisCacheWarmup = rtaRedisCacheWarmup;
 	}
 
 	/** 랭크 컷 앵커 캐시({@code rtaRankCutoffLive}) — 배치 재적재 후 호출 */
@@ -49,7 +54,7 @@ public class RtaCacheEvictor {
 
 	public void evictAllRtaCaches() {
 		for (String name : SHORT_LIVED_RTA_CACHE_NAMES) {
-			Cache cache = shortLivedCacheManager.getCache(name);
+			Cache cache = rtaShortLivedCacheManager.getCache(name);
 			if (cache != null) {
 				cache.clear();
 				log.debug("[rta-cache] cleared: {}", name);
@@ -62,5 +67,6 @@ public class RtaCacheEvictor {
 		}
 		evictRtaRankCutoffLiveCache();
 		log.debug("[rta-cache] short-lived {}개 + rtaMatchList + rtaRankCutoffLive 무효화", SHORT_LIVED_RTA_CACHE_NAMES.length);
+		rtaRedisCacheWarmup.ifAvailable(RtaRedisCacheWarmup::warmAfterEviction);
 	}
 }

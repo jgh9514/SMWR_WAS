@@ -3,10 +3,9 @@ package com.smw.rta.support;
 import java.util.Set;
 
 /**
- * RTA 매치 목록·통계의 세부 티어 키 — 프론트 {@code getRtaTierShortLabel}·대시보드 tier_key 와 동일.
- * Ch1~G3 (레전드 L 제외).
+ * RTA 등급 슬롯 문자열(Ch1~G3, 레전드 L 제외) — {@code rating_id}→표시 규칙은 프론트 {@code getRtaTierShortLabel} 과 동일.
  */
-public final class RtaTierKeyUtil {
+public final class RtaGradeSlotStrings {
 
     private static final Set<String> ALLOWED = Set.of(
             "Ch1", "Ch2", "Ch3",
@@ -15,10 +14,10 @@ public final class RtaTierKeyUtil {
             "P1", "P2", "P3",
             "G1", "G2", "G3");
 
-    private RtaTierKeyUtil() {
+    private RtaGradeSlotStrings() {
     }
 
-    /** 허용 키만 반환, 그 외·null·빈 문자열은 null (필터 없음) */
+    /** 허용 슬롯만 반환, 그 외·null·빈 문자열은 null (필터 없음) */
     public static String normalize(String raw) {
         if (raw == null) {
             return null;
