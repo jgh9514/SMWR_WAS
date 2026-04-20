@@ -22,7 +22,8 @@ public class RtaRankCutSnapshotAggJob extends BaseBatchJob {
 		RtaCacheEvictor rtaCacheEvictor = applicationContext.getBean(RtaCacheEvictor.class);
 
 		RtaBatchAggregationService.RankCutSnapshotRebuildResult r = aggregationService.rebuildRankCutSnapshots(rtaMapper);
-		addLog("앵커 스냅샷 %d행, 등급 컷 스냅샷 %d행", r.anchorRows(), r.snapshotRows());
+		addLog("시즌×티어 총경기 %d행, 앵커 스냅샷 %d행, 등급 컷 스냅샷 %d행",
+				r.matchTotalRows(), r.anchorRows(), r.snapshotRows());
 
 		rtaCacheEvictor.evictRtaRankCutoffLiveCache();
 		rtaCacheEvictor.evictAllRtaCaches();

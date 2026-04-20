@@ -432,6 +432,24 @@
         ORDER BY s.season_id, rg.rating_id
     </insert>
 
+    <!-- 시즌×티어별 총 경기 수 재집계: 픽률·밴률 분모용 -->
+    <insert id="rebuildRtaSeasonRatingMatchTotal">
+        INSERT INTO public.rta_agg_season_rating_match_total (season_id, rating_id, total_matches, computed_at)
+        SELECT
+            m.season_id,
+            p.rating_id,
+            COUNT(DISTINCT p.replay_id)::bigint AS total_matches,
+            CURRENT_TIMESTAMP
+        FROM public.rta_match_participant p
+        INNER JOIN public.rta_match m ON m.replay_id = p.replay_id
+        WHERE p.rating_id IS NOT NULL
+          AND p.rating_id &gt; 0
+        GROUP BY m.season_id, p.rating_id
+        ON CONFLICT (season_id, rating_id) DO UPDATE SET
+            total_matches = EXCLUDED.total_matches,
+            computed_at = EXCLUDED.computed_at
+    </insert>
+
     <!-- 배치 로깅용: JDBC updateCount 가 INSERT…SELECT 에서 부정확할 수 있어 실측 COUNT 사용 -->
     <select id="countRtaRankCutoffAnchorSnapRows" resultType="long">
         SELECT COUNT(*)::bigint FROM public.rta_rank_cutoff_anchor_snap
@@ -441,6 +459,11 @@
         SELECT COUNT(*)::bigint
         FROM public.rta_snapshot_rank_cut s
         WHERE s.snapshot_at = (SELECT MAX(snapshot_at) FROM public.rta_snapshot_rank_cut)
+    </select>
+
+    <select id="countRtaSeasonRatingMatchTotalRows" resultType="long">
+        SELECT COUNT(*)::bigint
+        FROM public.rta_agg_season_rating_match_total
     </select>
 
     <!-- 몬스터 상세: 카운터 매치업 — 티어별 행을 상대 콤보 키 기준으로 합산.

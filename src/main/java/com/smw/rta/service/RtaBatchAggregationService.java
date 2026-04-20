@@ -103,19 +103,22 @@ public class RtaBatchAggregationService {
 	}
 
 	/**
+	 * 시즌×티어 총 경기 수({@code rta_agg_season_rating_match_total})를 먼저 재집계한 뒤,
 	 * 랭크 컷 앵커({@code rta_rank_cutoff_anchor_snap}) TRUNCATE 후 라이브와 동일 로직 적재,
 	 * 시즌×등급 컷({@code rta_snapshot_rank_cut}) 히스토리 1회 적재.
 	 */
 	public RankCutSnapshotRebuildResult rebuildRankCutSnapshots(RtaMapper rtaMapper) {
+		rtaMapper.rebuildRtaSeasonRatingMatchTotal();
 		rtaMapper.deleteAllRtaRankCutoffAnchorSnap();
 		Long defaultSid = rtaMapper.selectDefaultSeasonIdForNow();
 		if (defaultSid != null) {
 			rtaMapper.insertRtaRankCutoffAnchorSnapFromLive(defaultSid.longValue());
 		}
 		rtaMapper.insertRtaSnapshotRankCutForAllSeasons();
+		long matchTotalRows = safeCount(rtaMapper.countRtaSeasonRatingMatchTotalRows());
 		long anchorRows = safeCount(rtaMapper.countRtaRankCutoffAnchorSnapRows());
 		long snapshotRows = safeCount(rtaMapper.countRtaSnapshotRankCutAtLatestSnapshot());
-		return new RankCutSnapshotRebuildResult(anchorRows, snapshotRows);
+		return new RankCutSnapshotRebuildResult(matchTotalRows, anchorRows, snapshotRows);
 	}
 
 	private static long safeCount(Long n) {
@@ -159,6 +162,6 @@ public class RtaBatchAggregationService {
 	public record TierDailyAggRebuildResult(int totalRows) {
 	}
 
-	public record RankCutSnapshotRebuildResult(long anchorRows, long snapshotRows) {
+	public record RankCutSnapshotRebuildResult(long matchTotalRows, long anchorRows, long snapshotRows) {
 	}
 }

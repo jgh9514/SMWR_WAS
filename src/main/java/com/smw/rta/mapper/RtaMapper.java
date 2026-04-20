@@ -95,11 +95,17 @@ public interface RtaMapper {
     /** 시즌×등급별 컷 히스토리 1회 적재 */
     int insertRtaSnapshotRankCutForAllSeasons();
 
+    /** 시즌×티어별 총 경기 수 upsert 재집계 ({@code rta_agg_season_rating_match_total}). */
+    int rebuildRtaSeasonRatingMatchTotal();
+
     /** {@code rta_rank_cutoff_anchor_snap} 전체 행 수 (배치 적재 후 로깅) */
     Long countRtaRankCutoffAnchorSnapRows();
 
     /** 가장 최근 {@code snapshot_at} 묶음의 행 수 (직전 INSERT 배치 규모 추정) */
     Long countRtaSnapshotRankCutAtLatestSnapshot();
+
+    /** {@code rta_agg_season_rating_match_total} 전체 행 수 (배치 적재 후 로깅) */
+    Long countRtaSeasonRatingMatchTotalRows();
 
     List<Map<String, Object>> getRtaSummonerRankingFromAgg(@Param("limit") int limit, @Param("offset") int offset,
             @Param("seasonId") Long seasonId, @Param("countryFilter") String countryFilter);

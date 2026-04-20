@@ -6,7 +6,6 @@ import java.util.HashMap;
 import java.util.Map;
 
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.cache.CacheManager;
 import org.springframework.context.annotation.Bean;
@@ -25,7 +24,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  */
 @Configuration
 @ConditionalOnProperty(prefix = "smw.cache.rta", name = "use-redis", havingValue = "true")
-@ConditionalOnBean(RedisConnectionFactory.class)
 public class RtaRedisCacheManagersConfig {
 
 	@Value("${smw.cache.short-lived.expire-after-write-minutes:5}")
