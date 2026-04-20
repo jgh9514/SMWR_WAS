@@ -64,6 +64,7 @@ public class RtaUnifiedPipelineAggJob extends BaseBatchJob {
 				raw.stopReason());
 
 		int synergyBatch = Math.max(1, rtaBatchProperties.getSynergyBatchSize());
+		boolean dropCounterQueryIndex = rtaBatchProperties.isDropCounterMatchupQueryIndexDuringUnifiedJob();
 
 		step++;
 		addLog("[%d/%d] 시너지 집계 pending — 배치 %d건/라운드, 완료까지 전량 처리", step, PIPELINE_STEPS, synergyBatch);
@@ -72,13 +73,29 @@ public class RtaUnifiedPipelineAggJob extends BaseBatchJob {
 		if (synPause > 0) {
 			addLog("[%d/%d] · 라운드 간 대기: %dms", step, PIPELINE_STEPS, synPause);
 		}
-		RtaBatchAggregationService.SynergyDrainResult syn = aggregationService.drainSynergyPending(
-				rtaMapper,
-				synergyAggService,
-				rtaCacheEvictor,
-				synergyBatch,
-				false,
-				synPause);
+		boolean counterQueryIndexDropped = false;
+		RtaBatchAggregationService.SynergyDrainResult syn;
+		try {
+			if (dropCounterQueryIndex) {
+				addLog("[%d/%d] · 카운터 조회 인덱스 DROP 후 진행 (idx_rta_agg_counter_matchup_season_subject)",
+						step, PIPELINE_STEPS);
+				rtaMapper.dropCounterMatchupQueryIndex();
+				counterQueryIndexDropped = true;
+			}
+			syn = aggregationService.drainSynergyPending(
+					rtaMapper,
+					synergyAggService,
+					rtaCacheEvictor,
+					synergyBatch,
+					false,
+					synPause);
+		} finally {
+			if (counterQueryIndexDropped) {
+				addLog("[%d/%d] · 카운터 조회 인덱스 REBUILD (idx_rta_agg_counter_matchup_season_subject)",
+						step, PIPELINE_STEPS);
+				rtaMapper.rebuildCounterMatchupQueryIndex();
+			}
+		}
 		addLog("[%d/%d] · 시너지 완료 — 라운드 %d, ok %d, fail %d, %s",
 				step, PIPELINE_STEPS,
 				syn.rounds(),

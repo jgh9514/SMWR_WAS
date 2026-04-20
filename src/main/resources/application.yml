@@ -161,7 +161,7 @@ smw:
     quartz:
       enabled: ${SMW_BATCH_QUARTZ_ENABLED:false}
   globalDblinkNm: SMW_DBLINK
-  cookie-live-time: 600
+  cookie-live-time: 2592000
   # SYS_ROLE/SYS_USER_ROLE 제거 시: 관리자 user_id 목록(콤마 구분). RequireAdmin·알림 수신·댓글 삭제 등
   admin-user-ids: ${SMW_ADMIN_USER_IDS:}
   # S3: smw.aws.* → S3Service 정적 키 사용
@@ -225,9 +225,9 @@ smw:
       stable-max-wait-ms: ${SMW_RTA_EXPORTER_STABLE_MAX_MS:60000}
     raw-apply:
       # 정규화 배치 한 번의 apply 호출당 SELECT 상한(너무 크면 한 스케줄에서 DB·WAL 폭주)
-      max-rows-per-run: ${SMW_RTA_RAW_APPLY_MAX_ROWS:1000}
+      max-rows-per-run: ${SMW_RTA_RAW_APPLY_MAX_ROWS:100000}
       # 한 트랜잭션에 묶는 건수(작을수록 락·롤백 범위 축소)
-      apply-chunk-size: ${SMW_RTA_RAW_APPLY_CHUNK_SIZE:1000}
+      apply-chunk-size: ${SMW_RTA_RAW_APPLY_CHUNK_SIZE:100000}
       # VALUES 다중행 INSERT 한 문당 행 수(COPY 폴백 시). 크면 PG JDBC I/O error while sending — 25~75 권장
       bulk-insert-chunk-size: ${SMW_RTA_RAW_APPLY_BULK_INSERT_CHUNK_SIZE:50}
       # true: COPY FROM STDIN + TEMP (최고 처리량). false: 기존 VALUES 다중행만
@@ -240,9 +240,11 @@ smw:
       max-batches-per-job: ${SMW_RTA_RAW_APPLY_MAX_BATCHES:2000}
     # 통합 RTA 배치(시너지 등). 수치·스킵은 DB 여유에 맞게 조절.
     batch:
-      synergy-batch-size: ${SMW_RTA_SYNERGY_BATCH_SIZE:1000}
+      synergy-batch-size: ${SMW_RTA_SYNERGY_BATCH_SIZE:30000}
       # 시너지 라운드 사이 대기(ms). 0=비활성(처리량 우선). 연속 쓰기 부하 완화 시 25~75 권장.
       synergy-pause-ms-between-rounds: ${SMW_RTA_SYNERGY_PAUSE_MS:0}
+      # 통합 Job 의 카운터 matchup 대량 merge 동안 조회용 보조 인덱스를 잠시 내림. 종료 시 재생성.
+      drop-counter-matchup-query-index-during-unified-job: ${SMW_RTA_DROP_COUNTER_QUERY_INDEX_IN_UNIFIED:false}
       # 통합 Job(짧은 주기)에서 시즌별 몬스터 통계 전량 재적재 생략 — 필요 시 별도 배치/수동 또는 false
       skip-monster-stats-in-unified-job: ${SMW_RTA_UNIFIED_SKIP_MONSTER_STATS:true}
       # 시너지 집계 직후 SWEX→user_monster_owned_agg 재적재 생략 — 켜려면 false
@@ -256,8 +258,8 @@ smw:
       use-copy-staging: ${SMW_RTA_COUNTER_COPY_STAGING:true}
       # 이 행 수 이하면 MyBatis 다건 UPSERT(소량). 초과 시 COPY 경로(스테이징에 한 번에 COPY FROM STDIN).
       legacy-upsert-max-rows: ${SMW_RTA_COUNTER_LEGACY_UPSERT_MAX:8000}
-      # COPY+merge 를 이 크기마다 끊음 — 수백만 행 단일 merge 는 매우 오래 걸려 멈춘 것처럼 보일 수 있음
-      copy-staging-chunk-rows: ${SMW_RTA_COUNTER_COPY_STAGING_CHUNK_ROWS:600000}
+      # COPY+merge 를 이 크기마다 끊음 — 카운터 UPSERT 는 충돌 UPDATE 비용이 커서 너무 큰 단일 merge 를 피한다.
+      copy-staging-chunk-rows: ${SMW_RTA_COUNTER_COPY_STAGING_CHUNK_ROWS:400000}
     # 시너지 집계(rta_agg_synergy_combo) 대량 반영: COPY + UNLOGGED 스테이징. DDL: sql/staging_synergy_agg.sql
     synergy-agg:
       use-copy-staging: ${SMW_RTA_SYNERGY_COPY_STAGING:true}

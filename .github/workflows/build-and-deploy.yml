@@ -191,6 +191,51 @@ jobs:
           
           KUBECTL="sudo k3s kubectl"
           
+          dump_cluster_debug() {
+            local dump_file="/tmp/k8s-cluster-info-dump-$(date +%Y%m%d%H%M%S).log"
+            echo "=== cluster-info dump 수집 ==="
+            if ${KUBECTL} cluster-info dump --request-timeout=30s > "${dump_file}" 2>&1; then
+              echo "cluster-info dump 저장 완료: ${dump_file}"
+            else
+              echo "WARNING: cluster-info dump 수집 실패"
+            fi
+          }
+          
+          apply_manifest_with_replace_fallback() {
+            local manifest_path="$1"
+            local deploy_name="$2"
+            local apply_output=""
+            
+            if apply_output=$(${KUBECTL} apply -f "${manifest_path}" --request-timeout=180s 2>&1); then
+              echo "${apply_output}"
+              return 0
+            fi
+            
+            echo "${apply_output}"
+            if echo "${apply_output}" | grep -q 'may not be specified when `value` is not empty'; then
+              echo "기존 Deployment env 병합 충돌 감지: ${deploy_name}"
+              echo "kubectl replace로 Deployment를 재적용합니다."
+              if apply_output=$(${KUBECTL} replace -f "${manifest_path}" --request-timeout=180s 2>&1); then
+                echo "${apply_output}"
+                return 0
+              fi
+              echo "${apply_output}"
+              dump_cluster_debug
+              return 1
+            fi
+            
+            echo "배포 실패, 재시도 중..."
+            sleep 5
+            if apply_output=$(${KUBECTL} apply -f "${manifest_path}" --request-timeout=180s 2>&1); then
+              echo "${apply_output}"
+              return 0
+            fi
+            
+            echo "${apply_output}"
+            dump_cluster_debug
+            return 1
+          }
+          
           # K3s 클러스터 상태 확인 (호스트 이름 해석 오류 무시)
           echo "=== K3s 클러스터 상태 확인 ==="
           # 호스트 이름 해석 오류를 무시하기 위해 환경 변수 설정
@@ -235,13 +280,9 @@ jobs:
           # 백엔드(API) 배포
           echo "=== 배포 시작 ==="
           if [ -f k8s/deployment.yaml ]; then
-            ${KUBECTL} apply -f k8s/deployment.yaml --request-timeout=180s || {
-              echo "배포 실패, 재시도 중..."
-              sleep 5
-              ${KUBECTL} apply -f k8s/deployment.yaml --request-timeout=180s || {
-                echo "ERROR: 배포 실패"
-                exit 1
-              }
+            apply_manifest_with_replace_fallback k8s/deployment.yaml smw-app || {
+              echo "ERROR: 배포 실패"
+              exit 1
             }
             if [ -f k8s/smwr-backend-ingress.yaml ]; then
               ${KUBECTL} apply -f k8s/smwr-backend-ingress.yaml --request-timeout=180s || {
@@ -256,12 +297,8 @@ jobs:
           # 배치 서버 배포
           echo "=== 배치 서버 배포 ==="
           if [ -f k8s/batch-deployment.yaml ]; then
-            ${KUBECTL} apply -f k8s/batch-deployment.yaml --request-timeout=180s || {
-              echo "WARNING: batch 배포 실패, 재시도 중..."
-              sleep 5
-              ${KUBECTL} apply -f k8s/batch-deployment.yaml --request-timeout=180s || {
-                echo "WARNING: batch 배포 최종 실패 (API 배포는 계속 진행)"
-              }
+            apply_manifest_with_replace_fallback k8s/batch-deployment.yaml smw-batch || {
+              echo "WARNING: batch 배포 최종 실패 (API 배포는 계속 진행)"
             }
           else
             echo "WARNING: k8s/batch-deployment.yaml 파일을 찾을 수 없음"

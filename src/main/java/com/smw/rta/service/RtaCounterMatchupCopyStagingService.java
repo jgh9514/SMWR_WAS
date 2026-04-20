@@ -58,6 +58,15 @@ public class RtaCounterMatchupCopyStagingService {
 	@Transactional(transactionManager = "rtaJdbcTransactionManager", propagation = Propagation.REQUIRES_NEW,
 			rollbackFor = Exception.class)
 	public void flushCounterMatchupViaCopyStaging(List<RtaCounterMatchupUpsertRow> rows) {
+		flushCounterMatchupViaCopyStaging(rows, true);
+	}
+
+	/**
+	 * 분할 merge 시 마지막 청크에서만 ANALYZE 하도록 제어한다.
+	 */
+	@Transactional(transactionManager = "rtaJdbcTransactionManager", propagation = Propagation.REQUIRES_NEW,
+			rollbackFor = Exception.class)
+	public void flushCounterMatchupViaCopyStaging(List<RtaCounterMatchupUpsertRow> rows, boolean analyzeAfterMerge) {
 		if (rows == null || rows.isEmpty()) {
 			return;
 		}
@@ -90,7 +99,7 @@ public class RtaCounterMatchupCopyStagingService {
 			long merged = RtaAggStagingJdbc.executeInsertMergeReturningRows(conn,
 					RtaAggStagingMergeSql.MERGE_MATCHUP_STAGING_INTO_COUNTER);
 			log.info("[rta-counter-staging] merge 완료 affected={}, {} ms", merged, System.currentTimeMillis() - tMerge);
-			if (analyzeTargetAfterMerge) {
+			if (analyzeAfterMerge && analyzeTargetAfterMerge) {
 				try (Statement st = conn.createStatement()) {
 					st.execute("ANALYZE public.rta_agg_counter_matchup");
 				}

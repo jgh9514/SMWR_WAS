@@ -571,8 +571,20 @@ public class RtaSynergyAggServiceImpl implements RtaSynergyAggService {
 			return;
 		}
 		if (counterUseCopyStaging && rows.size() > counterLegacyUpsertMaxRows) {
-			// 청크 분할 없이 전체를 한 번에 COPY → 단일 merge
-			log.info("[rta-synergy] 카운터 matchup staging: 총 {}행 → 단일 COPY·merge", rows.size());
+			int chunk = Math.max(1, counterCopyStagingChunkRows);
+			int total = rows.size();
+			if (total > chunk) {
+				int rounds = (total + chunk - 1) / chunk;
+				log.info("[rta-synergy] 카운터 matchup staging: 총 {}행 → COPY·merge {}회 분할 (청크당 최대 {}행)",
+						total, rounds, chunk);
+				for (int from = 0; from < total; from += chunk) {
+					int to = Math.min(from + chunk, total);
+					boolean analyzeAfterMerge = to == total;
+					counterCopyStagingService.flushCounterMatchupViaCopyStaging(rows.subList(from, to), analyzeAfterMerge);
+				}
+				return;
+			}
+			log.info("[rta-synergy] 카운터 matchup staging: 총 {}행 → 단일 COPY·merge", total);
 			counterCopyStagingService.flushCounterMatchupViaCopyStaging(rows);
 			return;
 		}

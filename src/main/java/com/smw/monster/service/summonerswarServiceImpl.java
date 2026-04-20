@@ -36,6 +36,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import jakarta.annotation.PostConstruct;
@@ -510,18 +511,39 @@ public class summonerswarServiceImpl implements summonerswarService {
 		return bulkRidLookupService.deleteOrphanArenaChildrenByRids(new ArrayList<>(new LinkedHashSet<>(rids)));
 	}
 
-	/** 업로드 트랜잭션과 동일 커넥션 — {@code tmp_bulk_rids} COPY 후 JOIN UPDATE */
+	/**
+	 * 업로드 트랜잭션과 동일 커넥션 — {@code tmp_bulk_rids} COPY 후 JOIN UPDATE.
+	 * 활성 Spring 트랜잭션이 있으면 해당 커넥션 재사용, 없으면 독립 커넥션으로 직접 커밋.
+	 * (배치 raw-apply 플로우는 트랜잭션 없이 호출하므로 독립 커넥션 경로 필수)
+	 */
 	private void updateRankerRtpvpReplayRawAppliedOnTxConnection(Collection<Long> rids) {
 		if (rids == null || rids.isEmpty()) {
 			return;
 		}
-		Connection conn = DataSourceUtils.getConnection(dataSource);
-		try {
-			RtaBulkRidTempTable.updateRankerRtpvpReplayRawApplied(conn, rids);
-		} catch (SQLException | IOException e) {
+		if (TransactionSynchronizationManager.isActualTransactionActive()) {
+			Connection conn = DataSourceUtils.getConnection(dataSource);
+			try {
+				RtaBulkRidTempTable.updateRankerRtpvpReplayRawApplied(conn, rids);
+			} catch (SQLException | IOException e) {
+				throw new IllegalStateException("ranker_rtpvp_replay_raw applied marking failed", e);
+			} finally {
+				DataSourceUtils.releaseConnection(conn, dataSource);
+			}
+			return;
+		}
+		try (Connection conn = dataSource.getConnection()) {
+			conn.setAutoCommit(false);
+			try {
+				RtaBulkRidTempTable.updateRankerRtpvpReplayRawApplied(conn, rids);
+				conn.commit();
+			} catch (SQLException | IOException e) {
+				try { conn.rollback(); } catch (SQLException re) { log.warn("applied marking rollback 실패", re); }
+				throw new IllegalStateException("ranker_rtpvp_replay_raw applied marking failed", e);
+			}
+		} catch (IllegalStateException e) {
+			throw e;
+		} catch (SQLException e) {
 			throw new IllegalStateException("ranker_rtpvp_replay_raw applied marking failed", e);
-		} finally {
-			DataSourceUtils.releaseConnection(conn, dataSource);
 		}
 	}
 
@@ -529,13 +551,30 @@ public class summonerswarServiceImpl implements summonerswarService {
 		if (rids == null || rids.isEmpty()) {
 			return;
 		}
-		Connection conn = DataSourceUtils.getConnection(dataSource);
-		try {
-			RtaBulkRidTempTable.updateRankerRtpvpReplayRawFailed(conn, rids, message);
-		} catch (SQLException | IOException e) {
+		if (TransactionSynchronizationManager.isActualTransactionActive()) {
+			Connection conn = DataSourceUtils.getConnection(dataSource);
+			try {
+				RtaBulkRidTempTable.updateRankerRtpvpReplayRawFailed(conn, rids, message);
+			} catch (SQLException | IOException e) {
+				throw new IllegalStateException("ranker_rtpvp_replay_raw failed marking failed", e);
+			} finally {
+				DataSourceUtils.releaseConnection(conn, dataSource);
+			}
+			return;
+		}
+		try (Connection conn = dataSource.getConnection()) {
+			conn.setAutoCommit(false);
+			try {
+				RtaBulkRidTempTable.updateRankerRtpvpReplayRawFailed(conn, rids, message);
+				conn.commit();
+			} catch (SQLException | IOException e) {
+				try { conn.rollback(); } catch (SQLException re) { log.warn("failed marking rollback 실패", re); }
+				throw new IllegalStateException("ranker_rtpvp_replay_raw failed marking failed", e);
+			}
+		} catch (IllegalStateException e) {
+			throw e;
+		} catch (SQLException e) {
 			throw new IllegalStateException("ranker_rtpvp_replay_raw failed marking failed", e);
-		} finally {
-			DataSourceUtils.releaseConnection(conn, dataSource);
 		}
 	}
 

@@ -56,7 +56,7 @@ final class RtaAggStagingMergeSql {
 			    s.win_cnt::bigint,
 			    s.lose_cnt::bigint
 			FROM public.staging_matchup_agg s
-			ORDER BY s.season_id, s.rating_id, s.subject_unit_id, hashtext(s.opponent_combo_key), s.opponent_combo_key
+			ORDER BY s.season_id, s.rating_id, s.subject_unit_id, s.combo_key_hash, s.opponent_combo_key
 			ON CONFLICT (season_id, rating_id, subject_unit_id, combo_key_hash, opponent_combo_key) DO UPDATE SET
 			    win_cnt = public.rta_agg_counter_matchup.win_cnt + EXCLUDED.win_cnt,
 			    lose_cnt = public.rta_agg_counter_matchup.lose_cnt + EXCLUDED.lose_cnt,

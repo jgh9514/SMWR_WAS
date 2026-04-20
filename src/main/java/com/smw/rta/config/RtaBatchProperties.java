@@ -37,4 +37,10 @@ public class RtaBatchProperties {
 	 * true 이면 통합 Job 의 <b>시너지 단계 직후</b>에 두는 {@code user_monster_owned_agg} 재적재를 생략한다.
 	 */
 	private boolean skipUserMonsterOwnedAggInUnifiedJob = false;
+
+	/**
+	 * true 이면 통합 Job 의 시너지 drain 동안 {@code idx_rta_agg_counter_matchup_season_subject} 조회 인덱스를 잠시 내린다.
+	 * 카운터 matchup 대량 UPSERT 중 보조 인덱스 유지 비용을 줄이기 위한 옵션이다.
+	 */
+	private boolean dropCounterMatchupQueryIndexDuringUnifiedJob = true;
 }
