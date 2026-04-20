@@ -59,6 +59,9 @@ public interface RtaService {
      */
     Map<String, Object> getRtaSummonerRanking(int limit, int offset, Long seasonId, String countryFilter);
 
+    /** RTA 소환사 랭킹 풀(최대 500행) — Redis 캐시 후 페이지 슬라이스용 */
+    Map<String, Object> getRtaSummonerRankingPool(Long seasonId, String countryFilter);
+
     /**
      * {@code rta_season.season_id} 한 건 조회 — 짧은 TTL 캐시.
      */

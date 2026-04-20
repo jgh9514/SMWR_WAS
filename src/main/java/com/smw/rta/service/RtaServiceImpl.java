@@ -57,6 +57,14 @@ public class RtaServiceImpl implements RtaService {
         return rtaMapper.selectDefaultSeasonIdForNow();
     }
 
+    private static String normalizeCountryFilter(String countryFilter) {
+        if (countryFilter == null) {
+            return null;
+        }
+        String cf = countryFilter.trim();
+        return cf.isEmpty() ? null : cf;
+    }
+
     @Override
     @Cacheable(cacheNames = "rtaRanking", cacheManager = "rtaShortLivedCacheManager", key = "'rsbi_' + #seasonId")
     public Map<String, Object> getRtaSeasonBoundsRowByIdCached(Long seasonId) {
@@ -209,6 +217,8 @@ public class RtaServiceImpl implements RtaService {
     }
 
     @Override
+    @Cacheable(cacheNames = "rtaSeasons", cacheManager = "rtaShortLivedCacheManager",
+            key = "'gradeRules_' + #seasonId")
     public List<Map<String, Object>> listRtaRatingGradeReference(long seasonId) {
         List<Map<String, Object>> rows = rtaMapper.listRtaRatingGradeReference(seasonId);
         return rows != null ? rows : Collections.emptyList();
@@ -242,40 +252,29 @@ public class RtaServiceImpl implements RtaService {
             key = "'sr_' + #seasonId + '_' + #limit + '_' + #offset + '_' + (#countryFilter != null ? #countryFilter : 'all')")
     public Map<String, Object> getRtaSummonerRanking(int limit, int offset, Long seasonId, String countryFilter) {
         Long sid = doResolveSeasonId(seasonId);
-        String cf = countryFilter != null ? countryFilter.trim() : "";
-        String countryForMapper = cf.isEmpty() ? null : cf;
         int lim = Math.max(1, Math.min(limit, RTA_SUMMONER_RANKING_PAGE_SIZE));
         int maxOffset = RTA_SUMMONER_RANKING_PAGE_SIZE * (RTA_SUMMONER_RANKING_MAX_PAGES - 1);
         int off = Math.max(0, Math.min(offset, Math.min(maxOffset, RTA_SUMMONER_RANKING_MAX_ROWS - lim)));
+        String countryForMapper = normalizeCountryFilter(countryFilter);
 
-        int total = 0;
-        List<Map<String, Object>> rows = Collections.emptyList();
-        if (sid != null) {
-            final int fetchLimit = (off < RTA_SUMMONER_RANKING_MAX_ROWS && lim > 0)
-                    ? Math.min(lim, RTA_SUMMONER_RANKING_MAX_ROWS - off)
-                    : 0;
-            List<Map<String, Object>> raw = rtaMapper.getRtaSummonerRankingFromAgg(fetchLimit, off, sid, countryForMapper);
-            if (raw != null && !raw.isEmpty()) {
-                Object pt = raw.get(0).get("rankingPoolTotal");
-                if (pt instanceof Number) {
-                    total = Math.min(((Number) pt).intValue(), RTA_SUMMONER_RANKING_MAX_ROWS);
-                }
-                List<Map<String, Object>> out = new ArrayList<>(raw.size());
-                for (Map<String, Object> row : raw) {
-                    if (row == null) {
-                        continue;
-                    }
-                    row.remove("rankingPoolTotal");
-                    if (row.get("wizard_id") != null) {
-                        out.add(row);
-                    }
-                }
-                rows = out;
-            }
+        Map<String, Object> pool = rtaServiceSelf.getRtaSummonerRankingPool(sid, countryForMapper);
+        List<Map<String, Object>> allRows = Collections.emptyList();
+        Object rawRankings = pool.get("rankings");
+        if (rawRankings instanceof List<?>) {
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> casted = (List<Map<String, Object>>) rawRankings;
+            allRows = casted;
         }
+        int total = Math.min(allRows.size(), RTA_SUMMONER_RANKING_MAX_ROWS);
+        int fromIndex = Math.min(off, total);
+        int toIndex = Math.min(fromIndex + lim, total);
+        List<Map<String, Object>> rows = fromIndex < toIndex
+                ? new ArrayList<>(allRows.subList(fromIndex, toIndex))
+                : Collections.emptyList();
+
         Map<String, Object> response = new HashMap<>();
         response.put("total", total);
-        response.put("rankings", rows != null ? rows : Collections.emptyList());
+        response.put("rankings", rows);
         response.put("seasonId", sid);
         if (countryForMapper != null) {
             response.put("countryFilter", countryForMapper);
@@ -284,6 +283,39 @@ public class RtaServiceImpl implements RtaService {
     }
 
     @Override
+    @Cacheable(cacheNames = "rtaRanking", cacheManager = "rtaShortLivedCacheManager",
+            key = "'srp_' + #seasonId + '_' + (#countryFilter != null ? #countryFilter : 'all')")
+    public Map<String, Object> getRtaSummonerRankingPool(Long seasonId, String countryFilter) {
+        Long sid = doResolveSeasonId(seasonId);
+        String countryForMapper = normalizeCountryFilter(countryFilter);
+        List<Map<String, Object>> rows = Collections.emptyList();
+        if (sid != null) {
+            List<Map<String, Object>> raw = rtaMapper.getRtaSummonerRankingFromAgg(RTA_SUMMONER_RANKING_MAX_ROWS, 0, sid, countryForMapper);
+            if (raw != null && !raw.isEmpty()) {
+                List<Map<String, Object>> out = new ArrayList<>(raw.size());
+                for (Map<String, Object> row : raw) {
+                    if (row == null || row.get("wizard_id") == null) {
+                        continue;
+                    }
+                    row.remove("rankingPoolTotal");
+                    out.add(row);
+                }
+                rows = out;
+            }
+        }
+        Map<String, Object> response = new HashMap<>();
+        response.put("total", Math.min(rows.size(), RTA_SUMMONER_RANKING_MAX_ROWS));
+        response.put("rankings", rows);
+        response.put("seasonId", sid);
+        if (countryForMapper != null) {
+            response.put("countryFilter", countryForMapper);
+        }
+        return response;
+    }
+
+    @Override
+    @Cacheable(cacheNames = "rtaRanking", cacheManager = "rtaShortLivedCacheManager",
+            key = "'search_' + #seasonId + '_' + (#query != null ? #query.trim() : '')")
     public Map<String, Object> searchRtaSummoners(String query, Long seasonId) {
         Long sid = doResolveSeasonId(seasonId);
         Map<String, Object> response = new HashMap<>();
