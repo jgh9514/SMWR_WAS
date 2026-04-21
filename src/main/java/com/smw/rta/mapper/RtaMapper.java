@@ -139,7 +139,7 @@ public interface RtaMapper {
 
     int upsertRtaSynergyAgg(@Param("rows") List<RtaSynergyAggUpsertRow> rows);
 
-    /** combo_size=1 행 전체에 벤 횟수 증분(동일 시즌·콤보 키). */
+    /** COPY 적재 전·후 스테이징 비우기 */
     void truncateStagingSynergyAgg();
 
     int mergeStagingIntoRtaAggSynergyCombo();

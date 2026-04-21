@@ -369,6 +369,21 @@
                 u.ladder_score AS score_val,
                 (
                     CASE
+                        WHEN u.rating_id &gt;= 5000 THEN 60
+                        WHEN u.rating_id &gt;= 4000 THEN 50
+                        WHEN u.rating_id &gt;= 3500 THEN 40
+                        WHEN u.rating_id &gt;= 3000 THEN 30
+                        WHEN u.rating_id &gt;= 2000 THEN 20
+                        ELSE 10
+                    END
+                    +
+                    CASE
+                        WHEN (u.rating_id % 10) IN (1, 2, 3) THEN (u.rating_id % 10)
+                        ELSE 2
+                    END
+                ) AS tier_sort_order,
+                (
+                    CASE
                         WHEN u.rating_id &gt;= 5000 THEN 'L'
                         WHEN u.rating_id &gt;= 4000 THEN 'G'
                         WHEN u.rating_id &gt;= 3500 THEN 'P'
@@ -390,23 +405,40 @@
         ),
         tiers AS (
             SELECT * FROM (VALUES
-                ('G3'), ('G2'), ('G1'), ('P3'), ('P2')
-            ) AS tv(grade_slot)
+                ('G3', 53), ('G2', 52), ('G1', 51), ('P3', 43), ('P2', 42)
+            ) AS tv(grade_slot, tier_sort_order)
         ),
-        <include refid="rtaRankCutoffOfficialTierFloorCte"/>
+        <include refid="rtaRankCutoffOfficialTierFloorCte"/>,
+        lower_bound AS (
+            SELECT
+                a.sort_order,
+                a.anchor_key,
+                t.grade_slot,
+                MAX(b.score_val)::bigint AS lower_max_score
+            FROM anchors a
+            CROSS JOIN tiers t
+            LEFT JOIN base b
+                ON b.tier_sort_order &lt; t.tier_sort_order
+               AND b.date_add &gt;= CURRENT_TIMESTAMP - a.iv
+               AND b.date_add &lt;= CURRENT_TIMESTAMP
+            GROUP BY a.sort_order, a.anchor_key, a.iv, t.grade_slot, t.tier_sort_order
+        )
         SELECT
             CURRENT_TIMESTAMP,
             a.sort_order,
             a.anchor_key,
             t.grade_slot,
-            COALESCE(MIN(b.score_val), MAX(tof.min_pts), 0)::bigint AS cutoff_score
+            GREATEST(
+                COALESCE(tof.min_pts, 0)::bigint,
+                COALESCE(lb.lower_max_score + 1, 0)::bigint
+            ) AS cutoff_score
         FROM anchors a
         CROSS JOIN tiers t
         LEFT JOIN tier_official tof ON tof.grade_slot = t.grade_slot
-        LEFT JOIN base b ON b.grade_slot = t.grade_slot
-            AND b.date_add &gt;= CURRENT_TIMESTAMP - a.iv
-            AND b.date_add &lt;= CURRENT_TIMESTAMP
-        GROUP BY a.sort_order, a.anchor_key, a.iv, t.grade_slot
+        LEFT JOIN lower_bound lb
+            ON lb.sort_order = a.sort_order
+           AND lb.anchor_key = a.anchor_key
+           AND lb.grade_slot = t.grade_slot
     </insert>
 
     <!-- 시즌별 등급(rating_id) 최저 래더 점수 스냅샷 (히스토리 적재) -->
@@ -465,6 +497,7 @@
         SELECT COUNT(*)::bigint
         FROM public.rta_agg_season_rating_match_total
     </select>
+
 
     <!-- 몬스터 상세: 카운터 매치업 — 티어별 행을 상대 콤보 키 기준으로 합산.
          seasonId 직접 수신 → idx_rta_agg_counter_matchup_season_subject 활용 (index-only scan). -->

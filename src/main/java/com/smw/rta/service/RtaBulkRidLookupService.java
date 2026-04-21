@@ -135,7 +135,8 @@ public class RtaBulkRidLookupService {
 	}
 
 	/**
-	 * 시즌×콤보(원본 몬스터 ID 문자열)별 벤 건수 — 시너지 픽 UPSERT 직후 {@code rta_agg_synergy_combo.ban_cnt} 증분용.
+	 * 시즌×티어×콤보(원본 몬스터 ID 문자열)별 벤 건수 —
+	 * 시너지 픽 UPSERT 직후 {@code rta_agg_synergy_combo.ban_cnt} 갱신용.
 	 */
 	/**
 	 * {@code rta_match} 부모 없이 unit / participant 만 남은 행 삭제 — COPY→{@code tmp_bulk_rids}→JOIN (독립 커넥션·커밋).
@@ -169,21 +170,32 @@ public class RtaBulkRidLookupService {
 			List<RtaSynergyBanDeltaRow> out = new ArrayList<>();
 			String sql = """
 					SELECT m.season_id,
+					       p.rating_id,
 					       TRIM(BOTH FROM COALESCE(mcm.original_monster_id, u.unit_master_id::text)) AS combo_unit_key,
 					       COUNT(*)::bigint AS delta
 					FROM public.rta_match_unit_pick u
 					INNER JOIN public.rta_match m ON m.replay_id = u.replay_id
+					INNER JOIN public.rta_match_participant p
+					        ON p.replay_id = u.replay_id
+					       AND p.wizard_id = u.wizard_id
 					LEFT JOIN public.monster_collaboration_mapping mcm
 					       ON TRIM(BOTH FROM mcm.collaboration_monster_id) = TRIM(BOTH FROM u.unit_master_id::text)
 					JOIN tmp_bulk_rids t ON t.rid = u.replay_id
 					WHERE COALESCE(u.is_banned, false) = true
-					GROUP BY m.season_id, TRIM(BOTH FROM COALESCE(mcm.original_monster_id, u.unit_master_id::text))
+					  AND p.rating_id IS NOT NULL
+					  AND p.rating_id > 0
+					GROUP BY m.season_id, p.rating_id,
+					         TRIM(BOTH FROM COALESCE(mcm.original_monster_id, u.unit_master_id::text))
 					""";
 			try (Statement st = conn.createStatement(); ResultSet rs = st.executeQuery(sql)) {
 				while (rs.next()) {
 					String key = rs.getString("combo_unit_key");
 					if (key != null) {
-						out.add(new RtaSynergyBanDeltaRow(rs.getLong("season_id"), key, rs.getLong("delta")));
+						out.add(new RtaSynergyBanDeltaRow(
+								rs.getLong("season_id"),
+								rs.getInt("rating_id"),
+								key,
+								rs.getLong("delta")));
 					}
 				}
 			}

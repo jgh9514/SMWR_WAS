@@ -1,19 +1,21 @@
 package com.smw.rta.model;
 
 /**
- * {@code rta_agg_synergy_combo.ban_cnt} 증분 (시즌×콤보 단위, combo_size=1 행 전부 동일 증가).
+ * {@code rta_agg_synergy_combo.ban_cnt} 증분 (시즌×티어×콤보 단위, combo_size=1).
  */
 public class RtaSynergyBanDeltaRow {
 
 	private long seasonId;
+	private int ratingId;
 	private String comboUnitKey;
 	private long delta;
 
 	public RtaSynergyBanDeltaRow() {
 	}
 
-	public RtaSynergyBanDeltaRow(long seasonId, String comboUnitKey, long delta) {
+	public RtaSynergyBanDeltaRow(long seasonId, int ratingId, String comboUnitKey, long delta) {
 		this.seasonId = seasonId;
+		this.ratingId = ratingId;
 		this.comboUnitKey = comboUnitKey;
 		this.delta = delta;
 	}
@@ -24,6 +26,14 @@ public class RtaSynergyBanDeltaRow {
 
 	public void setSeasonId(long seasonId) {
 		this.seasonId = seasonId;
+	}
+
+	public int getRatingId() {
+		return ratingId;
+	}
+
+	public void setRatingId(int ratingId) {
+		this.ratingId = ratingId;
 	}
 
 	public String getComboUnitKey() {

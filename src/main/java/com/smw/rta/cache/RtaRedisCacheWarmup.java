@@ -39,7 +39,7 @@ public class RtaRedisCacheWarmup {
 			rtaService.getRtaSeasonBoundsRowByIdCached(sid);
 			rtaService.listRtaRatingGradeReference(sid);
 			rtaService.getRtaDashboard(sid);
-			rtaService.getRtaSummonerRankingPool(sid, null);
+			rtaService.getRtaSummonerRanking(50, 0, sid, null);
 			rtaService.getRtaListPage(20, 0, sid, null, null);
 			rtaService.getRtaMonsterStats(30, 0, "solo", sid, null, null);
 			rtaService.getRtaStats(sid, null, null);

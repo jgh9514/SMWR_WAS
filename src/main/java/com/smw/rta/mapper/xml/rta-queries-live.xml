@@ -376,9 +376,9 @@
     </insert>
 
     <select id="getRtaMonsterStatsTotalFromAgg" resultType="java.lang.Long">
-        SELECT COUNT(*)::bigint
-        FROM public.rta_match m
-        WHERE m.season_id = #{seasonId}
+        SELECT COALESCE(SUM(t.total_matches)::bigint, 0::bigint)
+        FROM public.rta_agg_season_rating_match_total t
+        WHERE t.season_id = #{seasonId}
     </select>
 
     <select id="getRtaMonsterStatsFromAgg" resultType="map">
@@ -392,31 +392,33 @@
                     ), 0::bigint) AS total_matches
                 </when>
                 <when test="ratingIds != null and ratingIds.size() &gt; 0">
-                    SELECT COALESCE(COUNT(DISTINCT p.replay_id), 0)::bigint AS total_matches
-                    FROM public.rta_match_participant p
-                    INNER JOIN public.rta_match m ON m.replay_id = p.replay_id
-                    WHERE m.season_id = #{seasonId}
-                      AND p.rating_id IN
+                    SELECT COALESCE(SUM(t.total_matches)::bigint, 0::bigint) AS total_matches
+                    FROM public.rta_agg_season_rating_match_total t
+                    WHERE t.season_id = #{seasonId}
+                      AND t.rating_id IN
                     <foreach collection="ratingIds" item="rid" open="(" separator="," close=")">#{rid}</foreach>
                 </when>
                 <otherwise>
-                    SELECT COUNT(*)::bigint AS total_matches
-                    FROM public.rta_match m
-                    WHERE m.season_id = #{seasonId}
+                    SELECT COALESCE(SUM(t.total_matches)::bigint, 0::bigint) AS total_matches
+                    FROM public.rta_agg_season_rating_match_total t
+                    WHERE t.season_id = #{seasonId}
                 </otherwise>
             </choose>
         ),
         s AS (
             <choose>
                 <when test="ratingId != null">
-                    SELECT sg.combo_unit_key, sg.match_cnt, sg.win_cnt
+                    SELECT sg.combo_unit_key, sg.match_cnt, sg.win_cnt, COALESCE(sg.ban_cnt, 0)::bigint AS ban_cnt
                     FROM public.rta_agg_synergy_combo sg
                     WHERE sg.season_id = #{seasonId}
                       AND sg.combo_size = 1
                       AND sg.rating_id = #{ratingId}
                 </when>
                 <when test="ratingIds != null and ratingIds.size() &gt; 0">
-                    SELECT sg.combo_unit_key, SUM(sg.match_cnt)::bigint AS match_cnt, SUM(sg.win_cnt)::bigint AS win_cnt
+                    SELECT sg.combo_unit_key,
+                           SUM(sg.match_cnt)::bigint AS match_cnt,
+                           SUM(sg.win_cnt)::bigint AS win_cnt,
+                           SUM(COALESCE(sg.ban_cnt, 0))::bigint AS ban_cnt
                     FROM public.rta_agg_synergy_combo sg
                     WHERE sg.season_id = #{seasonId}
                       AND sg.combo_size = 1
@@ -425,58 +427,15 @@
                     GROUP BY sg.combo_unit_key
                 </when>
                 <otherwise>
-                    SELECT sg.combo_unit_key, SUM(sg.match_cnt)::bigint AS match_cnt, SUM(sg.win_cnt)::bigint AS win_cnt
+                    SELECT sg.combo_unit_key,
+                           SUM(sg.match_cnt)::bigint AS match_cnt,
+                           SUM(sg.win_cnt)::bigint AS win_cnt,
+                           SUM(COALESCE(sg.ban_cnt, 0))::bigint AS ban_cnt
                     FROM public.rta_agg_synergy_combo sg
                     WHERE sg.season_id = #{seasonId}
                       AND sg.combo_size = 1
                       AND sg.rating_id &gt; 0
                     GROUP BY sg.combo_unit_key
-                </otherwise>
-            </choose>
-        ),
-        ban_stats AS (
-            <choose>
-                <when test="ratingId != null">
-                    SELECT TRIM(BOTH FROM COALESCE(mcm.original_monster_id, u.unit_master_id::text)) AS combo_unit_key,
-                           COUNT(*)::bigint AS ban_cnt
-                    FROM public.rta_match_unit_pick u
-                    INNER JOIN public.rta_match m ON m.replay_id = u.replay_id
-                    INNER JOIN public.rta_match_participant p
-                        ON p.replay_id = u.replay_id
-                       AND p.wizard_id = u.wizard_id
-                    LEFT JOIN public.monster_collaboration_mapping mcm
-                        ON TRIM(BOTH FROM mcm.collaboration_monster_id) = TRIM(BOTH FROM u.unit_master_id::text)
-                    WHERE m.season_id = #{seasonId}
-                      AND COALESCE(u.is_banned, false) = true
-                      AND p.rating_id = #{ratingId}
-                    GROUP BY TRIM(BOTH FROM COALESCE(mcm.original_monster_id, u.unit_master_id::text))
-                </when>
-                <when test="ratingIds != null and ratingIds.size() &gt; 0">
-                    SELECT TRIM(BOTH FROM COALESCE(mcm.original_monster_id, u.unit_master_id::text)) AS combo_unit_key,
-                           COUNT(*)::bigint AS ban_cnt
-                    FROM public.rta_match_unit_pick u
-                    INNER JOIN public.rta_match m ON m.replay_id = u.replay_id
-                    INNER JOIN public.rta_match_participant p
-                        ON p.replay_id = u.replay_id
-                       AND p.wizard_id = u.wizard_id
-                    LEFT JOIN public.monster_collaboration_mapping mcm
-                        ON TRIM(BOTH FROM mcm.collaboration_monster_id) = TRIM(BOTH FROM u.unit_master_id::text)
-                    WHERE m.season_id = #{seasonId}
-                      AND COALESCE(u.is_banned, false) = true
-                      AND p.rating_id IN
-                    <foreach collection="ratingIds" item="rid" open="(" separator="," close=")">#{rid}</foreach>
-                    GROUP BY TRIM(BOTH FROM COALESCE(mcm.original_monster_id, u.unit_master_id::text))
-                </when>
-                <otherwise>
-                    SELECT TRIM(BOTH FROM COALESCE(mcm.original_monster_id, u.unit_master_id::text)) AS combo_unit_key,
-                           COUNT(*)::bigint AS ban_cnt
-                    FROM public.rta_match_unit_pick u
-                    INNER JOIN public.rta_match m ON m.replay_id = u.replay_id
-                    LEFT JOIN public.monster_collaboration_mapping mcm
-                        ON TRIM(BOTH FROM mcm.collaboration_monster_id) = TRIM(BOTH FROM u.unit_master_id::text)
-                    WHERE m.season_id = #{seasonId}
-                      AND COALESCE(u.is_banned, false) = true
-                    GROUP BY TRIM(BOTH FROM COALESCE(mcm.original_monster_id, u.unit_master_id::text))
                 </otherwise>
             </choose>
         )
@@ -491,9 +450,11 @@
                 WHEN s.match_cnt &gt; 0 THEN ROUND((COALESCE(s.win_cnt, 0)::numeric / s.match_cnt * 100)::numeric, 2)
                 ELSE 0
             END AS win_rate,
-            ROUND((COALESCE(b.ban_cnt, 0)::numeric / NULLIF((SELECT mt.total_matches FROM match_total mt), 0) * 100)::numeric, 2) AS ban_rate
+            CASE
+                WHEN s.match_cnt &gt; 0 THEN ROUND((COALESCE(s.ban_cnt, 0)::numeric / s.match_cnt * 100)::numeric, 2)
+                ELSE 0
+            END AS ban_rate
         FROM s
-        LEFT JOIN ban_stats b ON b.combo_unit_key = s.combo_unit_key
         LEFT JOIN public.monster m ON TRIM(BOTH FROM m.monster_id) = s.combo_unit_key
         WHERE m.kr_name IS NOT NULL
           AND s.match_cnt &gt;= #{minPickCount}
@@ -644,25 +605,22 @@
                 WHEN ps.pick_count > 0 THEN ROUND((COALESCE(ws.win_count, 0)::numeric / ps.pick_count * 100)::numeric, 2)
                 ELSE 0
             END as win_rate,
-            ROUND((COALESCE((
-                SELECT COUNT(*)::bigint
-                FROM public.rta_match_unit_pick u
-                LEFT JOIN public.monster_collaboration_mapping mcm
-                       ON TRIM(BOTH FROM mcm.collaboration_monster_id) = TRIM(BOTH FROM u.unit_master_id::text)
-                WHERE COALESCE(u.is_banned, false) = true
-                  AND TRIM(BOTH FROM COALESCE(mcm.original_monster_id, u.unit_master_id::text)) = TRIM(#{monsterId}::text)
-                  AND EXISTS (
-                      SELECT 1
-                      FROM public.rta_match m2
-                      WHERE m2.replay_id = u.replay_id
-                        AND m2.season_id = #{seasonId}
-                  )
-            ), 0)::numeric / NULLIF(mc.total_matches, 0) * 100)::numeric, 2) as ban_rate
+            CASE
+                WHEN ps.pick_count > 0 THEN ROUND((COALESCE((
+                SELECT SUM(COALESCE(sg.ban_cnt, 0))::bigint
+                FROM public.rta_agg_synergy_combo sg
+                WHERE sg.season_id = #{seasonId}
+                  AND sg.combo_size = 1
+                  AND sg.rating_id &gt; 0
+                  AND TRIM(BOTH FROM sg.combo_unit_key) = TRIM(#{monsterId}::text)
+                ), 0)::numeric / ps.pick_count * 100)::numeric, 2)
+                ELSE 0
+            END as ban_rate
         FROM pick_stats ps
         CROSS JOIN (
-            SELECT COUNT(*)::bigint AS total_matches
-            FROM public.rta_match m
-            WHERE m.season_id = #{seasonId}
+            SELECT COALESCE(SUM(t.total_matches)::bigint, 0::bigint) AS total_matches
+            FROM public.rta_agg_season_rating_match_total t
+            WHERE t.season_id = #{seasonId}
         ) mc
         LEFT JOIN win_stats ws ON ps.unit_master_id = ws.unit_master_id
         LIMIT 1
@@ -915,6 +873,21 @@
                 u.ladder_score AS score_val,
                 (
                     CASE
+                        WHEN u.rating_id &gt;= 5000 THEN 60
+                        WHEN u.rating_id &gt;= 4000 THEN 50
+                        WHEN u.rating_id &gt;= 3500 THEN 40
+                        WHEN u.rating_id &gt;= 3000 THEN 30
+                        WHEN u.rating_id &gt;= 2000 THEN 20
+                        ELSE 10
+                    END
+                    +
+                    CASE
+                        WHEN (u.rating_id % 10) IN (1, 2, 3) THEN (u.rating_id % 10)
+                        ELSE 2
+                    END
+                ) AS tier_sort_order,
+                (
+                    CASE
                         WHEN u.rating_id &gt;= 5000 THEN 'L'
                         WHEN u.rating_id &gt;= 4000 THEN 'G'
                         WHEN u.rating_id &gt;= 3500 THEN 'P'
@@ -936,23 +909,40 @@
         ),
         tiers AS (
             SELECT * FROM (VALUES
-                ('G3'), ('G2'), ('G1'), ('P3'), ('P2')
-            ) AS tv(grade_slot)
+                ('G3', 53), ('G2', 52), ('G1', 51), ('P3', 43), ('P2', 42)
+            ) AS tv(grade_slot, tier_sort_order)
         ),
-        <include refid="rtaRankCutoffOfficialTierFloorCte"/>
+        <include refid="rtaRankCutoffOfficialTierFloorCte"/>,
+        lower_bound AS (
+            SELECT
+                a.sort_order,
+                a.anchor_key,
+                t.grade_slot,
+                MAX(b.score_val)::bigint AS lower_max_score
+            FROM anchors a
+            CROSS JOIN tiers t
+            LEFT JOIN base b
+                ON b.tier_sort_order &lt; t.tier_sort_order
+               AND b.date_add &gt;= CURRENT_TIMESTAMP - a.iv
+               AND b.date_add &lt;= CURRENT_TIMESTAMP
+            GROUP BY a.sort_order, a.anchor_key, a.iv, t.grade_slot, t.tier_sort_order
+        )
         SELECT
             a.sort_order,
             a.anchor_key,
             rg.rating_id AS "ratingId",
-            COALESCE(MIN(b.score_val), MAX(tof.min_pts), 0)::bigint AS cutoff_score
+            GREATEST(
+                COALESCE(tof.min_pts, 0)::bigint,
+                COALESCE(lb.lower_max_score + 1, 0)::bigint
+            ) AS cutoff_score
         FROM anchors a
         CROSS JOIN tiers t
         LEFT JOIN public.rta_rating_grade rg ON rg.grade_slot = t.grade_slot
         LEFT JOIN tier_official tof ON tof.grade_slot = t.grade_slot
-        LEFT JOIN base b ON b.grade_slot = t.grade_slot
-            AND b.date_add &gt;= CURRENT_TIMESTAMP - a.iv
-            AND b.date_add &lt;= CURRENT_TIMESTAMP
-        GROUP BY a.sort_order, a.anchor_key, a.iv, t.grade_slot, rg.rating_id, rg.tier_sort
+        LEFT JOIN lower_bound lb
+            ON lb.sort_order = a.sort_order
+           AND lb.anchor_key = a.anchor_key
+           AND lb.grade_slot = t.grade_slot
         ORDER BY a.sort_order, rg.tier_sort NULLS LAST, rg.rating_id
     </select>
 
