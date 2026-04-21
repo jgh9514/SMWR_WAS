@@ -1,5 +1,6 @@
 package com.smw.monster.batch;
 
+import org.quartz.DisallowConcurrentExecution;
 import org.quartz.JobExecutionContext;
 
 import com.smw.rta.cache.RtaCacheEvictor;
@@ -13,6 +14,7 @@ import com.smw.rta.service.RtaBatchAggregationService;
  * <p>
  * 통합 raw/시너지 Job 과 분리 — 부하·주기 다름. DB {@code sys_batch_config} 에 등록 (예: 매시 정각 {@code 0 0 * * * ?}).
  */
+@DisallowConcurrentExecution
 public class RtaRankCutSnapshotAggJob extends BaseBatchJob {
 
 	@Override
