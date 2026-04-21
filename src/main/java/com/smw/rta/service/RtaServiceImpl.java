@@ -65,6 +65,45 @@ public class RtaServiceImpl implements RtaService {
         return cf.isEmpty() ? null : cf;
     }
 
+    private boolean hasSummonerRankingSnapshot(Long seasonId) {
+        Long rowCount = rtaMapper.countRtaSummonerRankingSnapRowsBySeason(seasonId);
+        return rowCount != null && rowCount > 0L;
+    }
+
+    private static Map<String, Object> buildSummonerRankingResponse(
+            List<Map<String, Object>> raw,
+            Long seasonId,
+            String countryFilter) {
+        int total = 0;
+        List<Map<String, Object>> rows = Collections.emptyList();
+        if (raw != null && !raw.isEmpty()) {
+            Object pt = raw.get(0).get("rankingPoolTotal");
+            if (pt instanceof Number) {
+                total = Math.min(((Number) pt).intValue(), RTA_SUMMONER_RANKING_MAX_ROWS);
+            }
+            List<Map<String, Object>> out = new ArrayList<>(raw.size());
+            for (Map<String, Object> row : raw) {
+                if (row == null) {
+                    continue;
+                }
+                row.remove("rankingPoolTotal");
+                if (row.get("wizard_id") != null) {
+                    out.add(row);
+                }
+            }
+            rows = out;
+        }
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("total", total);
+        response.put("rankings", rows);
+        response.put("seasonId", seasonId);
+        if (countryFilter != null) {
+            response.put("countryFilter", countryFilter);
+        }
+        return response;
+    }
+
     @Override
     @Cacheable(cacheNames = "rtaRanking", cacheManager = "rtaShortLivedCacheManager", key = "'rsbi_' + #seasonId")
     public Map<String, Object> getRtaSeasonBoundsRowByIdCached(Long seasonId) {
@@ -256,40 +295,16 @@ public class RtaServiceImpl implements RtaService {
         int maxOffset = RTA_SUMMONER_RANKING_PAGE_SIZE * (RTA_SUMMONER_RANKING_MAX_PAGES - 1);
         int off = Math.max(0, Math.min(offset, Math.min(maxOffset, RTA_SUMMONER_RANKING_MAX_ROWS - lim)));
         String countryForMapper = normalizeCountryFilter(countryFilter);
-        int total = 0;
-        List<Map<String, Object>> rows = Collections.emptyList();
         if (sid != null) {
             final int fetchLimit = (off < RTA_SUMMONER_RANKING_MAX_ROWS && lim > 0)
                     ? Math.min(lim, RTA_SUMMONER_RANKING_MAX_ROWS - off)
                     : 0;
-            List<Map<String, Object>> raw = rtaMapper.getRtaSummonerRankingFromAgg(fetchLimit, off, sid, countryForMapper);
-            if (raw != null && !raw.isEmpty()) {
-                Object pt = raw.get(0).get("rankingPoolTotal");
-                if (pt instanceof Number) {
-                    total = Math.min(((Number) pt).intValue(), RTA_SUMMONER_RANKING_MAX_ROWS);
-                }
-                List<Map<String, Object>> out = new ArrayList<>(raw.size());
-                for (Map<String, Object> row : raw) {
-                    if (row == null) {
-                        continue;
-                    }
-                    row.remove("rankingPoolTotal");
-                    if (row.get("wizard_id") != null) {
-                        out.add(row);
-                    }
-                }
-                rows = out;
-            }
+            List<Map<String, Object>> raw = hasSummonerRankingSnapshot(sid)
+                    ? rtaMapper.getRtaSummonerRankingFromAgg(fetchLimit, off, sid, countryForMapper)
+                    : rtaMapper.getRtaSummonerRankingLiveFromParticipant(fetchLimit, off, sid, countryForMapper);
+            return buildSummonerRankingResponse(raw, sid, countryForMapper);
         }
-
-        Map<String, Object> response = new HashMap<>();
-        response.put("total", total);
-        response.put("rankings", rows);
-        response.put("seasonId", sid);
-        if (countryForMapper != null) {
-            response.put("countryFilter", countryForMapper);
-        }
-        return response;
+        return buildSummonerRankingResponse(Collections.emptyList(), sid, countryForMapper);
     }
 
     @Override

@@ -145,6 +145,16 @@ public class GuildController {
 	@Operation(summary = "유저 길드 조회", description = "유저가 현재 소속된 길드를 조회합니다.")
 	@PostMapping("/user-guild")
 	public ResponseEntity<?> getUserGuild(@RequestBody Map<String, Object> param, HttpSession session, HttpServletRequest request) {
+		String sessUserId = getSessUserId(request);
+		if (sessUserId == null || sessUserId.isEmpty()) {
+			Map<String, Object> result = new HashMap<>();
+			result.put("result", "FAIL");
+			result.put("message", "로그인이 필요합니다.");
+			return ResponseEntity.status(401).body(result);
+		}
+		
+		// 클라이언트 입력 user_id 대신 세션 사용자 기준으로 현재 길드를 조회한다.
+		param.put("user_id", sessUserId);
 		Map<String, ?> map = service.selectUserGuild(param);
 		return ResponseEntity.ok(map);
 	}

@@ -20,10 +20,17 @@ import lombok.extern.slf4j.Slf4j;
 @Service
 public class RtaBatchAggregationService {
 
-	/** 소환사 랭킹 스냅샷 agg 테이블 미사용 — API 는 라이브/집계 CTE 집계. */
-	@SuppressWarnings("unused")
 	public SummonerRankingRebuildResult rebuildSummonerRankingAgg(RtaMapper rtaMapper) {
-		return new SummonerRankingRebuildResult(0);
+		List<Map<String, Object>> seasons = rtaMapper.listRtaSeasons();
+		for (Map<String, Object> row : seasons) {
+			Long seasonId = pickSeasonId(row);
+			if (seasonId == null) {
+				continue;
+			}
+			rtaMapper.deleteRtaSummonerRankingSnapBySeason(seasonId.longValue());
+			rtaMapper.insertRtaSummonerRankingSnapForSeason(seasonId.longValue());
+		}
+		return new SummonerRankingRebuildResult((int) safeCount(rtaMapper.countRtaSummonerRankingSnapRows()));
 	}
 
 	/**

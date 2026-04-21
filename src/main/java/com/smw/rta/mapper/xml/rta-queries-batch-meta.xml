@@ -179,10 +179,151 @@
         WHERE replay_id = #{rid}
     </update>
 
-    <!-- 소환사 랭킹 목록 API: rating_id 한정 MAX(점수)·MAX(replay_id) 후 상세 조인 (모스트 몬스터 없음). pool_meta 로 total 포함 -->
-    <select id="getRtaSummonerRankingFromAgg" resultType="map">
+    <!-- 랭킹 스냅샷 재적재: 시즌별 기존 행 삭제 후 상위 500명 글로벌 순위 적재 -->
+    <delete id="deleteRtaSummonerRankingSnapBySeason">
+        DELETE FROM public.rta_agg_summoner_ranking_snap
+        WHERE season_id = #{seasonId}
+    </delete>
+
+    <insert id="insertRtaSummonerRankingSnapForSeason">
         WITH <include refid="rtaSummonerRankingTopWizardsPairCte"/>,
         <include refid="rtaSummonerRankingPool500AndFilterCte"/>,
+        win_agg AS (
+            SELECT
+                u.wizard_id,
+                COUNT(*)::bigint AS match_count,
+                SUM(CASE WHEN u.is_winner THEN 1 ELSE 0 END)::bigint AS win_count
+            FROM public.rta_match_participant u
+            INNER JOIN pool_ranked p ON p.wizard_id = u.wizard_id
+            WHERE u.season_id = #{seasonId}
+              AND u.ladder_score &gt; 0
+            GROUP BY u.wizard_id
+        )
+        INSERT INTO public.rta_agg_summoner_ranking_snap (
+            season_id,
+            rank_position,
+            wizard_id,
+            wizard_name,
+            country,
+            channel_uid,
+            score,
+            rating_id,
+            max_season_score,
+            match_count,
+            win_count,
+            computed_at
+        )
+        SELECT
+            #{seasonId},
+            p.rank_position,
+            p.wizard_id,
+            p.wizard_name,
+            p.country,
+            p.channel_uid,
+            p.max_score AS score,
+            p.rating_id,
+            p.max_score::int AS max_season_score,
+            COALESCE(wa.match_count, 0)::bigint AS match_count,
+            COALESCE(wa.win_count, 0)::bigint AS win_count,
+            now()
+        FROM pool_ranked p
+        LEFT JOIN win_agg wa ON wa.wizard_id = p.wizard_id
+        ORDER BY p.rank_position
+    </insert>
+
+    <select id="countRtaSummonerRankingSnapRows" resultType="long">
+        SELECT COUNT(*)::bigint
+        FROM public.rta_agg_summoner_ranking_snap
+    </select>
+
+    <select id="countRtaSummonerRankingSnapRowsBySeason" resultType="long">
+        SELECT COUNT(*)::bigint
+        FROM public.rta_agg_summoner_ranking_snap
+        WHERE season_id = #{seasonId}
+    </select>
+
+    <!-- 소환사 랭킹 목록 API: 스냅샷 테이블 조회 + 국가 필터 + pool_meta total -->
+    <select id="getRtaSummonerRankingFromAgg" resultType="map">
+        WITH pool_filtered AS (
+            SELECT
+                s.rank_position,
+                s.wizard_id,
+                s.wizard_name,
+                s.country,
+                s.channel_uid,
+                s.score,
+                s.rating_id,
+                s.max_season_score,
+                s.match_count,
+                s.win_count
+            FROM public.rta_agg_summoner_ranking_snap s
+            WHERE s.season_id = #{seasonId}
+            <if test="countryFilter != null and countryFilter != ''">
+            AND (
+                CASE WHEN TRIM(COALESCE(s.country::text, '')) = '' THEN '—' ELSE TRIM(s.country::text) END
+            ) = #{countryFilter}
+            </if>
+        ),
+        pool_meta AS (
+            SELECT COUNT(*)::int AS "rankingPoolTotal" FROM pool_filtered
+        ),
+        page AS (
+            SELECT * FROM pool_filtered
+            ORDER BY rank_position
+            LIMIT #{limit} OFFSET #{offset}
+        )
+        SELECT
+            pm."rankingPoolTotal",
+            p.rank_position,
+            p.wizard_id,
+            p.wizard_name,
+            p.country,
+            p.channel_uid,
+            p.score,
+            p.rating_id,
+            p.max_season_score,
+            p.match_count,
+            p.win_count
+        FROM pool_meta pm
+        LEFT JOIN page p ON true
+        ORDER BY p.rank_position NULLS LAST
+    </select>
+
+    <!-- 스냅샷 미적재 시즌 fallback: participant 라이브 CTE -->
+    <select id="getRtaSummonerRankingLiveFromParticipant" resultType="map">
+        WITH <include refid="rtaSummonerRankingTopWizardsPairCte"/>,
+        pool_500 AS (
+            SELECT
+                wizard_id,
+                wizard_name,
+                country,
+                channel_uid,
+                max_score,
+                rating_id
+            FROM top_wizards
+            ORDER BY max_score DESC, wizard_id ASC
+            LIMIT 500
+        ),
+        pool_ranked AS (
+            SELECT
+                wizard_id,
+                wizard_name,
+                country,
+                channel_uid,
+                max_score,
+                rating_id,
+                ROW_NUMBER() OVER (ORDER BY max_score DESC, wizard_id ASC) AS rank_position
+            FROM pool_500
+        ),
+        pool_filtered AS (
+            SELECT * FROM pool_ranked
+            WHERE 1 = 1
+            <if test="countryFilter != null and countryFilter != ''">
+            AND (
+                CASE WHEN TRIM(COALESCE(country::text, '')) = '' THEN '—' ELSE TRIM(country::text) END
+            ) = #{countryFilter}
+            </if>
+        ),
         pool_meta AS (
             SELECT COUNT(*)::int AS "rankingPoolTotal" FROM pool_filtered
         ),

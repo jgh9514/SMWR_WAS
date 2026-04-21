@@ -208,8 +208,23 @@ GROUP BY bucket_date, grade_slot
 		)
 	</sql>
 
-	<!-- 소환사 랭킹: 점수 순 상위 500명 풀 + 글로벌 순위(rank_position) + 국가 필터. top_wizards 선행. -->
+	<!--
+	  소환사 랭킹 배치 적재 전용: top_wizards 전체에 ROW_NUMBER()를 먼저 매기지 않고,
+	  점수 순 상위 500명을 먼저 자른 뒤 그 집합에만 rank_position 을 부여한다.
+	-->
 	<sql id="rtaSummonerRankingPool500AndFilterCte">
+		pool_500 AS (
+			SELECT
+				wizard_id,
+				wizard_name,
+				country,
+				channel_uid,
+				max_score,
+				rating_id
+			FROM top_wizards
+			ORDER BY max_score DESC, wizard_id ASC
+			LIMIT 500
+		),
 		pool_ranked AS (
 			SELECT
 				wizard_id,
@@ -219,18 +234,7 @@ GROUP BY bucket_date, grade_slot
 				max_score,
 				rating_id,
 				ROW_NUMBER() OVER (ORDER BY max_score DESC, wizard_id ASC) AS rank_position
-			FROM top_wizards
-			ORDER BY max_score DESC, wizard_id ASC
-			LIMIT 500
-		),
-		pool_filtered AS (
-			SELECT * FROM pool_ranked
-			WHERE 1 = 1
-			<if test="countryFilter != null and countryFilter != ''">
-			AND (
-				CASE WHEN TRIM(COALESCE(country::text, '')) = '' THEN '—' ELSE TRIM(country::text) END
-			) = #{countryFilter}
-			</if>
+			FROM pool_500
 		)
 	</sql>
 

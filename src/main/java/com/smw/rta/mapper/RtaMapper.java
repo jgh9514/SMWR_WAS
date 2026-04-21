@@ -107,7 +107,24 @@ public interface RtaMapper {
     /** {@code rta_agg_season_rating_match_total} 전체 행 수 (배치 적재 후 로깅) */
     Long countRtaSeasonRatingMatchTotalRows();
 
+    /** 시즌별 상위 500명 스냅샷 삭제 후 재적재에 사용 */
+    int deleteRtaSummonerRankingSnapBySeason(@Param("seasonId") long seasonId);
+
+    /** 시즌별 상위 500명 스냅샷 적재 */
+    int insertRtaSummonerRankingSnapForSeason(@Param("seasonId") long seasonId);
+
+    /** 전체 랭킹 스냅샷 행 수 (배치 적재 후 로깅) */
+    Long countRtaSummonerRankingSnapRows();
+
+    /** 시즌별 랭킹 스냅샷 존재 여부 확인용 */
+    Long countRtaSummonerRankingSnapRowsBySeason(@Param("seasonId") Long seasonId);
+
+    /** API 조회용 — {@code rta_agg_summoner_ranking_snap} */
     List<Map<String, Object>> getRtaSummonerRankingFromAgg(@Param("limit") int limit, @Param("offset") int offset,
+            @Param("seasonId") Long seasonId, @Param("countryFilter") String countryFilter);
+
+    /** 스냅샷 미적재 시즌 fallback 용 — participant 라이브 CTE */
+    List<Map<String, Object>> getRtaSummonerRankingLiveFromParticipant(@Param("limit") int limit, @Param("offset") int offset,
             @Param("seasonId") Long seasonId, @Param("countryFilter") String countryFilter);
 
     /** 닉네임 부분 일치 또는 위자드 ID 정확 일치 */
