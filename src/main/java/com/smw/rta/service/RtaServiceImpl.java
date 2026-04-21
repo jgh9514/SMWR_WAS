@@ -65,11 +65,6 @@ public class RtaServiceImpl implements RtaService {
         return cf.isEmpty() ? null : cf;
     }
 
-    private boolean hasSummonerRankingSnapshot(Long seasonId) {
-        Long rowCount = rtaMapper.countRtaSummonerRankingSnapRowsBySeason(seasonId);
-        return rowCount != null && rowCount > 0L;
-    }
-
     private static Map<String, Object> buildSummonerRankingResponse(
             List<Map<String, Object>> raw,
             Long seasonId,
@@ -299,9 +294,7 @@ public class RtaServiceImpl implements RtaService {
             final int fetchLimit = (off < RTA_SUMMONER_RANKING_MAX_ROWS && lim > 0)
                     ? Math.min(lim, RTA_SUMMONER_RANKING_MAX_ROWS - off)
                     : 0;
-            List<Map<String, Object>> raw = hasSummonerRankingSnapshot(sid)
-                    ? rtaMapper.getRtaSummonerRankingFromAgg(fetchLimit, off, sid, countryForMapper)
-                    : rtaMapper.getRtaSummonerRankingLiveFromParticipant(fetchLimit, off, sid, countryForMapper);
+            List<Map<String, Object>> raw = rtaMapper.getRtaSummonerRankingFromAgg(fetchLimit, off, sid, countryForMapper);
             return buildSummonerRankingResponse(raw, sid, countryForMapper);
         }
         return buildSummonerRankingResponse(Collections.emptyList(), sid, countryForMapper);

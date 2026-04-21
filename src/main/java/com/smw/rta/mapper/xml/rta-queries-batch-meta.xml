@@ -236,12 +236,6 @@
         FROM public.rta_agg_summoner_ranking_snap
     </select>
 
-    <select id="countRtaSummonerRankingSnapRowsBySeason" resultType="long">
-        SELECT COUNT(*)::bigint
-        FROM public.rta_agg_summoner_ranking_snap
-        WHERE season_id = #{seasonId}
-    </select>
-
     <!-- 소환사 랭킹 목록 API: 스냅샷 테이블 조회 + 국가 필터 + pool_meta total -->
     <select id="getRtaSummonerRankingFromAgg" resultType="map">
         WITH pool_filtered AS (
@@ -286,78 +280,6 @@
             p.win_count
         FROM pool_meta pm
         LEFT JOIN page p ON true
-        ORDER BY p.rank_position NULLS LAST
-    </select>
-
-    <!-- 스냅샷 미적재 시즌 fallback: participant 라이브 CTE -->
-    <select id="getRtaSummonerRankingLiveFromParticipant" resultType="map">
-        WITH <include refid="rtaSummonerRankingTopWizardsPairCte"/>,
-        pool_500 AS (
-            SELECT
-                wizard_id,
-                wizard_name,
-                country,
-                channel_uid,
-                max_score,
-                rating_id
-            FROM top_wizards
-            ORDER BY max_score DESC, wizard_id ASC
-            LIMIT 500
-        ),
-        pool_ranked AS (
-            SELECT
-                wizard_id,
-                wizard_name,
-                country,
-                channel_uid,
-                max_score,
-                rating_id,
-                ROW_NUMBER() OVER (ORDER BY max_score DESC, wizard_id ASC) AS rank_position
-            FROM pool_500
-        ),
-        pool_filtered AS (
-            SELECT * FROM pool_ranked
-            WHERE 1 = 1
-            <if test="countryFilter != null and countryFilter != ''">
-            AND (
-                CASE WHEN TRIM(COALESCE(country::text, '')) = '' THEN '—' ELSE TRIM(country::text) END
-            ) = #{countryFilter}
-            </if>
-        ),
-        pool_meta AS (
-            SELECT COUNT(*)::int AS "rankingPoolTotal" FROM pool_filtered
-        ),
-        page AS (
-            SELECT * FROM pool_filtered
-            ORDER BY rank_position
-            LIMIT #{limit} OFFSET #{offset}
-        ),
-        win_agg AS (
-            SELECT
-                u.wizard_id,
-                COUNT(*)::bigint AS match_count,
-                SUM(CASE WHEN u.is_winner THEN 1 ELSE 0 END)::bigint AS win_count
-            FROM public.rta_match_participant u
-            INNER JOIN page p ON p.wizard_id = u.wizard_id
-            WHERE u.season_id = #{seasonId}
-              AND u.ladder_score &gt; 0
-            GROUP BY u.wizard_id
-        )
-        SELECT
-            pm."rankingPoolTotal",
-            p.rank_position,
-            p.wizard_id,
-            p.wizard_name,
-            p.country,
-            p.channel_uid,
-            p.max_score AS score,
-            p.rating_id,
-            p.max_score::int AS max_season_score,
-            COALESCE(wa.match_count, 0)::bigint AS match_count,
-            COALESCE(wa.win_count, 0)::bigint AS win_count
-        FROM pool_meta pm
-        LEFT JOIN page p ON true
-        LEFT JOIN win_agg wa ON wa.wizard_id = p.wizard_id
         ORDER BY p.rank_position NULLS LAST
     </select>
 
@@ -477,9 +399,9 @@
         ORDER BY rg.tier_sort NULLS LAST, s.rating_id
     </select>
 
-    <!-- 랭크컷 앵커 스냅: TRUNCATE 후 재적재 -->
+    <!-- 랭크컷 앵커 스냅: 운영 락 완화용 DELETE 후 재적재 -->
     <update id="deleteAllRtaRankCutoffAnchorSnap">
-        TRUNCATE TABLE public.rta_rank_cutoff_anchor_snap
+        DELETE FROM public.rta_rank_cutoff_anchor_snap
     </update>
 
     <!-- getRtaRankCutoffAnchorsFromLive 와 동일 로직 → 집계 테이블 적재 (배치 전용) -->

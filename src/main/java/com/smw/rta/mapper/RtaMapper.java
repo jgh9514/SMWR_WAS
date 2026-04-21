@@ -87,7 +87,7 @@ public interface RtaMapper {
     /** 랭크 컷 앵커 — {@code rta_rank_cutoff_anchor_snap} 배치 적재 결과 */
     List<Map<String, Object>> getRtaRankCutoffAnchorsFromAgg();
 
-    /** 앵커 스냅샷 전체 삭제 (TRUNCATE) */
+    /** 앵커 스냅샷 전체 삭제 (운영 락 완화용 DELETE) */
     void deleteAllRtaRankCutoffAnchorSnap();
 
     int insertRtaRankCutoffAnchorSnapFromLive(@Param("seasonId") long seasonId);
@@ -116,15 +116,8 @@ public interface RtaMapper {
     /** 전체 랭킹 스냅샷 행 수 (배치 적재 후 로깅) */
     Long countRtaSummonerRankingSnapRows();
 
-    /** 시즌별 랭킹 스냅샷 존재 여부 확인용 */
-    Long countRtaSummonerRankingSnapRowsBySeason(@Param("seasonId") Long seasonId);
-
     /** API 조회용 — {@code rta_agg_summoner_ranking_snap} */
     List<Map<String, Object>> getRtaSummonerRankingFromAgg(@Param("limit") int limit, @Param("offset") int offset,
-            @Param("seasonId") Long seasonId, @Param("countryFilter") String countryFilter);
-
-    /** 스냅샷 미적재 시즌 fallback 용 — participant 라이브 CTE */
-    List<Map<String, Object>> getRtaSummonerRankingLiveFromParticipant(@Param("limit") int limit, @Param("offset") int offset,
             @Param("seasonId") Long seasonId, @Param("countryFilter") String countryFilter);
 
     /** 닉네임 부분 일치 또는 위자드 ID 정확 일치 */
