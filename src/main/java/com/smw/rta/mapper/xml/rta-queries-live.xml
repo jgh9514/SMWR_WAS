@@ -574,7 +574,7 @@
             GROUP BY u.unit_master_id, m.monster_elemental, m.kr_name, m.image_url
         ),
         win_stats AS (
-            SELECT 
+            SELECT
                 u.unit_master_id,
                 COUNT(*) as win_count
             FROM public.rta_match_unit_pick u
@@ -584,26 +584,31 @@
                 AND u.unit_master_id = #{monsterId}
                 AND ul.season_id = #{seasonId}
             GROUP BY u.unit_master_id
+        ),
+        ban_stats AS (
+            SELECT
+                u.unit_master_id,
+                COUNT(*) as ban_count
+            FROM public.rta_match_unit_pick u
+            INNER JOIN public.rta_match_participant p ON u.replay_id = p.replay_id AND u.wizard_id = p.wizard_id
+            WHERE u.is_banned = true
+                AND u.unit_master_id = #{monsterId}
+                AND p.season_id = #{seasonId}
+            GROUP BY u.unit_master_id
         )
-        SELECT 
+        SELECT
             ps.unit_master_id as monster_id,
             ps.monster_elemental,
             ps.monster_name,
             ps.monster_image,
             ps.pick_count,
             ROUND((ps.pick_count::numeric / NULLIF(mc.total_matches, 0) * 100)::numeric, 2) as pick_rate,
-            CASE 
+            CASE
                 WHEN ps.pick_count > 0 THEN ROUND((COALESCE(ws.win_count, 0)::numeric / ps.pick_count * 100)::numeric, 2)
                 ELSE 0
             END as win_rate,
             CASE
-                WHEN ps.pick_count > 0 THEN ROUND((COALESCE((
-                SELECT SUM(COALESCE(sg.ban_cnt, 0))::bigint
-                FROM public.rta_agg_synergy_solo sg
-                WHERE sg.season_id = #{seasonId}
-                  AND sg.rating_id &gt; 0
-                  AND TRIM(BOTH FROM sg.combo_unit_key) = TRIM(#{monsterId}::text)
-                ), 0)::numeric / ps.pick_count * 100)::numeric, 2)
+                WHEN ps.pick_count > 0 THEN ROUND((COALESCE(bs.ban_count, 0)::numeric / ps.pick_count * 100)::numeric, 2)
                 ELSE 0
             END as ban_rate
         FROM pick_stats ps
@@ -613,6 +618,7 @@
             WHERE t.season_id = #{seasonId}
         ) mc
         LEFT JOIN win_stats ws ON ps.unit_master_id = ws.unit_master_id
+        LEFT JOIN ban_stats bs ON ps.unit_master_id = bs.unit_master_id
         LIMIT 1
     </select>
 
