@@ -347,7 +347,7 @@ public class RtaSynergyAggServiceImpl implements RtaSynergyAggService {
 
 	private void applyOneRidInternal(long rid) {
 		BuiltRows built = buildAllRowsForRid(rid);
-		rtaMapper.upsertRtaSynergyAgg(built.synergy());
+		flushSynergyDirectUpserts(built.synergy());
 		flushSynergyBanDeltas(bulkRidLookupService.aggregateSynergyBanIncrements(Collections.singletonList(rid)));
 		int marked = rtaMapper.markSynergyAggDone(rid);
 		if (marked == 0) {
@@ -562,7 +562,43 @@ public class RtaSynergyAggServiceImpl implements RtaSynergyAggService {
 		}
 		for (int i = 0; i < rows.size(); i += AGG_UPSERT_FLUSH_CHUNK) {
 			int to = Math.min(i + AGG_UPSERT_FLUSH_CHUNK, rows.size());
-			rtaMapper.upsertRtaSynergyAgg(rows.subList(i, to));
+			flushSynergyDirectUpserts(rows.subList(i, to));
+		}
+	}
+
+	private void flushSynergyDirectUpserts(List<RtaSynergyAggUpsertRow> rows) {
+		if (rows == null || rows.isEmpty()) {
+			return;
+		}
+		List<RtaSynergyAggUpsertRow> soloRows = new ArrayList<>();
+		List<RtaSynergyAggUpsertRow> duoRows = new ArrayList<>();
+		List<RtaSynergyAggUpsertRow> trioRows = new ArrayList<>();
+		for (RtaSynergyAggUpsertRow row : rows) {
+			if (row == null) {
+				continue;
+			}
+			switch (row.getComboSize()) {
+			case 1:
+				soloRows.add(row);
+				break;
+			case 2:
+				duoRows.add(row);
+				break;
+			case 3:
+				trioRows.add(row);
+				break;
+			default:
+				throw new IllegalArgumentException("지원하지 않는 comboSize=" + row.getComboSize());
+			}
+		}
+		if (!soloRows.isEmpty()) {
+			rtaMapper.upsertRtaSynergySoloAgg(soloRows);
+		}
+		if (!duoRows.isEmpty()) {
+			rtaMapper.upsertRtaSynergyDuoAgg(duoRows);
+		}
+		if (!trioRows.isEmpty()) {
+			rtaMapper.upsertRtaSynergyTrioAgg(trioRows);
 		}
 	}
 

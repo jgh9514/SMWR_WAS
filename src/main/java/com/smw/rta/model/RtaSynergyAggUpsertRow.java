@@ -1,7 +1,7 @@
 package com.smw.rta.model;
 
 /**
- * {@code rta_agg_synergy_combo} 증분 UPSERT 용 (시즌×콤보 키 문자열).
+ * {@code rta_agg_synergy_solo/duo/trio} 증분 UPSERT 용 (시즌×콤보 키 문자열).
  */
 public class RtaSynergyAggUpsertRow {
 

@@ -22,7 +22,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * {@code rta_agg_synergy_combo} 대량 갱신: UNLOGGED 스테이징 + {@link CopyManager} + 집합 {@code ON CONFLICT} 누적.
+ * {@code rta_agg_synergy_solo/duo/trio} 대량 갱신: UNLOGGED 스테이징 + {@link CopyManager} + 집합 {@code ON CONFLICT} 누적.
  * <p>
  * TRUNCATE·COPY·MERGE·TRUNCATE 는 <strong>동일 {@link Connection}</strong>에서만 수행한다.
  * (COPY 로 적재한 스테이징을 MyBatis 가 다른 커넥션에서 읽으면 세션 불일치로 merge 가 0행이 될 수 있음 — log4jdbc 등.)
@@ -79,10 +79,15 @@ public class RtaSynergyAggCopyStagingService {
 			});
 			long copied = copyManager.copyIn(COPY_SQL, tsvStream);
 			RtaAggStagingMergeTune.prepareAfterCopyBeforeMerge(conn, stagingMergeProperties, STAGING_QUALIFIED);
-			log.info("[rta-synergy-staging] COPY 완료 rows={}, rta_agg_synergy_combo 로 merge 시작", copied);
+			log.info("[rta-synergy-staging] COPY 완료 rows={}, 분리 시너지 테이블로 merge 시작", copied);
 			long tMerge = System.currentTimeMillis();
-			long merged = RtaAggStagingJdbc.executeInsertMergeReturningRows(conn,
-					RtaAggStagingMergeSql.MERGE_SYNERGY_STAGING_INTO_COMBO);
+			long merged = 0L;
+			merged += RtaAggStagingJdbc.executeInsertMergeReturningRows(conn,
+					RtaAggStagingMergeSql.MERGE_SYNERGY_STAGING_INTO_SOLO);
+			merged += RtaAggStagingJdbc.executeInsertMergeReturningRows(conn,
+					RtaAggStagingMergeSql.MERGE_SYNERGY_STAGING_INTO_DUO);
+			merged += RtaAggStagingJdbc.executeInsertMergeReturningRows(conn,
+					RtaAggStagingMergeSql.MERGE_SYNERGY_STAGING_INTO_TRIO);
 			log.info("[rta-synergy-staging] merge 완료 affected={}, {} ms", merged, System.currentTimeMillis() - tMerge);
 			try (Statement st = conn.createStatement()) {
 				st.execute(TRUNCATE_STAGING);

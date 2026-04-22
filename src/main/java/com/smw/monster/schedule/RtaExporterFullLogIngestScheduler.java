@@ -16,6 +16,7 @@ import org.springframework.stereotype.Component;
 
 import com.smw.monster.config.RtaExporterProperties;
 import com.smw.monster.util.RankerRtpvpReplayLogParser;
+import com.smw.monster.util.SlackNotifier;
 import com.smw.rta.service.RtaExporterRawIngestService;
 
 import lombok.RequiredArgsConstructor;
@@ -41,11 +42,17 @@ public class RtaExporterFullLogIngestScheduler {
 
 	private final RtaExporterProperties props;
 	private final RtaExporterRawIngestService rawIngestService;
+	private final SlackNotifier slackNotifier;
 
 	private final Object ingestLock = new Object();
+	private volatile boolean halted = false;
 
 	@Scheduled(fixedDelayString = "${smw.rta.exporter.poll-interval-ms:300000}")
 	public void pollAndIngest() {
+		if (halted) {
+			log.warn("[rta-exporter] 처리 실패로 인해 스케줄러가 중단된 상태입니다. 재시작이 필요합니다.");
+			return;
+		}
 		String dir = props.getWatchDirectory();
 		if (dir == null || dir.isBlank()) {
 			log.warn("[rta-exporter] smw.rta.exporter.watch-directory 가 비어 있어 감시를 건너뜁니다.");
@@ -118,12 +125,19 @@ public class RtaExporterFullLogIngestScheduler {
 			Files.deleteIfExists(workFile);
 		} catch (Exception e) {
 			log.error("[rta-exporter] 처리 실패, temp 에 유지: {}", workFile, e);
+			Path failed = null;
 			try {
-				Path failed = workFile.resolveSibling(workFile.getFileName().toString() + ".failed");
+				failed = workFile.resolveSibling(workFile.getFileName().toString() + ".failed");
 				Files.move(workFile, failed, StandardCopyOption.REPLACE_EXISTING);
 			} catch (IOException e2) {
 				log.debug("[rta-exporter] 실패 파일 rename 생략", e2);
 			}
+			halted = true;
+			String failedPath = failed != null ? failed.toString() : workFile.toString();
+			String msg = String.format(
+					":rotating_light: *[rta-exporter] 처리 실패 — 스케줄러 중단*\n파일: `%s`\n오류: `%s`\n재시작 전까지 파일 감시가 중단됩니다.",
+					failedPath, e.getMessage());
+			slackNotifier.send(props.getSlackToken(), props.getSlackChannelId(), msg);
 		}
 	}
 

@@ -19,7 +19,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * {@code rta_agg_synergy_combo.ban_cnt} 증분 반영.
+ * {@code rta_agg_synergy_solo.ban_cnt} 증분 반영.
  * VALUES 다중행 UPDATE 대신 TEMP + {@link CopyManager} + 집계 후 {@code UPDATE … FROM}를 사용한다.
  */
 @Service
@@ -61,7 +61,7 @@ public class RtaSynergyBanCntBulkService {
 			long copied = copyManager.copyIn(COPY_SQL, tsvStream);
 			try (Statement st = conn.createStatement()) {
 				int updated = st.executeUpdate("""
-						UPDATE public.rta_agg_synergy_combo t
+						UPDATE public.rta_agg_synergy_solo t
 						SET ban_cnt = t.ban_cnt + s.delta_sum
 						FROM (
 						    SELECT season_id, rating_id, combo_unit_key, SUM(delta)::bigint AS delta_sum
@@ -71,7 +71,6 @@ public class RtaSynergyBanCntBulkService {
 						WHERE t.season_id = s.season_id
 						  AND t.rating_id = s.rating_id
 						  AND t.combo_unit_key = s.combo_unit_key
-						  AND t.combo_size = 1
 						""");
 				log.debug("[rta-synergy-ban] COPY {}행 → UPDATE 적용 {}행", copied, updated);
 			}

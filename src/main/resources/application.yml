@@ -223,6 +223,8 @@ smw:
       # 후보 파일 한 번 처리 시 크기 안정화(연속 두 샘플 간격·상한)
       stable-millis: ${SMW_RTA_EXPORTER_STABLE_MS:2000}
       stable-max-wait-ms: ${SMW_RTA_EXPORTER_STABLE_MAX_MS:60000}
+      slack-token: ${SMW_RTA_EXPORTER_SLACK_TOKEN:}
+      slack-channel-id: ${SMW_RTA_EXPORTER_SLACK_CHANNEL_ID:}
     raw-apply:
       # 정규화 배치 한 번의 apply 호출당 SELECT 상한(너무 크면 한 스케줄에서 DB·WAL 폭주)
       max-rows-per-run: ${SMW_RTA_RAW_APPLY_MAX_ROWS:100000}

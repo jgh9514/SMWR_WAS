@@ -10,28 +10,62 @@ final class RtaAggStagingMergeSql {
 	}
 
 	/**
-	 * staging → rta_agg_synergy_combo 누적 merge.
+	 * staging → 솔로/듀오/트리오 집계 테이블 누적 merge.
 	 * <p>
 	 * GROUP BY 없음: Java {@code accumulateSynergyAgg()} HashMap 이 (season_id, rating_id, combo_unit_key) 를
-	 * 이미 유니크하게 합산하므로 staging 내 중복이 없다. GROUP BY 를 제거해 정렬/해시 집계 비용을 없앤다.
+	 * 이미 유니크하게 합산하므로 staging 내 중복이 없다.
 	 */
-	static final String MERGE_SYNERGY_STAGING_INTO_COMBO = """
-			INSERT INTO public.rta_agg_synergy_combo (
-			    season_id, rating_id, combo_unit_key, combo_size, match_cnt, win_cnt, ban_cnt
+	static final String MERGE_SYNERGY_STAGING_INTO_SOLO = """
+			INSERT INTO public.rta_agg_synergy_solo (
+			    season_id, rating_id, combo_unit_key, match_cnt, win_cnt, ban_cnt
 			)
 			SELECT
 			    s.season_id,
 			    s.rating_id,
 			    s.combo_unit_key,
-			    s.combo_size::smallint,
 			    s.match_cnt::bigint,
 			    s.win_cnt::bigint,
 			    COALESCE(s.ban_cnt, 0)::bigint
 			FROM public.staging_synergy_agg s
+			WHERE s.combo_size = 1
 			ON CONFLICT (season_id, rating_id, combo_unit_key) DO UPDATE SET
-			    match_cnt = public.rta_agg_synergy_combo.match_cnt + EXCLUDED.match_cnt,
-			    win_cnt = public.rta_agg_synergy_combo.win_cnt + EXCLUDED.win_cnt,
-			    ban_cnt = public.rta_agg_synergy_combo.ban_cnt
+			    match_cnt = public.rta_agg_synergy_solo.match_cnt + EXCLUDED.match_cnt,
+			    win_cnt = public.rta_agg_synergy_solo.win_cnt + EXCLUDED.win_cnt,
+			    ban_cnt = public.rta_agg_synergy_solo.ban_cnt
+			""";
+
+	static final String MERGE_SYNERGY_STAGING_INTO_DUO = """
+			INSERT INTO public.rta_agg_synergy_duo (
+			    season_id, rating_id, combo_unit_key, match_cnt, win_cnt
+			)
+			SELECT
+			    s.season_id,
+			    s.rating_id,
+			    s.combo_unit_key,
+			    s.match_cnt::bigint,
+			    s.win_cnt::bigint
+			FROM public.staging_synergy_agg s
+			WHERE s.combo_size = 2
+			ON CONFLICT (season_id, rating_id, combo_unit_key) DO UPDATE SET
+			    match_cnt = public.rta_agg_synergy_duo.match_cnt + EXCLUDED.match_cnt,
+			    win_cnt = public.rta_agg_synergy_duo.win_cnt + EXCLUDED.win_cnt
+			""";
+
+	static final String MERGE_SYNERGY_STAGING_INTO_TRIO = """
+			INSERT INTO public.rta_agg_synergy_trio (
+			    season_id, rating_id, combo_unit_key, match_cnt, win_cnt
+			)
+			SELECT
+			    s.season_id,
+			    s.rating_id,
+			    s.combo_unit_key,
+			    s.match_cnt::bigint,
+			    s.win_cnt::bigint
+			FROM public.staging_synergy_agg s
+			WHERE s.combo_size = 3
+			ON CONFLICT (season_id, rating_id, combo_unit_key) DO UPDATE SET
+			    match_cnt = public.rta_agg_synergy_trio.match_cnt + EXCLUDED.match_cnt,
+			    win_cnt = public.rta_agg_synergy_trio.win_cnt + EXCLUDED.win_cnt
 			""";
 
 	/**

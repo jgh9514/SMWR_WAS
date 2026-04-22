@@ -136,7 +136,7 @@ public class RtaBulkRidLookupService {
 
 	/**
 	 * 시즌×티어×콤보(원본 몬스터 ID 문자열)별 벤 건수 —
-	 * 시너지 픽 UPSERT 직후 {@code rta_agg_synergy_combo.ban_cnt} 갱신용.
+	 * 시너지 픽 UPSERT 직후 {@code rta_agg_synergy_solo.ban_cnt} 갱신용.
 	 */
 	/**
 	 * {@code rta_match} 부모 없이 unit / participant 만 남은 행 삭제 — COPY→{@code tmp_bulk_rids}→JOIN (독립 커넥션·커밋).

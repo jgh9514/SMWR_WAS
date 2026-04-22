@@ -75,41 +75,43 @@
           AND COALESCE(u.is_banned, false) = false
     </select>
 
-    <insert id="upsertRtaSynergyAgg">
-        INSERT INTO public.rta_agg_synergy_combo (season_id, rating_id, combo_unit_key, combo_size, match_cnt, win_cnt, ban_cnt)
+    <insert id="upsertRtaSynergySoloAgg">
+        INSERT INTO public.rta_agg_synergy_solo (season_id, rating_id, combo_unit_key, match_cnt, win_cnt, ban_cnt)
         VALUES
         <foreach collection="rows" item="r" separator=",">
-            (#{r.seasonId}, #{r.ratingId}, #{r.comboKey}, #{r.comboSize}, #{r.matchDelta}, #{r.winDelta}, 0)
+            (#{r.seasonId}, #{r.ratingId}, #{r.comboKey}, #{r.matchDelta}, #{r.winDelta}, 0)
         </foreach>
         ON CONFLICT (season_id, rating_id, combo_unit_key) DO UPDATE SET
-            match_cnt = public.rta_agg_synergy_combo.match_cnt + EXCLUDED.match_cnt,
-            win_cnt = public.rta_agg_synergy_combo.win_cnt + EXCLUDED.win_cnt,
-            ban_cnt = public.rta_agg_synergy_combo.ban_cnt
+            match_cnt = public.rta_agg_synergy_solo.match_cnt + EXCLUDED.match_cnt,
+            win_cnt = public.rta_agg_synergy_solo.win_cnt + EXCLUDED.win_cnt,
+            ban_cnt = public.rta_agg_synergy_solo.ban_cnt
+    </insert>
+
+    <insert id="upsertRtaSynergyDuoAgg">
+        INSERT INTO public.rta_agg_synergy_duo (season_id, rating_id, combo_unit_key, match_cnt, win_cnt)
+        VALUES
+        <foreach collection="rows" item="r" separator=",">
+            (#{r.seasonId}, #{r.ratingId}, #{r.comboKey}, #{r.matchDelta}, #{r.winDelta})
+        </foreach>
+        ON CONFLICT (season_id, rating_id, combo_unit_key) DO UPDATE SET
+            match_cnt = public.rta_agg_synergy_duo.match_cnt + EXCLUDED.match_cnt,
+            win_cnt = public.rta_agg_synergy_duo.win_cnt + EXCLUDED.win_cnt
+    </insert>
+
+    <insert id="upsertRtaSynergyTrioAgg">
+        INSERT INTO public.rta_agg_synergy_trio (season_id, rating_id, combo_unit_key, match_cnt, win_cnt)
+        VALUES
+        <foreach collection="rows" item="r" separator=",">
+            (#{r.seasonId}, #{r.ratingId}, #{r.comboKey}, #{r.matchDelta}, #{r.winDelta})
+        </foreach>
+        ON CONFLICT (season_id, rating_id, combo_unit_key) DO UPDATE SET
+            match_cnt = public.rta_agg_synergy_trio.match_cnt + EXCLUDED.match_cnt,
+            win_cnt = public.rta_agg_synergy_trio.win_cnt + EXCLUDED.win_cnt
     </insert>
 
     <update id="truncateStagingSynergyAgg">
         TRUNCATE public.staging_synergy_agg
     </update>
-
-    <insert id="mergeStagingIntoRtaAggSynergyCombo">
-        INSERT INTO public.rta_agg_synergy_combo (
-            season_id, rating_id, combo_unit_key, combo_size, match_cnt, win_cnt, ban_cnt
-        )
-        SELECT
-            s.season_id,
-            s.rating_id,
-            s.combo_unit_key,
-            MAX(s.combo_size)::smallint AS combo_size,
-            SUM(s.match_cnt)::bigint AS match_cnt,
-            SUM(s.win_cnt)::bigint AS win_cnt,
-            MAX(COALESCE(s.ban_cnt, 0))::bigint AS ban_cnt
-        FROM public.staging_synergy_agg s
-        GROUP BY s.season_id, s.rating_id, s.combo_unit_key
-        ON CONFLICT (season_id, rating_id, combo_unit_key) DO UPDATE SET
-            match_cnt = public.rta_agg_synergy_combo.match_cnt + EXCLUDED.match_cnt,
-            win_cnt = public.rta_agg_synergy_combo.win_cnt + EXCLUDED.win_cnt,
-            ban_cnt = public.rta_agg_synergy_combo.ban_cnt
-    </insert>
 
     <!-- subject_unit_id: 필드에 나온 유닛, opponent_*: 같은 경기 상대 팀의 솔로/듀오/트리오(정렬된 유닛 ID 키, 콤마 구분). 시즌×rating_id×주제×상대콤보 단위 집계 -->
     <!-- ON CONFLICT: UNIQUE(season_id, rating_id, subject_unit_id, opponent_combo_key) — sql/rta_agg_counter_matchup_add_rating_id.sql -->

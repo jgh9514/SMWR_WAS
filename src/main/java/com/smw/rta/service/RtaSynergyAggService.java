@@ -7,7 +7,7 @@ import com.smw.rta.model.RtaCounterMatchupUpsertRow;
 import com.smw.rta.model.RtaSynergyAggUpsertRow;
 
 /**
- * RTA 시너지 집계 (경기 1건 → {@code rta_agg_synergy_combo} 증분).
+ * RTA 시너지 집계 (경기 1건 → {@code rta_agg_synergy_solo/duo/trio} 증분).
  * {@link #applyOneRid} 는 rid 단위 커밋. {@link #applySynergyBatch} 는 라운드 내 rid 를 순회하며 (시즌×콤보)·카운터 키를 맵에 누적 합산한 뒤 bulk UPSERT·일괄 완료 처리한다(경기당 수백 행을 전부 List 로 쌓지 않음).
  */
 public interface RtaSynergyAggService {
@@ -16,7 +16,7 @@ public interface RtaSynergyAggService {
 	}
 
 	/**
-	 * 시너지 미적용 rid 1건에 대해 필드 조합(3마리×2진영=14행 또는 4마리×2진영=28행)을 {@code rta_agg_synergy_combo}에 반영하고 완료 표시한다.
+	 * 시너지 미적용 rid 1건에 대해 필드 조합(3마리×2진영=14행 또는 4마리×2진영=28행)을 분리 시너지 테이블에 반영하고 완료 표시한다.
 	 *
 	 * @throws IllegalStateException 데이터 불충분(2인 미만, 필드 유닛 3~4마리 아님 등)
 	 */

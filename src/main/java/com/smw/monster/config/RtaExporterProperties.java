@@ -63,4 +63,10 @@ public class RtaExporterProperties {
 	 * 후보 파일 안정화 최대 대기(ms). 한 번의 처리 시도 안에서만 사용.
 	 */
 	private long stableMaxWaitMs = 60_000L;
+
+	/** Slack Bot User Token (xoxb-...). 비어 있으면 Slack 알림 비활성화. */
+	private String slackToken = "";
+
+	/** Slack 알림을 보낼 채널 ID (예: C0AUTUKG7DF). */
+	private String slackChannelId = "";
 }

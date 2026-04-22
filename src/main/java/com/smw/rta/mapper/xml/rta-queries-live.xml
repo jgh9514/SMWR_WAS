@@ -409,9 +409,8 @@
             <choose>
                 <when test="ratingId != null">
                     SELECT sg.combo_unit_key, sg.match_cnt, sg.win_cnt, COALESCE(sg.ban_cnt, 0)::bigint AS ban_cnt
-                    FROM public.rta_agg_synergy_combo sg
+                    FROM public.rta_agg_synergy_solo sg
                     WHERE sg.season_id = #{seasonId}
-                      AND sg.combo_size = 1
                       AND sg.rating_id = #{ratingId}
                 </when>
                 <when test="ratingIds != null and ratingIds.size() &gt; 0">
@@ -419,9 +418,8 @@
                            SUM(sg.match_cnt)::bigint AS match_cnt,
                            SUM(sg.win_cnt)::bigint AS win_cnt,
                            SUM(COALESCE(sg.ban_cnt, 0))::bigint AS ban_cnt
-                    FROM public.rta_agg_synergy_combo sg
+                    FROM public.rta_agg_synergy_solo sg
                     WHERE sg.season_id = #{seasonId}
-                      AND sg.combo_size = 1
                       AND sg.rating_id IN
                     <foreach collection="ratingIds" item="rid" open="(" separator="," close=")">#{rid}</foreach>
                     GROUP BY sg.combo_unit_key
@@ -431,9 +429,8 @@
                            SUM(sg.match_cnt)::bigint AS match_cnt,
                            SUM(sg.win_cnt)::bigint AS win_cnt,
                            SUM(COALESCE(sg.ban_cnt, 0))::bigint AS ban_cnt
-                    FROM public.rta_agg_synergy_combo sg
+                    FROM public.rta_agg_synergy_solo sg
                     WHERE sg.season_id = #{seasonId}
-                      AND sg.combo_size = 1
                       AND sg.rating_id &gt; 0
                     GROUP BY sg.combo_unit_key
                 </otherwise>
@@ -467,25 +464,22 @@
             <choose>
                 <when test="ratingId != null">
                     SELECT sg.combo_unit_key, sg.match_cnt, sg.win_cnt
-                    FROM public.rta_agg_synergy_combo sg
+                    FROM public.rta_agg_synergy_duo sg
                     WHERE sg.season_id = #{seasonId}
-                      AND sg.combo_size = 2
                       AND sg.rating_id = #{ratingId}
                 </when>
                 <when test="ratingIds != null and ratingIds.size() &gt; 0">
                     SELECT sg.combo_unit_key, SUM(sg.match_cnt)::bigint AS match_cnt, SUM(sg.win_cnt)::bigint AS win_cnt
-                    FROM public.rta_agg_synergy_combo sg
+                    FROM public.rta_agg_synergy_duo sg
                     WHERE sg.season_id = #{seasonId}
-                      AND sg.combo_size = 2
                       AND sg.rating_id IN
                     <foreach collection="ratingIds" item="rid" open="(" separator="," close=")">#{rid}</foreach>
                     GROUP BY sg.combo_unit_key
                 </when>
                 <otherwise>
                     SELECT sg.combo_unit_key, SUM(sg.match_cnt)::bigint AS match_cnt, SUM(sg.win_cnt)::bigint AS win_cnt
-                    FROM public.rta_agg_synergy_combo sg
+                    FROM public.rta_agg_synergy_duo sg
                     WHERE sg.season_id = #{seasonId}
-                      AND sg.combo_size = 2
                       AND sg.rating_id &gt; 0
                     GROUP BY sg.combo_unit_key
                 </otherwise>
@@ -516,25 +510,22 @@
             <choose>
                 <when test="ratingId != null">
                     SELECT sg.combo_unit_key, sg.match_cnt, sg.win_cnt
-                    FROM public.rta_agg_synergy_combo sg
+                    FROM public.rta_agg_synergy_trio sg
                     WHERE sg.season_id = #{seasonId}
-                      AND sg.combo_size = 3
                       AND sg.rating_id = #{ratingId}
                 </when>
                 <when test="ratingIds != null and ratingIds.size() &gt; 0">
                     SELECT sg.combo_unit_key, SUM(sg.match_cnt)::bigint AS match_cnt, SUM(sg.win_cnt)::bigint AS win_cnt
-                    FROM public.rta_agg_synergy_combo sg
+                    FROM public.rta_agg_synergy_trio sg
                     WHERE sg.season_id = #{seasonId}
-                      AND sg.combo_size = 3
                       AND sg.rating_id IN
                     <foreach collection="ratingIds" item="rid" open="(" separator="," close=")">#{rid}</foreach>
                     GROUP BY sg.combo_unit_key
                 </when>
                 <otherwise>
                     SELECT sg.combo_unit_key, SUM(sg.match_cnt)::bigint AS match_cnt, SUM(sg.win_cnt)::bigint AS win_cnt
-                    FROM public.rta_agg_synergy_combo sg
+                    FROM public.rta_agg_synergy_trio sg
                     WHERE sg.season_id = #{seasonId}
-                      AND sg.combo_size = 3
                       AND sg.rating_id &gt; 0
                     GROUP BY sg.combo_unit_key
                 </otherwise>
@@ -608,9 +599,8 @@
             CASE
                 WHEN ps.pick_count > 0 THEN ROUND((COALESCE((
                 SELECT SUM(COALESCE(sg.ban_cnt, 0))::bigint
-                FROM public.rta_agg_synergy_combo sg
+                FROM public.rta_agg_synergy_solo sg
                 WHERE sg.season_id = #{seasonId}
-                  AND sg.combo_size = 1
                   AND sg.rating_id &gt; 0
                   AND TRIM(BOTH FROM sg.combo_unit_key) = TRIM(#{monsterId}::text)
                 ), 0)::numeric / ps.pick_count * 100)::numeric, 2)

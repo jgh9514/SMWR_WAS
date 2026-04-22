@@ -326,6 +326,13 @@
 			<version>2.31.59</version>
 		</dependency>
 
+		<!-- Slack SDK -->
+		<dependency>
+			<groupId>com.slack.api</groupId>
+			<artifactId>slack-api-client</artifactId>
+			<version>1.45.3</version>
+		</dependency>
+
 	</dependencies>
 
 	<build>

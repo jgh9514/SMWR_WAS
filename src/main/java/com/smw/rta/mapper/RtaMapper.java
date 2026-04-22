@@ -41,19 +41,19 @@ public interface RtaMapper {
     Long getRtaMonsterStatsTotalFromAgg(@Param("seasonId") Long seasonId);
 
     /**
-     * RTA 몬스터별 통계 — {@code rta_agg_synergy_combo} (combo_size=1).
+     * RTA 몬스터별 통계 — {@code rta_agg_synergy_solo}.
      * {@code ratingId} 단일 / {@code ratingIds} 복수 중 하나만 사용(단일 우선). 둘 다 없으면 전체 티어 합산.
      */
     List<Map<String, Object>> getRtaMonsterStatsFromAgg(@Param("limit") int limit, @Param("offset") int offset,
             @Param("seasonId") Long seasonId, @Param("ratingId") Integer ratingId,
             @Param("ratingIds") List<Integer> ratingIds, @Param("minPickCount") int minPickCount);
 
-    /** 2마리 조합 — {@code rta_agg_synergy_combo} (combo_size=2) */
+    /** 2마리 조합 — {@code rta_agg_synergy_duo} */
     List<Map<String, Object>> getRtaDuoComboStatsFromAgg(@Param("limit") int limit, @Param("offset") int offset,
             @Param("seasonId") Long seasonId, @Param("ratingId") Integer ratingId,
             @Param("ratingIds") List<Integer> ratingIds, @Param("minPickCount") int minPickCount);
 
-    /** 3마리 조합 — {@code rta_agg_synergy_combo} (combo_size=3) */
+    /** 3마리 조합 — {@code rta_agg_synergy_trio} */
     List<Map<String, Object>> getRtaTrioComboStatsFromAgg(@Param("limit") int limit, @Param("offset") int offset,
             @Param("seasonId") Long seasonId, @Param("ratingId") Integer ratingId,
             @Param("ratingIds") List<Integer> ratingIds, @Param("minPickCount") int minPickCount);
@@ -147,12 +147,14 @@ public interface RtaMapper {
     /** 시너지 집계: participant 등급 다건 — 행마다 rid 포함 */
     List<Map<String, Object>> selectSynergyWizardRatingsByRids(@Param("rids") long[] rids);
 
-    int upsertRtaSynergyAgg(@Param("rows") List<RtaSynergyAggUpsertRow> rows);
+    int upsertRtaSynergySoloAgg(@Param("rows") List<RtaSynergyAggUpsertRow> rows);
+
+    int upsertRtaSynergyDuoAgg(@Param("rows") List<RtaSynergyAggUpsertRow> rows);
+
+    int upsertRtaSynergyTrioAgg(@Param("rows") List<RtaSynergyAggUpsertRow> rows);
 
     /** COPY 적재 전·후 스테이징 비우기 */
     void truncateStagingSynergyAgg();
-
-    int mergeStagingIntoRtaAggSynergyCombo();
 
     /** 몬스터 상세 카운터: 필드 유닛(subject) vs 상대 듀오·트리오(opponent_combo_key) 승·패 */
     int upsertRtaCounterMatchupAgg(@Param("rows") List<RtaCounterMatchupUpsertRow> rows);

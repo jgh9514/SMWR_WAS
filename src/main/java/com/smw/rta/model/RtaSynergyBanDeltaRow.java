@@ -1,7 +1,7 @@
 package com.smw.rta.model;
 
 /**
- * {@code rta_agg_synergy_combo.ban_cnt} 증분 (시즌×티어×콤보 단위, combo_size=1).
+ * {@code rta_agg_synergy_solo.ban_cnt} 증분 (시즌×티어×콤보 단위).
  */
 public class RtaSynergyBanDeltaRow {
 
