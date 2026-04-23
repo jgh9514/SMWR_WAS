@@ -155,10 +155,11 @@
                 m.replay_id AS rid,
                 m.played_at AS date_add,
                 m.battle_type,
-                TRIM(BOTH FROM m.winner_wizard_id::text) AS winner_wizard_id
+                m.winner_wizard_id
             FROM public.rta_match m
             INNER JOIN public.rta_match_participant p0 ON p0.replay_id = m.replay_id
-                AND TRIM(BOTH FROM p0.wizard_id::text) = #{wizardId}
+                AND p0.wizard_id = #{wizardId}
+                AND p0.season_id = #{seasonId}
             WHERE 1 = 1
             <include refid="rtaMatchSeasonIdFilter"/>
             ORDER BY m.played_at DESC NULLS LAST
@@ -167,17 +168,18 @@
         banned_pick AS (
             SELECT
                 ub.replay_id,
-                TRIM(BOTH FROM ub.wizard_id::text) AS wizard_id,
+                ub.wizard_id,
                 MIN(ub.unit_master_id::text) AS banned_unit
             FROM public.rta_match_unit_pick ub
             INNER JOIN rms ON rms.rid = ub.replay_id
             WHERE ub.is_banned = true
-            GROUP BY ub.replay_id, TRIM(BOTH FROM ub.wizard_id::text)
+            GROUP BY ub.replay_id, ub.wizard_id
         ),
         user_info AS (
             SELECT
                 p.replay_id,
-                TRIM(BOTH FROM p.wizard_id::text) AS wizard_id,
+                p.wizard_id,
+                p.wizard_id::text AS wizard_id_str,
                 p.wizard_name,
                 p.channel_uid,
                 p.country_code AS country,
@@ -191,7 +193,7 @@
             FROM public.rta_match_participant p
             INNER JOIN rms ON rms.rid = p.replay_id
             LEFT JOIN banned_pick bp ON bp.replay_id = p.replay_id
-                AND bp.wizard_id = TRIM(BOTH FROM p.wizard_id::text)
+                AND bp.wizard_id = p.wizard_id
         ),
         unit_info AS (
             SELECT
@@ -218,7 +220,7 @@
             rms.battle_type,
             rms.date_add,
             CASE WHEN rms.winner_wizard_id = pr.p1w THEN '1' ELSE '2' END AS winner_position,
-            u1.wizard_id AS p1_wizard_id,
+            u1.wizard_id_str AS p1_wizard_id,
             u1.channel_uid AS p1_channel_uid,
             u1.wizard_name AS p1_name,
             u1.country AS p1_country,
@@ -234,7 +236,7 @@
             COALESCE(un1.unit_names, ARRAY[]::text[]) AS p1_unit_names,
             COALESCE(un1.unit_banned_flags, ARRAY[]::boolean[]) AS p1_unit_banned,
             COALESCE(un1.picked_units_str, '') AS p1_units_str,
-            u2.wizard_id AS p2_wizard_id,
+            u2.wizard_id_str AS p2_wizard_id,
             u2.channel_uid AS p2_channel_uid,
             u2.wizard_name AS p2_name,
             u2.country AS p2_country,
@@ -254,8 +256,8 @@
         JOIN pair pr ON pr.rid = rms.rid
         JOIN user_info u1 ON u1.replay_id = rms.rid AND u1.wizard_id = pr.p1w
         JOIN user_info u2 ON u2.replay_id = rms.rid AND u2.wizard_id = pr.p2w
-        LEFT JOIN unit_info un1 ON un1.replay_id = rms.rid AND TRIM(BOTH FROM un1.wizard_id::text) = u1.wizard_id
-        LEFT JOIN unit_info un2 ON un2.replay_id = rms.rid AND TRIM(BOTH FROM un2.wizard_id::text) = u2.wizard_id
+        LEFT JOIN unit_info un1 ON un1.replay_id = rms.rid AND un1.wizard_id = u1.wizard_id
+        LEFT JOIN unit_info un2 ON un2.replay_id = rms.rid AND un2.wizard_id = u2.wizard_id
         ORDER BY rms.date_add DESC NULLS LAST
     </select>
 
@@ -962,53 +964,66 @@
         ORDER BY s.sort_order, rg.tier_sort NULLS LAST, rg.rating_id
     </select>
 
-    <!-- 소환사 요약: 라이브 집계 (집계 테이블 미사용) — API는 {@link RtaMapper#getRtaPlayerSummaryFromAgg} 만 사용 -->
+    <!-- 소환사 요약: 특정 wizard 만 집계 — 전체 풀스캔 없이 wizardId 먼저 필터 -->
     <select id="getRtaPlayerSummaryFromAgg" resultType="map">
-        WITH <include refid="rtaMatchInSeasonCte"/>,
-        <include refid="rtaWinAggPairwise"/>,
-        <include refid="rtaSummonerLatestPerWizardCte"/>,
-        ranked AS (
-            SELECT
-                latest.wizard_id,
-                latest.wizard_name,
-                latest.country,
-                latest.channel_uid,
-                latest.score,
-                latest.rating_id,
-                latest.last_match_at,
-                ROW_NUMBER() OVER (ORDER BY latest.score DESC, latest.wizard_id ASC) AS rank_position
-            FROM latest
+        WITH latest AS (
+            SELECT DISTINCT ON (p.wizard_id)
+                p.wizard_id,
+                p.wizard_name,
+                p.country_code AS country,
+                p.channel_uid,
+                p.ladder_score AS score,
+                p.rating_id,
+                p.played_at AS last_match_at
+            FROM public.rta_match_participant p
+            WHERE p.wizard_id = #{wizardId}
+              AND p.season_id = #{seasonId}
+              AND p.ladder_score &gt; 0
+            ORDER BY p.wizard_id, p.played_at DESC
         ),
-        score_max_agg AS (
+        win_agg AS (
             SELECT
-                u.wizard_id,
-                MAX(u.ladder_score)::int AS max_season_score
-            FROM public.rta_match_participant u
-            INNER JOIN rta_match_in_season r ON u.replay_id = r.rid
-            WHERE u.ladder_score &gt; 0
-            GROUP BY u.wizard_id
+                COUNT(*)::bigint AS match_count,
+                SUM(CASE WHEN p.is_winner THEN 1 ELSE 0 END)::bigint AS win_count
+            FROM public.rta_match_participant p
+            WHERE p.wizard_id = #{wizardId}
+              AND p.season_id = #{seasonId}
+              AND p.ladder_score &gt; 0
+        ),
+        score_max AS (
+            SELECT MAX(p.ladder_score)::int AS max_season_score
+            FROM public.rta_match_participant p
+            WHERE p.wizard_id = #{wizardId}
+              AND p.season_id = #{seasonId}
+              AND p.ladder_score &gt; 0
+        ),
+        rank_pos AS (
+            SELECT COUNT(DISTINCT p2.wizard_id) + 1 AS rank_position
+            FROM public.rta_match_participant p2
+            WHERE p2.season_id = #{seasonId}
+              AND p2.ladder_score &gt; (SELECT COALESCE(score, 0)::numeric FROM latest LIMIT 1)
         )
         SELECT
-            r.rank_position,
-            r.wizard_id,
-            r.wizard_name,
-            r.country,
-            r.channel_uid,
-            r.score,
-            r.rating_id,
-            r.last_match_at,
+            rp.rank_position,
+            l.wizard_id::text AS wizard_id,
+            l.wizard_name,
+            l.country,
+            l.channel_uid,
+            l.score,
+            l.rating_id,
+            l.last_match_at,
             COALESCE(wa.match_count, 0)::bigint AS match_count,
             COALESCE(wa.win_count, 0)::bigint AS win_count,
-            COALESCE(sm.max_season_score, r.score)::int AS max_season_score,
+            COALESCE(sm.max_season_score, l.score::int) AS max_season_score,
             CASE
                 WHEN COALESCE(wa.match_count, 0) &gt; 0
                 THEN ROUND(100.0 * COALESCE(wa.win_count, 0)::numeric / wa.match_count::numeric, 1)
                 ELSE NULL
             END AS win_rate_pct
-        FROM ranked r
-        LEFT JOIN win_agg wa ON r.wizard_id = wa.wizard_id
-        LEFT JOIN score_max_agg sm ON r.wizard_id = sm.wizard_id
-        WHERE TRIM(BOTH FROM r.wizard_id::text) = TRIM(BOTH FROM #{wizardId})
+        FROM latest l
+        CROSS JOIN win_agg wa
+        CROSS JOIN score_max sm
+        CROSS JOIN rank_pos rp
         LIMIT 1
     </select>
 
