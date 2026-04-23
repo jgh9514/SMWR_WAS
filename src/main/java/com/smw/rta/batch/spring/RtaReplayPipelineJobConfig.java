@@ -78,19 +78,23 @@ public class RtaReplayPipelineJobConfig {
 	}
 
 	@Bean
-	public Job rtaReplayPipelineJob(JobRepository jobRepository, Step rtaLoadRawNdjsonStep, Step rtaSynergyAggregateStep) {
+	public Job rtaReplayPipelineJob(JobRepository jobRepository, Step rtaLoadRawNdjsonStep,
+			Step rtaSynergyAggregateStep, Step rtaPickTurnRebuildStep) {
 		return new JobBuilder(JOB_PIPELINE, jobRepository)
 				.incrementer(new RunIdIncrementer())
 				.start(rtaLoadRawNdjsonStep)
 				.next(rtaSynergyAggregateStep)
+				.next(rtaPickTurnRebuildStep)
 				.build();
 	}
 
 	@Bean
-	public Job rtaSynergyAggregateBatchJob(JobRepository jobRepository, Step rtaSynergyAggregateStep) {
+	public Job rtaSynergyAggregateBatchJob(JobRepository jobRepository, Step rtaSynergyAggregateStep,
+			Step rtaPickTurnRebuildStep) {
 		return new JobBuilder(JOB_SYNERGY_ONLY, jobRepository)
 				.incrementer(new RunIdIncrementer())
 				.start(rtaSynergyAggregateStep)
+				.next(rtaPickTurnRebuildStep)
 				.build();
 	}
 
@@ -210,5 +214,16 @@ public class RtaReplayPipelineJobConfig {
 			}
 			rtaSynergyAggService.applySynergyBatch(rids);
 		};
+	}
+
+	@Bean
+	public Step rtaPickTurnRebuildStep(JobRepository jobRepository) {
+		return new StepBuilder("rtaPickTurnRebuildStep", jobRepository)
+				.tasklet((contribution, chunkContext) -> {
+					int seasons = rtaSynergyAggService.rebuildPickTurnAgg();
+					log.info("[rta-pick-turn] rebuild 완료 seasons={}", seasons);
+					return org.springframework.batch.repeat.RepeatStatus.FINISHED;
+				}, transactionManager)
+				.build();
 	}
 }

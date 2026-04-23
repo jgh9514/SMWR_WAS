@@ -408,13 +408,18 @@
         s AS (
             <choose>
                 <when test="ratingId != null">
-                    SELECT sg.combo_unit_key, sg.match_cnt, sg.win_cnt, COALESCE(sg.ban_cnt, 0)::bigint AS ban_cnt
+                    SELECT sg.combo_unit_key,
+                           sg.pick_cnt,
+                           sg.match_cnt,
+                           sg.win_cnt,
+                           COALESCE(sg.ban_cnt, 0)::bigint AS ban_cnt
                     FROM public.rta_agg_synergy_solo sg
                     WHERE sg.season_id = #{seasonId}
                       AND sg.rating_id = #{ratingId}
                 </when>
                 <when test="ratingIds != null and ratingIds.size() &gt; 0">
                     SELECT sg.combo_unit_key,
+                           SUM(sg.pick_cnt)::bigint AS pick_cnt,
                            SUM(sg.match_cnt)::bigint AS match_cnt,
                            SUM(sg.win_cnt)::bigint AS win_cnt,
                            SUM(COALESCE(sg.ban_cnt, 0))::bigint AS ban_cnt
@@ -426,6 +431,7 @@
                 </when>
                 <otherwise>
                     SELECT sg.combo_unit_key,
+                           SUM(sg.pick_cnt)::bigint AS pick_cnt,
                            SUM(sg.match_cnt)::bigint AS match_cnt,
                            SUM(sg.win_cnt)::bigint AS win_cnt,
                            SUM(COALESCE(sg.ban_cnt, 0))::bigint AS ban_cnt
@@ -441,21 +447,22 @@
             m.monster_elemental AS monster_elemental,
             m.kr_name AS monster_name,
             <include refid="monsterPortraitUrl"><property name="alias" value="m"/></include> AS monster_image,
-            s.match_cnt AS pick_count,
-            ROUND((s.match_cnt::numeric / NULLIF((SELECT mt.total_matches FROM match_total mt), 0) * 100)::numeric, 2) AS pick_rate,
+            s.pick_cnt AS pick_count,
+            ROUND((s.pick_cnt::numeric / NULLIF((SELECT mt.total_matches FROM match_total mt), 0) * 100)::numeric, 2) AS pick_rate,
             CASE
-                WHEN s.match_cnt &gt; 0 THEN ROUND((COALESCE(s.win_cnt, 0)::numeric / s.match_cnt * 100)::numeric, 2)
+                WHEN s.match_cnt &gt; 0 THEN ROUND((s.win_cnt::numeric / s.match_cnt * 100)::numeric, 2)
                 ELSE 0
             END AS win_rate,
             CASE
-                WHEN s.match_cnt &gt; 0 THEN ROUND((COALESCE(s.ban_cnt, 0)::numeric / s.match_cnt * 100)::numeric, 2)
+                WHEN s.pick_cnt &gt; 0
+                    THEN ROUND((s.ban_cnt::numeric / s.pick_cnt * 100)::numeric, 2)
                 ELSE 0
             END AS ban_rate
         FROM s
         LEFT JOIN public.monster m ON TRIM(BOTH FROM m.monster_id) = s.combo_unit_key
         WHERE m.kr_name IS NOT NULL
-          AND s.match_cnt &gt;= #{minPickCount}
-        ORDER BY s.match_cnt DESC
+          AND s.pick_cnt &gt;= #{minPickCount}
+        ORDER BY s.pick_cnt DESC
         LIMIT #{limit} OFFSET #{offset}
     </select>
 
@@ -608,7 +615,8 @@
                 ELSE 0
             END as win_rate,
             CASE
-                WHEN ps.pick_count > 0 THEN ROUND((COALESCE(bs.ban_count, 0)::numeric / ps.pick_count * 100)::numeric, 2)
+                WHEN (ps.pick_count + COALESCE(bs.ban_count, 0)) > 0
+                    THEN ROUND((COALESCE(bs.ban_count, 0)::numeric / (ps.pick_count + COALESCE(bs.ban_count, 0)) * 100)::numeric, 2)
                 ELSE 0
             END as ban_rate
         FROM pick_stats ps

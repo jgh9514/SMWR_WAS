@@ -70,4 +70,11 @@ public interface RtaSynergyAggService {
 	 * rid 1건에 대한 카운터 매치업 UPSERT 행만 생성 (DB 2회 조회).
 	 */
 	List<RtaCounterMatchupUpsertRow> buildCounterMatchupRowsForRid(long rid);
+
+	/**
+	 * {@code rta_agg_pick_turn} 전량 재계산. {@code rta_match_participant}에 존재하는 모든 시즌을 대상으로 한다.
+	 *
+	 * @return 처리한 시즌 수
+	 */
+	int rebuildPickTurnAgg();
 }

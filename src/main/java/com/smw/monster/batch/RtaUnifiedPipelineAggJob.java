@@ -10,7 +10,6 @@ import com.smw.rta.config.RtaBatchProperties;
 import com.smw.rta.config.RtaRawApplyProperties;
 import com.smw.rta.mapper.RtaMapper;
 import com.smw.rta.service.RtaBatchAggregationService;
-import com.smw.rta.service.RtaSynergyAggService;
 
 /**
  * RTA 관련 집계를 한 번의 스케줄로 순서대로 수행한다.
@@ -46,7 +45,6 @@ public class RtaUnifiedPipelineAggJob extends BaseBatchJob {
 		RtaMapper rtaMapper = applicationContext.getBean(RtaMapper.class);
 		RtaCacheEvictor rtaCacheEvictor = applicationContext.getBean(RtaCacheEvictor.class);
 		RtaBatchAggregationService aggregationService = applicationContext.getBean(RtaBatchAggregationService.class);
-		RtaSynergyAggService synergyAggService = applicationContext.getBean(RtaSynergyAggService.class);
 		RtaBatchProperties rtaBatchProperties = applicationContext.getBean(RtaBatchProperties.class);
 		RtaRawApplyProperties rtaRawApplyProperties = applicationContext.getBean(RtaRawApplyProperties.class);
 
@@ -64,45 +62,19 @@ public class RtaUnifiedPipelineAggJob extends BaseBatchJob {
 				raw.totalApplied(),
 				raw.stopReason());
 
-		int synergyBatch = Math.max(1, rtaBatchProperties.getSynergyBatchSize());
-		boolean dropCounterQueryIndex = rtaBatchProperties.isDropCounterMatchupQueryIndexDuringUnifiedJob();
-
+		// 시너지 집계는 RtaSynergyOnlyAggJob 에서 별도로 수행 — 통합 Job 에서는 생략
+		// int synergyBatch = Math.max(1, rtaBatchProperties.getSynergyBatchSize());
+		// step++;
+		// addLog("[%d/%d] 시너지 집계 pending — 배치 %d건/라운드, 완료까지 전량 처리", step, PIPELINE_STEPS, synergyBatch);
+		// int synPause = Math.max(0, rtaBatchProperties.getSynergyPauseMsBetweenRounds());
+		// if (synPause > 0) {
+		//     addLog("[%d/%d] · 라운드 간 대기: %dms", step, PIPELINE_STEPS, synPause);
+		// }
+		// RtaBatchAggregationService.SynergyDrainResult syn = aggregationService.drainSynergyPending(
+		//         rtaMapper, synergyAggService, rtaCacheEvictor, synergyBatch, false, synPause);
+		// addLog("[%d/%d] · 시너지 완료 — 라운드 %d, ok %d, fail %d, %s",
+		//         step, PIPELINE_STEPS, syn.rounds(), syn.totalOk(), syn.totalFail(), syn.stopReason());
 		step++;
-		addLog("[%d/%d] 시너지 집계 pending — 배치 %d건/라운드, 완료까지 전량 처리", step, PIPELINE_STEPS, synergyBatch);
-
-		int synPause = Math.max(0, rtaBatchProperties.getSynergyPauseMsBetweenRounds());
-		if (synPause > 0) {
-			addLog("[%d/%d] · 라운드 간 대기: %dms", step, PIPELINE_STEPS, synPause);
-		}
-		boolean counterQueryIndexDropped = false;
-		RtaBatchAggregationService.SynergyDrainResult syn;
-		try {
-			if (dropCounterQueryIndex) {
-				addLog("[%d/%d] · 카운터 조회 인덱스 DROP 후 진행 (idx_rta_agg_counter_matchup_season_subject)",
-						step, PIPELINE_STEPS);
-				rtaMapper.dropCounterMatchupQueryIndex();
-				counterQueryIndexDropped = true;
-			}
-			syn = aggregationService.drainSynergyPending(
-					rtaMapper,
-					synergyAggService,
-					rtaCacheEvictor,
-					synergyBatch,
-					false,
-					synPause);
-		} finally {
-			if (counterQueryIndexDropped) {
-				addLog("[%d/%d] · 카운터 조회 인덱스 REBUILD (idx_rta_agg_counter_matchup_season_subject)",
-						step, PIPELINE_STEPS);
-				rtaMapper.rebuildCounterMatchupQueryIndex();
-			}
-		}
-		addLog("[%d/%d] · 시너지 완료 — 라운드 %d, ok %d, fail %d, %s",
-				step, PIPELINE_STEPS,
-				syn.rounds(),
-				syn.totalOk(),
-				syn.totalFail(),
-				syn.stopReason());
 
 		if (!rtaBatchProperties.isSkipUserMonsterOwnedAggInUnifiedJob()) {
 			addLog("[%d/%d] · 사용자 보유 몬스터(SWEX → user_monster_owned_agg)", step, PIPELINE_STEPS);
@@ -124,7 +96,7 @@ public class RtaUnifiedPipelineAggJob extends BaseBatchJob {
 				runTier ? "Y" : "N");
 
 		if (runMonster) {
-			addLog("[%d/%d] · 몬스터 통계(레거시, API는 rta_agg_synergy_combo)", step, PIPELINE_STEPS);
+			addLog("[%d/%d] · 몬스터 통계 집계(no-op — API는 rta_agg_synergy_solo/duo/trio 직접 조회)", step, PIPELINE_STEPS);
 			RtaBatchAggregationService.MonsterStatsRebuildResult mon = aggregationService.rebuildMonsterStatsAgg(rtaMapper);
 			addLog("[%d/%d] · 몬스터 통계 완료 — meta=%d, pick=%d", step, PIPELINE_STEPS, mon.metaRows(), mon.pickRows());
 		}

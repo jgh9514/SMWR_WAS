@@ -191,6 +191,22 @@ public class RtaSynergyAggServiceImpl implements RtaSynergyAggService {
 		return markSynergyAggDoneForRidsAll(rids);
 	}
 
+	@Override
+	@Transactional(transactionManager = "rtaJdbcTransactionManager", rollbackFor = Exception.class)
+	public int rebuildPickTurnAgg() {
+		List<Long> seasonIds = rtaMapper.selectDistinctParticipantSeasonIds();
+		if (seasonIds == null || seasonIds.isEmpty()) {
+			log.info("[rta-pick-turn] 집계 대상 시즌 없음");
+			return 0;
+		}
+		for (Long seasonId : seasonIds) {
+			long t0 = System.currentTimeMillis();
+			int rows = rtaMapper.rebuildRtaPickTurnAggForSeason(seasonId);
+			log.info("[rta-pick-turn] seasonId={} upserted={} {}ms", seasonId, rows, System.currentTimeMillis() - t0);
+		}
+		return seasonIds.size();
+	}
+
 	/**
 	 * 소량은 ANY(bigint[]), 대량은 COPY→tmp_bulk_rids→UPDATE … FROM (동일 트랜잭션 커넥션).
 	 */
@@ -624,9 +640,36 @@ public class RtaSynergyAggServiceImpl implements RtaSynergyAggService {
 			counterCopyStagingService.flushCounterMatchupViaCopyStaging(rows);
 			return;
 		}
-		for (int i = 0; i < rows.size(); i += AGG_UPSERT_FLUSH_CHUNK) {
-			int to = Math.min(i + AGG_UPSERT_FLUSH_CHUNK, rows.size());
-			rtaMapper.upsertRtaCounterMatchupAgg(rows.subList(i, to));
+		// 소량 직접 upsert: solo(1)/duo(2)/trio(3) 테이블로 분리 후 청크 단위 적재
+		List<RtaCounterMatchupUpsertRow> soloRows  = new ArrayList<>();
+		List<RtaCounterMatchupUpsertRow> duoRows   = new ArrayList<>();
+		List<RtaCounterMatchupUpsertRow> trioRows  = new ArrayList<>();
+		for (RtaCounterMatchupUpsertRow r : rows) {
+			if (r == null) {
+				continue;
+			}
+			switch (r.getOpponentComboSize()) {
+			case 1:
+				soloRows.add(r);
+				break;
+			case 2:
+				duoRows.add(r);
+				break;
+			case 3:
+				trioRows.add(r);
+				break;
+			default:
+				throw new IllegalArgumentException("지원하지 않는 opponentComboSize=" + r.getOpponentComboSize());
+			}
+		}
+		for (int i = 0; i < soloRows.size(); i += AGG_UPSERT_FLUSH_CHUNK) {
+			rtaMapper.upsertRtaCounterSoloAgg(soloRows.subList(i, Math.min(i + AGG_UPSERT_FLUSH_CHUNK, soloRows.size())));
+		}
+		for (int i = 0; i < duoRows.size(); i += AGG_UPSERT_FLUSH_CHUNK) {
+			rtaMapper.upsertRtaCounterDuoAgg(duoRows.subList(i, Math.min(i + AGG_UPSERT_FLUSH_CHUNK, duoRows.size())));
+		}
+		for (int i = 0; i < trioRows.size(); i += AGG_UPSERT_FLUSH_CHUNK) {
+			rtaMapper.upsertRtaCounterTrioAgg(trioRows.subList(i, Math.min(i + AGG_UPSERT_FLUSH_CHUNK, trioRows.size())));
 		}
 	}
 

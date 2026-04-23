@@ -131,6 +131,15 @@ public interface RtaMapper {
     /** 시너지 미집계 rid ({@code rta_match.synergy_applied_at IS NULL}, rid 오름차순). 성공/실패는 {@code synergy_apply_result}. */
     List<Long> selectPendingSynergyAggRids(@Param("batchSize") int batchSize);
 
+    /**
+     * 세션 수준 {@code enable_seqscan = OFF} — {@code idx_rta_match_synergy_pending} 강제 사용.
+     * drain 루프 진입 직전에 호출하고, 완료 후 {@link #hintBatchEnableSeqScan()} 으로 복원한다.
+     */
+    void hintBatchDisableSeqScan();
+
+    /** 세션 수준 {@code enable_seqscan = ON} — {@link #hintBatchDisableSeqScan()} 복원용. */
+    void hintBatchEnableSeqScan();
+
     Map<String, Object> selectSynergyReplayRow(@Param("rid") long rid);
 
     List<Map<String, Object>> selectSynergyFieldUnits(@Param("rid") long rid);
@@ -156,20 +165,26 @@ public interface RtaMapper {
     /** COPY 적재 전·후 스테이징 비우기 */
     void truncateStagingSynergyAgg();
 
-    /** 몬스터 상세 카운터: 필드 유닛(subject) vs 상대 듀오·트리오(opponent_combo_key) 승·패 */
-    int upsertRtaCounterMatchupAgg(@Param("rows") List<RtaCounterMatchupUpsertRow> rows);
+    /** 카운터: 솔로(상대 단일 유닛) — {@code rta_agg_counter_solo} */
+    int upsertRtaCounterSoloAgg(@Param("rows") List<RtaCounterMatchupUpsertRow> rows);
+
+    /** 카운터: 듀오(상대 2인 조합) — {@code rta_agg_counter_duo} */
+    int upsertRtaCounterDuoAgg(@Param("rows") List<RtaCounterMatchupUpsertRow> rows);
+
+    /** 카운터: 트리오(상대 3인 조합) — {@code rta_agg_counter_trio} */
+    int upsertRtaCounterTrioAgg(@Param("rows") List<RtaCounterMatchupUpsertRow> rows);
 
     /** COPY 적재 전·후 스테이징 비우기 */
     void truncateStagingMatchupAgg();
 
-    /** 배치 전 조회용 인덱스 DROP (merge 속도 향상) */
-    void dropCounterMatchupQueryIndex();
+    /**
+     * 픽 순서별 집계 재적재 — {@code rta_agg_pick_turn}.
+     * 시즌 내 전체 경기를 재계산(FULL REBUILD). 배치 전용.
+     */
+    int rebuildRtaPickTurnAggForSeason(@Param("seasonId") long seasonId);
 
-    /** 배치 후 조회용 인덱스 REBUILD */
-    void rebuildCounterMatchupQueryIndex();
-
-    /** staging_matchup_agg 집계 → rta_agg_counter_matchup 누적 UPSERT (한 방) */
-    int mergeStagingIntoRtaAggCounterMatchup();
+    /** {@code rta_match_participant}에 존재하는 distinct season_id 목록. 픽턴 집계 대상 시즌 확정용. */
+    List<Long> selectDistinctParticipantSeasonIds();
 
     /** 집계 성공: {@code synergy_apply_result='S'} */
     int markSynergyAggDone(@Param("rid") long rid);
@@ -195,7 +210,7 @@ public interface RtaMapper {
     /** 시즌별 최신 스냅샷 컷 (rta_snapshot_rank_cut) */
     List<Map<String, Object>> getRtaSnapshotRankCutLatest(@Param("seasonId") Long seasonId);
 
-    /** 몬스터 상세: 카운터 매치업 (rta_agg_counter_matchup) */
+    /** 몬스터 상세: 카운터 매치업 — {@code rta_agg_counter_solo/duo/trio} UNION, 전 티어 합산 */
     List<Map<String, Object>> getRtaMonsterCounterMatchups(@Param("monsterId") long monsterId,
             @Param("seasonId") Long seasonId);
 

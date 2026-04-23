@@ -1,7 +1,8 @@
 package com.smw.rta.model;
 
 /**
- * {@code rta_agg_counter_matchup} 증분 UPSERT — 시즌×주제 소환사 레이팅×필드 유닛×상대 조합 키 단위 승/패.
+ * {@code rta_agg_counter_solo/duo/trio} 증분 UPSERT 용 — 시즌×주제 소환사 레이팅×필드 유닛×상대 조합 크기별 승/패.
+ * {@code opponentComboSize}(1/2/3)에 따라 각 테이블로 라우팅된다.
  */
 public class RtaCounterMatchupUpsertRow {
 

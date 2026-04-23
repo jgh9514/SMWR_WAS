@@ -45,8 +45,9 @@ public class RtaBatchAggregationService {
 	}
 
 	/**
-	 * {@code rta_match.synergy_applied_at IS NULL} 인 rid 를 배치 단위로 {@code rta_agg_synergy_combo}에 반영한다. 완료 시 {@code synergy_apply_result='S'}.
-	 * pending 이 모두 소진될 때까지 반복한다 (라운드 상한 없음).
+	 * {@code rta_match.synergy_applied_at IS NULL} 인 rid 를 배치 단위로
+	 * {@code rta_agg_synergy_solo/duo/trio} 및 {@code rta_agg_counter_solo/duo/trio}에 반영한다.
+	 * 완료 시 {@code synergy_apply_result='S'}. pending 이 모두 소진될 때까지 반복한다 (라운드 상한 없음).
 	 *
 	 * @param pauseMsBetweenRounds 라운드 사이 대기(ms), 0 이면 생략
 	 */
@@ -61,6 +62,9 @@ public class RtaBatchAggregationService {
 		int totalOk = 0;
 		int totalFail = 0;
 
+		// idx_rta_match_synergy_pending(partial index) 강제 사용 — Seq Scan 방지
+		rtaMapper.hintBatchDisableSeqScan();
+		try {
 		while (true) {
 			List<Long> rids = rtaMapper.selectPendingSynergyAggRids(batchSize);
 			if (rids == null || rids.isEmpty()) {
@@ -81,10 +85,14 @@ public class RtaBatchAggregationService {
 				sleepQuiet(pauseMsBetweenRounds);
 			}
 		}
+		} finally {
+			// 세션 플래너 설정 복원 — 예외 발생 시에도 반드시 복원
+			rtaMapper.hintBatchEnableSeqScan();
+		}
 		return new SynergyDrainResult(rounds, totalOk, totalFail, "완료");
 	}
 
-	/** {@code rta_agg_monster_unit} 미사용 — 몬스터 통계는 {@code rta_agg_synergy_combo} 경로만 사용. */
+	/** no-op — 몬스터 통계는 {@code rta_agg_synergy_solo/duo/trio} 집계 테이블에서 직접 조회. */
 	public MonsterStatsRebuildResult rebuildMonsterStatsAgg(RtaMapper rtaMapper) {
 		return new MonsterStatsRebuildResult(0, 0);
 	}

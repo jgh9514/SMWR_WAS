@@ -1,20 +1,29 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.smw.rta.mapper.RtaMapper">
+    <!--
+         idx_rta_match_synergy_pending (replay_id ASC) WHERE synergy_applied_at IS NULL
+         을 사용하는 쿼리. enable_seqscan 힌트는 drainSynergyPending() 진입 직전에
+         hintBatchDisableSeqScan() 으로 세션 수준으로 OFF 해 둔다.
+         (MyBatis <select> 하나에 SET + SELECT 두 문장 불가 — 별도 <update> 로 분리)
+    -->
     <select id="selectPendingSynergyAggRids" resultType="long">
-        /*
-         * idx_rta_match_synergy_pending (replay_id ASC) WHERE synergy_applied_at IS NULL
-         * 을 타도록 설계된 쿼리. 인덱스 생성 후 ANALYZE 실행 필수.
-         * NULL 행이 0건이면 인덱스(빈 트리)에서 즉시 반환 — Seq Scan 불필요.
-         * ANALYZE 후에도 Parallel Seq Scan 이 계속된다면 아래 힌트 주석 해제.
-         */
-        -- SET LOCAL enable_seqscan = OFF;
         SELECT m.replay_id
         FROM public.rta_match m
         WHERE m.synergy_applied_at IS NULL
         ORDER BY m.replay_id
         LIMIT #{batchSize}
     </select>
+
+    <!-- 배치 drain 시작 직전: idx_rta_match_synergy_pending 강제 사용 -->
+    <update id="hintBatchDisableSeqScan">
+        SET enable_seqscan = OFF
+    </update>
+
+    <!-- 배치 drain 완료 후: 세션 플래너 설정 복원 -->
+    <update id="hintBatchEnableSeqScan">
+        SET enable_seqscan = ON
+    </update>
 
     <select id="selectSynergyReplayRow" resultType="map">
         SELECT
@@ -75,27 +84,42 @@
           AND COALESCE(u.is_banned, false) = false
     </select>
 
+    <!--
+      solo: pick_cnt = match_cnt (밴 0), lose_cnt = matchDelta - winDelta.
+      ban_cnt 는 RtaSynergyBanCntBulkService 가 별도 갱신 → ON CONFLICT 시 기존 값 유지.
+    -->
     <insert id="upsertRtaSynergySoloAgg">
-        INSERT INTO public.rta_agg_synergy_solo (season_id, rating_id, combo_unit_key, match_cnt, win_cnt, ban_cnt)
+        INSERT INTO public.rta_agg_synergy_solo (
+            season_id, rating_id, combo_unit_key,
+            pick_cnt, ban_cnt, match_cnt, win_cnt, lose_cnt
+        )
         VALUES
         <foreach collection="rows" item="r" separator=",">
-            (#{r.seasonId}, #{r.ratingId}, #{r.comboKey}, #{r.matchDelta}, #{r.winDelta}, 0)
+            (#{r.seasonId}, #{r.ratingId}, #{r.comboKey},
+             #{r.matchDelta}::bigint, 0::bigint, #{r.matchDelta}::bigint,
+             #{r.winDelta}::bigint, (#{r.matchDelta} - #{r.winDelta})::bigint)
         </foreach>
         ON CONFLICT (season_id, rating_id, combo_unit_key) DO UPDATE SET
+            pick_cnt  = public.rta_agg_synergy_solo.pick_cnt  + EXCLUDED.pick_cnt,
             match_cnt = public.rta_agg_synergy_solo.match_cnt + EXCLUDED.match_cnt,
-            win_cnt = public.rta_agg_synergy_solo.win_cnt + EXCLUDED.win_cnt,
-            ban_cnt = public.rta_agg_synergy_solo.ban_cnt
+            win_cnt   = public.rta_agg_synergy_solo.win_cnt   + EXCLUDED.win_cnt,
+            lose_cnt  = public.rta_agg_synergy_solo.lose_cnt  + EXCLUDED.lose_cnt,
+            ban_cnt   = public.rta_agg_synergy_solo.ban_cnt
     </insert>
 
     <insert id="upsertRtaSynergyDuoAgg">
-        INSERT INTO public.rta_agg_synergy_duo (season_id, rating_id, combo_unit_key, match_cnt, win_cnt)
+        INSERT INTO public.rta_agg_synergy_duo (
+            season_id, rating_id, combo_unit_key, match_cnt, win_cnt, lose_cnt
+        )
         VALUES
         <foreach collection="rows" item="r" separator=",">
-            (#{r.seasonId}, #{r.ratingId}, #{r.comboKey}, #{r.matchDelta}, #{r.winDelta})
+            (#{r.seasonId}, #{r.ratingId}, #{r.comboKey},
+             #{r.matchDelta}::bigint, #{r.winDelta}::bigint, (#{r.matchDelta} - #{r.winDelta})::bigint)
         </foreach>
         ON CONFLICT (season_id, rating_id, combo_unit_key) DO UPDATE SET
             match_cnt = public.rta_agg_synergy_duo.match_cnt + EXCLUDED.match_cnt,
-            win_cnt = public.rta_agg_synergy_duo.win_cnt + EXCLUDED.win_cnt
+            win_cnt   = public.rta_agg_synergy_duo.win_cnt   + EXCLUDED.win_cnt,
+            lose_cnt  = public.rta_agg_synergy_duo.lose_cnt  + EXCLUDED.lose_cnt
     </insert>
 
     <insert id="upsertRtaSynergyTrioAgg">
@@ -106,54 +130,64 @@
         </foreach>
         ON CONFLICT (season_id, rating_id, combo_unit_key) DO UPDATE SET
             match_cnt = public.rta_agg_synergy_trio.match_cnt + EXCLUDED.match_cnt,
-            win_cnt = public.rta_agg_synergy_trio.win_cnt + EXCLUDED.win_cnt
+            win_cnt   = public.rta_agg_synergy_trio.win_cnt   + EXCLUDED.win_cnt
     </insert>
 
     <update id="truncateStagingSynergyAgg">
         TRUNCATE public.staging_synergy_agg
     </update>
 
-    <!-- subject_unit_id: 필드에 나온 유닛, opponent_*: 같은 경기 상대 팀의 솔로/듀오/트리오(정렬된 유닛 ID 키, 콤마 구분). 시즌×rating_id×주제×상대콤보 단위 집계 -->
-    <!-- ON CONFLICT: UNIQUE(season_id, rating_id, subject_unit_id, opponent_combo_key) — sql/rta_agg_counter_matchup_add_rating_id.sql -->
-    <insert id="upsertRtaCounterMatchupAgg">
-        INSERT INTO public.rta_agg_counter_matchup (
-            season_id, rating_id, subject_unit_id, opponent_combo_key, opponent_combo_size, win_cnt, lose_cnt
+    <!-- 카운터: 솔로(1) — subject 필드 유닛 vs 상대 단일 유닛. opponent_monster_id 는 int8. -->
+    <insert id="upsertRtaCounterSoloAgg">
+        INSERT INTO public.rta_agg_counter_solo (
+            season_id, rating_id, subject_monster_id, opponent_monster_id, win_cnt, lose_cnt, updated_at
         )
         VALUES
         <foreach collection="rows" item="r" separator=",">
-            (#{r.seasonId}, #{r.ratingId}, #{r.subjectUnitId}, #{r.opponentComboKey}, #{r.opponentComboSize}::smallint,
-             #{r.winDelta}::bigint, #{r.loseDelta}::bigint)
+            (#{r.seasonId}, #{r.ratingId}, #{r.subjectUnitId}, #{r.opponentComboKey}::bigint,
+             #{r.winDelta}::bigint, #{r.loseDelta}::bigint, CURRENT_TIMESTAMP)
         </foreach>
-        ON CONFLICT (season_id, rating_id, subject_unit_id, opponent_combo_key) DO UPDATE SET
-            win_cnt = public.rta_agg_counter_matchup.win_cnt + EXCLUDED.win_cnt,
-            lose_cnt = public.rta_agg_counter_matchup.lose_cnt + EXCLUDED.lose_cnt,
-            opponent_combo_size = EXCLUDED.opponent_combo_size
+        ON CONFLICT (season_id, rating_id, subject_monster_id, opponent_monster_id) DO UPDATE SET
+            win_cnt    = public.rta_agg_counter_solo.win_cnt  + EXCLUDED.win_cnt,
+            lose_cnt   = public.rta_agg_counter_solo.lose_cnt + EXCLUDED.lose_cnt,
+            updated_at = EXCLUDED.updated_at
+    </insert>
+
+    <!-- 카운터: 듀오(2) — subject 필드 유닛 vs 상대 2인 조합 키(text). -->
+    <insert id="upsertRtaCounterDuoAgg">
+        INSERT INTO public.rta_agg_counter_duo (
+            season_id, rating_id, subject_monster_id, opponent_monster_id, win_cnt, lose_cnt, updated_at
+        )
+        VALUES
+        <foreach collection="rows" item="r" separator=",">
+            (#{r.seasonId}, #{r.ratingId}, #{r.subjectUnitId}, #{r.opponentComboKey},
+             #{r.winDelta}::bigint, #{r.loseDelta}::bigint, CURRENT_TIMESTAMP)
+        </foreach>
+        ON CONFLICT (season_id, rating_id, subject_monster_id, opponent_monster_id) DO UPDATE SET
+            win_cnt    = public.rta_agg_counter_duo.win_cnt  + EXCLUDED.win_cnt,
+            lose_cnt   = public.rta_agg_counter_duo.lose_cnt + EXCLUDED.lose_cnt,
+            updated_at = EXCLUDED.updated_at
+    </insert>
+
+    <!-- 카운터: 트리오(3) — subject 필드 유닛 vs 상대 3인 조합 키(text). -->
+    <insert id="upsertRtaCounterTrioAgg">
+        INSERT INTO public.rta_agg_counter_trio (
+            season_id, rating_id, subject_monster_id, opponent_monster_id, win_cnt, lose_cnt, updated_at
+        )
+        VALUES
+        <foreach collection="rows" item="r" separator=",">
+            (#{r.seasonId}, #{r.ratingId}, #{r.subjectUnitId}, #{r.opponentComboKey},
+             #{r.winDelta}::bigint, #{r.loseDelta}::bigint, CURRENT_TIMESTAMP)
+        </foreach>
+        ON CONFLICT (season_id, rating_id, subject_monster_id, opponent_monster_id) DO UPDATE SET
+            win_cnt    = public.rta_agg_counter_trio.win_cnt  + EXCLUDED.win_cnt,
+            lose_cnt   = public.rta_agg_counter_trio.lose_cnt + EXCLUDED.lose_cnt,
+            updated_at = EXCLUDED.updated_at
     </insert>
 
     <update id="truncateStagingMatchupAgg">
         TRUNCATE public.staging_matchup_agg
     </update>
-
-    <!-- 스테이징 동일 키 다건 → 합산 후 본 테이블에 누적 -->
-    <insert id="mergeStagingIntoRtaAggCounterMatchup">
-        INSERT INTO public.rta_agg_counter_matchup (
-            season_id, rating_id, subject_unit_id, opponent_combo_key, opponent_combo_size, win_cnt, lose_cnt
-        )
-        SELECT
-            s.season_id,
-            s.rating_id,
-            s.subject_unit_id,
-            s.opponent_combo_key,
-            MAX(s.opponent_combo_size)::smallint AS opponent_combo_size,
-            SUM(s.win_cnt)::bigint AS win_cnt,
-            SUM(s.lose_cnt)::bigint AS lose_cnt
-        FROM public.staging_matchup_agg s
-        GROUP BY s.season_id, s.rating_id, s.subject_unit_id, s.opponent_combo_key
-        ON CONFLICT (season_id, rating_id, subject_unit_id, opponent_combo_key) DO UPDATE SET
-            win_cnt = public.rta_agg_counter_matchup.win_cnt + EXCLUDED.win_cnt,
-            lose_cnt = public.rta_agg_counter_matchup.lose_cnt + EXCLUDED.lose_cnt,
-            opponent_combo_size = EXCLUDED.opponent_combo_size
-    </insert>
 
     <update id="markSynergyAggDone">
         UPDATE public.rta_match
@@ -564,13 +598,44 @@
     </select>
 
 
-    <!-- 몬스터 상세: 카운터 매치업 — 티어별 행을 상대 콤보 키 기준으로 합산.
-         seasonId 직접 수신 → idx_rta_agg_counter_matchup_season_subject 활용 (index-only scan). -->
+    <!-- 몬스터 상세: 카운터 매치업 — rta_agg_counter_solo/duo/trio 3개 테이블 UNION.
+         모든 티어 합산(rating_id 무관). -->
     <select id="getRtaMonsterCounterMatchups" resultType="map">
+        WITH raw AS (
+            SELECT
+                c.opponent_monster_id::text AS opponent_combo_key,
+                1::smallint AS opponent_combo_size,
+                SUM(c.win_cnt)::bigint  AS win_cnt,
+                SUM(c.lose_cnt)::bigint AS lose_cnt
+            FROM public.rta_agg_counter_solo c
+            WHERE c.season_id = #{seasonId}
+              AND c.subject_monster_id = #{monsterId}
+            GROUP BY c.opponent_monster_id
+            UNION ALL
+            SELECT
+                c.opponent_monster_id AS opponent_combo_key,
+                2::smallint AS opponent_combo_size,
+                SUM(c.win_cnt)::bigint  AS win_cnt,
+                SUM(c.lose_cnt)::bigint AS lose_cnt
+            FROM public.rta_agg_counter_duo c
+            WHERE c.season_id = #{seasonId}
+              AND c.subject_monster_id = #{monsterId}
+            GROUP BY c.opponent_monster_id
+            UNION ALL
+            SELECT
+                c.opponent_monster_id AS opponent_combo_key,
+                3::smallint AS opponent_combo_size,
+                SUM(c.win_cnt)::bigint  AS win_cnt,
+                SUM(c.lose_cnt)::bigint AS lose_cnt
+            FROM public.rta_agg_counter_trio c
+            WHERE c.season_id = #{seasonId}
+              AND c.subject_monster_id = #{monsterId}
+            GROUP BY c.opponent_monster_id
+        )
         SELECT
             x.opponent_combo_key AS "opponentComboKey",
             x.opponent_combo_size AS "opponentComboSize",
-            x.win_cnt AS "winCnt",
+            x.win_cnt  AS "winCnt",
             x.lose_cnt AS "loseCnt",
             CASE
                 WHEN (x.win_cnt + x.lose_cnt) &gt; 0 THEN
@@ -582,29 +647,51 @@
                 FROM unnest(string_to_array(x.opponent_combo_key, ',')) WITH ORDINALITY AS z(id, ord)
                 LEFT JOIN public.monster m ON m.monster_id = NULLIF(TRIM(BOTH FROM z.id), '')
             ) AS "opponentLabel"
-        FROM (
-            SELECT
-                c.opponent_combo_key,
-                MAX(c.opponent_combo_size)::smallint AS opponent_combo_size,
-                SUM(c.win_cnt)::bigint AS win_cnt,
-                SUM(c.lose_cnt)::bigint AS lose_cnt
-            FROM public.rta_agg_counter_matchup c
-            WHERE c.season_id = #{seasonId}
-              AND c.subject_unit_id = #{monsterId}
-            GROUP BY c.opponent_combo_key
-        ) x
+        FROM raw x
         ORDER BY (x.win_cnt + x.lose_cnt) DESC NULLS LAST
         LIMIT 40
     </select>
 
-    <!-- 카운터 matchup 조회용 인덱스 배치 전 DROP (merge 속도 향상) -->
-    <update id="dropCounterMatchupQueryIndex" statementType="STATEMENT">
-        DROP INDEX IF EXISTS public.idx_rta_agg_counter_matchup_season_subject
-    </update>
+    <select id="selectDistinctParticipantSeasonIds" resultType="long">
+        SELECT DISTINCT season_id
+        FROM public.rta_match_participant
+        WHERE season_id IS NOT NULL
+        ORDER BY season_id
+    </select>
 
-    <!-- 카운터 matchup 조회용 인덱스 배치 후 REBUILD (CONCURRENTLY 미지원 — 배치 전용) -->
-    <update id="rebuildCounterMatchupQueryIndex" statementType="STATEMENT">
-        CREATE INDEX IF NOT EXISTS idx_rta_agg_counter_matchup_season_subject
-        ON public.rta_agg_counter_matchup (season_id, subject_unit_id)
-    </update>
+    <!--
+      픽 순서별 집계 — 시즌×티어×몬스터×픽 턴 단위.
+      DO UPDATE: 전량 재계산(FULL REBUILD) 이므로 EXCLUDED 값으로 덮어쓴다.
+    -->
+    <insert id="rebuildRtaPickTurnAggForSeason">
+        INSERT INTO public.rta_agg_pick_turn (
+            season_id, rating_id, monster_id, pick_turn,
+            pick_cnt, match_cnt, win_cnt, lose_cnt, ban_cnt, updated_at
+        )
+        SELECT
+            mp.season_id,
+            mp.rating_id,
+            up.unit_master_id                                                      AS monster_id,
+            up.pick_slot_no                                                        AS pick_turn,
+            COUNT(*)::bigint                                                       AS pick_cnt,
+            SUM(CASE WHEN NOT up.is_banned THEN 1 ELSE 0 END)::bigint             AS match_cnt,
+            SUM(CASE WHEN NOT up.is_banned AND mp.is_winner     THEN 1 ELSE 0 END)::bigint AS win_cnt,
+            SUM(CASE WHEN NOT up.is_banned AND NOT mp.is_winner THEN 1 ELSE 0 END)::bigint AS lose_cnt,
+            SUM(CASE WHEN up.is_banned     THEN 1 ELSE 0 END)::bigint             AS ban_cnt,
+            CURRENT_TIMESTAMP
+        FROM public.rta_match_unit_pick up
+        INNER JOIN public.rta_match_participant mp
+               ON mp.replay_id = up.replay_id AND mp.wizard_id = up.wizard_id
+        WHERE mp.season_id  = #{seasonId}
+          AND mp.rating_id IS NOT NULL
+          AND mp.rating_id  &gt; 0
+        GROUP BY mp.season_id, mp.rating_id, up.unit_master_id, up.pick_slot_no
+        ON CONFLICT (season_id, rating_id, monster_id, pick_turn) DO UPDATE SET
+            pick_cnt   = EXCLUDED.pick_cnt,
+            match_cnt  = EXCLUDED.match_cnt,
+            win_cnt    = EXCLUDED.win_cnt,
+            lose_cnt   = EXCLUDED.lose_cnt,
+            ban_cnt    = EXCLUDED.ban_cnt,
+            updated_at = EXCLUDED.updated_at
+    </insert>
 </mapper>

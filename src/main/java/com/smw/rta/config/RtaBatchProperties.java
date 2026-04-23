@@ -22,7 +22,7 @@ public class RtaBatchProperties {
 	private int synergyPauseMsBetweenRounds = 0;
 
 	/**
-	 * true 이면 통합 Job 에서 {@link RtaBatchAggregationService#rebuildMonsterStatsAgg} 생략 (레거시 no-op, API 는 {@code rta_agg_synergy_combo}).
+	 * true 이면 통합 Job 에서 {@link RtaBatchAggregationService#rebuildMonsterStatsAgg} 생략 (no-op).
 	 * 기본 true — application.yml 과 동일.
 	 */
 	private boolean skipMonsterStatsInUnifiedJob = true;
@@ -39,8 +39,21 @@ public class RtaBatchProperties {
 	private boolean skipUserMonsterOwnedAggInUnifiedJob = false;
 
 	/**
-	 * true 이면 통합 Job 의 시너지 drain 동안 {@code idx_rta_agg_counter_matchup_season_subject} 조회 인덱스를 잠시 내린다.
-	 * 카운터 matchup 대량 UPSERT 중 보조 인덱스 유지 비용을 줄이기 위한 옵션이다.
+	 * 시너지 단독 Job({@link com.smw.monster.batch.RtaSynergyOnlyAggJob})에서
+	 * 각 라운드가 끝날 때마다 RTA 조회 캐시를 무효화할지 여부.
+	 * <p>
+	 * {@code true}(기본) — 라운드마다 캐시 무효화. pending 이 많을 때 중간 결과를 즉시 조회 가능.
+	 * {@code false} — 전체 drain 완료 후 한 번만 무효화. 캐시 무효화 오버헤드를 줄이고 싶을 때.
 	 */
-	private boolean dropCounterMatchupQueryIndexDuringUnifiedJob = true;
+	private boolean synergyOnlyEvictCachesEachRound = true;
+
+	/** 미사용 — 카운터 테이블이 solo/duo/trio 로 분리되면서 별도 인덱스 DROP/REBUILD 불필요. 하위 호환 유지용. */
+	@Deprecated
+	private boolean dropCounterMatchupQueryIndexDuringUnifiedJob = false;
+
+	/** 배치 실패 시 Slack 알림용 Bot Token (xoxb-...). 비어 있으면 알림 생략. */
+	private String slackToken = "";
+
+	/** 배치 실패 알림을 보낼 Slack 채널 ID. */
+	private String slackChannelId = "";
 }

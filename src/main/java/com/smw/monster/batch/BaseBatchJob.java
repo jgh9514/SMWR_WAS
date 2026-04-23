@@ -138,7 +138,8 @@ public abstract class BaseBatchJob implements Job {
             
             updateBatchRunHis("FAILED", errorLog);
             recordBatchMetrics("FAILED", batchTimerSample);
-            
+            sendSlackFailureAlert(getBatchName(), e);
+
             log.error("배치 실행 중 오류 발생", e);
             throw new JobExecutionException("배치 실행 실패: " + e.getMessage(), e);
         } finally {
@@ -336,6 +337,19 @@ public abstract class BaseBatchJob implements Job {
         java.io.PrintWriter pw = new java.io.PrintWriter(sw);
         e.printStackTrace(pw);
         return sw.toString();
+    }
+
+    private void sendSlackFailureAlert(String batchName, Exception e) {
+        try {
+            com.smw.rta.config.RtaBatchProperties props =
+                    applicationContext.getBean(com.smw.rta.config.RtaBatchProperties.class);
+            com.smw.monster.util.SlackNotifier notifier =
+                    applicationContext.getBean(com.smw.monster.util.SlackNotifier.class);
+            String msg = String.format("[배치 실패] *%s*\n오류: %s", batchName, e.getMessage());
+            notifier.send(props.getSlackToken(), props.getSlackChannelId(), msg);
+        } catch (Exception ex) {
+            log.warn("[slack] 배치 실패 알림 전송 중 오류", ex);
+        }
     }
 
     private void recordBatchMetrics(String result, Timer.Sample sample) {

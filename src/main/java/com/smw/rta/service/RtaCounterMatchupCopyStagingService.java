@@ -23,8 +23,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * {@code rta_agg_counter_matchup} 대량 갱신: UNLOGGED 스테이징에 {@link CopyManager}(COPY FROM STDIN) 후
- * 집합 기반 {@code INSERT ... SELECT ... ON CONFLICT DO UPDATE}(누적).
+ * {@code rta_agg_counter_solo/duo/trio} 대량 갱신: UNLOGGED 스테이징 {@code staging_matchup_agg}에
+ * {@link CopyManager}(COPY FROM STDIN) 후 {@code opponent_combo_size} 기준으로 3개 테이블에 누적 merge.
  * <p>
  * TRUNCATE·COPY·MERGE·TRUNCATE 는 <strong>동일 {@link Connection}</strong>에서만 수행한다 (시너지 스테이징과 동일 이유).
  * <p>
@@ -48,7 +48,7 @@ public class RtaCounterMatchupCopyStagingService {
 	private final DataSource dataSource;
 	private final RtaStagingMergeProperties stagingMergeProperties;
 
-	/** merge 직후 {@code ANALYZE public.rta_agg_counter_matchup} — 대량 적재 후 통계 갱신(플랜 품질). */
+	/** merge 직후 ANALYZE — 대량 적재 후 플래너 통계 갱신(플랜 품질). */
 	@Value("${smw.rta.counter-agg.analyze-target-after-merge:true}")
 	private boolean analyzeTargetAfterMerge;
 
@@ -94,14 +94,21 @@ public class RtaCounterMatchupCopyStagingService {
 			});
 			long copied = copyManager.copyIn(COPY_SQL, tsvStream);
 			RtaAggStagingMergeTune.prepareAfterCopyBeforeMerge(conn, stagingMergeProperties, STAGING_QUALIFIED);
-			log.info("[rta-counter-staging] COPY 완료 rows={}, rta_agg_counter_matchup 로 merge 시작 (수십 초~수분 걸릴 수 있음)", copied);
+			log.info("[rta-counter-staging] COPY 완료 rows={}, counter solo/duo/trio 로 merge 시작", copied);
 			long tMerge = System.currentTimeMillis();
-			long merged = RtaAggStagingJdbc.executeInsertMergeReturningRows(conn,
-					RtaAggStagingMergeSql.MERGE_MATCHUP_STAGING_INTO_COUNTER);
+			long merged = 0L;
+			merged += RtaAggStagingJdbc.executeInsertMergeReturningRows(conn,
+					RtaAggStagingMergeSql.MERGE_MATCHUP_STAGING_INTO_COUNTER_SOLO);
+			merged += RtaAggStagingJdbc.executeInsertMergeReturningRows(conn,
+					RtaAggStagingMergeSql.MERGE_MATCHUP_STAGING_INTO_COUNTER_DUO);
+			merged += RtaAggStagingJdbc.executeInsertMergeReturningRows(conn,
+					RtaAggStagingMergeSql.MERGE_MATCHUP_STAGING_INTO_COUNTER_TRIO);
 			log.info("[rta-counter-staging] merge 완료 affected={}, {} ms", merged, System.currentTimeMillis() - tMerge);
 			if (analyzeAfterMerge && analyzeTargetAfterMerge) {
 				try (Statement st = conn.createStatement()) {
-					st.execute("ANALYZE public.rta_agg_counter_matchup");
+					st.execute("ANALYZE public.rta_agg_counter_solo");
+					st.execute("ANALYZE public.rta_agg_counter_duo");
+					st.execute("ANALYZE public.rta_agg_counter_trio");
 				}
 			}
 			try (Statement st = conn.createStatement()) {
