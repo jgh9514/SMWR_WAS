@@ -1,0 +1,21 @@
+# K8s smw-batch 전용. SPRING_PROFILES_ACTIVE 에 quartz-jdbc 포함 시만 로드.
+# docker 프로필과 공존(예: docker,quartz-jdbc). smw-app 은 docker 만 — Quartz RAMJobStore, 아래 org.quartz.jobStore.* 병합 없음.
+---
+spring:
+  config:
+    activate:
+      on-profile: quartz-jdbc
+  quartz:
+    job-store-type: jdbc
+    jdbc:
+      initialize-schema: never
+    properties:
+      org.quartz.scheduler.instanceName: smwQuartz
+      org.quartz.scheduler.instanceId: AUTO
+      org.quartz.jobStore.isClustered: true
+      org.quartz.jobStore.class: org.quartz.impl.jdbcjobstore.JobStoreTX
+      org.quartz.jobStore.driverDelegateClass: org.quartz.impl.jdbcjobstore.PostgreSQLDelegate
+      org.quartz.jobStore.useProperties: false
+      org.quartz.jobStore.tablePrefix: QRTZ_
+      org.quartz.jobStore.misfireThreshold: 120000
+      org.quartz.threadPool.threadCount: 12

@@ -1,5 +1,5 @@
 # 동일 이미지(smw-app): Quartz 크론·RTA 배치만 이 Pod 에서 실행. API Pod(smw-app)와 DB·Redis 공유.
-# QRTZ JDBC 클러스터(application-docker)로 replicas>1 시 트리거는 한 Pod만 획득. QRTZ_* DDL 선행.
+# quartz-jdbc 프로필: QRTZ JDBC 클러스터(application-quartz-jdbc.yml). replicas>1 시 트리거 분배. QRTZ_* DDL 선행.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -40,7 +40,7 @@ spec:
                   name: s3-credentials
                   key: AWS_REGION
             - name: SPRING_PROFILES_ACTIVE
-              value: "docker"
+              value: "docker,quartz-jdbc"
             - name: TZ
               value: "Asia/Seoul"
             - name: JAVA_TOOL_OPTIONS
