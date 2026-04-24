@@ -59,8 +59,9 @@ jobs:
       uses: docker/metadata-action@v6
       with:
         images: ${{ env.DOCKER_API_IMAGE }}
+        # type=sha 기본 format=short(7자) — deploy(smw-app) 는 main-$GITHUB_SHA(40자)로 맞추므로 long 필수. 안 맞으면 ImagePullBackOff NotFound
         tags: |
-          type=sha,prefix={{branch}}-
+          type=sha,format=long,prefix={{branch}}-
           type=raw,value=latest,enable={{is_default_branch}}
           type=raw,value=${{ github.run_number }}
 

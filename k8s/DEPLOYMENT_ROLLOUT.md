@@ -54,6 +54,12 @@
 - `apply` 전에 `batch-deployment.yaml`의 `replicas`를 배포 당시 목표(예: 1)로 맞추거나,
 - `apply` 후 `kubectl scale`로 다시 맞추는 식으로 정리.
 
+## ImagePullBackOff: `... not found` (태그)
+
+배포 스크립트는 `main-<40자 full SHA>`(GitHub `github.sha`와 동일)로 `sed`한다.  
+Docker Hub에 올리는 `docker/metadata`의 `type=sha` **기본은 short(7자)**라서, 예전엔 `main-55a27e0`만 푸시되고 K8s는 `main-55a27e0…(40자)`를 당겨 **NotFound**가 났다.  
+워크플로에서 `type=sha,format=long`로 맞춤(`.github/workflows/build-and-deploy.yml`).
+
 ## 한 줄 요약
 
 **batch 0 → app 교체·안정 → batch 1 → 확인 → batch 2**
