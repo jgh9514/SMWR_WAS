@@ -1,6 +1,7 @@
 # Docker 환경 설정 (SPRING_PROFILES_ACTIVE=docker 로 활성화)
 # Quartz JDBC+클러스터: 배치 Pod만 프로필 quartz-jdbc 를 추가(application-quartz-jdbc.yml).
 # docker 단독(smw-app)은 Spring 기본(인메모리 JobStore) — JobStoreTX 가 섞이면 DataSource 'null' 로 종료될 수 있음.
+# K8s: smw-app 은 SPRING_QUARTZ_AUTO_STARTUP=false 로 Quartz 스레드 미기동, smw-batch 는 true + SMW_BATCH_QUARTZ_ENABLED=true.
 # QRTZ_* 테이블: sql/postgresql_qrtz_tables.sql 을 DB에 1회 적용 후 batch 기동.
 spring:
   data:

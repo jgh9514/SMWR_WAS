@@ -1,5 +1,6 @@
 # 동일 이미지(smw-app): Quartz 크론·RTA 배치만 이 Pod 에서 실행. API Pod(smw-app)와 DB·Redis 공유.
 # quartz-jdbc 프로필: QRTZ JDBC 클러스터(application-quartz-jdbc.yml). replicas>1 시 트리거 분배. QRTZ_* DDL 선행.
+# 메모리/노드가 빠듯하면 배포 시: smw-batch replicas 0 -> smw-app 교체 -> batch 1 -> 확인 -> batch 2 (상세: DEPLOYMENT_ROLLOUT.md)
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -107,6 +108,8 @@ spec:
                   key: jwt-encryption-key
                   optional: true
             - name: SMW_BATCH_QUARTZ_ENABLED
+              value: "true"
+            - name: SPRING_QUARTZ_AUTO_STARTUP
               value: "true"
             - name: SMW_SCHEDULER_ENABLED
               value: "true"

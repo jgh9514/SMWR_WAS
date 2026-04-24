@@ -1,3 +1,4 @@
+# smw-app 전용. 메모리 부족 시 배포: batch scale 0 -> 본 deployment 롤아웃 -> batch 1 -> 검증 -> batch 2 (k8s/DEPLOYMENT_ROLLOUT.md)
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -116,6 +117,10 @@ spec:
         # API Pod: Quartz 크론은 배치 Pod(smw-batch)에서만 등록. docker 만 — quartz-jdbc( JobStoreTX ) 미로드
         - name: SMW_BATCH_QUARTZ_ENABLED
           value: "false"
+        # Quartz Scheduler.start() 자체를 끔 — 트리거 폴링/실행 없음(크론 미등록과 별도). 배치 Pod는 true
+        - name: SPRING_QUARTZ_AUTO_STARTUP
+          value: "false"
+        # Spring @Scheduled — application-docker 기본 false. API는 미설정으로 off, 배치 Pod만 true
         # RTA 조회 캐시 — Redis(smw-redis Service) 공유, 배치가 갱신 후 워밍업
         - name: SPRING_DATA_REDIS_HOST
           value: "smw-redis"
