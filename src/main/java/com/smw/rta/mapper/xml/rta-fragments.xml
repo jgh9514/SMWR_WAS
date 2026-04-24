@@ -37,7 +37,7 @@ tier_official AS (
 
 	<!--
 	  대시보드 일자×티어 누적 집계 (participant 단독, Asia/Seoul 일자).
-	  bucket_date D: 시즌 내 (서울) D일까지 한 판이라도 한 소환사만 포함, 티어는 그 시점까지의 rating_id 최댓값 기준.
+	  bucket_date D: 시즌 내 (서울) D일까지 한 판이라도 한 소환사만 포함, 티어는 그 시점까지의 최근 경기 rating_id 기준(일별 마지막 판 → 구간 전파).
 	  캘린더는 rta_season(서울) 구간을 사용 — 매치 MIN/MAX만 쓰지 않아 시즌 말·무경기일 누적 스냅도 같은 배치로 재계산 가능.
 	  성능: calendar×LATERAL(DISTINCT ON …) 대신 wizard별 경기일 구간(LEAD) + generate_series 로 동일 논리를 단일 패스에 가깝게 펼침.
 	  배치 적재·라이브 폴백 공통. 파라미터: {@code seasonId}.
@@ -57,26 +57,30 @@ tier_bounds AS (
     FROM season_bounds sb
     WHERE sb.s0 &lt;= LEAST(sb.s1_inc, (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')::date)
 ),
-day_max AS (
-    SELECT
-        u.wizard_id,
-        (u.played_at AT TIME ZONE 'Asia/Seoul')::date AS match_day,
-        MAX(u.rating_id) AS day_rating_max
-    FROM public.rta_match_participant u
-    WHERE u.season_id = #{seasonId}
-      AND u.rating_id &gt;= 1000
-    GROUP BY u.wizard_id, (u.played_at AT TIME ZONE 'Asia/Seoul')::date
+day_last AS (
+    SELECT DISTINCT ON (t.wizard_id, t.match_day)
+        t.wizard_id,
+        t.match_day,
+        t.rating_id AS day_end_rating
+    FROM (
+        SELECT
+            u.wizard_id,
+            (u.played_at AT TIME ZONE 'Asia/Seoul')::date AS match_day,
+            u.played_at,
+            u.replay_id,
+            u.rating_id
+        FROM public.rta_match_participant u
+        WHERE u.season_id = #{seasonId}
+          AND u.rating_id &gt;= 1000
+    ) t
+    ORDER BY t.wizard_id, t.match_day, t.played_at DESC, t.replay_id DESC
 ),
 wizard_ordered AS (
     SELECT
         wizard_id,
         match_day,
-        MAX(day_rating_max) OVER (
-            PARTITION BY wizard_id
-            ORDER BY match_day
-            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-        ) AS cum_max
-    FROM day_max
+        day_end_rating AS cum_max
+    FROM day_last
 ),
 wizard_segments AS (
     SELECT
