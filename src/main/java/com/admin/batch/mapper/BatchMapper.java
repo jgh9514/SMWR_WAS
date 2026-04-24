@@ -23,4 +23,7 @@ public interface BatchMapper {
 	
 	public List<Map<String, ?>> selectBatchList(Map<String, Object> param);
 
+	/** 배치 오류 시 use_yn = 'N' 으로 비활성화 */
+	public int disableBatch(Long batId);
+
 }

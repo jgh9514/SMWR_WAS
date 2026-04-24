@@ -227,9 +227,9 @@ smw:
       slack-channel-id: ${SMW_RTA_EXPORTER_SLACK_CHANNEL_ID:}
     raw-apply:
       # 정규화 배치 한 번의 apply 호출당 SELECT 상한(너무 크면 한 스케줄에서 DB·WAL 폭주)
-      max-rows-per-run: ${SMW_RTA_RAW_APPLY_MAX_ROWS:100000}
+      max-rows-per-run: ${SMW_RTA_RAW_APPLY_MAX_ROWS:10000}
       # 한 트랜잭션에 묶는 건수(작을수록 락·롤백 범위 축소)
-      apply-chunk-size: ${SMW_RTA_RAW_APPLY_CHUNK_SIZE:100000}
+      apply-chunk-size: ${SMW_RTA_RAW_APPLY_CHUNK_SIZE:1000}
       # VALUES 다중행 INSERT 한 문당 행 수(COPY 폴백 시). 크면 PG JDBC I/O error while sending — 25~75 권장
       bulk-insert-chunk-size: ${SMW_RTA_RAW_APPLY_BULK_INSERT_CHUNK_SIZE:50}
       # true: COPY FROM STDIN + TEMP (최고 처리량). false: 기존 VALUES 다중행만

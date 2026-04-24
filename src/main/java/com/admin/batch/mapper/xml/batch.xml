@@ -51,6 +51,14 @@
 		ORDER BY sort_sn ASC, bat_id ASC
 	</select>
 
+	<!-- 배치 오류 비활성화 -->
+	<update id="disableBatch">
+		UPDATE sys_batch_config
+		SET use_yn = 'N'
+		   ,upt_date = CURRENT_TIMESTAMP
+		WHERE bat_id = #{batId}
+	</update>
+
 	<!-- 배치 수정 -->
 	<update id="updateBatch" parameterType="sqlMap">
 		/* updateBatch */

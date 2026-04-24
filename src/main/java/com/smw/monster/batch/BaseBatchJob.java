@@ -32,6 +32,7 @@ public abstract class BaseBatchJob implements Job {
     
     protected StringBuilder logContent = new StringBuilder();
     protected Long runSn = null;
+    protected Long currentBatId = null;
     protected ApplicationContext applicationContext;
     protected BatchMapper batchMapper;
     protected PlatformTransactionManager transactionManager;
@@ -90,6 +91,7 @@ public abstract class BaseBatchJob implements Job {
             if (batId == null) {
                 throw new JobExecutionException("배치 ID를 찾을 수 없습니다.");
             }
+            currentBatId = batId;
             
             // 실행 이력 RUNNING 등록만 짧은 트랜잭션으로 커밋 — 본문 배치는 묶지 않음(장시간·대량 시 한 덩어리 롤백 방지)
             addLog("===== 배치 실행 시작 =====");
@@ -139,6 +141,7 @@ public abstract class BaseBatchJob implements Job {
             updateBatchRunHis("FAILED", errorLog);
             recordBatchMetrics("FAILED", batchTimerSample);
             sendSlackFailureAlert(getBatchName(), e);
+            disableJobOnFailure();
 
             log.error("배치 실행 중 오류 발생", e);
             throw new JobExecutionException("배치 실행 실패: " + e.getMessage(), e);
@@ -345,10 +348,34 @@ public abstract class BaseBatchJob implements Job {
                     applicationContext.getBean(com.smw.rta.config.RtaBatchProperties.class);
             com.smw.monster.util.SlackNotifier notifier =
                     applicationContext.getBean(com.smw.monster.util.SlackNotifier.class);
-            String msg = String.format("[배치 실패] *%s*\n오류: %s", batchName, e.getMessage());
+            String msg = String.format("[배치 실패] *%s*\n오류: %s\n스케줄이 비활성화되었습니다. 확인 후 수동으로 재활성화하세요.", batchName, e.getMessage());
             notifier.send(props.getSlackToken(), props.getSlackChannelId(), msg);
         } catch (Exception ex) {
             log.warn("[slack] 배치 실패 알림 전송 중 오류", ex);
+        }
+    }
+
+    private void disableJobOnFailure() {
+        if (currentBatId == null) {
+            return;
+        }
+        try {
+            // 1) Quartz 트리거 일시정지
+            org.quartz.Scheduler scheduler = applicationContext.getBean(org.quartz.Scheduler.class);
+            org.quartz.JobKey jobKey = org.quartz.JobKey.jobKey(String.valueOf(currentBatId));
+            if (scheduler.checkExists(jobKey)) {
+                scheduler.pauseJob(jobKey);
+                log.warn("[batch-disable] Quartz job 일시정지 jobKey={}", jobKey);
+            }
+        } catch (Exception ex) {
+            log.warn("[batch-disable] Quartz 일시정지 실패", ex);
+        }
+        try {
+            // 2) DB use_yn = 'N'
+            batchMapper.disableBatch(currentBatId);
+            log.warn("[batch-disable] sys_batch_config use_yn=N batId={}", currentBatId);
+        } catch (Exception ex) {
+            log.warn("[batch-disable] DB 비활성화 실패", ex);
         }
     }
 
