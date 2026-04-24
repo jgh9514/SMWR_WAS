@@ -1,5 +1,22 @@
 # Docker 환경 설정 (SPRING_PROFILES_ACTIVE=docker 로 활성화)
+# Quartz: 배치 Pod(smw-batch)는 SMW_QUARTZ_JOB_STORE_TYPE 미설정 → jdbc+클러스터(여러 replica 안전).
+# API Pod(smw-app)는 memory 로 두어 QRTZ에 참여·크론 뺏어가기를 막는다(아래 k8s deployment env).
+# QRTZ_* 테이블: sql/postgresql_qrtz_tables.sql 을 DB에 1회 적용 후 batch 기동.
 spring:
+  quartz:
+    job-store-type: ${SMW_QUARTZ_JOB_STORE_TYPE:jdbc}
+    jdbc:
+      initialize-schema: never
+    properties:
+      org.quartz.scheduler.instanceName: smwQuartz
+      org.quartz.scheduler.instanceId: AUTO
+      org.quartz.jobStore.isClustered: true
+      org.quartz.jobStore.class: org.quartz.impl.jdbcjobstore.JobStoreTX
+      org.quartz.jobStore.driverDelegateClass: org.quartz.impl.jdbcjobstore.PostgreSQLDelegate
+      org.quartz.jobStore.useProperties: false
+      org.quartz.jobStore.tablePrefix: QRTZ_
+      org.quartz.jobStore.misfireThreshold: 120000
+      org.quartz.threadPool.threadCount: 12
   data:
     redis:
       host: ${SPRING_DATA_REDIS_HOST:localhost}

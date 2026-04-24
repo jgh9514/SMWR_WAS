@@ -116,6 +116,9 @@ spec:
         # API Pod: Quartz 크론은 배치 Pod(smw-batch)에서만 등록
         - name: SMW_BATCH_QUARTZ_ENABLED
           value: "false"
+        # QRTZ jdbc 클러스터엔 참여시키지 않음(스케줄을 API로 뺏어가는 것 방지). 배치 Pod는 설정하지 않아 jdbc.
+        - name: SMW_QUARTZ_JOB_STORE_TYPE
+          value: "memory"
         # RTA 조회 캐시 — Redis(smw-redis Service) 공유, 배치가 갱신 후 워밍업
         - name: SPRING_DATA_REDIS_HOST
           value: "smw-redis"

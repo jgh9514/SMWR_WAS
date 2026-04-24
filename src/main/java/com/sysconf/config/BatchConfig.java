@@ -10,10 +10,13 @@ import org.quartz.JobBuilder;
 import org.quartz.JobDataMap;
 import org.quartz.JobDetail;
 import org.quartz.JobKey;
+import org.quartz.ObjectAlreadyExistsException;
 import org.quartz.Scheduler;
+import org.quartz.SchedulerException;
 import org.quartz.SimpleScheduleBuilder;
 import org.quartz.Trigger;
 import org.quartz.TriggerBuilder;
+import org.quartz.TriggerKey;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -33,6 +36,9 @@ import lombok.extern.slf4j.Slf4j;
  *   <li>수동 실행({@link #runOnce})은 크론 OFF여도 동작 — 운영에서 스케줄만 끄고 API로 돌릴 때 사용</li>
  * </ul>
  * <p>{@code @ConditionalOnBean(Scheduler)} 는 부팅 순서상 스킵될 수 있어 사용하지 않는다. 크론 등록은 {@link ApplicationReadyEvent} 이후에 수행한다.</p>
+ * <p>Quartz가 JDBC+클러스터({@code spring.quartz.job-store-type=jdbc})이면 Job/Trigger는 DB에 공유되며,
+ * 여러 Pod가 동시에 기동해도 {@link #registerOrRescheduleCronJob}이 중복 {@code scheduleJob} 대신
+ * {@code rescheduleJob}로 갱신한다.
  */
 @Slf4j
 @Configuration
@@ -89,12 +95,13 @@ public class BatchConfig {
 
 						Map<String, Object> jobData = new HashMap<>();
 						jobData.put("applicationContext", applicationContext);
-						
-						scheduler.scheduleJob(buildJobDetail(
-								(Class<? extends Job>) classObject, jobKey, jobKey, jobData),
-								buildCronJobTrigger(cronExp));
+
+						registerOrRescheduleCronJob(scheduler, jobKey, cronExp,
+								(Class<? extends Job>) classObject, jobData);
 					} catch (ClassNotFoundException e) {
 						log.error("Not found class: {}", jobClassName);
+					} catch (SchedulerException e) {
+						log.error("Quartz job 등록 실패 batId={}, class={}", jobKey, jobClassName, e);
 					}
 
         		}
@@ -102,7 +109,44 @@ public class BatchConfig {
 	    }
 		catch (Exception e) {
 	        log.error(e.getMessage());
-	    }
+		}
+	}
+
+	/**
+	 * sys_batch_config 등록(크론) — Job 키·트리거 키(batId_cron) 고정. JDBC+클러스터 시 여러 인스턴스가 동시에 부팅해도
+	 * idempotent/갱신만 수행한다.
+	 */
+	private void registerOrRescheduleCronJob(Scheduler scheduler, String jobKeyStr, String cronExp,
+			Class<? extends Job> jobClass, Map<String, Object> jobData) throws SchedulerException {
+		JobKey jk = JobKey.jobKey(jobKeyStr);
+		JobDetail jobDetail = buildJobDetail(jobClass, jobKeyStr, jobKeyStr, jobData);
+		Trigger trigger = TriggerBuilder.newTrigger()
+				.withIdentity(jobKeyStr + "_cron", Scheduler.DEFAULT_GROUP)
+				.forJob(jobDetail)
+				.withSchedule(CronScheduleBuilder.cronSchedule(cronExp))
+				.build();
+		TriggerKey tk = trigger.getKey();
+		if (scheduler.checkExists(jk)) {
+			if (scheduler.checkExists(tk)) {
+				scheduler.rescheduleJob(tk, trigger);
+				log.info("Quartz cron reschedule. jobKey={}", jobKeyStr);
+			} else {
+				scheduler.scheduleJob(trigger);
+				log.info("Quartz job 존재, cron 트리거만 등록. jobKey={}", jobKeyStr);
+			}
+		} else {
+			try {
+				scheduler.scheduleJob(jobDetail, trigger);
+			} catch (ObjectAlreadyExistsException oae) {
+				// checkExists와 등록 사이에 다른 Pod가 먼저 넣은 경우
+				if (scheduler.checkExists(tk)) {
+					scheduler.rescheduleJob(tk, trigger);
+				} else {
+					scheduler.scheduleJob(trigger);
+				}
+				log.info("Quartz job 동시 등록 경합 처리. jobKey={}", jobKeyStr, oae);
+			}
+		}
 	}
 
 	/** 배치 재시작 API: 스케줄러 비우고 크론 재등록 */
@@ -126,12 +170,6 @@ public class BatchConfig {
 		registerCronJobsOnReady();
 	}
 	
-	public Trigger buildCronJobTrigger(String scheduleExp) {
-	    return TriggerBuilder.newTrigger()
-	    		.withSchedule(CronScheduleBuilder.cronSchedule(scheduleExp))
-	    		.build();
-	}
-
 	public Trigger buildSimpleJobTrigger(Integer hour) {
 		return TriggerBuilder.newTrigger()
 				.withSchedule(SimpleScheduleBuilder
