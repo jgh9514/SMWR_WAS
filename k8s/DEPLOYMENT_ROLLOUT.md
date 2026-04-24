@@ -56,9 +56,8 @@
 
 ## ImagePullBackOff: `... not found` (태그)
 
-배포 스크립트는 `main-<40자 full SHA>`(GitHub `github.sha`와 동일)로 `sed`한다.  
-Docker Hub에 올리는 `docker/metadata`의 `type=sha` **기본은 short(7자)**라서, 예전엔 `main-55a27e0`만 푸시되고 K8s는 `main-55a27e0…(40자)`를 당겨 **NotFound**가 났다.  
-워크플로에서 `type=sha,format=long`로 맞춤(`.github/workflows/build-and-deploy.yml`).
+- `docker/metadata` `type=sha` **기본 short(7자)** vs 배포 `ref_name+full SHA(40자)` → `format=long` 필수.  
+- 브랜치가 `master`인데 배포가 `main-<sha>`로 고정이면, Hub에는 `master-<sha>`만 있어 **NotFound** — 배포 `IMAGE_TAG`는 `ref_name`+`sha`로 푸시한 브랜치와 맞춤.
 
 ## 한 줄 요약
 

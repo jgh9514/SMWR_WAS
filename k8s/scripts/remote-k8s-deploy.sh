@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # EC2( k3s )에서 Git pull 후 K8s 배포. GHA가 stdin으로
 #   export K8S_ROLLOUT_MODE=parallel|staged
-#   export IMAGE_TAG=main-...
+#   export IMAGE_TAG=<ref_name>-<40자 sha>  (예: main-..., master-...)
 # 를 앞에 붙여 pipe 하거나, EC2의 ~/SMWR_WAS 에서 pull 후
 #   K8S_ROLLOUT_MODE=... IMAGE_TAG=... bash k8s/scripts/remote-k8s-deploy.sh
 # 로 호출.

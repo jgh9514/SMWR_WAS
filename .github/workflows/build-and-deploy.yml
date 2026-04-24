@@ -59,7 +59,7 @@ jobs:
       uses: docker/metadata-action@v6
       with:
         images: ${{ env.DOCKER_API_IMAGE }}
-        # type=sha 기본 format=short(7자) — deploy(smw-app) 는 main-$GITHUB_SHA(40자)로 맞추므로 long 필수. 안 맞으면 ImagePullBackOff NotFound
+        # type=sha 기본 format=short(7자) — deploy 는 ref_name+full SHA(40자) — docker 의 prefix={{branch}}- 와 동일해야 함. long 필수
         tags: |
           type=sha,format=long,prefix={{branch}}-
           type=raw,value=latest,enable={{is_default_branch}}
@@ -84,8 +84,9 @@ jobs:
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
     
+    # master 브랜치면 main-... 가 아니라 master-... 푸시됨. {{branch}}- 와 ref_name+sha 로 맞춤
     env:
-      IMAGE_TAG: main-${{ github.sha }}
+      IMAGE_TAG: ${{ github.ref_name }}-${{ github.sha }}
     
     steps:
     - name: Checkout code
