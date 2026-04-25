@@ -1,6 +1,7 @@
 package com.admin.batch.rest;
 
 import java.io.IOException;
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -23,6 +24,8 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import com.admin.batch.mapper.BatchMapper;
 import com.admin.batch.sse.BatchLogBroadcaster;
 import com.admin.log.service.LogService;
+import com.smw.monster.util.SlackNotifier;
+import com.smw.rta.config.RtaBatchProperties;
 import com.sysconf.annotation.RequireAdmin;
 import com.sysconf.config.BatchConfig;
 import com.sysconf.constants.Constant;
@@ -49,6 +52,35 @@ public class BatchController {
 
 	@Autowired
 	private BatchLogBroadcaster batchLogBroadcaster;
+
+	@Autowired
+	private SlackNotifier slackNotifier;
+
+	@Autowired
+	private RtaBatchProperties rtaBatchProperties;
+
+	@Operation(summary = "Slack 테스트 발송", description = "smw.rta.batch.slack-token·slack-channel-id 로 배치 실패 알림과 동일 경로에 샘플 메시지를 보냅니다. 토큰/채널 미설정 시 실패 응답.")
+	@PostMapping("/slack/test")
+	public ResponseEntity<Map<String, Object>> testSlack(@RequestBody(required = false) Map<String, Object> body) {
+		String text = "[SMW 관리자] Slack 연동 테스트 — " + Instant.now();
+		if (body != null && body.get("message") != null) {
+			String m = String.valueOf(body.get("message")).trim();
+			if (!m.isEmpty()) {
+				text = m.length() > 3500 ? m.substring(0, 3500) : m;
+			}
+		}
+		SlackNotifier.SendOutcome o = slackNotifier.sendWithOutcome(
+				rtaBatchProperties.getSlackToken(),
+				rtaBatchProperties.getSlackChannelId(),
+				text);
+		Map<String, Object> result = new HashMap<>();
+		result.put("result", o.isSuccess() ? Constant.SUCCESS : Constant.FAIL);
+		result.put("configured", o.isConfigured());
+		result.put("message", o.getDetail());
+		HttpStatus status = o.isSuccess() ? HttpStatus.OK
+				: (o.isConfigured() ? HttpStatus.BAD_REQUEST : HttpStatus.BAD_REQUEST);
+		return new ResponseEntity<>(result, status);
+	}
 
 	@Operation(summary = "배치 수동 실행 로그 스트림(SSE)", description = "수동 실행 전에 연결한 뒤, 같은 stream_id로 /batch/run을 호출하면 로그가 실시간으로 전달됩니다.")
 	@GetMapping(value = "/logs/stream/{streamId}")

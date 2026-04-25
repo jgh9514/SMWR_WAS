@@ -978,7 +978,6 @@
             FROM public.rta_match_participant p
             WHERE p.wizard_id = #{wizardId}
               AND p.season_id = #{seasonId}
-              AND p.ladder_score &gt; 0
             ORDER BY p.wizard_id, p.played_at DESC
         ),
         win_agg AS (
@@ -988,14 +987,12 @@
             FROM public.rta_match_participant p
             WHERE p.wizard_id = #{wizardId}
               AND p.season_id = #{seasonId}
-              AND p.ladder_score &gt; 0
         ),
         score_max AS (
             SELECT MAX(p.ladder_score)::int AS max_season_score
             FROM public.rta_match_participant p
             WHERE p.wizard_id = #{wizardId}
               AND p.season_id = #{seasonId}
-              AND p.ladder_score &gt; 0
         ),
         rank_pos AS (
             SELECT COUNT(DISTINCT p2.wizard_id) + 1 AS rank_position
