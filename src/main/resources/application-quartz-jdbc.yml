@@ -10,7 +10,9 @@ spring:
     jdbc:
       initialize-schema: never
     properties:
-      # org.quartz.jobStore.class 는 미설정( Boot → LocalDataSourceJobStore, JobStoreTX 시 DataSource name 오류)
+      # JobStoreTX 는 Quartz 명명 DataSource 요구( DataSource name not set ). Spring JDBC 스토어는 이 클래스(또는 미설정+Boot 주입) 사용.
+      # job-store-type 이 jdbc 가 아니면 RAMJobStore + tablePrefix 등 → "RAMJobStore props could not be configured" 가능.
+      org.quartz.jobStore.class: org.springframework.scheduling.quartz.LocalDataSourceJobStore
       org.quartz.scheduler.instanceName: smwQuartz
       org.quartz.scheduler.instanceId: AUTO
       org.quartz.jobStore.isClustered: true

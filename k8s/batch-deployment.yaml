@@ -42,6 +42,9 @@ spec:
                   key: AWS_REGION
             - name: SPRING_PROFILES_ACTIVE
               value: "docker,quartz-jdbc"
+            # yml profile 병합·이미지 캐시 등으로 job-store-type 이 빠질 때 RAM+JDBC prop 충돌 방지( LocalDataSourceJobStore 와 짝)
+            - name: SPRING_QUARTZ_JOB_STORE_TYPE
+              value: "jdbc"
             - name: TZ
               value: "Asia/Seoul"
             - name: JAVA_TOOL_OPTIONS
