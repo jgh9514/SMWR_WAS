@@ -230,8 +230,8 @@
         ),
         <include refid="rtaSummonerRankingTopWizardsPairCte"/>,
         <include refid="rtaSummonerRankingPool500AndFilterCte"/>,
-        pool_dedup AS (
-            SELECT DISTINCT ON (pr.rank_position)
+        pool_one_per_wizard AS (
+            SELECT DISTINCT ON (pr.wizard_id)
                 pr.wizard_id,
                 pr.wizard_name,
                 pr.country,
@@ -240,7 +240,18 @@
                 pr.rating_id,
                 pr.rank_position
             FROM pool_ranked pr
-            ORDER BY pr.rank_position, pr.wizard_id
+            ORDER BY pr.wizard_id, pr.rank_position
+        ),
+        pool_dedup AS (
+            SELECT
+                t.wizard_id,
+                t.wizard_name,
+                t.country,
+                t.channel_uid,
+                t.max_score,
+                t.rating_id,
+                ROW_NUMBER() OVER (ORDER BY t.rank_position ASC, t.wizard_id ASC) AS rank_position
+            FROM pool_one_per_wizard t
         ),
         win_agg AS (
             SELECT
@@ -248,7 +259,7 @@
                 COUNT(*)::bigint AS match_count,
                 SUM(CASE WHEN u.is_winner THEN 1 ELSE 0 END)::bigint AS win_count
             FROM public.rta_match_participant u
-            INNER JOIN pool_dedup p ON p.wizard_id = u.wizard_id
+            INNER JOIN pool_one_per_wizard p ON p.wizard_id = u.wizard_id
             WHERE u.season_id = #{seasonId}
               AND u.ladder_score &gt; 0
             GROUP BY u.wizard_id
@@ -283,8 +294,8 @@
         FROM pool_dedup p
         LEFT JOIN win_agg wa ON wa.wizard_id = p.wizard_id
         ORDER BY p.rank_position
-        ON CONFLICT (season_id, rank_position) DO UPDATE SET
-            wizard_id = EXCLUDED.wizard_id,
+        ON CONFLICT (season_id, wizard_id) DO UPDATE SET
+            rank_position = EXCLUDED.rank_position,
             wizard_name = EXCLUDED.wizard_name,
             country = EXCLUDED.country,
             channel_uid = EXCLUDED.channel_uid,

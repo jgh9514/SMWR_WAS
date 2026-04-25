@@ -114,6 +114,9 @@ public class BatchConfig {
 	/**
 	 * sys_batch_config 등록(크론) — Job 키·트리거 키(batId_cron) 고정. JDBC+클러스터 시 여러 인스턴스가 동시에 부팅해도
 	 * idempotent/갱신만 수행한다.
+	 * <p>
+	 * 트리거를 먼저 본다. QRTZ 에 이미 {@code 7_cron} 이 있는데 {@code checkExists(TriggerKey)}·Job 부재로
+	 * {@code scheduleJob(Detail+Trigger)} 가 가면 "duplicate key qrtz_triggers_pkey" 가 난다(경합·부팅 순서·불일치).
 	 */
 	private void registerOrRescheduleCronJob(Scheduler scheduler, String jobKeyStr, String cronExp,
 			Class<? extends Job> jobClass, Map<String, Object> jobData) throws SchedulerException {
@@ -125,27 +128,52 @@ public class BatchConfig {
 				.withSchedule(CronScheduleBuilder.cronSchedule(cronExp))
 				.build();
 		TriggerKey tk = trigger.getKey();
+		if (scheduler.checkExists(tk)) {
+			scheduler.rescheduleJob(tk, trigger);
+			if (!scheduler.checkExists(jk)) {
+				scheduler.addJob(jobDetail, true);
+			}
+			log.info("Quartz cron reschedule (기존 트리거). jobKey={}", jobKeyStr);
+			return;
+		}
 		if (scheduler.checkExists(jk)) {
+			scheduler.scheduleJob(trigger);
+			log.info("Quartz job 존재, cron 트리거만 등록. jobKey={}", jobKeyStr);
+			return;
+		}
+		try {
+			scheduler.scheduleJob(jobDetail, trigger);
+		} catch (ObjectAlreadyExistsException oae) {
 			if (scheduler.checkExists(tk)) {
 				scheduler.rescheduleJob(tk, trigger);
-				log.info("Quartz cron reschedule. jobKey={}", jobKeyStr);
-			} else {
+			} else if (scheduler.checkExists(jk)) {
 				scheduler.scheduleJob(trigger);
-				log.info("Quartz job 존재, cron 트리거만 등록. jobKey={}", jobKeyStr);
+			} else {
+				throw oae;
 			}
-		} else {
-			try {
-				scheduler.scheduleJob(jobDetail, trigger);
-			} catch (ObjectAlreadyExistsException oae) {
-				// checkExists와 등록 사이에 다른 Pod가 먼저 넣은 경우
-				if (scheduler.checkExists(tk)) {
-					scheduler.rescheduleJob(tk, trigger);
-				} else {
-					scheduler.scheduleJob(trigger);
-				}
-				log.info("Quartz job 동시 등록 경합 처리. jobKey={}", jobKeyStr, oae);
+			log.info("Quartz job 동시 등록 경합 처리. jobKey={}", jobKeyStr, oae);
+		} catch (SchedulerException e) {
+			if (isLikelyQrtzDuplicateKey(e) && scheduler.checkExists(tk)) {
+				scheduler.rescheduleJob(tk, trigger);
+				log.info("Quartz qrtz_triggers PK 중복 복구(reschedule). jobKey={}", jobKeyStr);
+				return;
+			}
+			throw e;
+		}
+	}
+
+	private static boolean isLikelyQrtzDuplicateKey(SchedulerException e) {
+		String msg = e.getMessage() != null ? e.getMessage() : "";
+		if (msg.contains("duplicate key") && msg.contains("qrtz_")) {
+			return true;
+		}
+		for (Throwable t = e.getCause(); t != null; t = t.getCause()) {
+			msg = t.getMessage() != null ? t.getMessage() : "";
+			if (msg.contains("duplicate key") && (msg.contains("qrtz_") || msg.contains("QRTZ_"))) {
+				return true;
 			}
 		}
+		return false;
 	}
 
 	/** 배치 재시작 API: 스케줄러 비우고 크론 재등록 */
