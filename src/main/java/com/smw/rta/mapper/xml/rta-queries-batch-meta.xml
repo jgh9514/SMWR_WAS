@@ -223,8 +223,9 @@
 
     <!--
       랭킹 스냅: CTE로 해당 시즌 DELETE 후 INSERT (한 문·동일 TX).
-      PK 는 (season_id, rank_position) — pool_ranked 는 wizard_id 1슬롯 보장(fragments) + pg_advisory_xact_lock(시즌별)로
-      동시 Job·중복 top_wizards 행에 의한 rank_position 충돌을 막는다.
+      PK 는 (season_id, rank_position) — pg_advisory_xact_lock(시즌별) + pool_500 1슬롯 + pool_ranked_final(DISTINCT rank) +
+      ON CONFLICT 로 중복 INSERT·경합 시에도 PK 충돌을 제거한다.
+      (win_agg 는 pool_ranked 조인 대신 pool_500 서브쿼리로 상위 500 wizard만 집계해 조인 폭주·이중 집계 여지를 없앤다.)
     -->
     <insert id="insertRtaSummonerRankingSnapForSeason">
         WITH
@@ -251,10 +252,22 @@
                 COUNT(*)::bigint AS match_count,
                 SUM(CASE WHEN u.is_winner THEN 1 ELSE 0 END)::bigint AS win_count
             FROM public.rta_match_participant u
-            INNER JOIN pool_ranked p ON p.wizard_id = u.wizard_id
             WHERE u.season_id = #{seasonId}
               AND u.ladder_score &gt; 0
+              AND u.wizard_id IN (SELECT pp.wizard_id FROM pool_500 pp)
             GROUP BY u.wizard_id
+        ),
+        pool_ranked_final AS (
+            SELECT DISTINCT ON (rank_position)
+                wizard_id,
+                wizard_name,
+                country,
+                channel_uid,
+                max_score,
+                rating_id,
+                rank_position
+            FROM pool_ranked
+            ORDER BY rank_position, wizard_id
         )
         INSERT INTO public.rta_agg_summoner_ranking_snap (
             season_id,
@@ -283,9 +296,20 @@
             COALESCE(wa.match_count, 0)::bigint AS match_count,
             COALESCE(wa.win_count, 0)::bigint AS win_count,
             now()
-        FROM pool_ranked p
+        FROM pool_ranked_final p
         LEFT JOIN win_agg wa ON wa.wizard_id = p.wizard_id
         ORDER BY p.rank_position
+        ON CONFLICT (season_id, rank_position) DO UPDATE SET
+            wizard_id = EXCLUDED.wizard_id,
+            wizard_name = EXCLUDED.wizard_name,
+            country = EXCLUDED.country,
+            channel_uid = EXCLUDED.channel_uid,
+            score = EXCLUDED.score,
+            rating_id = EXCLUDED.rating_id,
+            max_season_score = EXCLUDED.max_season_score,
+            match_count = EXCLUDED.match_count,
+            win_count = EXCLUDED.win_count,
+            computed_at = EXCLUDED.computed_at
     </insert>
 
     <!--
