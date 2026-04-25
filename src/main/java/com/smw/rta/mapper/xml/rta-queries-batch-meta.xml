@@ -231,7 +231,7 @@
         snap_season_xact_lock AS (
             SELECT 1 AS _ok
             FROM (
-                SELECT public.pg_advisory_xact_lock(
+                SELECT pg_catalog.pg_advisory_xact_lock(
                     872201,
                     ( (CAST(#{seasonId} AS BIGINT) % 2000000000) + 1 )::int
                 ) AS _v
@@ -298,7 +298,7 @@
         snap_season_xact_lock AS (
             SELECT 1 AS _ok
             FROM (
-                SELECT public.pg_advisory_xact_lock(
+                SELECT pg_catalog.pg_advisory_xact_lock(
                     872201,
                     ( (CAST(#{seasonId} AS BIGINT) % 2000000000) + 1 )::int
                 ) AS _v
