@@ -215,22 +215,40 @@
         WHERE replay_id = #{rid}
     </update>
 
-    <!-- 랭킹 스냅샷 재적재: 시즌별 기존 행 삭제 후 상위 500명 글로벌 순위 적재 -->
+    <!-- 수동·마이그레이션용. 일반 경로는 insertRtaSummonerRankingSnapForSeason(원자·DELETE+INSERT) 사용 -->
     <delete id="deleteRtaSummonerRankingSnapBySeason">
         DELETE FROM public.rta_agg_summoner_ranking_snap
         WHERE season_id = #{seasonId}
     </delete>
 
+    <!-- 랭킹 스냅: DELETE→INSERT 를 한 문(동일 TX) + ON CONFLICT — Pod/세션 겹침·소스행 중복에도 PK 충돌 방지 -->
     <insert id="insertRtaSummonerRankingSnapForSeason">
-        WITH <include refid="rtaSummonerRankingTopWizardsPairCte"/>,
+        WITH deleted AS (
+            DELETE FROM public.rta_agg_summoner_ranking_snap
+            WHERE season_id = #{seasonId}
+            RETURNING season_id
+        ),
+        <include refid="rtaSummonerRankingTopWizardsPairCte"/>,
         <include refid="rtaSummonerRankingPool500AndFilterCte"/>,
+        pool_dedup AS (
+            SELECT DISTINCT ON (pr.rank_position)
+                pr.wizard_id,
+                pr.wizard_name,
+                pr.country,
+                pr.channel_uid,
+                pr.max_score,
+                pr.rating_id,
+                pr.rank_position
+            FROM pool_ranked pr
+            ORDER BY pr.rank_position, pr.wizard_id
+        ),
         win_agg AS (
             SELECT
                 u.wizard_id,
                 COUNT(*)::bigint AS match_count,
                 SUM(CASE WHEN u.is_winner THEN 1 ELSE 0 END)::bigint AS win_count
             FROM public.rta_match_participant u
-            INNER JOIN pool_ranked p ON p.wizard_id = u.wizard_id
+            INNER JOIN pool_dedup p ON p.wizard_id = u.wizard_id
             WHERE u.season_id = #{seasonId}
               AND u.ladder_score &gt; 0
             GROUP BY u.wizard_id
@@ -262,9 +280,20 @@
             COALESCE(wa.match_count, 0)::bigint AS match_count,
             COALESCE(wa.win_count, 0)::bigint AS win_count,
             now()
-        FROM pool_ranked p
+        FROM pool_dedup p
         LEFT JOIN win_agg wa ON wa.wizard_id = p.wizard_id
         ORDER BY p.rank_position
+        ON CONFLICT (season_id, rank_position) DO UPDATE SET
+            wizard_id = EXCLUDED.wizard_id,
+            wizard_name = EXCLUDED.wizard_name,
+            country = EXCLUDED.country,
+            channel_uid = EXCLUDED.channel_uid,
+            score = EXCLUDED.score,
+            rating_id = EXCLUDED.rating_id,
+            max_season_score = EXCLUDED.max_season_score,
+            match_count = EXCLUDED.match_count,
+            win_count = EXCLUDED.win_count,
+            computed_at = EXCLUDED.computed_at
     </insert>
 
     <select id="countRtaSummonerRankingSnapRows" resultType="long">

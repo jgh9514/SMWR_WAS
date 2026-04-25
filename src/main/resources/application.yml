@@ -259,6 +259,8 @@ smw:
       skip-user-monster-owned-agg-in-unified-job: ${SMW_RTA_UNIFIED_SKIP_USER_OWNED_AGG:true}
       # 티어 일별(rta_agg_tier_daily): sql/migrate_add_rta_tier_daily_batch_config.sql 로 sys_batch_config 등록 → RtaTierDailyAggJob. 통합 Job에서는 기본 skip
       skip-tier-agg-daily-in-unified-job: ${SMW_RTA_BATCH_SKIP_TIER_AGG_DAILY_IN_UNIFIED:true}
+      # true: 시너지·카운터 staging COPY/merge 를 한 라운드에서 병렬(처리량↑). false: 순차(락·lock_timeout 경합↓)
+      parallel-synergy-counter-staging-flush: ${SMW_RTA_PARALLEL_SYNERGY_COUNTER_FLUSH:false}
     # 카운터 집계 대량 반영: COPY + UNLOGGED 스테이징 + 집합 UPSERT. DDL: sql/staging_matchup_agg.sql
     counter-agg:
       # merge 직후 ANALYZE — 대량 적재 후 통계·플랜 품질(쓰기 경로 부담 시 false)
@@ -276,6 +278,8 @@ smw:
       copy-staging-chunk-rows: ${SMW_RTA_SYNERGY_COPY_STAGING_CHUNK_ROWS:600000}
     # staging → rta_agg_* merge 직전: ANALYZE staging / jit off / work_mem / 병렬 수집
     staging-merge:
+      # COPY/merge(및 counter 는 MERGE 뒤 ANALYZE) — 풀 lock_timeout(초)보다 락 대기가 길면 취소. 0=PG 무한 대기, -1=SET 생략
+      lock-timeout-ms: ${SMW_RTA_STAGING_MERGE_LOCK_TIMEOUT_MS:0}
       analyze-staging-before-merge: ${SMW_RTA_STAGING_MERGE_ANALYZE:true}
       jit-off-for-merge: ${SMW_RTA_STAGING_MERGE_JIT_OFF:true}
       work-mem-mb: ${SMW_RTA_STAGING_MERGE_WORK_MEM_MB:0}

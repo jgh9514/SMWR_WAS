@@ -27,6 +27,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import com.smw.rta.config.RtaBatchProperties;
 import com.smw.rta.mapper.RtaMapper;
 import com.smw.rta.model.RtaCounterMatchupUpsertRow;
 import com.smw.rta.model.RtaSynergyBanDeltaRow;
@@ -77,6 +78,7 @@ public class RtaSynergyAggServiceImpl implements RtaSynergyAggService {
 	private final RtaBulkRidLookupService bulkRidLookupService;
 	private final RtaSynergyBanCntBulkService synergyBanCntBulkService;
 	private final DataSource dataSource;
+	private final RtaBatchProperties rtaBatchProperties;
 
 	public RtaSynergyAggServiceImpl(RtaMapper rtaMapper,
 			@Qualifier("rtaJdbcTransactionManager") PlatformTransactionManager transactionManager,
@@ -84,7 +86,8 @@ public class RtaSynergyAggServiceImpl implements RtaSynergyAggService {
 			RtaSynergyAggCopyStagingService synergyCopyStagingService,
 			RtaBulkRidLookupService bulkRidLookupService,
 			RtaSynergyBanCntBulkService synergyBanCntBulkService,
-			DataSource dataSource) {
+			DataSource dataSource,
+			RtaBatchProperties rtaBatchProperties) {
 		this.rtaMapper = rtaMapper;
 		this.synergyOneRidTx = new TransactionTemplate(transactionManager);
 		this.synergyOneRidTx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
@@ -93,6 +96,7 @@ public class RtaSynergyAggServiceImpl implements RtaSynergyAggService {
 		this.bulkRidLookupService = bulkRidLookupService;
 		this.synergyBanCntBulkService = synergyBanCntBulkService;
 		this.dataSource = dataSource;
+		this.rtaBatchProperties = rtaBatchProperties;
 	}
 
 	@Override
@@ -164,14 +168,20 @@ public class RtaSynergyAggServiceImpl implements RtaSynergyAggService {
 				.thenComparingInt(RtaCounterMatchupUpsertRow::getRatingId)
 				.thenComparingLong(RtaCounterMatchupUpsertRow::getSubjectUnitId)
 				.thenComparing(RtaCounterMatchupUpsertRow::getOpponentComboKey));
-		// 시너지·카운터는 서로 다른 staging 테이블(staging_synergy_agg / staging_matchup_agg)을 쓰므로 병렬 flush 가능
-		CompletableFuture<Void> synFlush = CompletableFuture.runAsync(() -> flushSynergyInChunks(mergedSyn));
-		CompletableFuture<Void> cntFlush = CompletableFuture.runAsync(() -> flushCounterMatchupInChunks(mergedCnt));
-		try {
-			CompletableFuture.allOf(synFlush, cntFlush).join();
-		} catch (CompletionException ce) {
-			Throwable cause = ce.getCause();
-			throw new IllegalStateException("병렬 flush 실패: " + cause.getMessage(), cause);
+		// 병렬: staging 테이블은 분리됐으나, 동시 MERGE+ANALYZE+다른 세션(다른 Pod/로컬)과 rta_agg_* 락이 겹치면
+		// lock_timeout 이 날 수 있음 — smw.rta.batch.parallel-synergy-counter-staging-flush=false 로 순차 flush.
+		if (rtaBatchProperties.isParallelSynergyCounterStagingFlush()) {
+			CompletableFuture<Void> synFlush = CompletableFuture.runAsync(() -> flushSynergyInChunks(mergedSyn));
+			CompletableFuture<Void> cntFlush = CompletableFuture.runAsync(() -> flushCounterMatchupInChunks(mergedCnt));
+			try {
+				CompletableFuture.allOf(synFlush, cntFlush).join();
+			} catch (CompletionException ce) {
+				Throwable cause = ce.getCause();
+				throw new IllegalStateException("병렬 flush 실패: " + cause.getMessage(), cause);
+			}
+		} else {
+			flushSynergyInChunks(mergedSyn);
+			flushCounterMatchupInChunks(mergedCnt);
 		}
 		flushSynergyBanDeltas(bulkRidLookupService.aggregateSynergyBanIncrements(ordered));
 		int marked = markSynergyAggDoneForRidsAll(processed);

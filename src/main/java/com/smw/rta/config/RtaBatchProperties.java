@@ -51,6 +51,15 @@ public class RtaBatchProperties {
 	@Deprecated
 	private boolean dropCounterMatchupQueryIndexDuringUnifiedJob = false;
 
+	/**
+	 * 시너지 staging(COPY+merge)과 카운터 staging(COPY+merge)을 한 rid 라운드 끝에서
+	 * <strong>병렬(스레드 2)</strong>로 flush 할지, <strong>순차</strong>로 할지.
+	 * <p>
+	 * false — 처리량은 다소 느려질 수 있으나 동시에 다른 잡·Pod·세션과 {@code rta_agg_*} 락이 겹쳐
+	 * {@code lock timeout} 이 나는 환경에서 유리.
+	 */
+	private boolean parallelSynergyCounterStagingFlush = true;
+
 	/** 배치 실패 시 Slack 알림용 Bot Token (xoxb-...). 비어 있으면 알림 생략. */
 	private String slackToken = "";
 

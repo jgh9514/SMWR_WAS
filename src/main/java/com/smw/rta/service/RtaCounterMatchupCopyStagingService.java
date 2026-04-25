@@ -75,6 +75,7 @@ public class RtaCounterMatchupCopyStagingService {
 			try (Statement st = conn.createStatement()) {
 				// 집계 통계는 재계산 가능 → WAL fsync 대기 생략으로 커밋 속도 향상
 				st.execute("SET LOCAL synchronous_commit = off");
+				RtaAggStagingMergeTune.applyLockTimeoutForMerge(st, stagingMergeProperties);
 				st.execute(TRUNCATE_STAGING);
 			}
 			CopyManager copyManager = RtaPgCopySupport.unwrapPg(conn).getCopyAPI();

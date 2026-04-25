@@ -27,7 +27,7 @@ public class RtaBatchAggregationService {
 			if (seasonId == null) {
 				continue;
 			}
-			rtaMapper.deleteRtaSummonerRankingSnapBySeason(seasonId.longValue());
+			// DELETE+INSERT 는 rta-queries-batch-meta insertRtaSummonerRankingSnapForSeason 한 구문(원자) — 라움·동시 Job 경합으로 PK 중복 방지
 			rtaMapper.insertRtaSummonerRankingSnapForSeason(seasonId.longValue());
 		}
 		return new SummonerRankingRebuildResult((int) safeCount(rtaMapper.countRtaSummonerRankingSnapRows()));

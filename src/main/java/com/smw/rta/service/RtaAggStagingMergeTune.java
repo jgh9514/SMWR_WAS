@@ -24,6 +24,22 @@ final class RtaAggStagingMergeTune {
 	}
 
 	/**
+	 * Hikari 등에서 짧은 {@code lock_timeout} 이 걸려 있으면, 대용량 MERGE 가 다른 세션 락을
+	 * 잠깐 잡는 동안 "canceling statement due to lock timeout" 이 난다. merge 트랜잭션 안에서
+	 * {@code SET LOCAL} 으로만 덮어쓴다(커밋 후 풀 반환 시 소멸).
+	 */
+	static void applyLockTimeoutForMerge(Statement st, RtaStagingMergeProperties props) throws SQLException {
+		if (props == null) {
+			return;
+		}
+		int ms = props.getLockTimeoutMs();
+		if (ms < 0) {
+			return;
+		}
+		st.execute("SET LOCAL lock_timeout = " + ms);
+	}
+
+	/**
 	 * @param stagingQualifiedTable {@code public.staging_matchup_agg} 또는 {@code public.staging_synergy_agg}
 	 */
 	static void prepareAfterCopyBeforeMerge(Connection conn, RtaStagingMergeProperties props,

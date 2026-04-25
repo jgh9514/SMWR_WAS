@@ -1,6 +1,6 @@
 # 메모리·노드 여유가 작을 때 배포 순서 (App 교체 + Batch 단계적 스케일)
 
-동일 이미지로 **smw-app**·**smw-batch**를 띄우면, 배포 시점에 **API 롤아웃 + 배치 Pod 기동**이 겹치면서 노드 OOMKilled·스케줄 실패가 나기 쉽다. 그럴 땥 아래 순서로 **배치를 잠시 0**으로 두고 App만 교체한 뒤, 배치를 **1 → 동작 확인 → 2**로 올린다.
+동일 이미지로 **smw-app**·**smw-batch**를 띄우면, 배포 시점에 **API 롤아웃 + 배치 Pod 기동**이 겹치면서 노드 OOMKilled·스케줄 실패가 나기 쉽다. 그럴 땥 아래 순서로 **배치를 잠시 0**으로 두고 App만 교체한 뒤, 배치를 **1**로 올리고(평시 목표는 `batch-deployment`의 `replicas`와 같음) 필요하면 **2**로 스케일한다.
 
 ## GitHub Actions (기본: 둘 다 동시에 교체)
 
@@ -49,7 +49,7 @@
 
 ## `batch-deployment.yaml`의 `replicas`와의 관계
 
-매니페스트에 `replicas: 2`로 두어 **평시 목표**를 Git에 둔다. 위처럼 `kubectl scale`로 임시 조정해도, 이후 `kubectl apply -f k8s/batch-deployment.yaml`을 하면 **파일에 적힌 replica로 되돌아갈 수 있음**. 운영 시:
+매니페스트에 `replicas`(현재 기본 1)로 **평시 목표**를 Git에 둔다. 위처럼 `kubectl scale`로 임시 조정해도, 이후 `kubectl apply -f k8s/batch-deployment.yaml`을 하면 **파일에 적힌 replica로 되돌아갈 수 있음**. 운영 시:
 
 - `apply` 전에 `batch-deployment.yaml`의 `replicas`를 배포 당시 목표(예: 1)로 맞추거나,
 - `apply` 후 `kubectl scale`로 다시 맞추는 식으로 정리.
@@ -61,4 +61,4 @@
 
 ## 한 줄 요약
 
-**batch 0 → app 교체·안정 → batch 1 → 확인 → batch 2**
+**batch 0 → app 교체·안정 → batch 1 → 확인 → (선택) scale 2**
