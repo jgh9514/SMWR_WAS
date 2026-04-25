@@ -13,10 +13,18 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
 
 @Service
 @Primary
 public class RtaServiceImpl implements RtaService {
+
+    /**
+     * 메인 4패널 link-preview: 솔/듀/트/랭킹 4쿼리를 한 요청에서 병렬(블로킹 JDBC는 가상 스레드).
+     */
+    private static final Executor RTA_LINK_PREVIEW_EXECUTOR = Executors.newVirtualThreadPerTaskExecutor();
 
     /** /rta 매치 목록: 요청 limit를 페이지 크기로 볼 때 11페이지 이상이면 DB 미조회 */
     private static final int RTA_MATCH_LIST_MAX_PAGES = 10;
@@ -279,6 +287,48 @@ public class RtaServiceImpl implements RtaService {
     public Map<String, Object> getRtaDashboardRankCutoff(Long seasonId) {
         Long sid = doResolveSeasonId(seasonId);
         return rtaDashboardRankCutoffCacheService.getRankCutoffPart(sid);
+    }
+
+    @Override
+    @Cacheable(cacheNames = "rtaMonster", cacheManager = "rtaShortLivedCacheManager",
+            key = "'dlp_' + (#seasonId != null ? #seasonId : 'x') + '_' + #previewLimit")
+    public Map<String, Object> getRtaDashboardLinkPreview(Long seasonId, int previewLimit) {
+        int n = Math.max(1, Math.min(previewLimit, 50));
+        Map<String, Object> out = new HashMap<>();
+        out.put("previewLimit", n);
+        out.put("seasonId", doResolveSeasonId(seasonId));
+        try {
+            CompletableFuture<Map<String, Object>> fSolo = CompletableFuture.supplyAsync(
+                    () -> rtaServiceSelf.getRtaMonsterStats(n, 0, "solo", seasonId, null, null),
+                    RTA_LINK_PREVIEW_EXECUTOR);
+            CompletableFuture<Map<String, Object>> fDuo = CompletableFuture.supplyAsync(
+                    () -> rtaServiceSelf.getRtaMonsterStats(n, 0, "duo", seasonId, null, null),
+                    RTA_LINK_PREVIEW_EXECUTOR);
+            CompletableFuture<Map<String, Object>> fTrio = CompletableFuture.supplyAsync(
+                    () -> rtaServiceSelf.getRtaMonsterStats(n, 0, "trio", seasonId, null, null),
+                    RTA_LINK_PREVIEW_EXECUTOR);
+            CompletableFuture<Map<String, Object>> fRank = CompletableFuture.supplyAsync(
+                    () -> rtaServiceSelf.getRtaSummonerRanking(n, 0, seasonId, null),
+                    RTA_LINK_PREVIEW_EXECUTOR);
+            CompletableFuture.allOf(fSolo, fDuo, fTrio, fRank).join();
+            out.put("solo", fSolo.get());
+            out.put("duo", fDuo.get());
+            out.put("trio", fTrio.get());
+            out.put("summoner_ranking", fRank.get());
+        } catch (Exception e) {
+            Throwable t = e;
+            if (e instanceof java.util.concurrent.ExecutionException && e.getCause() != null) {
+                t = e.getCause();
+            }
+            if (t instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
+            if (t instanceof RuntimeException re) {
+                throw re;
+            }
+            throw new RuntimeException(t);
+        }
+        return out;
     }
 
     @Override

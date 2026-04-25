@@ -53,6 +53,11 @@ public interface RtaService {
     Map<String, Object> getRtaDashboardRankCutoff(Long seasonId);
 
     /**
+     * 메인/대시보드 4패널(솔·듀·트·소환사 랭킹)을 한 응답으로 — 내부는 가상 스레드로 4쿼리 병렬.
+     */
+    Map<String, Object> getRtaDashboardLinkPreview(Long seasonId, int previewLimit);
+
+    /**
      * RTA 소환사 랭킹
      *
      * @param countryFilter 국가 코드(2자); null/빈값이면 전체

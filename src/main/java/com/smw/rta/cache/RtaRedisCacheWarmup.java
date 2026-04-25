@@ -44,6 +44,7 @@ public class RtaRedisCacheWarmup {
 			rtaService.getRtaMonsterStats(30, 0, "solo", sid, null, null);
 			rtaService.getRtaMonsterStats(30, 0, "duo", sid, null, null);
 			rtaService.getRtaMonsterStats(30, 0, "trio", sid, null, null);
+			rtaService.getRtaDashboardLinkPreview(sid, 5);
 			rtaService.getRtaStats(sid, null, null);
 			log.debug("[rta-cache] Redis warmup finished for seasonId={}", sid);
 		} catch (Exception e) {

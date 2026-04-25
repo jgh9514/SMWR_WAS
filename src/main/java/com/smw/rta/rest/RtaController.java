@@ -353,6 +353,22 @@ public class RtaController {
         }
     }
 
+    @Operation(summary = "RTA 메인 4패널 미리보기", description = "솔·듀·트·소환사 랭킹 상위 N건을 한 번에(서버 병렬 조회)")
+    @PostMapping("/dashboard/link-preview")
+    public ResponseEntity<Map<String, Object>> getRtaDashboardLinkPreview(
+            @RequestBody(required = false) Map<String, Object> param) {
+        try {
+            Map<String, Object> p = param != null ? param : new HashMap<>();
+            Long sid = pickSeasonId(p);
+            int preview = clampInt(parseIntOpt(p.get("previewLimit"), 5), 1, 50);
+            Map<String, Object> response = rtaService.getRtaDashboardLinkPreview(sid, preview);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("RTA dashboard link-preview 조회 실패", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
     @Operation(summary = "RTA 몬스터별 통계 조회")
     @PostMapping("/monster-stats")
     public ResponseEntity<Map<String, Object>> getRtaMonsterStats(@RequestBody Map<String, Object> param) {
