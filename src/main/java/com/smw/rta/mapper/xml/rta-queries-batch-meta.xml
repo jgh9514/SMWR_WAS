@@ -223,14 +223,24 @@
 
     <!--
       랭킹 스냅: CTE로 해당 시즌 DELETE 후 INSERT (한 문·동일 TX).
-      PK 는 (season_id, rank_position) — pool_ranked 의 rank_position 을 그대로 쓰고,
-      pool_one + dedup 이중 ROW_NUMBER() 경로는 제거해 (season_id, rank_position) 중복 삽입을 막는다.
-      (과거 ON CONFLICT (season_id, wizard_id) 는 PK/삽입 축이 달라 DO UPDATE 시 rank 충돌이 났다.)
+      PK 는 (season_id, rank_position) — pool_ranked 는 wizard_id 1슬롯 보장(fragments) + pg_advisory_xact_lock(시즌별)로
+      동시 Job·중복 top_wizards 행에 의한 rank_position 충돌을 막는다.
     -->
     <insert id="insertRtaSummonerRankingSnapForSeason">
-        WITH deleted AS (
+        WITH
+        snap_season_xact_lock AS (
+            SELECT 1 AS _ok
+            FROM (
+                SELECT public.pg_advisory_xact_lock(
+                    872201,
+                    ( (CAST(#{seasonId} AS BIGINT) % 2000000000) + 1 )::int
+                ) AS _v
+            ) AS _lock_sub
+        ),
+        deleted AS (
             DELETE FROM public.rta_agg_summoner_ranking_snap
             WHERE season_id = #{seasonId}
+              AND EXISTS (SELECT 1 FROM snap_season_xact_lock)
             RETURNING season_id
         ),
         <include refid="rtaSummonerRankingTopWizardsPairCte"/>,
@@ -278,9 +288,63 @@
         ORDER BY p.rank_position
     </insert>
 
+    <!--
+      시즌 전체 wizard_id 1승롯(검색 API): CTE로 해당 시즌 DELETE 후 INSERT.
+      대표 행: 시즌 내 ladder_score 최대(동률: replay_id 큰 쪽) — 닉 변경 후 재경기 시 최신 쪽이 반영.
+      pg_advisory_xact_lock: 랭킹 스냅(872201)과 동일 키로 동일 시즌 쓰기 직렬화.
+    -->
+    <insert id="insertRtaSummonerSearchSnapForSeason">
+        WITH
+        snap_season_xact_lock AS (
+            SELECT 1 AS _ok
+            FROM (
+                SELECT public.pg_advisory_xact_lock(
+                    872201,
+                    ( (CAST(#{seasonId} AS BIGINT) % 2000000000) + 1 )::int
+                ) AS _v
+            ) AS _lock_sub
+        ),
+        deleted AS (
+            DELETE FROM public.rta_agg_summoner_search_snap
+            WHERE season_id = #{seasonId}
+              AND EXISTS (SELECT 1 FROM snap_season_xact_lock)
+            RETURNING season_id
+        ),
+        pick AS (
+            SELECT DISTINCT ON (mp.wizard_id)
+                mp.wizard_id,
+                mp.wizard_name,
+                mp.country_code,
+                mp.channel_uid,
+                mp.ladder_score,
+                mp.rating_id
+            FROM public.rta_match_participant mp
+            WHERE mp.season_id = #{seasonId}
+            ORDER BY mp.wizard_id, mp.ladder_score DESC NULLS LAST, mp.replay_id DESC
+        )
+        INSERT INTO public.rta_agg_summoner_search_snap (
+            season_id, wizard_id, wizard_name, country, channel_uid, score, rating_id, computed_at
+        )
+        SELECT
+            #{seasonId},
+            p.wizard_id,
+            p.wizard_name,
+            NULLIF(TRIM(BOTH FROM COALESCE(p.country_code::text, '')), '')::varchar(8),
+            p.channel_uid,
+            COALESCE(p.ladder_score, 0)::int,
+            p.rating_id,
+            now()
+        FROM pick p
+    </insert>
+
     <select id="countRtaSummonerRankingSnapRows" resultType="long">
         SELECT COUNT(*)::bigint
         FROM public.rta_agg_summoner_ranking_snap
+    </select>
+
+    <select id="countRtaSummonerSearchSnapRows" resultType="long">
+        SELECT COUNT(*)::bigint
+        FROM public.rta_agg_summoner_search_snap
     </select>
 
     <!-- 소환사 랭킹 목록 API: 스냅샷 테이블 조회 + 국가 필터 + pool_meta total -->
@@ -331,25 +395,24 @@
     </select>
 
     <!--
-      닉네임 부분 일치(GIN trigram ILIKE) 또는 위자드ID 정확 일치.
-      rta_match_participant 직접 조회 — wizard_id별 최고 래더 점수 행 1건.
-      pg_trgm GIN 인덱스(idx_rta_participant_wizard_name_trgm) 필수.
+      닉 부분 일치·위자드ID 정확 일치. 시즌 전체 집계 rta_agg_summoner_search_snap (배치 갱신).
+      GIN: idx_rta_agg_summoner_search_snap_name_trgm; 시즌 필터: idx_rta_agg_summoner_search_snap_season.
     -->
     <select id="searchRtaSummonersInAgg" resultType="map">
-        SELECT DISTINCT ON (wizard_id)
-            wizard_id,
-            wizard_name,
-            country_code AS country,
-            channel_uid,
-            ladder_score AS score,
-            rating_id
-        FROM public.rta_match_participant
-        WHERE season_id = #{seasonId}
+        SELECT
+            s.wizard_id,
+            s.wizard_name,
+            s.country,
+            s.channel_uid,
+            s.score,
+            s.rating_id
+        FROM public.rta_agg_summoner_search_snap s
+        WHERE s.season_id = #{seasonId}
           AND (
-              wizard_id::text = #{query}
-              OR wizard_name ILIKE '%' || #{query} || '%'
+              s.wizard_id = #{query}
+              OR s.wizard_name ILIKE '%' || #{query} || '%'
           )
-        ORDER BY wizard_id, ladder_score DESC
+        ORDER BY (s.wizard_id = #{query}) DESC, s.score DESC NULLS LAST, s.wizard_id ASC
         LIMIT #{limit}
     </select>
 
@@ -551,7 +614,12 @@
            AND lb.grade_slot = t.grade_slot
     </insert>
 
-    <!-- 시즌별 등급(rating_id) 최저 래더 점수 스냅샷 (히스토리 적재) -->
+    <!--
+      시즌별 등급(rating_id) 최저 래더 점수 스냅샷 (히스토리, 배치 1회에 모든 시즌 행 — snapshot_at 공통).
+      소스 등급 집합은 rta_rating_grade_season(해당 시즌 공식)만 — 전 등급 × LEFT rgs 는 타 시즌/미정의 티어가 섞임.
+      MIN 은 rta_match / participant 의 season_id 로 한정(날짜 구간만 쓰면 season_id 미일치 리플 섞임).
+      getRtaSnapshotRankCutLatest 와 맞추기 위해 min_win_points IS NULL 인 티어(예: P1)는 제외.
+    -->
     <insert id="insertRtaSnapshotRankCutForAllSeasons">
         INSERT INTO public.rta_snapshot_rank_cut (season_id, snapshot_at, rating_id, cutoff_score)
         SELECT DISTINCT ON (s.season_id, rg.rating_id)
@@ -562,15 +630,20 @@
                 SELECT MIN(u.ladder_score)
                 FROM public.rta_match_participant u
                 INNER JOIN public.rta_match m ON m.replay_id = u.replay_id
-                WHERE m.played_at &gt;= s.start_at
+                WHERE u.season_id = s.season_id
+                  AND m.season_id = s.season_id
+                  AND m.played_at &gt;= s.start_at
                   AND m.played_at &lt; s.end_at
                   AND u.rating_id = rg.rating_id
                   AND u.ladder_score &gt; 0
             ), rgs.min_win_points, 0)::bigint
         FROM public.rta_season s
-        INNER JOIN public.rta_rating_grade rg ON rg.grade_slot IS NOT NULL
-        LEFT JOIN public.rta_rating_grade_season rgs
-            ON rgs.season_id = s.season_id AND rgs.rating_id = rg.rating_id
+        INNER JOIN public.rta_rating_grade_season rgs
+            ON rgs.season_id = s.season_id
+           AND rgs.min_win_points IS NOT NULL
+        INNER JOIN public.rta_rating_grade rg
+            ON rg.rating_id = rgs.rating_id
+           AND rg.grade_slot IS NOT NULL
         ORDER BY s.season_id, rg.rating_id
     </insert>
 

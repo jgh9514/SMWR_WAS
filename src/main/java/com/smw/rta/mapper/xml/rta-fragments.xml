@@ -217,6 +217,11 @@ GROUP BY bucket_date, grade_slot
 	  점수 순 상위 500명을 먼저 자른 뒤 그 집합에만 rank_position 을 부여한다.
 	-->
 	<sql id="rtaSummonerRankingPool500AndFilterCte">
+		<!--
+		  top_wizards 는 DISTINCT ON( wizard_id ) 이어도, 소스/타입/인라인 쪽에서 동일 시즌에 wizard_id
+		  중복이 생기면 top_wizards row 가 둘 이상이 될 수 있음 → pool_500·ROW_NUMBER() 에서 rank_position 충돌
+		  (PK season_id, rank_position). 1인 1슬롯으로 눌러 상위 500 + 고유 rank 만 보장.
+		-->
 		pool_500 AS (
 			SELECT
 				wizard_id,
@@ -225,7 +230,21 @@ GROUP BY bucket_date, grade_slot
 				channel_uid,
 				max_score,
 				rating_id
-			FROM top_wizards
+			FROM (
+				SELECT
+					wizard_id,
+					wizard_name,
+					country,
+					channel_uid,
+					max_score,
+					rating_id,
+					ROW_NUMBER() OVER (
+						PARTITION BY wizard_id
+						ORDER BY max_score DESC, channel_uid::text, wizard_name, country::text
+					) AS _rn
+				FROM top_wizards
+			) d
+			WHERE d._rn = 1
 			ORDER BY max_score DESC, wizard_id ASC
 			LIMIT 500
 		),

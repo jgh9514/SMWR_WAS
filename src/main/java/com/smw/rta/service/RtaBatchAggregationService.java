@@ -29,8 +29,11 @@ public class RtaBatchAggregationService {
 			}
 			// DELETE+INSERT 는 rta-queries-batch-meta insertRtaSummonerRankingSnapForSeason 한 구문(원자) — 라움·동시 Job 경합으로 PK 중복 방지
 			rtaMapper.insertRtaSummonerRankingSnapForSeason(seasonId.longValue());
+			rtaMapper.insertRtaSummonerSearchSnapForSeason(seasonId.longValue());
 		}
-		return new SummonerRankingRebuildResult((int) safeCount(rtaMapper.countRtaSummonerRankingSnapRows()));
+		return new SummonerRankingRebuildResult(
+				(int) safeCount(rtaMapper.countRtaSummonerRankingSnapRows()),
+				(int) safeCount(rtaMapper.countRtaSummonerSearchSnapRows()));
 	}
 
 	/**
@@ -162,7 +165,8 @@ public class RtaBatchAggregationService {
 		}
 	}
 
-	public record SummonerRankingRebuildResult(int totalRows) {
+	/** @param rankingRows {@code rta_agg_summoner_ranking_snap} 합, @param searchRows {@code rta_agg_summoner_search_snap} 합 */
+	public record SummonerRankingRebuildResult(int rankingRows, int searchRows) {
 	}
 
 	public record RawApplyDrainResult(int totalApplied, String stopReason) {

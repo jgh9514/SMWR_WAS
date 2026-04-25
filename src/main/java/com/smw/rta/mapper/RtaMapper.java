@@ -113,14 +113,20 @@ public interface RtaMapper {
     /** 시즌별 상위 500명 스냅샷 적재 */
     int insertRtaSummonerRankingSnapForSeason(@Param("seasonId") long seasonId);
 
+    /** 시즌 전체 wizard_id 1슬롯 검색용 스냅샷 적재 (최고 ladder_score·동률 시 최신 replay) */
+    int insertRtaSummonerSearchSnapForSeason(@Param("seasonId") long seasonId);
+
     /** 전체 랭킹 스냅샷 행 수 (배치 적재 후 로깅) */
     Long countRtaSummonerRankingSnapRows();
+
+    /** 전체 검색 스냅샷 행 수 (배치 적재 후 로깅) */
+    Long countRtaSummonerSearchSnapRows();
 
     /** API 조회용 — {@code rta_agg_summoner_ranking_snap} */
     List<Map<String, Object>> getRtaSummonerRankingFromAgg(@Param("limit") int limit, @Param("offset") int offset,
             @Param("seasonId") Long seasonId, @Param("countryFilter") String countryFilter);
 
-    /** 닉네임 부분 일치 또는 위자드 ID 정확 일치 */
+    /** 닉네임 부분 일치 또는 위자드 ID 정확 일치 — {@code rta_agg_summoner_search_snap} */
     List<Map<String, Object>> searchRtaSummonersInAgg(@Param("query") String query,
             @Param("limit") int limit, @Param("seasonId") Long seasonId);
 
