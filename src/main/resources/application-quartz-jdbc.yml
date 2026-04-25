@@ -10,10 +10,10 @@ spring:
     jdbc:
       initialize-schema: never
     properties:
+      # org.quartz.jobStore.class 는 미설정( Boot → LocalDataSourceJobStore, JobStoreTX 시 DataSource name 오류)
       org.quartz.scheduler.instanceName: smwQuartz
       org.quartz.scheduler.instanceId: AUTO
       org.quartz.jobStore.isClustered: true
-      org.quartz.jobStore.class: org.quartz.impl.jdbcjobstore.JobStoreTX
       org.quartz.jobStore.driverDelegateClass: org.quartz.impl.jdbcjobstore.PostgreSQLDelegate
       org.quartz.jobStore.useProperties: false
       org.quartz.jobStore.tablePrefix: QRTZ_
