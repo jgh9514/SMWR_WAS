@@ -93,11 +93,10 @@ public class BatchConfig {
 						Class<?> classObject = Class.forName(jobClassName);
 						log.info("job============== " + classObject);
 
-						Map<String, Object> jobData = new HashMap<>();
-						jobData.put("applicationContext", applicationContext);
-
+						// JDBC JobStore: JobDataMap 은 직렬화·DB 보관 — ApplicationContext 는 SchedulerContext 로만
+						// (QuartzSchedulerContextConfig)
 						registerOrRescheduleCronJob(scheduler, jobKey, cronExp,
-								(Class<? extends Job>) classObject, jobData);
+								(Class<? extends Job>) classObject, new HashMap<>());
 					} catch (ClassNotFoundException e) {
 						log.error("Not found class: {}", jobClassName);
 					} catch (SchedulerException e) {
@@ -266,7 +265,6 @@ public class BatchConfig {
 
 			JobKey quartzJobKey = JobKey.jobKey(jobKey);
 			JobDataMap jobDataMap = new JobDataMap();
-			jobDataMap.put("applicationContext", applicationContext);
 			if (jobData != null) {
 				jobDataMap.putAll(jobData);
 			}
