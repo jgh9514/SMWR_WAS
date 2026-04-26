@@ -180,10 +180,18 @@ public interface RtaMapper {
     int insertRtaSummonerSeasonFightSnapForSeason(@Param("seasonId") long seasonId);
 
     /**
-     * 시즌 단위: {@code rta_agg_summoner_monster_snap} 적재.
-     * {@code user_monster_owned_agg} LEFT JOIN(없으면 owned_copy_count NULL).
+     * 키셋: 시즌의 {@code rta_match.replay_id} 중 after 보다 큰 것만 오름차순, 최대 limit 건.
      */
-    int insertRtaSummonerMonsterSnapForSeason(@Param("seasonId") long seasonId);
+    List<Long> selectReplayIdsForSummonerMonsterSnapKeyset(
+            @Param("seasonId") long seasonId,
+            @Param("afterReplayIdExclusive") long afterReplayIdExclusive,
+            @Param("limit") int limit);
+
+    /**
+     * {@code rta_agg_summoner_monster_snap} — 해당 {@code rids} 리플레이만 집계하여 INSERT.
+     * 대량 시즌은 서비스에서 rids 를 청크로 나눠 반복 호출. {@code user_monster_owned_agg} 는 LEFT JOIN.
+     */
+    int insertRtaSummonerMonsterSnapForSeasonReplayChunk(@Param("seasonId") long seasonId, @Param("rids") long[] rids);
 
     Long countRtaSummonerSeasonFightSnapRows();
 

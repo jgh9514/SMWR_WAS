@@ -266,6 +266,8 @@ smw:
       skip-tier-agg-daily-in-unified-job: ${SMW_RTA_BATCH_SKIP_TIER_AGG_DAILY_IN_UNIFIED:true}
       # true: 시너지·카운터 staging COPY/merge 를 한 라운드에서 병렬(처리량↑). false: 순차(락·lock_timeout 경합↓)
       parallel-synergy-counter-staging-flush: ${SMW_RTA_PARALLEL_SYNERGY_COUNTER_FLUSH:false}
+      # rta_agg_summoner_monster_snap: rta_match.replay_id 를 키셋 N건씩 집계 INSERT(시즌 전량 한 문 I/O·work_mem 오류 완화)
+      summoner-monster-snap-replay-chunk-size: ${SMW_RTA_SUMMONER_MONSTER_SNAP_REPLAY_CHUNK:3000}
     # 카운터 집계 대량 반영: COPY + UNLOGGED 스테이징 + 집합 UPSERT. DDL: sql/staging_matchup_agg.sql
     counter-agg:
       # merge 직후 ANALYZE — 대량 적재 후 통계·플랜 품질(쓰기 경로 부담 시 false)

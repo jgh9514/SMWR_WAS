@@ -31,6 +31,12 @@ public class RtaBatchAggregationService {
 	@Value("${smw.rta.monster-stats.min-pick-count:10}")
 	private int monsterStatsMinPickCount;
 
+	/**
+	 * {@code rta_agg_summoner_monster_snap}: 시즌 INSERT 를 리플레이 ID 키셋 청크로 분할(한 문 집계 부담·I/O 오류 완화).
+	 */
+	@Value("${smw.rta.batch.summoner-monster-snap-replay-chunk-size:3000}")
+	private int summonerMonsterSnapReplayChunkSize;
+
 	public RtaBatchAggregationService(
 			@Qualifier("rtaJdbcTransactionManager") PlatformTransactionManager transactionManager) {
 		this.transactionTemplate = new TransactionTemplate(transactionManager);
@@ -80,9 +86,31 @@ public class RtaBatchAggregationService {
 			rtaMapper.deleteRtaSummonerMonsterSnapBySeason(sid);
 			rtaMapper.deleteRtaSummonerSeasonFightSnapBySeason(sid);
 			fightRows += rtaMapper.insertRtaSummonerSeasonFightSnapForSeason(sid);
-			monRows += rtaMapper.insertRtaSummonerMonsterSnapForSeason(sid);
+			monRows += insertSummonerMonsterSnapForSeasonChunked(rtaMapper, sid);
 		}
 		return new SummonerMonsterSnapRebuildResult(fightRows, monRows);
+	}
+
+	/**
+	 * {@code insertRtaSummonerMonsterSnapForSeasonReplayChunk} 키셋 반복 — 대량 시즌에서 단일 INSERT…SELECT 부담 완화.
+	 */
+	private int insertSummonerMonsterSnapForSeasonChunked(RtaMapper rtaMapper, long seasonId) {
+		int limit = Math.max(100, summonerMonsterSnapReplayChunkSize);
+		int total = 0;
+		long afterExclusive = -1L;
+		while (true) {
+			List<Long> rids = rtaMapper.selectReplayIdsForSummonerMonsterSnapKeyset(seasonId, afterExclusive, limit);
+			if (rids == null || rids.isEmpty()) {
+				break;
+			}
+			long[] arr = rids.stream().mapToLong(Long::longValue).toArray();
+			total += rtaMapper.insertRtaSummonerMonsterSnapForSeasonReplayChunk(seasonId, arr);
+			if (rids.size() < limit) {
+				break;
+			}
+			afterExclusive = rids.get(rids.size() - 1);
+		}
+		return total;
 	}
 
 	/**

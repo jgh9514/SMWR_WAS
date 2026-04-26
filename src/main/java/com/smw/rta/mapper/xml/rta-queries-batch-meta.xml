@@ -786,6 +786,15 @@
         WHERE season_id = #{seasonId}
     </delete>
 
+    <select id="selectReplayIdsForSummonerMonsterSnapKeyset" resultType="long">
+        SELECT m.replay_id
+        FROM public.rta_match m
+        WHERE m.season_id = #{seasonId}
+          AND m.replay_id &gt; #{afterReplayIdExclusive}
+        ORDER BY m.replay_id
+        LIMIT #{limit}
+    </select>
+
     <insert id="insertRtaSummonerSeasonFightSnapForSeason">
         INSERT INTO public.rta_agg_summoner_season_fight_snap (
             season_id, wizard_id, match_cnt, non_ban_pick_cnt, ban_event_cnt, computed_at
@@ -829,7 +838,11 @@
            AND pk.wizard_id = p.wizard_id
     </insert>
 
-    <insert id="insertRtaSummonerMonsterSnapForSeason">
+    <!--
+      소환사×몬스터 스냅: 시즌 전량을 한 문에 집계하면 I/O·work_mem·JDBC "sending" 오류가 날 수 있어
+      rids(리플레이) 청크로만 집계 — 서비스에서 키셋 반복 호출.
+    -->
+    <insert id="insertRtaSummonerMonsterSnapForSeasonReplayChunk">
         INSERT INTO public.rta_agg_summoner_monster_snap (
             season_id, wizard_id, unit_master_id,
             pick_cnt, ban_cnt, win_cnt, lose_cnt, first_pick_cnt, owned_copy_count, computed_at
@@ -844,6 +857,7 @@
             WHERE mp.season_id = #{seasonId}
               AND mp.rating_id IS NOT NULL
               AND mp.rating_id &gt; 0
+              AND mp.replay_id = ANY(#{rids})
         ),
         upnorm AS (
             SELECT
@@ -853,9 +867,7 @@
                 up.is_banned,
                 up.pick_slot_no
             FROM public.rta_match_unit_pick up
-            WHERE up.replay_id IN (
-                SELECT m.replay_id FROM public.rta_match m WHERE m.season_id = #{seasonId}
-            )
+            WHERE up.replay_id = ANY(#{rids})
         ),
         min_non_ban AS (
             SELECT
