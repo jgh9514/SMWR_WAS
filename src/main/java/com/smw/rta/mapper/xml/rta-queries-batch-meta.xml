@@ -922,8 +922,8 @@
     </select>
 
     <!--
-      몬스터 솔/듀/트: 티어(rating_id)당 상위 100 스냅. 집계 테이블·monster.kr_name·minPick·정렬
-      rta-queries-live getRta*FromAgg(ratingId 단일)와 동일 규칙.
+      몬스터 솔/듀/트: 시즌 전체(테이블에 티어 컬럼 없음)로 combo_unit_key 합산 후 상위 100만 스냅.
+      집계: rta_agg_synergy_* 의 rating_id>0 행을 SUM, 정렬·minPick(또는 minMatch)은 합산값 기준.
     -->
     <delete id="deleteRtaMonsterStatsTierTopSnapBySeason">
         DELETE FROM public.rta_agg_monster_stats_tier_top_snap
@@ -932,11 +932,10 @@
 
     <insert id="insertRtaMonsterStatsTierTopSoloSnapForSeason">
         INSERT INTO public.rta_agg_monster_stats_tier_top_snap (
-            season_id, rating_id, stat_kind, rank_position, combo_unit_key, pick_cnt, ban_cnt, match_cnt, win_cnt, computed_at
+            season_id, stat_kind, rank_position, combo_unit_key, pick_cnt, ban_cnt, match_cnt, win_cnt, computed_at
         )
         SELECT
             t.season_id,
-            t.rating_id,
             'S',
             t.rn,
             t.combo_unit_key,
@@ -947,34 +946,39 @@
             now()
         FROM (
             SELECT
-                sg.season_id,
-                sg.rating_id,
-                sg.combo_unit_key,
-                sg.pick_cnt,
-                COALESCE(sg.ban_cnt, 0)::bigint AS ban_cnt,
-                sg.match_cnt,
-                sg.win_cnt,
-                ROW_NUMBER() OVER (
-                    PARTITION BY sg.rating_id
-                    ORDER BY sg.pick_cnt DESC
-                ) AS rn
-            FROM public.rta_agg_synergy_solo sg
-            INNER JOIN public.monster m ON m.monster_id = sg.combo_unit_key
-            WHERE sg.season_id = #{seasonId}
-              AND sg.rating_id &gt; 0
-              AND m.kr_name IS NOT NULL
-              AND sg.pick_cnt &gt;= #{minPickCount}
+                g.season_id,
+                g.combo_unit_key,
+                g.pick_cnt,
+                g.ban_cnt,
+                g.match_cnt,
+                g.win_cnt,
+                ROW_NUMBER() OVER (ORDER BY g.pick_cnt DESC) AS rn
+            FROM (
+                SELECT
+                    sg.season_id,
+                    sg.combo_unit_key,
+                    SUM(sg.pick_cnt)::bigint AS pick_cnt,
+                    SUM(COALESCE(sg.ban_cnt, 0))::bigint AS ban_cnt,
+                    SUM(sg.match_cnt)::bigint AS match_cnt,
+                    SUM(sg.win_cnt)::bigint AS win_cnt
+                FROM public.rta_agg_synergy_solo sg
+                INNER JOIN public.monster m ON m.monster_id = sg.combo_unit_key
+                WHERE sg.season_id = #{seasonId}
+                  AND sg.rating_id &gt; 0
+                  AND m.kr_name IS NOT NULL
+                GROUP BY sg.season_id, sg.combo_unit_key
+                HAVING SUM(sg.pick_cnt) &gt;= #{minPickCount}
+            ) g
         ) t
         WHERE t.rn &lt;= 100
     </insert>
 
     <insert id="insertRtaMonsterStatsTierTopDuoSnapForSeason">
         INSERT INTO public.rta_agg_monster_stats_tier_top_snap (
-            season_id, rating_id, stat_kind, rank_position, combo_unit_key, pick_cnt, ban_cnt, match_cnt, win_cnt, computed_at
+            season_id, stat_kind, rank_position, combo_unit_key, pick_cnt, ban_cnt, match_cnt, win_cnt, computed_at
         )
         SELECT
             t.season_id,
-            t.rating_id,
             'D',
             t.rn,
             t.combo_unit_key,
@@ -985,34 +989,39 @@
             now()
         FROM (
             SELECT
-                sg.season_id,
-                sg.rating_id,
-                sg.combo_unit_key,
-                sg.match_cnt,
-                sg.win_cnt,
+                g.season_id,
+                g.combo_unit_key,
+                g.match_cnt,
+                g.win_cnt,
                 ROW_NUMBER() OVER (
-                    PARTITION BY sg.rating_id
-                    ORDER BY sg.match_cnt DESC, (sg.win_cnt::numeric / NULLIF(sg.match_cnt, 0)) DESC NULLS LAST
+                    ORDER BY g.match_cnt DESC, (g.win_cnt::numeric / NULLIF(g.match_cnt, 0)) DESC NULLS LAST
                 ) AS rn
-            FROM public.rta_agg_synergy_duo sg
-            INNER JOIN public.monster m1 ON m1.monster_id = split_part(sg.combo_unit_key, ',', 1)
-            INNER JOIN public.monster m2 ON m2.monster_id = split_part(sg.combo_unit_key, ',', 2)
-            WHERE sg.season_id = #{seasonId}
-              AND sg.rating_id &gt; 0
-              AND m1.kr_name IS NOT NULL
-              AND m2.kr_name IS NOT NULL
-              AND sg.match_cnt &gt;= #{minPickCount}
+            FROM (
+                SELECT
+                    sg.season_id,
+                    sg.combo_unit_key,
+                    SUM(sg.match_cnt)::bigint AS match_cnt,
+                    SUM(sg.win_cnt)::bigint AS win_cnt
+                FROM public.rta_agg_synergy_duo sg
+                INNER JOIN public.monster m1 ON m1.monster_id = split_part(sg.combo_unit_key, ',', 1)
+                INNER JOIN public.monster m2 ON m2.monster_id = split_part(sg.combo_unit_key, ',', 2)
+                WHERE sg.season_id = #{seasonId}
+                  AND sg.rating_id &gt; 0
+                  AND m1.kr_name IS NOT NULL
+                  AND m2.kr_name IS NOT NULL
+                GROUP BY sg.season_id, sg.combo_unit_key
+                HAVING SUM(sg.match_cnt) &gt;= #{minPickCount}
+            ) g
         ) t
         WHERE t.rn &lt;= 100
     </insert>
 
     <insert id="insertRtaMonsterStatsTierTopTrioSnapForSeason">
         INSERT INTO public.rta_agg_monster_stats_tier_top_snap (
-            season_id, rating_id, stat_kind, rank_position, combo_unit_key, pick_cnt, ban_cnt, match_cnt, win_cnt, computed_at
+            season_id, stat_kind, rank_position, combo_unit_key, pick_cnt, ban_cnt, match_cnt, win_cnt, computed_at
         )
         SELECT
             t.season_id,
-            t.rating_id,
             'T',
             t.rn,
             t.combo_unit_key,
@@ -1023,25 +1032,31 @@
             now()
         FROM (
             SELECT
-                sg.season_id,
-                sg.rating_id,
-                sg.combo_unit_key,
-                sg.match_cnt::bigint AS match_cnt,
-                sg.win_cnt::bigint AS win_cnt,
+                g.season_id,
+                g.combo_unit_key,
+                g.match_cnt,
+                g.win_cnt,
                 ROW_NUMBER() OVER (
-                    PARTITION BY sg.rating_id
-                    ORDER BY sg.match_cnt DESC, (sg.win_cnt::numeric / NULLIF(sg.match_cnt, 0)) DESC NULLS LAST
+                    ORDER BY g.match_cnt DESC, (g.win_cnt::numeric / NULLIF(g.match_cnt, 0)) DESC NULLS LAST
                 ) AS rn
-            FROM public.rta_agg_synergy_trio sg
-            INNER JOIN public.monster m1 ON m1.monster_id = split_part(sg.combo_unit_key, ',', 1)
-            INNER JOIN public.monster m2 ON m2.monster_id = split_part(sg.combo_unit_key, ',', 2)
-            INNER JOIN public.monster m3 ON m3.monster_id = split_part(sg.combo_unit_key, ',', 3)
-            WHERE sg.season_id = #{seasonId}
-              AND sg.rating_id &gt; 0
-              AND m1.kr_name IS NOT NULL
-              AND m2.kr_name IS NOT NULL
-              AND m3.kr_name IS NOT NULL
-              AND sg.match_cnt &gt;= #{minPickCount}
+            FROM (
+                SELECT
+                    sg.season_id,
+                    sg.combo_unit_key,
+                    SUM(sg.match_cnt)::bigint AS match_cnt,
+                    SUM(sg.win_cnt)::bigint AS win_cnt
+                FROM public.rta_agg_synergy_trio sg
+                INNER JOIN public.monster m1 ON m1.monster_id = split_part(sg.combo_unit_key, ',', 1)
+                INNER JOIN public.monster m2 ON m2.monster_id = split_part(sg.combo_unit_key, ',', 2)
+                INNER JOIN public.monster m3 ON m3.monster_id = split_part(sg.combo_unit_key, ',', 3)
+                WHERE sg.season_id = #{seasonId}
+                  AND sg.rating_id &gt; 0
+                  AND m1.kr_name IS NOT NULL
+                  AND m2.kr_name IS NOT NULL
+                  AND m3.kr_name IS NOT NULL
+                GROUP BY sg.season_id, sg.combo_unit_key
+                HAVING SUM(sg.match_cnt) &gt;= #{minPickCount}
+            ) g
         ) t
         WHERE t.rn &lt;= 100
     </insert>

@@ -59,16 +59,16 @@ public interface RtaMapper {
             @Param("ratingIds") List<Integer> ratingIds, @Param("minPickCount") int minPickCount);
 
     /**
-     * 티어별 상위 100 스냅 — {@code rta_agg_monster_stats_tier_top_snap}, 단일 {@code ratingId} 전용.
+     * 시즌 전체 합산 상위 100 스냅 — {@code rta_agg_monster_stats_tier_top_snap}(티어 컬럼 없음).
      */
     List<Map<String, Object>> getRtaMonsterStatsFromTierTopSnap(@Param("limit") int limit, @Param("offset") int offset,
-            @Param("seasonId") Long seasonId, @Param("ratingId") int ratingId, @Param("minPickCount") int minPickCount);
+            @Param("seasonId") Long seasonId, @Param("minPickCount") int minPickCount);
 
     List<Map<String, Object>> getRtaDuoComboStatsFromTierTopSnap(@Param("limit") int limit, @Param("offset") int offset,
-            @Param("seasonId") Long seasonId, @Param("ratingId") int ratingId, @Param("minPickCount") int minPickCount);
+            @Param("seasonId") Long seasonId, @Param("minPickCount") int minPickCount);
 
     List<Map<String, Object>> getRtaTrioComboStatsFromTierTopSnap(@Param("limit") int limit, @Param("offset") int offset,
-            @Param("seasonId") Long seasonId, @Param("ratingId") int ratingId, @Param("minPickCount") int minPickCount);
+            @Param("seasonId") Long seasonId, @Param("minPickCount") int minPickCount);
 
     /** 대시보드 프리뷰 전용: 솔로 전체 티어 TOP N — {@code rta_agg_monster_stats_tier_top_snap} */
     List<Map<String, Object>> getDashboardPreviewSoloFromSnap(@Param("limit") int limit,

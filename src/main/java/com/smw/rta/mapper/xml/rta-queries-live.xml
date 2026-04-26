@@ -565,14 +565,12 @@
         LIMIT #{limit} OFFSET #{offset}
     </select>
 
-    <!-- 티어별 상위 100 스냅 — 단일 ratingId + rank 1..100 + offset+limit<=100 전용 -->
+    <!-- 시즌 전체 합산 상위 100 스냅(티어 구분 없음) — offset+limit<=100·전체 티어 조회 API 전용 -->
     <select id="getRtaMonsterStatsFromTierTopSnap" resultType="map">
         WITH match_total AS (
-            SELECT COALESCE((
-                SELECT t.total_matches::bigint
-                FROM public.rta_agg_season_rating_match_total t
-                WHERE t.season_id = #{seasonId} AND t.rating_id = #{ratingId}
-            ), 0::bigint) AS total_matches
+            SELECT COALESCE(SUM(t.total_matches)::bigint, 0::bigint) AS total_matches
+            FROM public.rta_agg_season_rating_match_total t
+            WHERE t.season_id = #{seasonId}
         )
         SELECT
             s.combo_unit_key AS monster_id,
@@ -593,7 +591,6 @@
         FROM public.rta_agg_monster_stats_tier_top_snap s
         INNER JOIN public.monster m ON m.monster_id = s.combo_unit_key
         WHERE s.season_id = #{seasonId}
-          AND s.rating_id = #{ratingId}
           AND s.stat_kind = 'S'
           AND s.pick_cnt &gt;= #{minPickCount}
           AND m.kr_name IS NOT NULL
@@ -617,7 +614,6 @@
         INNER JOIN public.monster m1 ON m1.monster_id = split_part(s.combo_unit_key, ',', 1)
         INNER JOIN public.monster m2 ON m2.monster_id = split_part(s.combo_unit_key, ',', 2)
         WHERE s.season_id = #{seasonId}
-          AND s.rating_id = #{ratingId}
           AND s.stat_kind = 'D'
           AND s.match_cnt &gt;= #{minPickCount}
           AND m1.kr_name IS NOT NULL
@@ -647,7 +643,6 @@
         INNER JOIN public.monster m2 ON m2.monster_id = split_part(s.combo_unit_key, ',', 2)
         INNER JOIN public.monster m3 ON m3.monster_id = split_part(s.combo_unit_key, ',', 3)
         WHERE s.season_id = #{seasonId}
-          AND s.rating_id = #{ratingId}
           AND s.stat_kind = 'T'
           AND s.match_cnt &gt;= #{minPickCount}
           AND m1.kr_name IS NOT NULL
@@ -657,7 +652,7 @@
         LIMIT #{limit} OFFSET #{offset}
     </select>
 
-    <!-- 대시보드 프리뷰 전용: 전체 티어 합산, ratingId 필터 없음 — 스냅 테이블만 사용 -->
+    <!-- 대시보드 프리뷰 전용: 티어 구분 스냅 1벌 — 스냅 테이블만 사용 -->
     <select id="getDashboardPreviewSoloFromSnap" resultType="map">
         /* RtaMapper.getDashboardPreviewSoloFromSnap */
         SELECT

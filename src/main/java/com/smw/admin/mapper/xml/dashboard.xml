@@ -94,7 +94,8 @@
 			WHERE crt_date >= CURRENT_DATE - INTERVAL '7 days'
 			GROUP BY crt_date::date
 		) guild_stats ON date_range.date = guild_stats.date
-		ORDER BY date_range.date DESC
+		-- 차트·표는 왼쪽=과거 → 오른쪽=최근(시간 순)이 자연스러움
+		ORDER BY date_range.date ASC
 	</select>
 
 </mapper>

@@ -9,7 +9,7 @@ import com.smw.rta.mapper.RtaMapper;
 import com.smw.rta.service.RtaBatchAggregationService;
 
 /**
- * {@code rta_agg_monster_stats_tier_top_snap} 시즌×티어별 솔/듀/트 상위 100 재적재 및
+ * {@code rta_agg_monster_stats_tier_top_snap} 시즌 전체 합산 솔/듀/트 상위 100 재적재(티어 컬럼 없음) 및
  * {@code rtaMonster} Redis/Caffeine 무효화(필요 시 워밍업). 시너지·랭킹 Job 과 분리해 1시간 주기 권장.
  */
 @DisallowConcurrentExecution

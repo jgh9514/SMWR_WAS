@@ -41,7 +41,7 @@ public class RtaServiceImpl implements RtaService {
     /** 소환사 랭킹: 최대 페이지 수 (50×10=500) */
     private static final int RTA_SUMMONER_RANKING_MAX_PAGES = 10;
 
-    /** 티어별 상위 스냅(배치) — 단일 티어 + offset+fetch 가 이 값 이하일 때만 런타임에 사용 */
+    /** 시즌 전체 몬스터 통계 스냅(배치) — offset+fetch ≤ 이 값·ratingIds 없음·전체 티어(ratingId null 또는 0)일 때만 런타임 사용 */
     private static final int RTA_MONSTER_STATS_TIER_TOP_SNAP_MAX = 100;
 
     /** {@link #getRtaDashboardLinkPreview} 는 {@code @Cacheable} 을 쓰지 않고 rtaMonster 전용 {@link CacheManager} 에 직접 적재(인프라가 잘못된 캐시 매니저로 해석하는 경우 방지) */
@@ -80,10 +80,10 @@ public class RtaServiceImpl implements RtaService {
 
     private static boolean canUseMonsterStatsTierTopSnap(
             Integer ratingId, List<Integer> ratingIds, int offset, int fetchSize) {
-        if (ratingId == null || ratingId <= 0) {
+        if (ratingIds != null && !ratingIds.isEmpty()) {
             return false;
         }
-        if (ratingIds != null && !ratingIds.isEmpty()) {
+        if (ratingId != null && ratingId != 0) {
             return false;
         }
         return offset + fetchSize <= RTA_MONSTER_STATS_TIER_TOP_SNAP_MAX;
@@ -228,13 +228,12 @@ public class RtaServiceImpl implements RtaService {
         List<Map<String, Object>> rows = Collections.emptyList();
         if (sid != null) {
             if (canUseMonsterStatsTierTopSnap(ratingId, ratingIds, offset, fetchSize)) {
-                int rid = ratingId;
                 if ("duo".equals(type)) {
-                    rows = rtaMapper.getRtaDuoComboStatsFromTierTopSnap(fetchSize, offset, sid, rid, minPick);
+                    rows = rtaMapper.getRtaDuoComboStatsFromTierTopSnap(fetchSize, offset, sid, minPick);
                 } else if ("trio".equals(type)) {
-                    rows = rtaMapper.getRtaTrioComboStatsFromTierTopSnap(fetchSize, offset, sid, rid, minPick);
+                    rows = rtaMapper.getRtaTrioComboStatsFromTierTopSnap(fetchSize, offset, sid, minPick);
                 } else {
-                    rows = rtaMapper.getRtaMonsterStatsFromTierTopSnap(fetchSize, offset, sid, rid, minPick);
+                    rows = rtaMapper.getRtaMonsterStatsFromTierTopSnap(fetchSize, offset, sid, minPick);
                 }
             } else {
                 if ("duo".equals(type)) {
@@ -493,51 +492,25 @@ public class RtaServiceImpl implements RtaService {
         return doResolveSeasonId(seasonId);
     }
 
+    /**
+     * 메인 4패널 프리뷰: {@link #getRtaMonsterStats} 와 동일 집계(전체 티어 합산·agg/스냅 경로).
+     * (구) FromSnap 전용 쿼리는 티어별 DISTINCT 1행이라 총 픽/경기 수가 상세·목록과 어긋났음.
+     */
     @Override
-    @Cacheable(cacheNames = "rtaMonster", cacheManager = "rtaMonsterCacheManager",
-            key = "'dp_solo_' + #seasonId + '_' + #limit")
     public Map<String, Object> getDashboardPreviewSolo(Long seasonId, int limit) {
-        Long sid = doResolveSeasonId(seasonId);
         int n = Math.max(1, Math.min(limit, 50));
-        List<Map<String, Object>> rows = sid != null
-                ? rtaMapper.getDashboardPreviewSoloFromSnap(n, sid, monsterStatsMinPickCount)
-                : Collections.emptyList();
-        Map<String, Object> out = new HashMap<>();
-        out.put("rows", rows != null ? rows : Collections.emptyList());
-        out.put("type", "solo");
-        out.put("seasonId", sid);
-        return out;
+        return rtaServiceSelf.getRtaMonsterStats(n, 0, "solo", seasonId, null, null);
     }
 
     @Override
-    @Cacheable(cacheNames = "rtaMonster", cacheManager = "rtaMonsterCacheManager",
-            key = "'dp_duo_' + #seasonId + '_' + #limit")
     public Map<String, Object> getDashboardPreviewDuo(Long seasonId, int limit) {
-        Long sid = doResolveSeasonId(seasonId);
         int n = Math.max(1, Math.min(limit, 50));
-        List<Map<String, Object>> rows = sid != null
-                ? rtaMapper.getDashboardPreviewDuoFromSnap(n, sid, monsterStatsMinPickCount)
-                : Collections.emptyList();
-        Map<String, Object> out = new HashMap<>();
-        out.put("rows", rows != null ? rows : Collections.emptyList());
-        out.put("type", "duo");
-        out.put("seasonId", sid);
-        return out;
+        return rtaServiceSelf.getRtaMonsterStats(n, 0, "duo", seasonId, null, null);
     }
 
     @Override
-    @Cacheable(cacheNames = "rtaMonster", cacheManager = "rtaMonsterCacheManager",
-            key = "'dp_trio_' + #seasonId + '_' + #limit")
     public Map<String, Object> getDashboardPreviewTrio(Long seasonId, int limit) {
-        Long sid = doResolveSeasonId(seasonId);
         int n = Math.max(1, Math.min(limit, 50));
-        List<Map<String, Object>> rows = sid != null
-                ? rtaMapper.getDashboardPreviewTrioFromSnap(n, sid, monsterStatsMinPickCount)
-                : Collections.emptyList();
-        Map<String, Object> out = new HashMap<>();
-        out.put("rows", rows != null ? rows : Collections.emptyList());
-        out.put("type", "trio");
-        out.put("seasonId", sid);
-        return out;
+        return rtaServiceSelf.getRtaMonsterStats(n, 0, "trio", seasonId, null, null);
     }
 }

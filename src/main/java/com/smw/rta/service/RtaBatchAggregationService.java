@@ -86,7 +86,7 @@ public class RtaBatchAggregationService {
 	}
 
 	/**
-	 * {@code rta_agg_monster_stats_tier_top_snap}: 시즌×티어별 솔/듀/트 상위 100.
+	 * {@code rta_agg_monster_stats_tier_top_snap}: 시즌 전체 합산 솔/듀/트 각 상위 100(티어 컬럼 없음).
 	 * 원천 {@code rta_agg_synergy_*} — {@link com.smw.monster.batch.RtaMonsterStatsTierTopSnapJob}(권장 1h)에서 호출;
 	 * 시너지 집계가 먼저 반영돼 있어야 함.
 	 */
