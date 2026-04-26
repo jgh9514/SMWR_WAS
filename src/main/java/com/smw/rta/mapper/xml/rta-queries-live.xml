@@ -91,6 +91,7 @@
                 array_agg(<include refid="monsterPortraitUrl"><property name="alias" value="mo"/></include> ORDER BY u.pick_slot_no) AS unit_images,
                 array_agg(mo.kr_name ORDER BY u.pick_slot_no) AS unit_names,
                 array_agg(u.is_banned ORDER BY u.pick_slot_no) AS unit_banned_flags,
+                array_agg(u.pick_slot_no::int ORDER BY u.pick_slot_no) AS unit_pick_slot_nos,
                 string_agg(u.unit_master_id::text, ',' ORDER BY u.pick_slot_no) AS picked_units_str
             FROM public.rta_match_unit_pick u
             LEFT JOIN public.monster mo ON mo.monster_id = u.unit_master_id::text
@@ -123,6 +124,7 @@
             COALESCE(un1.unit_images, ARRAY[]::text[]) AS p1_unit_images,
             COALESCE(un1.unit_names, ARRAY[]::text[]) AS p1_unit_names,
             COALESCE(un1.unit_banned_flags, ARRAY[]::boolean[]) AS p1_unit_banned,
+            COALESCE(un1.unit_pick_slot_nos, ARRAY[]::int[]) AS p1_unit_pick_slot_no,
             COALESCE(un1.picked_units_str, '') AS p1_units_str,
             u2.wizard_id AS p2_wizard_id,
             u2.channel_uid AS p2_channel_uid,
@@ -139,6 +141,7 @@
             COALESCE(un2.unit_images, ARRAY[]::text[]) AS p2_unit_images,
             COALESCE(un2.unit_names, ARRAY[]::text[]) AS p2_unit_names,
             COALESCE(un2.unit_banned_flags, ARRAY[]::boolean[]) AS p2_unit_banned,
+            COALESCE(un2.unit_pick_slot_nos, ARRAY[]::int[]) AS p2_unit_pick_slot_no,
             COALESCE(un2.picked_units_str, '') AS p2_units_str
         FROM rms
         JOIN pair pr ON pr.rid = rms.rid
@@ -203,6 +206,7 @@
                 array_agg(<include refid="monsterPortraitUrl"><property name="alias" value="mo"/></include> ORDER BY u.pick_slot_no) AS unit_images,
                 array_agg(mo.kr_name ORDER BY u.pick_slot_no) AS unit_names,
                 array_agg(u.is_banned ORDER BY u.pick_slot_no) AS unit_banned_flags,
+                array_agg(u.pick_slot_no::int ORDER BY u.pick_slot_no) AS unit_pick_slot_nos,
                 string_agg(u.unit_master_id::text, ',' ORDER BY u.pick_slot_no) AS picked_units_str
             FROM public.rta_match_unit_pick u
             LEFT JOIN public.monster mo ON mo.monster_id = u.unit_master_id::text
@@ -235,6 +239,7 @@
             COALESCE(un1.unit_images, ARRAY[]::text[]) AS p1_unit_images,
             COALESCE(un1.unit_names, ARRAY[]::text[]) AS p1_unit_names,
             COALESCE(un1.unit_banned_flags, ARRAY[]::boolean[]) AS p1_unit_banned,
+            COALESCE(un1.unit_pick_slot_nos, ARRAY[]::int[]) AS p1_unit_pick_slot_no,
             COALESCE(un1.picked_units_str, '') AS p1_units_str,
             u2.wizard_id_str AS p2_wizard_id,
             u2.channel_uid AS p2_channel_uid,
@@ -251,6 +256,7 @@
             COALESCE(un2.unit_images, ARRAY[]::text[]) AS p2_unit_images,
             COALESCE(un2.unit_names, ARRAY[]::text[]) AS p2_unit_names,
             COALESCE(un2.unit_banned_flags, ARRAY[]::boolean[]) AS p2_unit_banned,
+            COALESCE(un2.unit_pick_slot_nos, ARRAY[]::int[]) AS p2_unit_pick_slot_no,
             COALESCE(un2.picked_units_str, '') AS p2_units_str
         FROM rms
         JOIN pair pr ON pr.rid = rms.rid

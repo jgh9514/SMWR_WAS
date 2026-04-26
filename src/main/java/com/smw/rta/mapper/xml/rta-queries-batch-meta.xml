@@ -315,26 +315,29 @@
 
     <!--
       검색 스냅: 시즌 비저장, wizard_id PK. participant 전체에서 대표 1행(래더 최고, 동률이면 replay_id 큰 쪽) upsert.
-      닉/국가가 기존과 동일하면 DO UPDATE 는 WHERE 로 스킵(불필요한 쓰기 감소).
+      닉/국가/channel_uid가 기존과 동일하면 DO UPDATE 는 WHERE 로 스킵(불필요한 쓰기 감소).
     -->
     <insert id="upsertRtaSummonerSearchSnap">
         WITH pick AS (
             SELECT DISTINCT ON (mp.wizard_id)
                 mp.wizard_id,
                 mp.wizard_name,
-                mp.country_code AS country
+                mp.country_code AS country,
+                mp.channel_uid
             FROM public.rta_match_participant mp
             WHERE mp.wizard_id &lt;&gt; ''
             ORDER BY mp.wizard_id, mp.ladder_score DESC NULLS LAST, mp.replay_id DESC
         )
-        INSERT INTO public.rta_agg_summoner_search_snap (wizard_id, wizard_name, country)
-        SELECT p.wizard_id, p.wizard_name, p.country
+        INSERT INTO public.rta_agg_summoner_search_snap (wizard_id, wizard_name, country, channel_uid)
+        SELECT p.wizard_id, p.wizard_name, p.country, p.channel_uid
         FROM pick p
         ON CONFLICT (wizard_id) DO UPDATE SET
             wizard_name = EXCLUDED.wizard_name,
-            country = EXCLUDED.country
+            country = EXCLUDED.country,
+            channel_uid = EXCLUDED.channel_uid
         WHERE public.rta_agg_summoner_search_snap.wizard_name IS DISTINCT FROM EXCLUDED.wizard_name
            OR public.rta_agg_summoner_search_snap.country IS DISTINCT FROM EXCLUDED.country
+           OR public.rta_agg_summoner_search_snap.channel_uid IS DISTINCT FROM EXCLUDED.channel_uid
     </insert>
 
     <select id="countRtaSummonerRankingSnapRows" resultType="long">
@@ -400,7 +403,8 @@
         SELECT
             s.wizard_id,
             s.wizard_name,
-            s.country
+            s.country,
+            s.channel_uid
         FROM public.rta_agg_summoner_search_snap s
         WHERE
             s.wizard_id = #{query}
