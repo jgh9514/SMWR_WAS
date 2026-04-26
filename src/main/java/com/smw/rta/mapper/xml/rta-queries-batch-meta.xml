@@ -847,6 +847,7 @@
       rids(리플레이) 청크로만 집계 — 서비스에서 키셋 반복 호출.
     -->
     <insert id="insertRtaSummonerMonsterSnapForSeasonReplayChunk">
+        /* rta-queries-batch-meta.insertRtaSummonerMonsterSnapForSeasonReplayChunk */
         INSERT INTO public.rta_agg_summoner_monster_snap (
             season_id, wizard_id, unit_master_id,
             pick_cnt, ban_cnt, win_cnt, lose_cnt, first_pick_cnt, owned_copy_count, computed_at
@@ -906,27 +907,51 @@
             GROUP BY p.season_id, p.wizard_id, u.unit_master_id
         )
         SELECT
-            a.season_id,
-            a.wizard_id,
-            a.unit_master_id,
-            a.pick_cnt,
-            a.ban_cnt,
-            a.win_cnt,
-            a.lose_cnt,
-            a.first_pick_cnt,
-            COALESCE(o.copy_count, 0)::int,
+            d.season_id,
+            d.wizard_id,
+            d.unit_master_id,
+            d.pick_cnt,
+            d.ban_cnt,
+            d.win_cnt,
+            d.lose_cnt,
+            d.first_pick_cnt,
+            d.owned_copy_count,
             CURRENT_TIMESTAMP
-        FROM agg a
-        LEFT JOIN (
+        FROM (
             SELECT
-                wizard_id,
-                master_id,
-                MAX(copy_count)::int AS copy_count
-            FROM public.user_monster_owned_agg
-            GROUP BY wizard_id, master_id
-        ) o
-            ON o.wizard_id = a.wizard_id
-           AND o.master_id = a.unit_master_id
+                a.season_id,
+                a.wizard_id,
+                a.unit_master_id,
+                MAX(a.pick_cnt)::bigint       AS pick_cnt,
+                MAX(a.ban_cnt)::bigint        AS ban_cnt,
+                MAX(a.win_cnt)::bigint        AS win_cnt,
+                MAX(a.lose_cnt)::bigint       AS lose_cnt,
+                MAX(a.first_pick_cnt)::bigint AS first_pick_cnt,
+                MAX(COALESCE(o.copy_count, 0))::int AS owned_copy_count
+            FROM agg a
+            LEFT JOIN (
+                SELECT
+                    wizard_id,
+                    master_id,
+                    MAX(copy_count)::int AS copy_count
+                FROM public.user_monster_owned_agg
+                GROUP BY wizard_id, master_id
+            ) o
+                ON o.wizard_id = a.wizard_id
+               AND o.master_id = a.unit_master_id
+            GROUP BY a.season_id, a.wizard_id, a.unit_master_id
+        ) d
+        ON CONFLICT ON CONSTRAINT rta_agg_summoner_monster_snap_pkey DO UPDATE SET
+            pick_cnt           = public.rta_agg_summoner_monster_snap.pick_cnt + EXCLUDED.pick_cnt,
+            ban_cnt            = public.rta_agg_summoner_monster_snap.ban_cnt + EXCLUDED.ban_cnt,
+            win_cnt            = public.rta_agg_summoner_monster_snap.win_cnt + EXCLUDED.win_cnt,
+            lose_cnt           = public.rta_agg_summoner_monster_snap.lose_cnt + EXCLUDED.lose_cnt,
+            first_pick_cnt     = public.rta_agg_summoner_monster_snap.first_pick_cnt + EXCLUDED.first_pick_cnt,
+            owned_copy_count   = GREATEST(
+                public.rta_agg_summoner_monster_snap.owned_copy_count,
+                EXCLUDED.owned_copy_count
+            ),
+            computed_at        = EXCLUDED.computed_at
     </insert>
 
     <select id="countRtaSummonerSeasonFightSnapRows" resultType="long">
