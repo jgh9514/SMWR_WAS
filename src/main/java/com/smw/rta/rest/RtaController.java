@@ -231,6 +231,21 @@ public class RtaController {
         }
     }
 
+    @Operation(summary = "RTA 소환사 몬스터 사용(스냅)", description = "시즌별 픽/밴/승/선첫비밴/보유 — rta_agg_summoner_monster_snap")
+    @PostMapping("/player/{wizardId}/monster-usage")
+    public ResponseEntity<Map<String, Object>> getRtaPlayerMonsterUsage(
+            @PathVariable String wizardId,
+            @RequestBody(required = false) Map<String, Object> param) {
+        try {
+            Long sid = pickSeasonId(param);
+            Map<String, Object> response = rtaService.getRtaPlayerMonsterUsage(wizardId, sid);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("RTA player monster-usage 조회 실패 wizardId={}", wizardId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
     @Operation(summary = "RTA 소환사 랭킹")
     @PostMapping("/summoner-ranking")
     public ResponseEntity<Map<String, Object>> getRtaSummonerRanking(@RequestBody(required = false) Map<String, Object> param) {

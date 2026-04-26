@@ -1024,6 +1024,57 @@
         LIMIT 1
     </select>
 
+    <select id="getRtaPlayerSeasonFightSnapFromAgg" resultType="map">
+        SELECT
+            f.match_cnt::bigint          AS match_cnt,
+            f.non_ban_pick_cnt::bigint   AS non_ban_pick_cnt,
+            f.ban_event_cnt::bigint      AS ban_event_cnt,
+            f.computed_at
+        FROM public.rta_agg_summoner_season_fight_snap f
+        WHERE f.season_id = #{seasonId}
+          AND f.wizard_id = TRIM(BOTH FROM #{wizardId})
+        LIMIT 1
+    </select>
+
+    <select id="listRtaPlayerMonsterSnapFromAgg" resultType="map">
+        SELECT
+            s.unit_master_id::bigint AS unit_master_id,
+            s.pick_cnt::bigint         AS pick_cnt,
+            s.ban_cnt::bigint          AS ban_cnt,
+            s.win_cnt::bigint          AS win_cnt,
+            s.lose_cnt::bigint         AS lose_cnt,
+            s.first_pick_cnt::bigint   AS first_pick_cnt,
+            s.owned_copy_count         AS owned_copy_count,
+            m.kr_name                  AS monster_name,
+            m.monster_elemental        AS monster_elemental,
+            <include refid="monsterPortraitUrl"><property name="alias" value="m"/></include> AS monster_image,
+            CASE
+                WHEN f.non_ban_pick_cnt IS NOT NULL AND f.non_ban_pick_cnt &gt; 0
+                THEN ROUND((100.0 * s.pick_cnt::numeric / f.non_ban_pick_cnt::numeric), 2)
+            END AS pick_rate_pct,
+            CASE
+                WHEN f.ban_event_cnt IS NOT NULL AND f.ban_event_cnt &gt; 0
+                THEN ROUND((100.0 * s.ban_cnt::numeric / f.ban_event_cnt::numeric), 2)
+            END AS ban_rate_pct,
+            CASE
+                WHEN s.pick_cnt &gt; 0
+                THEN ROUND((100.0 * s.win_cnt::numeric / s.pick_cnt::numeric), 2)
+            END AS win_rate_pct,
+            CASE
+                WHEN s.pick_cnt &gt; 0
+                THEN ROUND((100.0 * s.first_pick_cnt::numeric / s.pick_cnt::numeric), 2)
+            END AS first_pick_rate_pct
+        FROM public.rta_agg_summoner_monster_snap s
+        LEFT JOIN public.rta_agg_summoner_season_fight_snap f
+            ON f.season_id = s.season_id
+           AND f.wizard_id = s.wizard_id
+        LEFT JOIN public.monster m
+            ON TRIM(BOTH FROM m.monster_id::text) = s.unit_master_id::text
+        WHERE s.season_id = #{seasonId}
+          AND s.wizard_id = TRIM(BOTH FROM #{wizardId})
+        ORDER BY s.pick_cnt DESC, s.unit_master_id ASC
+    </select>
+
     <select id="selectMonsterPortraitMetaByIds" resultType="map">
         SELECT TRIM(BOTH FROM monster_id::text) AS monster_id,
                image_url,

@@ -122,6 +122,25 @@ public interface RtaMapper {
     /** 전체 검색 스냅샷 행 수 (배치 적재 후 로깅) */
     Long countRtaSummonerSearchSnapRows();
 
+    /** 시즌 단위: 소환사 전투 스냅(분모) 삭제 */
+    int deleteRtaSummonerSeasonFightSnapBySeason(@Param("seasonId") long seasonId);
+
+    /** 시즌 단위: 소환사×몬스터 스냅 삭제 */
+    int deleteRtaSummonerMonsterSnapBySeason(@Param("seasonId") long seasonId);
+
+    /** 시즌 단위: {@code rta_agg_summoner_season_fight_snap} 적재 */
+    int insertRtaSummonerSeasonFightSnapForSeason(@Param("seasonId") long seasonId);
+
+    /**
+     * 시즌 단위: {@code rta_agg_summoner_monster_snap} 적재.
+     * {@code user_monster_owned_agg} LEFT JOIN(없으면 owned_copy_count NULL).
+     */
+    int insertRtaSummonerMonsterSnapForSeason(@Param("seasonId") long seasonId);
+
+    Long countRtaSummonerSeasonFightSnapRows();
+
+    Long countRtaSummonerMonsterSnapRows();
+
     /** API 조회용 — {@code rta_agg_summoner_ranking_snap} */
     List<Map<String, Object>> getRtaSummonerRankingFromAgg(@Param("limit") int limit, @Param("offset") int offset,
             @Param("seasonId") Long seasonId, @Param("countryFilter") String countryFilter);
@@ -133,6 +152,17 @@ public interface RtaMapper {
     /** 소환사 요약 — 수집 리플레이 기준 최신 점수·글로벌 순위 */
     Map<String, Object> getRtaPlayerSummaryFromAgg(@Param("wizardId") String wizardId,
             @Param("seasonId") Long seasonId);
+
+    /** 시즌×소환사 전투 분모 스냅 1행 — 없으면 null */
+    Map<String, Object> getRtaPlayerSeasonFightSnapFromAgg(@Param("wizardId") String wizardId,
+            @Param("seasonId") long seasonId);
+
+    /**
+     * 시즌×소환사×몬스터 스냅 목록(비율 컬럼 포함).
+     * {@code rta_agg_summoner_monster_snap} + fight 스냅, {@code monster} 메타.
+     */
+    List<Map<String, Object>> listRtaPlayerMonsterSnapFromAgg(@Param("wizardId") String wizardId,
+            @Param("seasonId") long seasonId);
 
     /** 시너지 미집계 rid ({@code rta_match.synergy_applied_at IS NULL}, rid 오름차순). 성공/실패는 {@code synergy_apply_result}. */
     List<Long> selectPendingSynergyAggRids(@Param("batchSize") int batchSize);

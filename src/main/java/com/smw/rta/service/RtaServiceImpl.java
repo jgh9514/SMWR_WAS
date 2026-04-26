@@ -400,6 +400,35 @@ public class RtaServiceImpl implements RtaService {
     }
 
     @Override
+    @Cacheable(cacheNames = "rtaRanking", cacheManager = "rtaShortLivedCacheManager",
+            key = "'pmon_' + (#seasonId != null ? #seasonId : 'd') + '_' + #wizardId")
+    public Map<String, Object> getRtaPlayerMonsterUsage(String wizardId, Long seasonId) {
+        Long sid = doResolveSeasonId(seasonId);
+        Map<String, Object> out = new HashMap<>();
+        if (wizardId == null || wizardId.trim().isEmpty()) {
+            out.put("seasonId", sid);
+            out.put("rows", Collections.emptyList());
+            out.put("fight", null);
+            return out;
+        }
+        String wid = wizardId.trim();
+        if (sid == null) {
+            out.put("seasonId", null);
+            out.put("wizardId", wid);
+            out.put("rows", Collections.emptyList());
+            out.put("fight", null);
+            return out;
+        }
+        Map<String, Object> fight = rtaMapper.getRtaPlayerSeasonFightSnapFromAgg(wid, sid.longValue());
+        List<Map<String, Object>> rows = rtaMapper.listRtaPlayerMonsterSnapFromAgg(wid, sid.longValue());
+        out.put("seasonId", sid);
+        out.put("wizardId", wid);
+        out.put("fight", fight);
+        out.put("rows", rows != null ? rows : Collections.emptyList());
+        return out;
+    }
+
+    @Override
     @Cacheable(cacheNames = "rtaSeasons", cacheManager = "rtaShortLivedCacheManager", key = "'list'")
     public Map<String, Object> getRtaSeasons() {
         Map<String, Object> response = new HashMap<>();

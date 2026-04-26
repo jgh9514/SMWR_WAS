@@ -75,6 +75,12 @@ public interface RtaService {
     /** RTA 소환사 요약 (닉네임·점수·순위·승률 등) */
     Map<String, Object> getRtaPlayerSummary(String wizardId, Long seasonId);
 
+    /**
+     * RTA 소환사별 몬스터 사용(픽/밴/승/선첫비밴/보유) — 배치
+     * {@code rta_agg_summoner_monster_snap}, 분모 {@code rta_agg_summoner_season_fight_snap}.
+     */
+    Map<String, Object> getRtaPlayerMonsterUsage(String wizardId, Long seasonId);
+
     /** 등록된 RTA 시즌 목록 */
     Map<String, Object> getRtaSeasons();
 

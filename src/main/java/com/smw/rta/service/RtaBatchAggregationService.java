@@ -37,6 +37,31 @@ public class RtaBatchAggregationService {
 	}
 
 	/**
+	 * 시즌별 소환사×몬스터 통계·전투 분모 스냅
+	 * ({@code rta_agg_summoner_season_fight_snap}, {@code rta_agg_summoner_monster_snap}).
+	 * <p>
+	 * {@link RtaSummonerRankingAggJob}에서 랭킹/검색 스냅 이후 동일 루프로 호출 권장.
+	 * SWEX {@code user_monster_owned_agg} 는 통합 배치 직전 갱신돼 있어야 owned_copy_count 가 채워진다.
+	 */
+	public SummonerMonsterSnapRebuildResult rebuildSummonerMonsterSnapAgg(RtaMapper rtaMapper) {
+		List<Map<String, Object>> seasons = rtaMapper.listRtaSeasons();
+		int fightRows = 0;
+		int monRows = 0;
+		for (Map<String, Object> row : seasons) {
+			Long seasonId = pickSeasonId(row);
+			if (seasonId == null) {
+				continue;
+			}
+			long sid = seasonId.longValue();
+			rtaMapper.deleteRtaSummonerMonsterSnapBySeason(sid);
+			rtaMapper.deleteRtaSummonerSeasonFightSnapBySeason(sid);
+			fightRows += rtaMapper.insertRtaSummonerSeasonFightSnapForSeason(sid);
+			monRows += rtaMapper.insertRtaSummonerMonsterSnapForSeason(sid);
+		}
+		return new SummonerMonsterSnapRebuildResult(fightRows, monRows);
+	}
+
+	/**
 	 * 원본 스테이징 미적용 건을 정규화 테이블로 반영한다.
 	 * {@link summonerswarService#applyPendingArenaReplayRawFromDb()} 는 {@code max-rows-per-run} 행을
 	 * 1회만 조회·처리하고 종료한다. 잔여 행은 다음 스케줄에서 처리된다. 고아 행 삭제는 통합 Job 에서 하지 않는다.
@@ -167,6 +192,13 @@ public class RtaBatchAggregationService {
 
 	/** @param rankingRows {@code rta_agg_summoner_ranking_snap} 합, @param searchRows {@code rta_agg_summoner_search_snap} 합 */
 	public record SummonerRankingRebuildResult(int rankingRows, int searchRows) {
+	}
+
+	/**
+	 * @param fightRows {@code rta_agg_summoner_season_fight_snap} 합(적재 루프 합이 아닌 전체 count),
+	 * @param monsterRows {@code rta_agg_summoner_monster_snap} 합
+	 */
+	public record SummonerMonsterSnapRebuildResult(int fightRows, int monsterRows) {
 	}
 
 	public record RawApplyDrainResult(int totalApplied, String stopReason) {
