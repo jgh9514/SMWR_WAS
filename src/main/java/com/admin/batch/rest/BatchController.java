@@ -187,10 +187,41 @@ public class BatchController {
 		return new ResponseEntity<>(list, HttpStatus.OK);
 	}
 
-	@Operation(summary = "배치 실행 이력 상세", description = "특정 실행 이력 상세를 조회합니다.")
-	@GetMapping("/run-his/{runSn}")
-	public ResponseEntity<?> selectBatchRunHisDetail(@PathVariable Long runSn) {
+	@Operation(summary = "배치 실행 이력 상세", description = "특정 실행 이력 상세를 조회합니다. body: runSn 또는 run_sn")
+	@PostMapping("/run-his/detail")
+	public ResponseEntity<?> selectBatchRunHisDetail(@RequestBody(required = false) Map<String, Object> param) {
+		Long runSn = parseRunSn(param);
+		if (runSn == null) {
+			Map<String, Object> err = new HashMap<>();
+			err.put("result", Constant.FAIL);
+			err.put("message", "runSn(또는 run_sn)이 필요합니다.");
+			return new ResponseEntity<>(err, HttpStatus.BAD_REQUEST);
+		}
 		Map<String, ?> detail = logService.selectBatchRunHisDetail(runSn);
 		return new ResponseEntity<>(detail, HttpStatus.OK);
+	}
+
+	/** runSn / run_id 스타일 long 파싱 */
+	private static Long parseRunSn(Map<String, Object> param) {
+		if (param == null) {
+			return null;
+		}
+		Object o = param.get("runSn");
+		if (o == null) {
+			o = param.get("run_sn");
+		}
+		if (o == null) {
+			return null;
+		}
+		if (o instanceof Number) {
+			long v = ((Number) o).longValue();
+			return v > 0 ? v : null;
+		}
+		try {
+			long v = Long.parseLong(String.valueOf(o).trim());
+			return v > 0 ? v : null;
+		} catch (NumberFormatException e) {
+			return null;
+		}
 	}
 }

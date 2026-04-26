@@ -246,12 +246,12 @@
 		  -- 사용(획득) 가능한 몬스터만 노출 (usg_yn 개념)
 		  AND COALESCE(m.obtainable, true) = true
 		<if test="monster_elemental != null and monster_elemental != ''">
-			AND LOWER(m.monster_elemental) = LOWER(#{monster_elemental})
+			AND m.monster_elemental ILIKE #{monster_elemental}
 		</if>
 		<if test="keyword != null and keyword != ''">
 			AND (
-				LOWER(m.kr_name) LIKE '%' || LOWER(#{keyword}) || '%'
-				OR LOWER(m.un_name) LIKE '%' || LOWER(#{keyword}) || '%'
+				m.kr_name ILIKE '%' || #{keyword} || '%'
+				OR m.un_name ILIKE '%' || #{keyword} || '%'
 				OR CAST(m.com2us_id AS TEXT) LIKE '%' || #{keyword} || '%'
 			)
 		</if>
@@ -276,12 +276,12 @@
 		  -- 사용(획득) 가능한 몬스터만 카운트
 		  AND COALESCE(m.obtainable, true) = true
 		<if test="monster_elemental != null and monster_elemental != ''">
-			AND LOWER(m.monster_elemental) = LOWER(#{monster_elemental})
+			AND m.monster_elemental ILIKE #{monster_elemental}
 		</if>
 		<if test="keyword != null and keyword != ''">
 			AND (
-				LOWER(m.kr_name) LIKE '%' || LOWER(#{keyword}) || '%'
-				OR LOWER(m.un_name) LIKE '%' || LOWER(#{keyword}) || '%'
+				m.kr_name ILIKE '%' || #{keyword} || '%'
+				OR m.un_name ILIKE '%' || #{keyword} || '%'
 				OR CAST(m.com2us_id AS TEXT) LIKE '%' || #{keyword} || '%'
 			)
 		</if>

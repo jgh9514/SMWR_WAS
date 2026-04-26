@@ -236,15 +236,6 @@ public class RtaServiceImpl implements RtaService {
                 } else {
                     rows = rtaMapper.getRtaMonsterStatsFromTierTopSnap(fetchSize, offset, sid, rid, minPick);
                 }
-                if (rows == null || rows.isEmpty()) {
-                    if ("duo".equals(type)) {
-                        rows = rtaMapper.getRtaDuoComboStatsFromAgg(fetchSize, offset, sid, ratingId, ratingIds, minPick);
-                    } else if ("trio".equals(type)) {
-                        rows = rtaMapper.getRtaTrioComboStatsFromAgg(fetchSize, offset, sid, ratingId, ratingIds, minPick);
-                    } else {
-                        rows = rtaMapper.getRtaMonsterStatsFromAgg(fetchSize, offset, sid, ratingId, ratingIds, minPick);
-                    }
-                }
             } else {
                 if ("duo".equals(type)) {
                     rows = rtaMapper.getRtaDuoComboStatsFromAgg(fetchSize, offset, sid, ratingId, ratingIds, minPick);
@@ -500,5 +491,53 @@ public class RtaServiceImpl implements RtaService {
     @Override
     public Long resolveSeasonId(Long seasonId) {
         return doResolveSeasonId(seasonId);
+    }
+
+    @Override
+    @Cacheable(cacheNames = "rtaMonster", cacheManager = "rtaMonsterCacheManager",
+            key = "'dp_solo_' + #seasonId + '_' + #limit")
+    public Map<String, Object> getDashboardPreviewSolo(Long seasonId, int limit) {
+        Long sid = doResolveSeasonId(seasonId);
+        int n = Math.max(1, Math.min(limit, 50));
+        List<Map<String, Object>> rows = sid != null
+                ? rtaMapper.getDashboardPreviewSoloFromSnap(n, sid, monsterStatsMinPickCount)
+                : Collections.emptyList();
+        Map<String, Object> out = new HashMap<>();
+        out.put("rows", rows != null ? rows : Collections.emptyList());
+        out.put("type", "solo");
+        out.put("seasonId", sid);
+        return out;
+    }
+
+    @Override
+    @Cacheable(cacheNames = "rtaMonster", cacheManager = "rtaMonsterCacheManager",
+            key = "'dp_duo_' + #seasonId + '_' + #limit")
+    public Map<String, Object> getDashboardPreviewDuo(Long seasonId, int limit) {
+        Long sid = doResolveSeasonId(seasonId);
+        int n = Math.max(1, Math.min(limit, 50));
+        List<Map<String, Object>> rows = sid != null
+                ? rtaMapper.getDashboardPreviewDuoFromSnap(n, sid, monsterStatsMinPickCount)
+                : Collections.emptyList();
+        Map<String, Object> out = new HashMap<>();
+        out.put("rows", rows != null ? rows : Collections.emptyList());
+        out.put("type", "duo");
+        out.put("seasonId", sid);
+        return out;
+    }
+
+    @Override
+    @Cacheable(cacheNames = "rtaMonster", cacheManager = "rtaMonsterCacheManager",
+            key = "'dp_trio_' + #seasonId + '_' + #limit")
+    public Map<String, Object> getDashboardPreviewTrio(Long seasonId, int limit) {
+        Long sid = doResolveSeasonId(seasonId);
+        int n = Math.max(1, Math.min(limit, 50));
+        List<Map<String, Object>> rows = sid != null
+                ? rtaMapper.getDashboardPreviewTrioFromSnap(n, sid, monsterStatsMinPickCount)
+                : Collections.emptyList();
+        Map<String, Object> out = new HashMap<>();
+        out.put("rows", rows != null ? rows : Collections.emptyList());
+        out.put("type", "trio");
+        out.put("seasonId", sid);
+        return out;
     }
 }

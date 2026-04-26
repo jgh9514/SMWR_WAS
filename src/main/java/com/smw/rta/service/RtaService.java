@@ -57,6 +57,15 @@ public interface RtaService {
      */
     Map<String, Object> getRtaDashboardLinkPreview(Long seasonId, int previewLimit);
 
+    /** 대시보드 프리뷰 — 솔로 TOP N (스냅 테이블 전용) */
+    Map<String, Object> getDashboardPreviewSolo(Long seasonId, int limit);
+
+    /** 대시보드 프리뷰 — 듀오 TOP N (스냅 테이블 전용) */
+    Map<String, Object> getDashboardPreviewDuo(Long seasonId, int limit);
+
+    /** 대시보드 프리뷰 — 트리오 TOP N (스냅 테이블 전용) */
+    Map<String, Object> getDashboardPreviewTrio(Long seasonId, int limit);
+
     /**
      * RTA 소환사 랭킹
      *

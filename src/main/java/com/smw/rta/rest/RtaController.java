@@ -300,8 +300,8 @@ public class RtaController {
         }
     }
 
-    @Operation(summary = "RTA 시즌 목록")
-    @GetMapping("/seasons")
+    @Operation(summary = "RTA 시즌 목록", description = "조회 API는 POST 규칙에 따릅니다. (body 없이 호출 가능)")
+    @PostMapping("/seasons")
     public ResponseEntity<Map<String, Object>> getRtaSeasons() {
         try {
             return ResponseEntity.ok(rtaService.getRtaSeasons());
@@ -311,11 +311,12 @@ public class RtaController {
         }
     }
 
-    @Operation(summary = "RTA 공식 티어 규칙(참고)")
-    @GetMapping("/rating-grade-rules")
+    @Operation(summary = "RTA 공식 티어 규칙(참고)", description = "선택: body에 seasonId·season_id")
+    @PostMapping("/rating-grade-rules")
     public ResponseEntity<List<Map<String, Object>>> listRtaRatingGradeRules(
-            @RequestParam(value = "seasonId", required = false) Long seasonId) {
+            @RequestBody(required = false) Map<String, Object> param) {
         try {
+            Long seasonId = pickSeasonId(param);
             Long sid = rtaService.resolveSeasonId(seasonId);
             if (sid == null) {
                 return ResponseEntity.ok(java.util.Collections.emptyList());
@@ -380,6 +381,66 @@ public class RtaController {
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             log.error("RTA dashboard link-preview 조회 실패", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    @Operation(summary = "대시보드 프리뷰 — 솔로 TOP N", description = "스냅 테이블 전용, 전체 티어 합산")
+    @PostMapping("/dashboard/preview/solo")
+    public ResponseEntity<Map<String, Object>> getDashboardPreviewSolo(
+            @RequestBody(required = false) Map<String, Object> param) {
+        try {
+            Map<String, Object> p = param != null ? param : new HashMap<>();
+            Long sid = pickSeasonId(p);
+            int limit = clampInt(parseIntOpt(p.get("limit"), 5), 1, 50);
+            return ResponseEntity.ok(rtaService.getDashboardPreviewSolo(sid, limit));
+        } catch (Exception e) {
+            log.error("대시보드 프리뷰 solo 조회 실패", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    @Operation(summary = "대시보드 프리뷰 — 듀오 TOP N", description = "스냅 테이블 전용, 전체 티어 합산")
+    @PostMapping("/dashboard/preview/duo")
+    public ResponseEntity<Map<String, Object>> getDashboardPreviewDuo(
+            @RequestBody(required = false) Map<String, Object> param) {
+        try {
+            Map<String, Object> p = param != null ? param : new HashMap<>();
+            Long sid = pickSeasonId(p);
+            int limit = clampInt(parseIntOpt(p.get("limit"), 5), 1, 50);
+            return ResponseEntity.ok(rtaService.getDashboardPreviewDuo(sid, limit));
+        } catch (Exception e) {
+            log.error("대시보드 프리뷰 duo 조회 실패", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    @Operation(summary = "대시보드 프리뷰 — 트리오 TOP N", description = "스냅 테이블 전용, 전체 티어 합산")
+    @PostMapping("/dashboard/preview/trio")
+    public ResponseEntity<Map<String, Object>> getDashboardPreviewTrio(
+            @RequestBody(required = false) Map<String, Object> param) {
+        try {
+            Map<String, Object> p = param != null ? param : new HashMap<>();
+            Long sid = pickSeasonId(p);
+            int limit = clampInt(parseIntOpt(p.get("limit"), 5), 1, 50);
+            return ResponseEntity.ok(rtaService.getDashboardPreviewTrio(sid, limit));
+        } catch (Exception e) {
+            log.error("대시보드 프리뷰 trio 조회 실패", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    @Operation(summary = "대시보드 프리뷰 — 소환사 랭킹 TOP N", description = "스냅 테이블 전용")
+    @PostMapping("/dashboard/preview/summoner")
+    public ResponseEntity<Map<String, Object>> getDashboardPreviewSummoner(
+            @RequestBody(required = false) Map<String, Object> param) {
+        try {
+            Map<String, Object> p = param != null ? param : new HashMap<>();
+            Long sid = pickSeasonId(p);
+            int limit = clampInt(parseIntOpt(p.get("limit"), 5), 1, 50);
+            return ResponseEntity.ok(rtaService.getRtaSummonerRanking(limit, 0, sid, null));
+        } catch (Exception e) {
+            log.error("대시보드 프리뷰 summoner 조회 실패", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }

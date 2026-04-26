@@ -70,6 +70,18 @@ public interface RtaMapper {
     List<Map<String, Object>> getRtaTrioComboStatsFromTierTopSnap(@Param("limit") int limit, @Param("offset") int offset,
             @Param("seasonId") Long seasonId, @Param("ratingId") int ratingId, @Param("minPickCount") int minPickCount);
 
+    /** 대시보드 프리뷰 전용: 솔로 전체 티어 TOP N — {@code rta_agg_monster_stats_tier_top_snap} */
+    List<Map<String, Object>> getDashboardPreviewSoloFromSnap(@Param("limit") int limit,
+            @Param("seasonId") Long seasonId, @Param("minPickCount") int minPickCount);
+
+    /** 대시보드 프리뷰 전용: 듀오 전체 티어 TOP N — {@code rta_agg_monster_stats_tier_top_snap} */
+    List<Map<String, Object>> getDashboardPreviewDuoFromSnap(@Param("limit") int limit,
+            @Param("seasonId") Long seasonId, @Param("minPickCount") int minPickCount);
+
+    /** 대시보드 프리뷰 전용: 트리오 전체 티어 TOP N — {@code rta_agg_monster_stats_tier_top_snap} */
+    List<Map<String, Object>> getDashboardPreviewTrioFromSnap(@Param("limit") int limit,
+            @Param("seasonId") Long seasonId, @Param("minPickCount") int minPickCount);
+
     /**
      * RTA 몬스터 기본 정보 조회
      */
