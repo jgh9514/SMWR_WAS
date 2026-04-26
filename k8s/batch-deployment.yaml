@@ -49,6 +49,8 @@ spec:
               value: "Asia/Seoul"
             - name: JAVA_TOOL_OPTIONS
               value: "-Duser.timezone=Asia/Seoul"
+            - name: JAVA_OPTS
+              value: "-Xms512m -Xmx512m"
             - name: SPRING_DATASOURCE_URL
               valueFrom:
                 secretKeyRef:
@@ -122,10 +124,10 @@ spec:
               value: "true"
           resources:
             requests:
-              memory: "768Mi"
+              memory: "512Mi"
               cpu: "400m"
             limits:
-              memory: "2048Mi"
+              memory: "768Mi"
               cpu: "1500m"
           startupProbe:
             httpGet:

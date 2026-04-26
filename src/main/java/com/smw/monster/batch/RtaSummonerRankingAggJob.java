@@ -8,8 +8,8 @@ import com.smw.rta.mapper.RtaMapper;
 import com.smw.rta.service.RtaBatchAggregationService;
 
 /**
- * RTA 소환사 랭킹 스냅샷({@code rta_agg_summoner_ranking_snap})과 시즌 전체 검색용 스냅(
- * {@code rta_agg_summoner_search_snap})을 시즌별로 전량 재적재한다. 이어서
+ * RTA 소환사 랭킹 스냅샷({@code rta_agg_summoner_ranking_snap})을 시즌별로 전량 재적재하고, 검색용
+ * {@code rta_agg_summoner_search_snap} 은 시즌 비저장·wizard_id 기준 participant 대표행 upsert 1회로 갱신한다. 이어서
  * {@code rta_agg_summoner_season_fight_snap} / {@code rta_agg_summoner_monster_snap}(소환사×몬스터 픽/밴/승/선피·보유)를 갱신한다.
  * 티어별 상위 100({@code rta_agg_monster_stats_tier_top_snap})은 {@link RtaMonsterStatsTierTopSnapJob} 에서 별도 스케줄.
  * <p>

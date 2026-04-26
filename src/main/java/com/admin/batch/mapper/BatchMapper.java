@@ -9,7 +9,8 @@ import org.apache.ibatis.annotations.Mapper;
 public interface BatchMapper {
 
 	public int insertBatch(Map<String, Object> param);
-	public List<Map<String, String>> selectBatchConfig(Map<String, Object> param);
+	/** MyBatis sqlMap: 숫자 컬럼은 Long 등 원시 JDBC 타입에 가깝게 매핑됨 */
+	public List<Map<String, ?>> selectBatchConfig(Map<String, Object> param);
 	public int updateBatch(Map<String, Object> param);
 	public String getClassName(String param);
 

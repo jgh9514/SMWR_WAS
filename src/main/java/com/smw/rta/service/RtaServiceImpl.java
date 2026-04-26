@@ -2,7 +2,10 @@ package com.smw.rta.service;
 
 import com.smw.rta.mapper.RtaMapper;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.context.annotation.Primary;
@@ -41,6 +44,9 @@ public class RtaServiceImpl implements RtaService {
     /** 티어별 상위 스냅(배치) — 단일 티어 + offset+fetch 가 이 값 이하일 때만 런타임에 사용 */
     private static final int RTA_MONSTER_STATS_TIER_TOP_SNAP_MAX = 100;
 
+    /** {@link #getRtaDashboardLinkPreview} 는 {@code @Cacheable} 을 쓰지 않고 rtaMonster 전용 {@link CacheManager} 에 직접 적재(인프라가 잘못된 캐시 매니저로 해석하는 경우 방지) */
+    private static final String RTA_MONSTER_CACHE_NAME = "rtaMonster";
+
     /** 몬스터 통계: 집계 최소 픽 수 임계값 */
     @Value("${smw.rta.monster-stats.min-pick-count:10}")
     private int monsterStatsMinPickCount;
@@ -57,6 +63,10 @@ public class RtaServiceImpl implements RtaService {
 
     @Autowired
     private RtaDashboardRankCutoffCacheService rtaDashboardRankCutoffCacheService;
+
+    @Autowired
+    @Qualifier("rtaMonsterCacheManager")
+    private CacheManager rtaMonsterCacheManager;
 
     /**
      * seasonId가 null이면 현재 활성 시즌 ID를 조회. 여전히 null이면 null 반환.
@@ -324,9 +334,24 @@ public class RtaServiceImpl implements RtaService {
     }
 
     @Override
-    @Cacheable(cacheNames = "rtaMonster", cacheManager = "rtaMonsterCacheManager",
-            key = "'dlp_' + (#seasonId != null ? #seasonId : 'x') + '_' + #previewLimit")
     public Map<String, Object> getRtaDashboardLinkPreview(Long seasonId, int previewLimit) {
+        String dlpKey = "dlp_"
+                + (seasonId != null ? String.valueOf(seasonId) : "x")
+                + "_"
+                + previewLimit;
+        Cache c = rtaMonsterCacheManager.getCache(RTA_MONSTER_CACHE_NAME);
+        if (c != null) {
+            Cache.ValueWrapper w = c.get(dlpKey);
+            if (w != null) {
+                Object v = w.get();
+                if (v instanceof Map<?, ?> m) {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> hit = (Map<String, Object>) m;
+                    return hit;
+                }
+            }
+        }
+
         int n = Math.max(1, Math.min(previewLimit, 50));
         Map<String, Object> out = new HashMap<>();
         out.put("previewLimit", n);
@@ -362,6 +387,9 @@ public class RtaServiceImpl implements RtaService {
             }
             throw new RuntimeException(t);
         }
+        if (c != null) {
+            c.put(dlpKey, out);
+        }
         return out;
     }
 
@@ -386,12 +414,11 @@ public class RtaServiceImpl implements RtaService {
 
     @Override
     @Cacheable(cacheNames = "rtaRanking", cacheManager = "rtaShortLivedCacheManager",
-            key = "'search_' + #seasonId + '_' + (#query != null ? #query.trim() : '')")
+            key = "'search_' + (#query != null ? #query : '')")
     public Map<String, Object> searchRtaSummoners(String query, Long seasonId) {
-        Long sid = doResolveSeasonId(seasonId);
         Map<String, Object> response = new HashMap<>();
-        response.put("seasonId", sid);
-        if (sid == null || query == null) {
+        response.put("seasonId", doResolveSeasonId(seasonId));
+        if (query == null) {
             response.put("results", Collections.emptyList());
             return response;
         }
@@ -403,7 +430,7 @@ public class RtaServiceImpl implements RtaService {
             response.put("results", Collections.emptyList());
             return response;
         }
-        List<Map<String, Object>> rows = rtaMapper.searchRtaSummonersInAgg(q, 20, sid);
+        List<Map<String, Object>> rows = rtaMapper.searchRtaSummonersInAgg(q, 20);
         response.put("results", rows != null ? rows : Collections.emptyList());
         return response;
     }

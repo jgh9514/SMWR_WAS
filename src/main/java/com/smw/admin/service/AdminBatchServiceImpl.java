@@ -119,15 +119,15 @@ public class AdminBatchServiceImpl implements AdminBatchService {
 
     private Map<String, String> loadBatchNameMap() {
         Map<String, String> batchNameMap = new HashMap<>();
-        List<Map<String, String>> configs = batchMapper.selectBatchConfig(new HashMap<>());
-        for (Map<String, String> config : configs) {
+        List<Map<String, ?>> configs = batchMapper.selectBatchConfig(new HashMap<>());
+        for (Map<String, ?> config : configs) {
             if (config == null) {
                 continue;
             }
-            String batId = config.get("bat_id");
-            String batNm = config.get("bat_nm");
+            Object batId = config.get("bat_id");
+            Object batNm = config.get("bat_nm");
             if (batId != null && batNm != null) {
-                batchNameMap.put(batId, batNm);
+                batchNameMap.put(String.valueOf(batId), String.valueOf(batNm));
             }
         }
         return batchNameMap;

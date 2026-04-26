@@ -81,12 +81,12 @@ public class BatchConfig {
 			return;
 		}
 	    try {
-			List<Map<String, String>> scheduleList = loadScheduleList(null);
-        	for(Map<String, String> scheduleMap : scheduleList) {
+			List<Map<String, ?>> scheduleList = loadScheduleList(null);
+        	for (Map<String, ?> scheduleMap : scheduleList) {
         		String jobKey = String.valueOf(scheduleMap.get("bat_id"));
-				String jobClassName = scheduleMap.get("job_class"); // 배치 Job 클래스명
-				String cronExp = scheduleMap.get("cron_expr");      // 크론 표현식
-				String callYn = scheduleMap.get("use_yn");          // 실행 여부(Y/N)
+				String jobClassName = scheduleMap.get("job_class") != null ? String.valueOf(scheduleMap.get("job_class")) : null; // 배치 Job 클래스명
+				String cronExp = scheduleMap.get("cron_expr") != null ? String.valueOf(scheduleMap.get("cron_expr")) : null;      // 크론 표현식
+				String callYn = scheduleMap.get("use_yn") != null ? String.valueOf(scheduleMap.get("use_yn")) : null;          // 실행 여부(Y/N)
 				log.info("jobKey : " + jobKey + " / jobClassName : " + jobClassName + " / cronExp : " + cronExp + " / callYn : " + callYn);
         		if ("Y".equalsIgnoreCase(callYn)) {
 					try {
@@ -220,7 +220,7 @@ public class BatchConfig {
 	/**
 	 * 배치 설정 목록을 조회한다. 화면/서비스에서 공용으로 사용할 수 있도록 노출한다.
 	 */
-	public List<Map<String, String>> loadScheduleList(Map<String, Object> additionalParam) {
+	public List<Map<String, ?>> loadScheduleList(Map<String, Object> additionalParam) {
 		Map<String, Object> mapConfig = new HashMap<>();
 		if (additionalParam != null) {
 			mapConfig.putAll(additionalParam);
@@ -267,23 +267,25 @@ public class BatchConfig {
 
 			Map<String, Object> param = new HashMap<>();
 			param.put("bat_id", batId);
-			List<Map<String, String>> scheduleList = loadScheduleList(param);
+			List<Map<String, ?>> scheduleList = loadScheduleList(param);
 
 			if (scheduleList == null || scheduleList.isEmpty()) {
 				log.warn("배치 설정을 찾을 수 없습니다. jobKey={}, batId={}", jobKey, batId);
 				return false;
 			}
 
-			Map<String, String> scheduleMap = scheduleList.get(0);
+			Map<String, ?> scheduleMap = scheduleList.get(0);
 			if (scheduleMap == null) {
 				log.error("배치 설정 Map이 null입니다. jobKey={}", jobKey);
 				return false;
 			}
 			
 			// job_class 또는 bat_cls_nm 필드 확인 (호환성)
-			String jobClassName = scheduleMap.get("job_class");
+			Object jobClassObj = scheduleMap.get("job_class");
+			String jobClassName = jobClassObj != null ? String.valueOf(jobClassObj) : null;
 			if (jobClassName == null || jobClassName.trim().isEmpty()) {
-				jobClassName = scheduleMap.get("bat_cls_nm");
+				Object alt = scheduleMap.get("bat_cls_nm");
+				jobClassName = alt != null ? String.valueOf(alt) : null;
 			}
 			
 			if (jobClassName == null || jobClassName.trim().isEmpty()) {

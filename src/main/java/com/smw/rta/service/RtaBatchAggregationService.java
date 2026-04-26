@@ -44,15 +44,17 @@ public class RtaBatchAggregationService {
 				continue;
 			}
 			long sid = seasonId.longValue();
-			// 시즌당 독립 TX: advisory lock + 해당 시즌 랭킹/검색 스냅 전량 DELETE 후 INSERT
+			// 시즌당 독립 TX: advisory lock + 해당 시즌 랭킹 스냅만 전량 DELETE 후 INSERT
 			transactionTemplate.executeWithoutResult(status -> {
 				rtaMapper.acquireRtaSummonerSnapSeasonXactLock(sid);
 				rtaMapper.deleteRtaSummonerRankingSnapBySeason(sid);
 				rtaMapper.insertRtaSummonerRankingSnapForSeason(sid);
-				rtaMapper.deleteRtaSummonerSearchSnapBySeason(sid);
-				rtaMapper.insertRtaSummonerSearchSnapForSeason(sid);
 			});
 		}
+		transactionTemplate.executeWithoutResult(status -> {
+			rtaMapper.acquireRtaSummonerSearchSnapGlobalXactLock();
+			rtaMapper.upsertRtaSummonerSearchSnap();
+		});
 		return new SummonerRankingRebuildResult(
 				(int) safeCount(rtaMapper.countRtaSummonerRankingSnapRows()),
 				(int) safeCount(rtaMapper.countRtaSummonerSearchSnapRows()));

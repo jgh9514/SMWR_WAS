@@ -108,7 +108,7 @@ public class BatchController {
 	@Operation(summary = "배치 설정 목록 조회", description = "배치 스케줄 설정 값을 조회합니다.")
 	@PostMapping("/config")
 	public ResponseEntity<?> selectBatchConfig(@RequestBody(required = false) Map<String, Object> param) {
-		List<Map<String, String>> list = logService.selectBatchConfig(param == null ? new HashMap<>() : param);
+		List<Map<String, ?>> list = logService.selectBatchConfig(param == null ? new HashMap<>() : param);
 		return new ResponseEntity<>(list, HttpStatus.OK);
 	}
 

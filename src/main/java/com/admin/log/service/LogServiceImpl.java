@@ -99,7 +99,7 @@ public class LogServiceImpl implements LogService {
 	}
 
 	@Override
-	public List<Map<String, String>> selectBatchConfig(Map<String, Object> param) {
+	public List<Map<String, ?>> selectBatchConfig(Map<String, Object> param) {
 		Map<String, Object> queryParam = param != null ? new HashMap<>(param) : new HashMap<>();
 		return batchMapper.selectBatchConfig(queryParam);
 	}

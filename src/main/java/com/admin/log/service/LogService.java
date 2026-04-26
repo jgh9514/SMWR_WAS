@@ -19,7 +19,7 @@ public interface LogService {
 	
 	public List<Map<String, ?>> selectBatchList(Map<String, Object> param);
 
-	public List<Map<String, String>> selectBatchConfig(Map<String, Object> param);
+	public List<Map<String, ?>> selectBatchConfig(Map<String, Object> param);
 	
 	public void insertApiLog(Map<String, Object> param);
 	

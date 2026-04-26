@@ -120,8 +120,8 @@ public interface RtaMapper {
     Long countRtaSeasonRatingMatchTotalRows();
 
     /**
-     * 랭킹/검색 스냅 쓰기 직렬화(트랜잭션 범위). {@link RtaBatchAggregationService#rebuildSummonerRankingAgg} 에서
-     * delete+insert 와 같이 동일 TX 안에서만 호출.
+     * 랭킹 스냅 쓰기 직렬화(트랜잭션 범위). {@link RtaBatchAggregationService#rebuildSummonerRankingAgg} 에서
+     * 시즌별 delete+insert 와 동일 TX 안에서만 호출.
      */
     Integer acquireRtaSummonerSnapSeasonXactLock(@Param("seasonId") long seasonId);
 
@@ -131,11 +131,14 @@ public interface RtaMapper {
     /** 시즌별 상위 500명 스냅샷 적재 (직전에 같은 시즌 delete 가 있어야 함) */
     int insertRtaSummonerRankingSnapForSeason(@Param("seasonId") long seasonId);
 
-    /** 시즌별 검색용 스냅 전체 삭제 (insert 직전, 동일 TX 권장) */
-    int deleteRtaSummonerSearchSnapBySeason(@Param("seasonId") long seasonId);
+    /**
+     * 검색 스냅 전역 쓰기 직렬화(트랜잭션 범위). {@link com.smw.rta.service.RtaBatchAggregationService#rebuildSummonerRankingAgg} 에서
+     * upsert 와 동일 TX 안에서만 호출.
+     */
+    Integer acquireRtaSummonerSearchSnapGlobalXactLock();
 
-    /** 시즌 전체 wizard_id 1슬롯 검색용 스냅샷 적재 (직전에 같은 시즌 delete 가 있어야 함) */
-    int insertRtaSummonerSearchSnapForSeason(@Param("seasonId") long seasonId);
+    /** participant 기준 wizard_id 당 대표 1행을 upsert(닉·국가 동일이면 UPDATE 생략) */
+    int upsertRtaSummonerSearchSnap();
 
     /** {@code rta_agg_monster_stats_tier_top_snap} 시즌 전체 삭제 후 솔/듀/트 상위 100 재적재 */
     int deleteRtaMonsterStatsTierTopSnapBySeason(@Param("seasonId") long seasonId);
@@ -178,9 +181,8 @@ public interface RtaMapper {
     List<Map<String, Object>> getRtaSummonerRankingFromAgg(@Param("limit") int limit, @Param("offset") int offset,
             @Param("seasonId") Long seasonId, @Param("countryFilter") String countryFilter);
 
-    /** 닉네임 부분 일치 또는 위자드 ID 정확 일치 — {@code rta_agg_summoner_search_snap} */
-    List<Map<String, Object>> searchRtaSummonersInAgg(@Param("query") String query,
-            @Param("limit") int limit, @Param("seasonId") Long seasonId);
+    /** 닉네임 부분 일치 또는 위자드 ID 정확 일치 — {@code rta_agg_summoner_search_snap}(시즌 무관) */
+    List<Map<String, Object>> searchRtaSummonersInAgg(@Param("query") String query, @Param("limit") int limit);
 
     /** 소환사 요약 — 수집 리플레이 기준 최신 점수·글로벌 순위 */
     Map<String, Object> getRtaPlayerSummaryFromAgg(@Param("wizardId") String wizardId,

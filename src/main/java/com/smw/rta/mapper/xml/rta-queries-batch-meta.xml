@@ -231,10 +231,12 @@
         WHERE season_id = #{seasonId}
     </delete>
 
-    <delete id="deleteRtaSummonerSearchSnapBySeason">
-        DELETE FROM public.rta_agg_summoner_search_snap
-        WHERE season_id = #{seasonId}
-    </delete>
+    <select id="acquireRtaSummonerSearchSnapGlobalXactLock" resultType="int">
+        SELECT 1
+        FROM (
+            SELECT pg_catalog.pg_advisory_xact_lock(872202, 1) AS _v
+        ) AS _lock_sub
+    </select>
 
     <!--
       랭킹 스냅: 해당 시즌 행은 호출부에서 먼저 DELETE 한 뒤 이 INSERT만 실행.
@@ -314,37 +316,27 @@
     </insert>
 
     <!--
-      시즌 전체 wizard_id 1승롯(검색 API): 호출부에서 먼저 DELETE 후 이 INSERT. lock 은 RtaBatchAggregationService 동일 TX.
-      대표 행: 시즌 내 ladder_score 최대(동률: replay_id 큰 쪽).
+      검색 스냅: 시즌 비저장, wizard_id PK. participant 전체에서 대표 1행(래더 최고, 동률이면 replay_id 큰 쪽) upsert.
+      닉/국가가 기존과 동일하면 DO UPDATE 는 WHERE 로 스킵(불필요한 쓰기 감소).
     -->
-    <insert id="insertRtaSummonerSearchSnapForSeason">
-        WITH
-        pick AS (
-            SELECT DISTINCT ON (BTRIM(COALESCE(mp.wizard_id::text, '')))
-                BTRIM(COALESCE(mp.wizard_id::text, ''))::varchar(64) AS wizard_id,
+    <insert id="upsertRtaSummonerSearchSnap">
+        WITH pick AS (
+            SELECT DISTINCT ON (mp.wizard_id)
+                mp.wizard_id,
                 mp.wizard_name,
-                mp.country_code,
-                mp.channel_uid,
-                mp.ladder_score,
-                mp.rating_id
+                mp.country_code AS country
             FROM public.rta_match_participant mp
-            WHERE mp.season_id = #{seasonId}
-              AND BTRIM(COALESCE(mp.wizard_id::text, '')) &lt;&gt; ''
-            ORDER BY BTRIM(COALESCE(mp.wizard_id::text, '')), mp.ladder_score DESC NULLS LAST, mp.replay_id DESC
+            WHERE mp.wizard_id &lt;&gt; ''
+            ORDER BY mp.wizard_id, mp.ladder_score DESC NULLS LAST, mp.replay_id DESC
         )
-        INSERT INTO public.rta_agg_summoner_search_snap (
-            season_id, wizard_id, wizard_name, country, channel_uid, score, rating_id, computed_at
-        )
-        SELECT
-            #{seasonId},
-            p.wizard_id,
-            p.wizard_name,
-            NULLIF(TRIM(BOTH FROM COALESCE(p.country_code::text, '')), '')::varchar(8),
-            p.channel_uid,
-            COALESCE(p.ladder_score, 0)::int,
-            p.rating_id,
-            now()
+        INSERT INTO public.rta_agg_summoner_search_snap (wizard_id, wizard_name, country)
+        SELECT p.wizard_id, p.wizard_name, p.country
         FROM pick p
+        ON CONFLICT (wizard_id) DO UPDATE SET
+            wizard_name = EXCLUDED.wizard_name,
+            country = EXCLUDED.country
+        WHERE public.rta_agg_summoner_search_snap.wizard_name IS DISTINCT FROM EXCLUDED.wizard_name
+           OR public.rta_agg_summoner_search_snap.country IS DISTINCT FROM EXCLUDED.country
     </insert>
 
     <select id="countRtaSummonerRankingSnapRows" resultType="long">
@@ -404,25 +396,17 @@
         ORDER BY p.rank_position NULLS LAST
     </select>
 
-    <!--
-      닉 부분 일치·위자드ID 정확 일치. 시즌 전체 집계 rta_agg_summoner_search_snap (배치 갱신).
-      GIN: idx_rta_agg_summoner_search_snap_name_trgm; 시즌 필터: idx_rta_agg_summoner_search_snap_season.
-    -->
+    <!-- 닉 부분 일치·위자드ID 정확 일치. rta_agg_summoner_search_snap(배치 upsert). GIN: idx_rta_agg_summoner_search_snap_name_trgm -->
     <select id="searchRtaSummonersInAgg" resultType="map">
         SELECT
             s.wizard_id,
             s.wizard_name,
-            s.country,
-            s.channel_uid,
-            s.score,
-            s.rating_id
+            s.country
         FROM public.rta_agg_summoner_search_snap s
-        WHERE s.season_id = #{seasonId}
-          AND (
-              s.wizard_id = #{query}
-              OR s.wizard_name ILIKE '%' || #{query} || '%'
-          )
-        ORDER BY (s.wizard_id = #{query}) DESC, s.score DESC NULLS LAST, s.wizard_id ASC
+        WHERE
+            s.wizard_id = #{query}
+            OR s.wizard_name ILIKE '%' || #{query} || '%'
+        ORDER BY (s.wizard_id = #{query}) DESC, s.wizard_id ASC
         LIMIT #{limit}
     </select>
 
