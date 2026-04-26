@@ -247,13 +247,13 @@ smw:
       max-batches-per-job: ${SMW_RTA_RAW_APPLY_MAX_BATCHES:2000}
     # 통합 RTA 배치(시너지 등). 수치·스킵은 DB 여유에 맞게 조절.
     batch:
-      synergy-batch-size: ${SMW_RTA_SYNERGY_BATCH_SIZE:10000}
-      # 시너지 라운드 사이 대기(ms). 0=비활성(처리량 우선). 연속 쓰기 부하 완화 시 25~75 권장.
-      synergy-pause-ms-between-rounds: ${SMW_RTA_SYNERGY_PAUSE_MS:0}
+      # rid 한 라운드당 상한. 크면 힙·merge 부담↑ — OOM 시 SMW_RTA_SYNERGY_BATCH_SIZE로 더 낮춤(예: 1000)
+      synergy-batch-size: ${SMW_RTA_SYNERGY_BATCH_SIZE:2000}
+      # 시너지 라운드 사이 대기(ms). GC·DB 숨돌릴 여지. 0=비활성(처리량 우선).
+      synergy-pause-ms-between-rounds: ${SMW_RTA_SYNERGY_PAUSE_MS:50}
       # 시너지 단독 Job(RtaSynergyOnlyAggJob)에서 각 라운드 완료 후 RTA 조회 캐시 무효화 여부.
-      # true(기본) — pending 이 많을 때도 라운드 단위로 중간 결과 즉시 반영.
-      # false — 전체 drain 완료 후 1회만 무효화(캐시 오버헤드 최소화).
-      synergy-only-evict-caches-each-round: ${SMW_RTA_SYNERGY_ONLY_EVICT_EACH_ROUND:true}
+      # true — 라운드마다 중간 조회 반영(부하↑). false(기본) — drain 끝에 1회(메모리·CPU 절약).
+      synergy-only-evict-caches-each-round: ${SMW_RTA_SYNERGY_ONLY_EVICT_EACH_ROUND:false}
       # 통합 Job 의 카운터 matchup 대량 merge 동안 조회용 보조 인덱스를 잠시 내림. 종료 시 재생성.
       drop-counter-matchup-query-index-during-unified-job: ${SMW_RTA_DROP_COUNTER_QUERY_INDEX_IN_UNIFIED:false}
       slack-token: ${SMW_BATCH_SLACK_TOKEN:}

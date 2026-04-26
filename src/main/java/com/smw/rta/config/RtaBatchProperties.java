@@ -13,13 +13,13 @@ import lombok.Setter;
 @ConfigurationProperties(prefix = "smw.rta.batch")
 public class RtaBatchProperties {
 
-	/** {@code synergy_applied_at IS NULL}(미집계) rid 를 한 라운드에서 가져오는 건수. 집계 후 결과는 {@code synergy_apply_result}. */
-	private int synergyBatchSize = 1000;
+	/** {@code synergy_applied_at IS NULL}(미집계) rid 를 한 라운드에서 가져오는 건수. {@code smw.rta.batch.synergy-batch-size} 와 맞출 것. */
+	private int synergyBatchSize = 2000;
 
 	/**
-	 * 시너지 라운드 사이 대기(ms). 0 이면 생략. 연속 부하·락 완화에 사용.
+	 * 시너지 라운드 사이 대기(ms). 0 이면 생략. GC·DB 부하 완화.
 	 */
-	private int synergyPauseMsBetweenRounds = 0;
+	private int synergyPauseMsBetweenRounds = 50;
 
 	/**
 	 * true 이면 통합 Job 에서 {@link RtaBatchAggregationService#rebuildMonsterStatsAgg} 생략 (no-op).
@@ -42,10 +42,10 @@ public class RtaBatchProperties {
 	 * 시너지 단독 Job({@link com.smw.monster.batch.RtaSynergyOnlyAggJob})에서
 	 * 각 라운드가 끝날 때마다 RTA 조회 캐시를 무효화할지 여부.
 	 * <p>
-	 * {@code true}(기본) — 라운드마다 캐시 무효화. pending 이 많을 때 중간 결과를 즉시 조회 가능.
-	 * {@code false} — 전체 drain 완료 후 한 번만 무효화. 캐시 무효화 오버헤드를 줄이고 싶을 때.
+	 * {@code true} — 라운드마다 캐시 무효화. pending 이 많을 때 중간 결과를 즉시 조회 가능(부하↑).
+	 * {@code false}(기본) — 전체 drain 완료 후 한 번만 무효화. 메모리·CPU 절약.
 	 */
-	private boolean synergyOnlyEvictCachesEachRound = true;
+	private boolean synergyOnlyEvictCachesEachRound = false;
 
 	/** 미사용 — 카운터 테이블이 solo/duo/trio 로 분리되면서 별도 인덱스 DROP/REBUILD 불필요. 하위 호환 유지용. */
 	@Deprecated

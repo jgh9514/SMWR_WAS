@@ -898,7 +898,7 @@
             a.win_cnt,
             a.lose_cnt,
             a.first_pick_cnt,
-            o.copy_count,
+            COALESCE(o.copy_count, 0)::int,
             CURRENT_TIMESTAMP
         FROM agg a
         LEFT JOIN (
