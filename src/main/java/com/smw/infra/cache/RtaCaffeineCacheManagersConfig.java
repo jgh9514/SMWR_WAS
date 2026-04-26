@@ -32,18 +32,34 @@ public class RtaCaffeineCacheManagersConfig {
 	@Value("${smw.cache.rta-list-read.maximum-size:3000}")
 	private long rtaListReadMaximumSize;
 
+	@Value("${smw.cache.rta.monster.expire-after-write-minutes:60}")
+	private long rtaMonsterExpireAfterWriteMinutes;
+
+	@Value("${smw.cache.rta.monster.maximum-size:200}")
+	private long rtaMonsterMaximumSize;
+
 	@Bean("rtaShortLivedCacheManager")
 	public CacheManager rtaShortLivedCacheManager() {
 		CaffeineCacheManager cacheManager = new CaffeineCacheManager();
 		cacheManager.setCacheNames(Arrays.asList(
 				"rtaDashboardRankCut",
 				"rtaDashboardTiers",
-				"rtaMonster",
 				"rtaRanking",
 				"rtaSeasons"));
 		cacheManager.setCaffeine(Caffeine.newBuilder()
 				.maximumSize(shortLivedMaximumSize)
 				.expireAfterWrite(Duration.ofMinutes(shortLivedExpireAfterWriteMinutes))
+				.recordStats());
+		return cacheManager;
+	}
+
+	@Bean("rtaMonsterCacheManager")
+	public CacheManager rtaMonsterCacheManager() {
+		CaffeineCacheManager cacheManager = new CaffeineCacheManager();
+		cacheManager.setCacheNames(Arrays.asList("rtaMonster"));
+		cacheManager.setCaffeine(Caffeine.newBuilder()
+				.maximumSize(rtaMonsterMaximumSize)
+				.expireAfterWrite(Duration.ofMinutes(rtaMonsterExpireAfterWriteMinutes))
 				.recordStats());
 		return cacheManager;
 	}

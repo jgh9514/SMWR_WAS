@@ -565,6 +565,98 @@
         LIMIT #{limit} OFFSET #{offset}
     </select>
 
+    <!-- 티어별 상위 100 스냅 — 단일 ratingId + rank 1..100 + offset+limit<=100 전용 -->
+    <select id="getRtaMonsterStatsFromTierTopSnap" resultType="map">
+        WITH match_total AS (
+            SELECT COALESCE((
+                SELECT t.total_matches::bigint
+                FROM public.rta_agg_season_rating_match_total t
+                WHERE t.season_id = #{seasonId} AND t.rating_id = #{ratingId}
+            ), 0::bigint) AS total_matches
+        )
+        SELECT
+            s.combo_unit_key AS monster_id,
+            m.monster_elemental AS monster_elemental,
+            m.kr_name AS monster_name,
+            <include refid="monsterPortraitUrl"><property name="alias" value="m"/></include> AS monster_image,
+            s.pick_cnt AS pick_count,
+            ROUND((s.pick_cnt::numeric / NULLIF((SELECT mt.total_matches FROM match_total mt), 0) * 100)::numeric, 2) AS pick_rate,
+            CASE
+                WHEN s.match_cnt &gt; 0 THEN ROUND((s.win_cnt::numeric / s.match_cnt * 100)::numeric, 2)
+                ELSE 0
+            END AS win_rate,
+            CASE
+                WHEN s.pick_cnt &gt; 0
+                    THEN ROUND((COALESCE(s.ban_cnt, 0)::numeric / s.pick_cnt * 100)::numeric, 2)
+                ELSE 0
+            END AS ban_rate
+        FROM public.rta_agg_monster_stats_tier_top_snap s
+        INNER JOIN public.monster m ON TRIM(BOTH FROM m.monster_id) = s.combo_unit_key
+        WHERE s.season_id = #{seasonId}
+          AND s.rating_id = #{ratingId}
+          AND s.stat_kind = 'S'
+          AND s.pick_cnt &gt;= #{minPickCount}
+          AND m.kr_name IS NOT NULL
+        ORDER BY s.rank_position
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="getRtaDuoComboStatsFromTierTopSnap" resultType="map">
+        SELECT
+            split_part(s.combo_unit_key, ',', 1) AS monster_id_1,
+            split_part(s.combo_unit_key, ',', 2) AS monster_id_2,
+            m1.kr_name AS monster_name_1,
+            m2.kr_name AS monster_name_2,
+            <include refid="monsterPortraitUrl"><property name="alias" value="m1"/></include> AS monster_image_1,
+            <include refid="monsterPortraitUrl"><property name="alias" value="m2"/></include> AS monster_image_2,
+            m1.monster_elemental AS monster_elemental_1,
+            m2.monster_elemental AS monster_elemental_2,
+            s.match_cnt AS match_count,
+            ROUND((s.win_cnt::numeric / NULLIF(s.match_cnt, 0) * 100)::numeric, 2) AS win_rate
+        FROM public.rta_agg_monster_stats_tier_top_snap s
+        INNER JOIN public.monster m1 ON TRIM(BOTH FROM m1.monster_id) = split_part(s.combo_unit_key, ',', 1)
+        INNER JOIN public.monster m2 ON TRIM(BOTH FROM m2.monster_id) = split_part(s.combo_unit_key, ',', 2)
+        WHERE s.season_id = #{seasonId}
+          AND s.rating_id = #{ratingId}
+          AND s.stat_kind = 'D'
+          AND s.match_cnt &gt;= #{minPickCount}
+          AND m1.kr_name IS NOT NULL
+          AND m2.kr_name IS NOT NULL
+        ORDER BY s.rank_position
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="getRtaTrioComboStatsFromTierTopSnap" resultType="map">
+        SELECT
+            split_part(s.combo_unit_key, ',', 1) AS monster_id_1,
+            split_part(s.combo_unit_key, ',', 2) AS monster_id_2,
+            split_part(s.combo_unit_key, ',', 3) AS monster_id_3,
+            m1.kr_name AS monster_name_1,
+            m2.kr_name AS monster_name_2,
+            m3.kr_name AS monster_name_3,
+            <include refid="monsterPortraitUrl"><property name="alias" value="m1"/></include> AS monster_image_1,
+            <include refid="monsterPortraitUrl"><property name="alias" value="m2"/></include> AS monster_image_2,
+            <include refid="monsterPortraitUrl"><property name="alias" value="m3"/></include> AS monster_image_3,
+            m1.monster_elemental AS monster_elemental_1,
+            m2.monster_elemental AS monster_elemental_2,
+            m3.monster_elemental AS monster_elemental_3,
+            s.match_cnt AS match_count,
+            ROUND((s.win_cnt::numeric / NULLIF(s.match_cnt, 0) * 100)::numeric, 2) AS win_rate
+        FROM public.rta_agg_monster_stats_tier_top_snap s
+        INNER JOIN public.monster m1 ON TRIM(BOTH FROM m1.monster_id) = split_part(s.combo_unit_key, ',', 1)
+        INNER JOIN public.monster m2 ON TRIM(BOTH FROM m2.monster_id) = split_part(s.combo_unit_key, ',', 2)
+        INNER JOIN public.monster m3 ON TRIM(BOTH FROM m3.monster_id) = split_part(s.combo_unit_key, ',', 3)
+        WHERE s.season_id = #{seasonId}
+          AND s.rating_id = #{ratingId}
+          AND s.stat_kind = 'T'
+          AND s.match_cnt &gt;= #{minPickCount}
+          AND m1.kr_name IS NOT NULL
+          AND m2.kr_name IS NOT NULL
+          AND m3.kr_name IS NOT NULL
+        ORDER BY s.rank_position
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
     <!-- RTA 몬스터 기본 정보 조회 — 시즌은 participant.season_id 만 사용 (rtaMatchInSeasonCte 미사용, 불필요 조인 방지) -->
     <select id="getRtaMonsterBasicInfo" resultType="map">
         WITH pick_stats AS (

@@ -38,6 +38,9 @@ public class RtaServiceImpl implements RtaService {
     /** 소환사 랭킹: 최대 페이지 수 (50×10=500) */
     private static final int RTA_SUMMONER_RANKING_MAX_PAGES = 10;
 
+    /** 티어별 상위 스냅(배치) — 단일 티어 + offset+fetch 가 이 값 이하일 때만 런타임에 사용 */
+    private static final int RTA_MONSTER_STATS_TIER_TOP_SNAP_MAX = 100;
+
     /** 몬스터 통계: 집계 최소 픽 수 임계값 */
     @Value("${smw.rta.monster-stats.min-pick-count:10}")
     private int monsterStatsMinPickCount;
@@ -63,6 +66,17 @@ public class RtaServiceImpl implements RtaService {
             return seasonId;
         }
         return rtaMapper.selectDefaultSeasonIdForNow();
+    }
+
+    private static boolean canUseMonsterStatsTierTopSnap(
+            Integer ratingId, List<Integer> ratingIds, int offset, int fetchSize) {
+        if (ratingId == null || ratingId <= 0) {
+            return false;
+        }
+        if (ratingIds != null && !ratingIds.isEmpty()) {
+            return false;
+        }
+        return offset + fetchSize <= RTA_MONSTER_STATS_TIER_TOP_SNAP_MAX;
     }
 
     private static String normalizeCountryFilter(String countryFilter) {
@@ -193,7 +207,7 @@ public class RtaServiceImpl implements RtaService {
     }
 
     @Override
-    @Cacheable(cacheNames = "rtaMonster", cacheManager = "rtaShortLivedCacheManager",
+    @Cacheable(cacheNames = "rtaMonster", cacheManager = "rtaMonsterCacheManager",
             key = "'ms_' + #type + '_' + #seasonId + '_' + #pageSize + '_' + #offset + '_' + (#ratingId != null ? #ratingId : 'x') + '_' + (#ratingIds != null && !#ratingIds.isEmpty() ? #ratingIds.toString() : 'all')")
     public Map<String, Object> getRtaMonsterStats(int pageSize, int offset, String type, Long seasonId,
             Integer ratingId, List<Integer> ratingIds) {
@@ -203,12 +217,32 @@ public class RtaServiceImpl implements RtaService {
 
         List<Map<String, Object>> rows = Collections.emptyList();
         if (sid != null) {
-            if ("duo".equals(type)) {
-                rows = rtaMapper.getRtaDuoComboStatsFromAgg(fetchSize, offset, sid, ratingId, ratingIds, minPick);
-            } else if ("trio".equals(type)) {
-                rows = rtaMapper.getRtaTrioComboStatsFromAgg(fetchSize, offset, sid, ratingId, ratingIds, minPick);
+            if (canUseMonsterStatsTierTopSnap(ratingId, ratingIds, offset, fetchSize)) {
+                int rid = ratingId;
+                if ("duo".equals(type)) {
+                    rows = rtaMapper.getRtaDuoComboStatsFromTierTopSnap(fetchSize, offset, sid, rid, minPick);
+                } else if ("trio".equals(type)) {
+                    rows = rtaMapper.getRtaTrioComboStatsFromTierTopSnap(fetchSize, offset, sid, rid, minPick);
+                } else {
+                    rows = rtaMapper.getRtaMonsterStatsFromTierTopSnap(fetchSize, offset, sid, rid, minPick);
+                }
+                if (rows == null || rows.isEmpty()) {
+                    if ("duo".equals(type)) {
+                        rows = rtaMapper.getRtaDuoComboStatsFromAgg(fetchSize, offset, sid, ratingId, ratingIds, minPick);
+                    } else if ("trio".equals(type)) {
+                        rows = rtaMapper.getRtaTrioComboStatsFromAgg(fetchSize, offset, sid, ratingId, ratingIds, minPick);
+                    } else {
+                        rows = rtaMapper.getRtaMonsterStatsFromAgg(fetchSize, offset, sid, ratingId, ratingIds, minPick);
+                    }
+                }
             } else {
-                rows = rtaMapper.getRtaMonsterStatsFromAgg(fetchSize, offset, sid, ratingId, ratingIds, minPick);
+                if ("duo".equals(type)) {
+                    rows = rtaMapper.getRtaDuoComboStatsFromAgg(fetchSize, offset, sid, ratingId, ratingIds, minPick);
+                } else if ("trio".equals(type)) {
+                    rows = rtaMapper.getRtaTrioComboStatsFromAgg(fetchSize, offset, sid, ratingId, ratingIds, minPick);
+                } else {
+                    rows = rtaMapper.getRtaMonsterStatsFromAgg(fetchSize, offset, sid, ratingId, ratingIds, minPick);
+                }
             }
         }
 
@@ -228,7 +262,7 @@ public class RtaServiceImpl implements RtaService {
     }
 
     @Override
-    @Cacheable(cacheNames = "rtaMonster", cacheManager = "rtaShortLivedCacheManager",
+    @Cacheable(cacheNames = "rtaMonster", cacheManager = "rtaMonsterCacheManager",
             key = "'md_' + #seasonId + '_' + #monsterId")
     public Map<String, Object> getRtaMonsterDetail(int monsterId, Long seasonId) {
         Long sid = doResolveSeasonId(seasonId);
@@ -290,7 +324,7 @@ public class RtaServiceImpl implements RtaService {
     }
 
     @Override
-    @Cacheable(cacheNames = "rtaMonster", cacheManager = "rtaShortLivedCacheManager",
+    @Cacheable(cacheNames = "rtaMonster", cacheManager = "rtaMonsterCacheManager",
             key = "'dlp_' + (#seasonId != null ? #seasonId : 'x') + '_' + #previewLimit")
     public Map<String, Object> getRtaDashboardLinkPreview(Long seasonId, int previewLimit) {
         int n = Math.max(1, Math.min(previewLimit, 50));

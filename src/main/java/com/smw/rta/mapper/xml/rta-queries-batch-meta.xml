@@ -215,48 +215,47 @@
         WHERE replay_id = #{rid}
     </update>
 
-    <!-- 수동·마이그레이션용. 일반 경로는 insertRtaSummonerRankingSnapForSeason(원자·DELETE+INSERT) 사용 -->
+    <!-- 랭킹 스냅: RtaBatchAggregationService 에서 lock → delete(전량) → insert(이 구문) 동일 TX -->
+    <select id="acquireRtaSummonerSnapSeasonXactLock" resultType="int">
+        SELECT 1
+        FROM (
+            SELECT pg_catalog.pg_advisory_xact_lock(
+                872201,
+                ( (CAST(#{seasonId} AS BIGINT) % 2000000000) + 1 )::int
+            ) AS _v
+        ) AS _lock_sub
+    </select>
+
     <delete id="deleteRtaSummonerRankingSnapBySeason">
         DELETE FROM public.rta_agg_summoner_ranking_snap
         WHERE season_id = #{seasonId}
     </delete>
 
+    <delete id="deleteRtaSummonerSearchSnapBySeason">
+        DELETE FROM public.rta_agg_summoner_search_snap
+        WHERE season_id = #{seasonId}
+    </delete>
+
     <!--
-      랭킹 스냅: CTE로 해당 시즌 DELETE 후 INSERT (한 문·동일 TX).
-      PK (season_id, rank_position) + UQ (season_id, wizard_id) — top_wizards/pool_500 꼬임으로 동일 wizard_id 가
-      서로 다른 rank에 두 번 나올 수 있으므로 wizard_id 당 1행만 남기고(가장 앞 순위) ROW_NUMBER 로 rank 를 1..N 으로 다시 쌓는다.
-      ON CONFLICT (season_id, rank_position) 로 PK 경합 시 대체.
-      (win_agg 는 pool_500 IN 서브쿼리)
+      랭킹 스냅: 해당 시즌 행은 호출부에서 먼저 DELETE 한 뒤 이 INSERT만 실행.
+      PK (season_id, rank_position) + UQ (season_id, wizard_id) — top_wizards 에서 wizard_id BTRIM 정규화,
+      pool_ranked_dedup_wizard / pool_ranked_final.
+      win_agg 는 participant id 도 BTRIM 해 pool_500 과 동일 키로 집계.
     -->
     <insert id="insertRtaSummonerRankingSnapForSeason">
         WITH
-        snap_season_xact_lock AS (
-            SELECT 1 AS _ok
-            FROM (
-                SELECT pg_catalog.pg_advisory_xact_lock(
-                    872201,
-                    ( (CAST(#{seasonId} AS BIGINT) % 2000000000) + 1 )::int
-                ) AS _v
-            ) AS _lock_sub
-        ),
-        deleted AS (
-            DELETE FROM public.rta_agg_summoner_ranking_snap
-            WHERE season_id = #{seasonId}
-              AND EXISTS (SELECT 1 FROM snap_season_xact_lock)
-            RETURNING season_id
-        ),
         <include refid="rtaSummonerRankingTopWizardsPairCte"/>,
         <include refid="rtaSummonerRankingPool500AndFilterCte"/>,
         win_agg AS (
             SELECT
-                u.wizard_id,
+                BTRIM(COALESCE(u.wizard_id::text, ''))::varchar(64) AS wizard_id,
                 COUNT(*)::bigint AS match_count,
                 SUM(CASE WHEN u.is_winner THEN 1 ELSE 0 END)::bigint AS win_count
             FROM public.rta_match_participant u
             WHERE u.season_id = #{seasonId}
               AND u.ladder_score &gt; 0
-              AND u.wizard_id IN (SELECT pp.wizard_id FROM pool_500 pp)
-            GROUP BY u.wizard_id
+              AND BTRIM(COALESCE(u.wizard_id::text, '')) IN (SELECT pp.wizard_id FROM pool_500 pp)
+            GROUP BY BTRIM(COALESCE(u.wizard_id::text, ''))::varchar(64)
         ),
         pool_ranked_dedup_wizard AS (
             SELECT DISTINCT ON (p.wizard_id)
@@ -312,44 +311,17 @@
         FROM pool_ranked_final p
         LEFT JOIN win_agg wa ON wa.wizard_id = p.wizard_id
         ORDER BY p.rank_position
-        ON CONFLICT (season_id, rank_position) DO UPDATE SET
-            wizard_id = EXCLUDED.wizard_id,
-            wizard_name = EXCLUDED.wizard_name,
-            country = EXCLUDED.country,
-            channel_uid = EXCLUDED.channel_uid,
-            score = EXCLUDED.score,
-            rating_id = EXCLUDED.rating_id,
-            max_season_score = EXCLUDED.max_season_score,
-            match_count = EXCLUDED.match_count,
-            win_count = EXCLUDED.win_count,
-            computed_at = EXCLUDED.computed_at
     </insert>
 
     <!--
-      시즌 전체 wizard_id 1승롯(검색 API): CTE로 해당 시즌 DELETE 후 INSERT.
-      대표 행: 시즌 내 ladder_score 최대(동률: replay_id 큰 쪽) — 닉 변경 후 재경기 시 최신 쪽이 반영.
-      pg_advisory_xact_lock: 랭킹 스냅(872201)과 동일 키로 동일 시즌 쓰기 직렬화.
+      시즌 전체 wizard_id 1승롯(검색 API): 호출부에서 먼저 DELETE 후 이 INSERT. lock 은 RtaBatchAggregationService 동일 TX.
+      대표 행: 시즌 내 ladder_score 최대(동률: replay_id 큰 쪽).
     -->
     <insert id="insertRtaSummonerSearchSnapForSeason">
         WITH
-        snap_season_xact_lock AS (
-            SELECT 1 AS _ok
-            FROM (
-                SELECT pg_catalog.pg_advisory_xact_lock(
-                    872201,
-                    ( (CAST(#{seasonId} AS BIGINT) % 2000000000) + 1 )::int
-                ) AS _v
-            ) AS _lock_sub
-        ),
-        deleted AS (
-            DELETE FROM public.rta_agg_summoner_search_snap
-            WHERE season_id = #{seasonId}
-              AND EXISTS (SELECT 1 FROM snap_season_xact_lock)
-            RETURNING season_id
-        ),
         pick AS (
-            SELECT DISTINCT ON (mp.wizard_id)
-                mp.wizard_id,
+            SELECT DISTINCT ON (BTRIM(COALESCE(mp.wizard_id::text, '')))
+                BTRIM(COALESCE(mp.wizard_id::text, ''))::varchar(64) AS wizard_id,
                 mp.wizard_name,
                 mp.country_code,
                 mp.channel_uid,
@@ -357,7 +329,8 @@
                 mp.rating_id
             FROM public.rta_match_participant mp
             WHERE mp.season_id = #{seasonId}
-            ORDER BY mp.wizard_id, mp.ladder_score DESC NULLS LAST, mp.replay_id DESC
+              AND BTRIM(COALESCE(mp.wizard_id::text, '')) &lt;&gt; ''
+            ORDER BY BTRIM(COALESCE(mp.wizard_id::text, '')), mp.ladder_score DESC NULLS LAST, mp.replay_id DESC
         )
         INSERT INTO public.rta_agg_summoner_search_snap (
             season_id, wizard_id, wizard_name, country, channel_uid, score, rating_id, computed_at
@@ -964,4 +937,129 @@
     <select id="countRtaSummonerMonsterSnapRows" resultType="long">
         SELECT COUNT(*)::bigint FROM public.rta_agg_summoner_monster_snap
     </select>
+
+    <!--
+      몬스터 솔/듀/트: 티어(rating_id)당 상위 100 스냅. 집계 테이블·monster.kr_name·minPick·정렬
+      rta-queries-live getRta*FromAgg(ratingId 단일)와 동일 규칙.
+    -->
+    <delete id="deleteRtaMonsterStatsTierTopSnapBySeason">
+        DELETE FROM public.rta_agg_monster_stats_tier_top_snap
+        WHERE season_id = #{seasonId}
+    </delete>
+
+    <insert id="insertRtaMonsterStatsTierTopSoloSnapForSeason">
+        INSERT INTO public.rta_agg_monster_stats_tier_top_snap (
+            season_id, rating_id, stat_kind, rank_position, combo_unit_key, pick_cnt, ban_cnt, match_cnt, win_cnt, computed_at
+        )
+        SELECT
+            t.season_id,
+            t.rating_id,
+            'S',
+            t.rn,
+            t.combo_unit_key,
+            t.pick_cnt,
+            t.ban_cnt,
+            t.match_cnt,
+            t.win_cnt,
+            now()
+        FROM (
+            SELECT
+                sg.season_id,
+                sg.rating_id,
+                sg.combo_unit_key,
+                sg.pick_cnt,
+                COALESCE(sg.ban_cnt, 0)::bigint AS ban_cnt,
+                sg.match_cnt,
+                sg.win_cnt,
+                ROW_NUMBER() OVER (
+                    PARTITION BY sg.rating_id
+                    ORDER BY sg.pick_cnt DESC
+                ) AS rn
+            FROM public.rta_agg_synergy_solo sg
+            INNER JOIN public.monster m ON TRIM(BOTH FROM m.monster_id) = sg.combo_unit_key
+            WHERE sg.season_id = #{seasonId}
+              AND sg.rating_id &gt; 0
+              AND m.kr_name IS NOT NULL
+              AND sg.pick_cnt &gt;= #{minPickCount}
+        ) t
+        WHERE t.rn &lt;= 100
+    </insert>
+
+    <insert id="insertRtaMonsterStatsTierTopDuoSnapForSeason">
+        INSERT INTO public.rta_agg_monster_stats_tier_top_snap (
+            season_id, rating_id, stat_kind, rank_position, combo_unit_key, pick_cnt, ban_cnt, match_cnt, win_cnt, computed_at
+        )
+        SELECT
+            t.season_id,
+            t.rating_id,
+            'D',
+            t.rn,
+            t.combo_unit_key,
+            NULL,
+            NULL,
+            t.match_cnt,
+            t.win_cnt,
+            now()
+        FROM (
+            SELECT
+                sg.season_id,
+                sg.rating_id,
+                sg.combo_unit_key,
+                sg.match_cnt,
+                sg.win_cnt,
+                ROW_NUMBER() OVER (
+                    PARTITION BY sg.rating_id
+                    ORDER BY sg.match_cnt DESC, (sg.win_cnt::numeric / NULLIF(sg.match_cnt, 0)) DESC NULLS LAST
+                ) AS rn
+            FROM public.rta_agg_synergy_duo sg
+            INNER JOIN public.monster m1 ON TRIM(BOTH FROM m1.monster_id) = split_part(sg.combo_unit_key, ',', 1)
+            INNER JOIN public.monster m2 ON TRIM(BOTH FROM m2.monster_id) = split_part(sg.combo_unit_key, ',', 2)
+            WHERE sg.season_id = #{seasonId}
+              AND sg.rating_id &gt; 0
+              AND m1.kr_name IS NOT NULL
+              AND m2.kr_name IS NOT NULL
+              AND sg.match_cnt &gt;= #{minPickCount}
+        ) t
+        WHERE t.rn &lt;= 100
+    </insert>
+
+    <insert id="insertRtaMonsterStatsTierTopTrioSnapForSeason">
+        INSERT INTO public.rta_agg_monster_stats_tier_top_snap (
+            season_id, rating_id, stat_kind, rank_position, combo_unit_key, pick_cnt, ban_cnt, match_cnt, win_cnt, computed_at
+        )
+        SELECT
+            t.season_id,
+            t.rating_id,
+            'T',
+            t.rn,
+            t.combo_unit_key,
+            NULL,
+            NULL,
+            t.match_cnt,
+            t.win_cnt,
+            now()
+        FROM (
+            SELECT
+                sg.season_id,
+                sg.rating_id,
+                sg.combo_unit_key,
+                sg.match_cnt::bigint AS match_cnt,
+                sg.win_cnt::bigint AS win_cnt,
+                ROW_NUMBER() OVER (
+                    PARTITION BY sg.rating_id
+                    ORDER BY sg.match_cnt DESC, (sg.win_cnt::numeric / NULLIF(sg.match_cnt, 0)) DESC NULLS LAST
+                ) AS rn
+            FROM public.rta_agg_synergy_trio sg
+            INNER JOIN public.monster m1 ON TRIM(BOTH FROM m1.monster_id) = split_part(sg.combo_unit_key, ',', 1)
+            INNER JOIN public.monster m2 ON TRIM(BOTH FROM m2.monster_id) = split_part(sg.combo_unit_key, ',', 2)
+            INNER JOIN public.monster m3 ON TRIM(BOTH FROM m3.monster_id) = split_part(sg.combo_unit_key, ',', 3)
+            WHERE sg.season_id = #{seasonId}
+              AND sg.rating_id &gt; 0
+              AND m1.kr_name IS NOT NULL
+              AND m2.kr_name IS NOT NULL
+              AND m3.kr_name IS NOT NULL
+              AND sg.match_cnt &gt;= #{minPickCount}
+        ) t
+        WHERE t.rn &lt;= 100
+    </insert>
 </mapper>

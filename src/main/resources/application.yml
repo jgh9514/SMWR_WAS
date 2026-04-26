@@ -203,7 +203,12 @@ smw:
       maximum-size: ${SMW_RTA_LIST_READ_CACHE_MAXIMUM_SIZE:3000}
       expire-after-write-minutes: ${SMW_RTA_LIST_READ_CACHE_EXPIRE_MINUTES:15}
     rta:
+      # false: Caffeine(로컬). prod/docker 프론트에서 true. 로컬은 application-local.yml
       use-redis: ${SMW_CACHE_RTA_USE_REDIS:false}
+      # @Cacheable rtaMonster 전용(솔/듀/트 목록, 상세, 대시보드 link-preview) — rtaShortLived(5m)과 분리
+      monster:
+        expire-after-write-minutes: ${SMW_CACHE_RTA_MONSTER_EXPIRE_MINUTES:60}
+        maximum-size: ${SMW_CACHE_RTA_MONSTER_MAXIMUM_SIZE:200}
   # Summoners War Exporter full_log 로컬 폴더 감시 (로그 수집 PC에서만 켬 — UI 테스트 PC는 enabled: false 유지)
   # 감시 시 원본 JSON만 스테이징 적재, 정규화는 RtaUnifiedPipelineAggJob(bat_id 10001) 등 배치
   # 전량 재적재·백필: spring.profiles.active 에 bulkload 추가 → application-bulkload.yml (또는 SMW_RTA_RAW_APPLY_MAX_ROWS 등 상향)

@@ -10,7 +10,8 @@ import com.smw.rta.service.RtaBatchAggregationService;
 /**
  * RTA 소환사 랭킹 스냅샷({@code rta_agg_summoner_ranking_snap})과 시즌 전체 검색용 스냅(
  * {@code rta_agg_summoner_search_snap})을 시즌별로 전량 재적재한다. 이어서
- * {@code rta_agg_summoner_season_fight_snap} / {@code rta_agg_summoner_monster_snap}(소환사×몬스터 픽/밴/승/선피·보유)를 동일 시즌 루프로 갱신한다.
+ * {@code rta_agg_summoner_season_fight_snap} / {@code rta_agg_summoner_monster_snap}(소환사×몬스터 픽/밴/승/선피·보유)를 갱신한다.
+ * 티어별 상위 100({@code rta_agg_monster_stats_tier_top_snap})은 {@link RtaMonsterStatsTierTopSnapJob} 에서 별도 스케줄.
  * <p>
  * participant 시즌 집계를 다시 읽는 무거운 작업이라 {@link RtaUnifiedPipelineAggJob}(짧은 주기)와 분리해
  * 긴 주기로 실행하는 것을 권장한다. 보유 몬스터 컬럼이 필요하면 통합 Job 의 SWEX {@code user_monster_owned_agg} 이후에 배치하거나,

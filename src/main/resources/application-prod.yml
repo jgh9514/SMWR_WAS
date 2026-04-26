@@ -8,6 +8,10 @@ spring:
       enabled: ${SMW_SCHEDULER_ENABLED:false}
 
 smw:
+  cache:
+    rta:
+      # RTA Short-lived(몬스터/랭킹 등) — Pod 간 공유. 운영 Redis 필수면 true, 이슈 시 SMW_CACHE_RTA_USE_REDIS=false
+      use-redis: ${SMW_CACHE_RTA_USE_REDIS:true}
   batch:
     quartz:
       enabled: ${SMW_BATCH_QUARTZ_ENABLED:false}

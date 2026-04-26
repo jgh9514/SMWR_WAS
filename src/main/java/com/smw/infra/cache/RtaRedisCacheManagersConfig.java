@@ -32,11 +32,24 @@ public class RtaRedisCacheManagersConfig {
 	@Value("${smw.cache.rta-list-read.expire-after-write-minutes:15}")
 	private long rtaListReadExpireAfterWriteMinutes;
 
+	@Value("${smw.cache.rta.monster.expire-after-write-minutes:60}")
+	private long rtaMonsterExpireAfterWriteMinutes;
+
+	/**
+	 * 티어·랭킹·시즌 등 5분 TTL. {@code rtaMonster} 는 {@link #rtaMonsterCacheManager} 로 분리(1h).
+	 */
 	@Bean("rtaShortLivedCacheManager")
 	public CacheManager rtaShortLivedCacheManager(RedisConnectionFactory connectionFactory, ObjectMapper objectMapper) {
 		return buildManager(connectionFactory, objectMapper,
-				Arrays.asList("rtaDashboardRankCut", "rtaDashboardTiers", "rtaMonster", "rtaRanking", "rtaSeasons"),
+				Arrays.asList("rtaDashboardRankCut", "rtaDashboardTiers", "rtaRanking", "rtaSeasons"),
 				Duration.ofMinutes(shortLivedExpireAfterWriteMinutes));
+	}
+
+	@Bean("rtaMonsterCacheManager")
+	public CacheManager rtaMonsterCacheManager(RedisConnectionFactory connectionFactory, ObjectMapper objectMapper) {
+		return buildManager(connectionFactory, objectMapper,
+				Arrays.asList("rtaMonster"),
+				Duration.ofMinutes(rtaMonsterExpireAfterWriteMinutes));
 	}
 
 	@Bean("rtaListReadCacheManager")

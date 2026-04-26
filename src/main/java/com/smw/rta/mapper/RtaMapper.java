@@ -59,6 +59,18 @@ public interface RtaMapper {
             @Param("ratingIds") List<Integer> ratingIds, @Param("minPickCount") int minPickCount);
 
     /**
+     * 티어별 상위 100 스냅 — {@code rta_agg_monster_stats_tier_top_snap}, 단일 {@code ratingId} 전용.
+     */
+    List<Map<String, Object>> getRtaMonsterStatsFromTierTopSnap(@Param("limit") int limit, @Param("offset") int offset,
+            @Param("seasonId") Long seasonId, @Param("ratingId") int ratingId, @Param("minPickCount") int minPickCount);
+
+    List<Map<String, Object>> getRtaDuoComboStatsFromTierTopSnap(@Param("limit") int limit, @Param("offset") int offset,
+            @Param("seasonId") Long seasonId, @Param("ratingId") int ratingId, @Param("minPickCount") int minPickCount);
+
+    List<Map<String, Object>> getRtaTrioComboStatsFromTierTopSnap(@Param("limit") int limit, @Param("offset") int offset,
+            @Param("seasonId") Long seasonId, @Param("ratingId") int ratingId, @Param("minPickCount") int minPickCount);
+
+    /**
      * RTA 몬스터 기본 정보 조회
      */
     Map<String, Object> getRtaMonsterBasicInfo(@Param("monsterId") int monsterId, @Param("seasonId") Long seasonId);
@@ -107,14 +119,35 @@ public interface RtaMapper {
     /** {@code rta_agg_season_rating_match_total} 전체 행 수 (배치 적재 후 로깅) */
     Long countRtaSeasonRatingMatchTotalRows();
 
-    /** 시즌별 상위 500명 스냅샷 삭제 후 재적재에 사용 */
+    /**
+     * 랭킹/검색 스냅 쓰기 직렬화(트랜잭션 범위). {@link RtaBatchAggregationService#rebuildSummonerRankingAgg} 에서
+     * delete+insert 와 같이 동일 TX 안에서만 호출.
+     */
+    Integer acquireRtaSummonerSnapSeasonXactLock(@Param("seasonId") long seasonId);
+
+    /** 시즌별 상위 500명 스냅샷 전체 삭제 (insert 직전, 동일 TX 권장) */
     int deleteRtaSummonerRankingSnapBySeason(@Param("seasonId") long seasonId);
 
-    /** 시즌별 상위 500명 스냅샷 적재 */
+    /** 시즌별 상위 500명 스냅샷 적재 (직전에 같은 시즌 delete 가 있어야 함) */
     int insertRtaSummonerRankingSnapForSeason(@Param("seasonId") long seasonId);
 
-    /** 시즌 전체 wizard_id 1슬롯 검색용 스냅샷 적재 (최고 ladder_score·동률 시 최신 replay) */
+    /** 시즌별 검색용 스냅 전체 삭제 (insert 직전, 동일 TX 권장) */
+    int deleteRtaSummonerSearchSnapBySeason(@Param("seasonId") long seasonId);
+
+    /** 시즌 전체 wizard_id 1슬롯 검색용 스냅샷 적재 (직전에 같은 시즌 delete 가 있어야 함) */
     int insertRtaSummonerSearchSnapForSeason(@Param("seasonId") long seasonId);
+
+    /** {@code rta_agg_monster_stats_tier_top_snap} 시즌 전체 삭제 후 솔/듀/트 상위 100 재적재 */
+    int deleteRtaMonsterStatsTierTopSnapBySeason(@Param("seasonId") long seasonId);
+
+    int insertRtaMonsterStatsTierTopSoloSnapForSeason(
+            @Param("seasonId") long seasonId, @Param("minPickCount") int minPickCount);
+
+    int insertRtaMonsterStatsTierTopDuoSnapForSeason(
+            @Param("seasonId") long seasonId, @Param("minPickCount") int minPickCount);
+
+    int insertRtaMonsterStatsTierTopTrioSnapForSeason(
+            @Param("seasonId") long seasonId, @Param("minPickCount") int minPickCount);
 
     /** 전체 랭킹 스냅샷 행 수 (배치 적재 후 로깅) */
     Long countRtaSummonerRankingSnapRows();

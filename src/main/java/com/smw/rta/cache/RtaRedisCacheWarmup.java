@@ -51,4 +51,24 @@ public class RtaRedisCacheWarmup {
 			log.warn("[rta-cache] Redis warmup after eviction failed (non-fatal): {}", e.getMessage());
 		}
 	}
+
+	/**
+	 * {@link com.smw.monster.batch.RtaMonsterStatsTierTopSnapJob} 전용: 몬스터 통계/링크 프리뷰 JSON 만 Redis에 선채움.
+	 */
+	public void warmMonsterCachesAfterTierSnapJob() {
+		try {
+			Long sid = rtaMapper.selectDefaultSeasonIdForNow();
+			if (sid == null) {
+				log.debug("[rta-cache] tier-snap job warmup: no default season");
+				return;
+			}
+			rtaService.getRtaMonsterStats(30, 0, "solo", sid, null, null);
+			rtaService.getRtaMonsterStats(30, 0, "duo", sid, null, null);
+			rtaService.getRtaMonsterStats(30, 0, "trio", sid, null, null);
+			rtaService.getRtaDashboardLinkPreview(sid, 5);
+			log.debug("[rta-cache] tier-snap job Redis warmup for seasonId={}", sid);
+		} catch (Exception e) {
+			log.warn("[rta-cache] tier-snap job Redis warmup failed (non-fatal): {}", e.getMessage());
+		}
+	}
 }

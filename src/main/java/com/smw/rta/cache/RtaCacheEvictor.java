@@ -18,26 +18,31 @@ import lombok.extern.slf4j.Slf4j;
 @Component
 public class RtaCacheEvictor {
 
-	/** {@link com.smw.infra.cache.RtaCaffeineCacheManagersConfig} / {@link com.smw.infra.cache.RtaRedisCacheManagersConfig} 의 RTA short-lived 캐시 이름 */
+	/** {@link com.smw.infra.cache.RtaCaffeineCacheManagersConfig#rtaShortLivedCacheManager} RTA 5분 대 캐시(몬스터 제외) */
 	private static final String[] SHORT_LIVED_RTA_CACHE_NAMES = {
 			"rtaDashboardRankCut",
 			"rtaDashboardTiers",
-			"rtaMonster",
 			"rtaRanking",
 			"rtaSeasons",
 	};
 
+	private static final String RTA_MONSTER_CACHE_NAME = "rtaMonster";
+
 	private final CacheManager rtaShortLivedCacheManager;
+	/** {@code rtaMonster} — 목록/상세/link-preview, TTL 1h ({@code rtaMonsterCacheManager}) */
+	private final CacheManager rtaMonsterCacheManager;
 	private final CacheManager rtaListReadCacheManager;
 	private final CacheManager rtaOneHourCacheManager;
 	private final ObjectProvider<RtaRedisCacheWarmup> rtaRedisCacheWarmup;
 
 	public RtaCacheEvictor(
 			@Qualifier("rtaShortLivedCacheManager") CacheManager rtaShortLivedCacheManager,
+			@Qualifier("rtaMonsterCacheManager") CacheManager rtaMonsterCacheManager,
 			@Qualifier("rtaListReadCacheManager") CacheManager rtaListReadCacheManager,
 			@Qualifier("rtaOneHourCacheManager") CacheManager rtaOneHourCacheManager,
 			ObjectProvider<RtaRedisCacheWarmup> rtaRedisCacheWarmup) {
 		this.rtaShortLivedCacheManager = rtaShortLivedCacheManager;
+		this.rtaMonsterCacheManager = rtaMonsterCacheManager;
 		this.rtaListReadCacheManager = rtaListReadCacheManager;
 		this.rtaOneHourCacheManager = rtaOneHourCacheManager;
 		this.rtaRedisCacheWarmup = rtaRedisCacheWarmup;
@@ -52,6 +57,18 @@ public class RtaCacheEvictor {
 		}
 	}
 
+	/**
+	 * 몬스터 통계/상세/link-preview 캐시만 비움. {@link com.smw.monster.batch.RtaMonsterStatsTierTopSnapJob} 티어 top 스냅
+	 * 적재 후·시너지와 무관하게 1h 주기로 호출.
+	 */
+	public void evictRtaMonsterReadCache() {
+		Cache c = rtaMonsterCacheManager.getCache(RTA_MONSTER_CACHE_NAME);
+		if (c != null) {
+			c.clear();
+			log.debug("[rta-cache] cleared: {} (rtaMonsterCacheManager)", RTA_MONSTER_CACHE_NAME);
+		}
+	}
+
 	public void evictAllRtaCaches() {
 		for (String name : SHORT_LIVED_RTA_CACHE_NAMES) {
 			Cache cache = rtaShortLivedCacheManager.getCache(name);
@@ -60,13 +77,18 @@ public class RtaCacheEvictor {
 				log.debug("[rta-cache] cleared: {}", name);
 			}
 		}
+		Cache monster = rtaMonsterCacheManager.getCache(RTA_MONSTER_CACHE_NAME);
+		if (monster != null) {
+			monster.clear();
+			log.debug("[rta-cache] cleared: {} (rtaMonsterCacheManager)", RTA_MONSTER_CACHE_NAME);
+		}
 		Cache matchList = rtaListReadCacheManager.getCache("rtaMatchList");
 		if (matchList != null) {
 			matchList.clear();
 			log.debug("[rta-cache] cleared: rtaMatchList (rtaListReadCacheManager)");
 		}
 		evictRtaRankCutoffLiveCache();
-		log.debug("[rta-cache] short-lived {}개 + rtaMatchList + rtaRankCutoffLive 무효화", SHORT_LIVED_RTA_CACHE_NAMES.length);
+		log.debug("[rta-cache] short-lived {} + rtaMonster + rtaMatchList + rtaRankCutoffLive 무효화", SHORT_LIVED_RTA_CACHE_NAMES.length);
 		rtaRedisCacheWarmup.ifAvailable(RtaRedisCacheWarmup::warmAfterEviction);
 	}
 }

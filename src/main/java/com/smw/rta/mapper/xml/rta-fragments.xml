@@ -197,9 +197,14 @@ GROUP BY bucket_date, grade_slot
 	  DISTINCT ON 에서 wizard_name 등 모든 필드를 바로 가져와 중간 JOIN CTE 제거.
 	-->
 	<sql id="rtaSummonerRankingTopWizardsPairCte">
+		<!--
+		  wizard_id 는 소스(varchar)에 앞뒤 공백·표기가 섞이면 '2235954' 와 ' 2235954' 가
+		  DISTINCT ON (wizard_id) / UNIQUE(season_id, wizard_id) 기준에서 별도 행이 되어
+		  동일 수치 id 가 두 랭크에 잡힐 수 있음. BTRIM 으로 1인 1키로 정규화.
+		-->
 		top_wizards AS (
-			SELECT DISTINCT ON (wizard_id)
-				wizard_id,
+			SELECT DISTINCT ON (BTRIM(COALESCE(wizard_id::text, '')))
+				BTRIM(COALESCE(wizard_id::text, ''))::varchar(64) AS wizard_id,
 				wizard_name,
 				country_code AS country,
 				channel_uid,
@@ -208,7 +213,8 @@ GROUP BY bucket_date, grade_slot
 			FROM public.rta_match_participant
 			WHERE season_id = #{seasonId}
 			  AND ladder_score &gt; 0
-			ORDER BY wizard_id, ladder_score DESC, replay_id DESC
+			  AND BTRIM(COALESCE(wizard_id::text, '')) &lt;&gt; ''
+			ORDER BY BTRIM(COALESCE(wizard_id::text, '')), ladder_score DESC, replay_id DESC
 		)
 	</sql>
 

@@ -171,8 +171,8 @@ smw:
       maximum-size: ${SMW_SHORT_CACHE_MAXIMUM_SIZE:500}
       expire-after-write-minutes: ${SMW_SHORT_CACHE_EXPIRE_AFTER_WRITE_MINUTES:5}
     rta:
-      # K8s: Redis Service 호스트 + true 권장. Redis 없이 docker 프로필만 쓸 때는 false
-      use-redis: ${SMW_CACHE_RTA_USE_REDIS:false}
+      # K8s·운영: RTA 캐시 Redis(Pod 공유). 로컬은 local 프로필이 false. Redis 없이 docker만 쓸 때 false
+      use-redis: ${SMW_CACHE_RTA_USE_REDIS:true}
   ops:
     thresholds:
       heap-warning-percent: ${SMW_OPS_HEAP_WARNING_PERCENT:75}

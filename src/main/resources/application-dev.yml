@@ -36,6 +36,10 @@ spring:
         debug: true
 
 smw:
+  # 로컬·개발: RTA 캐시는 Caffeine (Redis 불필요)
+  cache:
+    rta:
+      use-redis: false
   mybatis:
     log:
       inline-sql: true

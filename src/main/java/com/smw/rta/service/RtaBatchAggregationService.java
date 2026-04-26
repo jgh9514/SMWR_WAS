@@ -2,8 +2,13 @@ package com.smw.rta.service;
 
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import com.smw.monster.service.summonerswarService;
 import com.smw.rta.cache.RtaCacheEvictor;
@@ -20,6 +25,17 @@ import lombok.extern.slf4j.Slf4j;
 @Service
 public class RtaBatchAggregationService {
 
+	private final TransactionTemplate transactionTemplate;
+
+	/** {@code insertRtaMonsterStatsTierTop*SnapForSeason} 및 API 스냅 폴백과 동일 */
+	@Value("${smw.rta.monster-stats.min-pick-count:10}")
+	private int monsterStatsMinPickCount;
+
+	public RtaBatchAggregationService(
+			@Qualifier("rtaJdbcTransactionManager") PlatformTransactionManager transactionManager) {
+		this.transactionTemplate = new TransactionTemplate(transactionManager);
+	}
+
 	public SummonerRankingRebuildResult rebuildSummonerRankingAgg(RtaMapper rtaMapper) {
 		List<Map<String, Object>> seasons = rtaMapper.listRtaSeasons();
 		for (Map<String, Object> row : seasons) {
@@ -27,9 +43,15 @@ public class RtaBatchAggregationService {
 			if (seasonId == null) {
 				continue;
 			}
-			// DELETE+INSERT 는 rta-queries-batch-meta insertRtaSummonerRankingSnapForSeason 한 구문(원자) — 라움·동시 Job 경합으로 PK 중복 방지
-			rtaMapper.insertRtaSummonerRankingSnapForSeason(seasonId.longValue());
-			rtaMapper.insertRtaSummonerSearchSnapForSeason(seasonId.longValue());
+			long sid = seasonId.longValue();
+			// 시즌당 독립 TX: advisory lock + 해당 시즌 랭킹/검색 스냅 전량 DELETE 후 INSERT
+			transactionTemplate.executeWithoutResult(status -> {
+				rtaMapper.acquireRtaSummonerSnapSeasonXactLock(sid);
+				rtaMapper.deleteRtaSummonerRankingSnapBySeason(sid);
+				rtaMapper.insertRtaSummonerRankingSnapForSeason(sid);
+				rtaMapper.deleteRtaSummonerSearchSnapBySeason(sid);
+				rtaMapper.insertRtaSummonerSearchSnapForSeason(sid);
+			});
 		}
 		return new SummonerRankingRebuildResult(
 				(int) safeCount(rtaMapper.countRtaSummonerRankingSnapRows()),
@@ -59,6 +81,32 @@ public class RtaBatchAggregationService {
 			monRows += rtaMapper.insertRtaSummonerMonsterSnapForSeason(sid);
 		}
 		return new SummonerMonsterSnapRebuildResult(fightRows, monRows);
+	}
+
+	/**
+	 * {@code rta_agg_monster_stats_tier_top_snap}: 시즌×티어별 솔/듀/트 상위 100.
+	 * 원천 {@code rta_agg_synergy_*} — {@link com.smw.monster.batch.RtaMonsterStatsTierTopSnapJob}(권장 1h)에서 호출;
+	 * 시너지 집계가 먼저 반영돼 있어야 함.
+	 */
+	public MonsterStatsTierTopSnapRebuildResult rebuildMonsterStatsTierTopSnap(RtaMapper rtaMapper) {
+		AtomicInteger total = new AtomicInteger(0);
+		List<Map<String, Object>> seasons = rtaMapper.listRtaSeasons();
+		for (Map<String, Object> row : seasons) {
+			Long seasonId = pickSeasonId(row);
+			if (seasonId == null) {
+				continue;
+			}
+			long sid = seasonId.longValue();
+			transactionTemplate.executeWithoutResult(status -> {
+				rtaMapper.deleteRtaMonsterStatsTierTopSnapBySeason(sid);
+				int n = 0;
+				n += rtaMapper.insertRtaMonsterStatsTierTopSoloSnapForSeason(sid, monsterStatsMinPickCount);
+				n += rtaMapper.insertRtaMonsterStatsTierTopDuoSnapForSeason(sid, monsterStatsMinPickCount);
+				n += rtaMapper.insertRtaMonsterStatsTierTopTrioSnapForSeason(sid, monsterStatsMinPickCount);
+				total.addAndGet(n);
+			});
+		}
+		return new MonsterStatsTierTopSnapRebuildResult(total.get());
 	}
 
 	/**
@@ -199,6 +247,12 @@ public class RtaBatchAggregationService {
 	 * @param monsterRows {@code rta_agg_summoner_monster_snap} 합
 	 */
 	public record SummonerMonsterSnapRebuildResult(int fightRows, int monsterRows) {
+	}
+
+	/**
+	 * @param totalInserts {@code rta_agg_monster_stats_tier_top_snap} INSERT 가 반환한 row 합(솔+듀+트).
+	 */
+	public record MonsterStatsTierTopSnapRebuildResult(int totalInserts) {
 	}
 
 	public record RawApplyDrainResult(int totalApplied, String stopReason) {
