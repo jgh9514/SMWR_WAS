@@ -363,7 +363,7 @@
 			ORDER BY si.wizard_id, si.import_id DESC
 		)
 		SELECT
-			TRIM(BOTH FROM li.wizard_id::text),
+			li.wizard_id,
 			sm.master_id,
 			COUNT(*)::int,
 			li.import_id,

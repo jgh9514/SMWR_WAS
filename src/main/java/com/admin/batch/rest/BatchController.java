@@ -21,7 +21,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import com.admin.batch.mapper.BatchMapper;
 import com.admin.batch.sse.BatchLogBroadcaster;
 import com.admin.log.service.LogService;
 import com.smw.monster.util.SlackNotifier;
@@ -46,9 +45,6 @@ public class BatchController {
 
 	@Autowired
 	private LogService logService;
-
-	@Autowired
-	private BatchMapper batchMapper;
 
 	@Autowired
 	private BatchLogBroadcaster batchLogBroadcaster;
@@ -187,14 +183,14 @@ public class BatchController {
 		if (!query.containsKey("limit")) {
 			query.put("limit", 10);
 		}
-		List<Map<String, ?>> list = batchMapper.selectBatchRunHisList(query);
+		List<Map<String, ?>> list = logService.selectBatchRunHisList(query);
 		return new ResponseEntity<>(list, HttpStatus.OK);
 	}
 
 	@Operation(summary = "배치 실행 이력 상세", description = "특정 실행 이력 상세를 조회합니다.")
 	@GetMapping("/run-his/{runSn}")
 	public ResponseEntity<?> selectBatchRunHisDetail(@PathVariable Long runSn) {
-		Map<String, ?> detail = batchMapper.selectBatchRunHisDetail(runSn);
+		Map<String, ?> detail = logService.selectBatchRunHisDetail(runSn);
 		return new ResponseEntity<>(detail, HttpStatus.OK);
 	}
 }

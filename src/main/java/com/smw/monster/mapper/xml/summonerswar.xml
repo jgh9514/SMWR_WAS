@@ -25,7 +25,7 @@
 		     , COALESCE(mcm.original_monster_id, m.monster_id) AS rta_stats_monster_id
 		  FROM monster m
 		  LEFT JOIN monster_collaboration_mapping mcm
-		         ON TRIM(BOTH FROM mcm.collaboration_monster_id) = TRIM(BOTH FROM m.monster_id)
+		         ON mcm.collaboration_monster_id = m.monster_id
 		  LEFT JOIN monster m2 ON m2.monster_id = SUBSTR(m.monster_id, 1, 3) || '0' || SUBSTR(m.monster_id, 5)
 		 WHERE m.usg_yn = 'Y'
 		   AND m.obtainable IS TRUE
@@ -79,7 +79,7 @@
 		   <otherwise>
 		 ORDER BY
 		   -- Normal 먼저, Awakened 다음 (NULL·빈값은 Normal 취급)
-		   CASE WHEN LOWER(TRIM(COALESCE(m.arousal_type, ''))) = 'awakened' THEN 1 ELSE 0 END ASC,
+		   CASE WHEN LOWER(COALESCE(m.arousal_type, '')) = 'awakened' THEN 1 ELSE 0 END ASC,
 		   COALESCE(CAST(m.awaken_level AS INTEGER), 0) ASC,
 		   CAST(m.star AS INTEGER) ASC,
 		   m.monster_id ASC
@@ -595,7 +595,7 @@
 		SELECT
 			#{sess_guild_id}::text,
 			COALESCE(
-				NULLIF(TRIM(#{season_yyyymm}::text), ''),
+				NULLIF(#{season_yyyymm}::text, ''),
 				(SELECT TO_CHAR(DATE_TRUNC('month', gss.start_date), 'YYYYMM') FROM guild_siege_season gss WHERE gss.end_date IS NULL ORDER BY gss.season_no DESC LIMIT 1),
 				TO_CHAR(DATE_TRUNC('month', CURRENT_TIMESTAMP), 'YYYYMM')
 			),
@@ -608,16 +608,16 @@
 		FROM (
 			SELECT
 				COALESCE(
-					(SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = TRIM(#{def_monster_1}::text) LIMIT 1),
-					TRIM(#{def_monster_1}::text)
+					(SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = #{def_monster_1}::text LIMIT 1),
+					#{def_monster_1}::text
 				) AS m1,
 				COALESCE(
-					(SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = TRIM(#{def_monster_2}::text) LIMIT 1),
-					TRIM(#{def_monster_2}::text)
+					(SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = #{def_monster_2}::text LIMIT 1),
+					#{def_monster_2}::text
 				) AS m2,
 				COALESCE(
-					(SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = TRIM(#{def_monster_3}::text) LIMIT 1),
-					TRIM(#{def_monster_3}::text)
+					(SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = #{def_monster_3}::text LIMIT 1),
+					#{def_monster_3}::text
 				) AS m3
 		) n
 		ON CONFLICT (guild_id, season_yyyymm, monster_id_1, monster_id_2, monster_id_3)
@@ -753,14 +753,14 @@
 		               AND (
 		                 SELECT array_agg(u ORDER BY u)
 		                   FROM unnest(ARRAY[
-		                     COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = TRIM(v.atk_monster_1::text) LIMIT 1), TRIM(v.atk_monster_1::text)),
-		                     COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = TRIM(v.atk_monster_2::text) LIMIT 1), TRIM(v.atk_monster_2::text)),
-		                     COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = TRIM(v.atk_monster_3::text) LIMIT 1), TRIM(v.atk_monster_3::text))
+		                     COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = v.atk_monster_1::text LIMIT 1), v.atk_monster_1::text),
+		                     COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = v.atk_monster_2::text LIMIT 1), v.atk_monster_2::text),
+		                     COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = v.atk_monster_3::text LIMIT 1), v.atk_monster_3::text)
 		                   ]::text[]) AS t(u)
 		               ) = (
 		                 SELECT array_agg(u ORDER BY u)
 		                   FROM unnest(ARRAY[
-		                     TRIM(a.monster_id_1::text), TRIM(a.monster_id_2::text), TRIM(a.monster_id_3::text)
+		                     a.monster_id_1::text, a.monster_id_2::text, a.monster_id_3::text
 		                   ]::text[]) AS t(u)
 		               )
 		             )
@@ -779,14 +779,14 @@
 		               AND (
 		                 SELECT array_agg(u ORDER BY u)
 		                   FROM unnest(ARRAY[
-		                     COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = TRIM(v.atk_monster_1::text) LIMIT 1), TRIM(v.atk_monster_1::text)),
-		                     COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = TRIM(v.atk_monster_2::text) LIMIT 1), TRIM(v.atk_monster_2::text)),
-		                     COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = TRIM(v.atk_monster_3::text) LIMIT 1), TRIM(v.atk_monster_3::text))
+		                     COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = v.atk_monster_1::text LIMIT 1), v.atk_monster_1::text),
+		                     COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = v.atk_monster_2::text LIMIT 1), v.atk_monster_2::text),
+		                     COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = v.atk_monster_3::text LIMIT 1), v.atk_monster_3::text)
 		                   ]::text[]) AS t(u)
 		               ) = (
 		                 SELECT array_agg(u ORDER BY u)
 		                   FROM unnest(ARRAY[
-		                     TRIM(a.monster_id_1::text), TRIM(a.monster_id_2::text), TRIM(a.monster_id_3::text)
+		                     a.monster_id_1::text, a.monster_id_2::text, a.monster_id_3::text
 		                   ]::text[]) AS t(u)
 		               )
 		             )
@@ -812,14 +812,14 @@
 		             AND (
 		               SELECT array_agg(u ORDER BY u)
 		                 FROM unnest(ARRAY[
-		                   COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = TRIM(v.atk_monster_1::text) LIMIT 1), TRIM(v.atk_monster_1::text)),
-		                   COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = TRIM(v.atk_monster_2::text) LIMIT 1), TRIM(v.atk_monster_2::text)),
-		                   COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = TRIM(v.atk_monster_3::text) LIMIT 1), TRIM(v.atk_monster_3::text))
+		                   COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = v.atk_monster_1::text LIMIT 1), v.atk_monster_1::text),
+		                   COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = v.atk_monster_2::text LIMIT 1), v.atk_monster_2::text),
+		                   COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = v.atk_monster_3::text LIMIT 1), v.atk_monster_3::text)
 		                 ]::text[]) AS t(u)
 		             ) = (
 		               SELECT array_agg(u ORDER BY u)
 		                 FROM unnest(ARRAY[
-		                   TRIM(a.monster_id_1::text), TRIM(a.monster_id_2::text), TRIM(a.monster_id_3::text)
+		                   a.monster_id_1::text, a.monster_id_2::text, a.monster_id_3::text
 		                 ]::text[]) AS t(u)
 		             )
 		           LIMIT 1)
@@ -906,26 +906,26 @@
 	                FROM unnest(ARRAY[
 	                  COALESCE(
 	                    (SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm
-	                      WHERE mcm.collaboration_monster_id = TRIM(d.atk_monster_1::text) LIMIT 1),
-	                    TRIM(d.atk_monster_1::text)
+	                      WHERE mcm.collaboration_monster_id = d.atk_monster_1::text LIMIT 1),
+	                    d.atk_monster_1::text
 	                  ),
 	                  COALESCE(
 	                    (SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm
-	                      WHERE mcm.collaboration_monster_id = TRIM(d.atk_monster_2::text) LIMIT 1),
-	                    TRIM(d.atk_monster_2::text)
+	                      WHERE mcm.collaboration_monster_id = d.atk_monster_2::text LIMIT 1),
+	                    d.atk_monster_2::text
 	                  ),
 	                  COALESCE(
 	                    (SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm
-	                      WHERE mcm.collaboration_monster_id = TRIM(d.atk_monster_3::text) LIMIT 1),
-	                    TRIM(d.atk_monster_3::text)
+	                      WHERE mcm.collaboration_monster_id = d.atk_monster_3::text LIMIT 1),
+	                    d.atk_monster_3::text
 	                  )
 	                ]::text[]) AS t(u)
 	             ) = (
 	              SELECT array_agg(u ORDER BY u)
 	                FROM unnest(ARRAY[
-	                  TRIM(a.monster_id_1::text),
-	                  TRIM(a.monster_id_2::text),
-	                  TRIM(a.monster_id_3::text)
+	                  a.monster_id_1::text,
+	                  a.monster_id_2::text,
+	                  a.monster_id_3::text
 	                ]::text[]) AS t(u)
 	             )
 	       LIMIT 1
@@ -1263,8 +1263,8 @@
 			COALESCE(v.is_winner, false),
 			CASE
 				WHEN v.fp IS NULL THEN NULL::boolean
-				WHEN trim(v.fp) IN ('1','true','t','TRUE') THEN true
-				WHEN trim(v.fp) IN ('0','false','f','F','FALSE') THEN false
+				WHEN v.fp IN ('1','true','t','T','TRUE') THEN true
+				WHEN v.fp IN ('0','false','f','F','FALSE') THEN false
 				ELSE NULL::boolean
 			END,
 			v.alive_count,
@@ -1306,7 +1306,7 @@
 			#{m.rid}
 			, #{m.wizard_id}
 			, #{m.pick_slot_id}::smallint
-			, public.rta_canonical_unit_master_id(TRIM(#{m.unit_master_id}::text)::bigint)
+			, public.rta_canonical_unit_master_id(#{m.unit_master_id}::bigint)
 			, COALESCE(#{m.is_banned}::boolean, false)
 		)
 		</foreach>
@@ -1374,15 +1374,15 @@
 		             AND v.vote_type = 'UP'
 		             AND (
 		               SELECT array_agg(u ORDER BY u) FROM unnest(ARRAY[
-		                 COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = TRIM(v.atk_monster_1::text) LIMIT 1), TRIM(v.atk_monster_1::text)),
-		                 COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = TRIM(v.atk_monster_2::text) LIMIT 1), TRIM(v.atk_monster_2::text)),
-		                 COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = TRIM(v.atk_monster_3::text) LIMIT 1), TRIM(v.atk_monster_3::text))
+		                 COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = v.atk_monster_1::text LIMIT 1), v.atk_monster_1::text),
+		                 COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = v.atk_monster_2::text LIMIT 1), v.atk_monster_2::text),
+		                 COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = v.atk_monster_3::text LIMIT 1), v.atk_monster_3::text)
 		               ]::text[]) AS t(u)
 		             ) = (
 		               SELECT array_agg(u ORDER BY u) FROM unnest(ARRAY[
-		                 COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = TRIM(srad.atk_monster_1::text) LIMIT 1), TRIM(srad.atk_monster_1::text)),
-		                 COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = TRIM(srad.atk_monster_2::text) LIMIT 1), TRIM(srad.atk_monster_2::text)),
-		                 COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = TRIM(srad.atk_monster_3::text) LIMIT 1), TRIM(srad.atk_monster_3::text))
+		                 COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = srad.atk_monster_1::text LIMIT 1), srad.atk_monster_1::text),
+		                 COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = srad.atk_monster_2::text LIMIT 1), srad.atk_monster_2::text),
+		                 COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = srad.atk_monster_3::text LIMIT 1), srad.atk_monster_3::text)
 		               ]::text[]) AS t(u)
 		             )
 		         )
@@ -1395,15 +1395,15 @@
 		             AND v.vote_type = 'DOWN'
 		             AND (
 		               SELECT array_agg(u ORDER BY u) FROM unnest(ARRAY[
-		                 COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = TRIM(v.atk_monster_1::text) LIMIT 1), TRIM(v.atk_monster_1::text)),
-		                 COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = TRIM(v.atk_monster_2::text) LIMIT 1), TRIM(v.atk_monster_2::text)),
-		                 COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = TRIM(v.atk_monster_3::text) LIMIT 1), TRIM(v.atk_monster_3::text))
+		                 COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = v.atk_monster_1::text LIMIT 1), v.atk_monster_1::text),
+		                 COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = v.atk_monster_2::text LIMIT 1), v.atk_monster_2::text),
+		                 COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = v.atk_monster_3::text LIMIT 1), v.atk_monster_3::text)
 		               ]::text[]) AS t(u)
 		             ) = (
 		               SELECT array_agg(u ORDER BY u) FROM unnest(ARRAY[
-		                 COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = TRIM(srad.atk_monster_1::text) LIMIT 1), TRIM(srad.atk_monster_1::text)),
-		                 COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = TRIM(srad.atk_monster_2::text) LIMIT 1), TRIM(srad.atk_monster_2::text)),
-		                 COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = TRIM(srad.atk_monster_3::text) LIMIT 1), TRIM(srad.atk_monster_3::text))
+		                 COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = srad.atk_monster_1::text LIMIT 1), srad.atk_monster_1::text),
+		                 COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = srad.atk_monster_2::text LIMIT 1), srad.atk_monster_2::text),
+		                 COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = srad.atk_monster_3::text LIMIT 1), srad.atk_monster_3::text)
 		               ]::text[]) AS t(u)
 		             )
 		         )
@@ -1801,15 +1801,15 @@
 			     AND v.vote_type = 'UP'
 			     AND (
 			       SELECT array_agg(u ORDER BY u) FROM unnest(ARRAY[
-			         COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = TRIM(v.atk_monster_1::text) LIMIT 1), TRIM(v.atk_monster_1::text)),
-			         COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = TRIM(v.atk_monster_2::text) LIMIT 1), TRIM(v.atk_monster_2::text)),
-			         COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = TRIM(v.atk_monster_3::text) LIMIT 1), TRIM(v.atk_monster_3::text))
+			         COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = v.atk_monster_1::text LIMIT 1), v.atk_monster_1::text),
+			         COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = v.atk_monster_2::text LIMIT 1), v.atk_monster_2::text),
+			         COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = v.atk_monster_3::text LIMIT 1), v.atk_monster_3::text)
 			       ]::text[]) AS t(u)
 			     ) = (
 			       SELECT array_agg(u ORDER BY u) FROM unnest(ARRAY[
-			         COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = TRIM(srad.atk_monster_1::text) LIMIT 1), TRIM(srad.atk_monster_1::text)),
-			         COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = TRIM(srad.atk_monster_2::text) LIMIT 1), TRIM(srad.atk_monster_2::text)),
-			         COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = TRIM(srad.atk_monster_3::text) LIMIT 1), TRIM(srad.atk_monster_3::text))
+			         COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = srad.atk_monster_1::text LIMIT 1), srad.atk_monster_1::text),
+			         COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = srad.atk_monster_2::text LIMIT 1), srad.atk_monster_2::text),
+			         COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = srad.atk_monster_3::text LIMIT 1), srad.atk_monster_3::text)
 			       ]::text[]) AS t(u)
 			     )
 			 )
@@ -1823,15 +1823,15 @@
 			     AND v.vote_type = 'DOWN'
 			     AND (
 			       SELECT array_agg(u ORDER BY u) FROM unnest(ARRAY[
-			         COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = TRIM(v.atk_monster_1::text) LIMIT 1), TRIM(v.atk_monster_1::text)),
-			         COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = TRIM(v.atk_monster_2::text) LIMIT 1), TRIM(v.atk_monster_2::text)),
-			         COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = TRIM(v.atk_monster_3::text) LIMIT 1), TRIM(v.atk_monster_3::text))
+			         COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = v.atk_monster_1::text LIMIT 1), v.atk_monster_1::text),
+			         COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = v.atk_monster_2::text LIMIT 1), v.atk_monster_2::text),
+			         COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = v.atk_monster_3::text LIMIT 1), v.atk_monster_3::text)
 			       ]::text[]) AS t(u)
 			     ) = (
 			       SELECT array_agg(u ORDER BY u) FROM unnest(ARRAY[
-			         COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = TRIM(srad.atk_monster_1::text) LIMIT 1), TRIM(srad.atk_monster_1::text)),
-			         COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = TRIM(srad.atk_monster_2::text) LIMIT 1), TRIM(srad.atk_monster_2::text)),
-			         COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = TRIM(srad.atk_monster_3::text) LIMIT 1), TRIM(srad.atk_monster_3::text))
+			         COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = srad.atk_monster_1::text LIMIT 1), srad.atk_monster_1::text),
+			         COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = srad.atk_monster_2::text LIMIT 1), srad.atk_monster_2::text),
+			         COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = srad.atk_monster_3::text LIMIT 1), srad.atk_monster_3::text)
 			       ]::text[]) AS t(u)
 			     )
 			 )
@@ -1852,15 +1852,15 @@
 			     AND v.user_id = #{sess_user_id}::text
 			     AND (
 			       SELECT array_agg(u ORDER BY u) FROM unnest(ARRAY[
-			         COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = TRIM(v.atk_monster_1::text) LIMIT 1), TRIM(v.atk_monster_1::text)),
-			         COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = TRIM(v.atk_monster_2::text) LIMIT 1), TRIM(v.atk_monster_2::text)),
-			         COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = TRIM(v.atk_monster_3::text) LIMIT 1), TRIM(v.atk_monster_3::text))
+			         COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = v.atk_monster_1::text LIMIT 1), v.atk_monster_1::text),
+			         COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = v.atk_monster_2::text LIMIT 1), v.atk_monster_2::text),
+			         COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = v.atk_monster_3::text LIMIT 1), v.atk_monster_3::text)
 			       ]::text[]) AS t(u)
 			     ) = (
 			       SELECT array_agg(u ORDER BY u) FROM unnest(ARRAY[
-			         COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = TRIM(srad.atk_monster_1::text) LIMIT 1), TRIM(srad.atk_monster_1::text)),
-			         COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = TRIM(srad.atk_monster_2::text) LIMIT 1), TRIM(srad.atk_monster_2::text)),
-			         COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = TRIM(srad.atk_monster_3::text) LIMIT 1), TRIM(srad.atk_monster_3::text))
+			         COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = srad.atk_monster_1::text LIMIT 1), srad.atk_monster_1::text),
+			         COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = srad.atk_monster_2::text LIMIT 1), srad.atk_monster_2::text),
+			         COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = srad.atk_monster_3::text LIMIT 1), srad.atk_monster_3::text)
 			       ]::text[]) AS t(u)
 			     )
 			   LIMIT 1)
@@ -2158,7 +2158,7 @@
 	</select>
 
 	<select id="selectMonstersByUnName" resultType="sqlMap">
-		/* selectMonstersByUnName - family_id 없을 때 un_name으로 패밀리 보완 */
+		/* selectMonstersByUnName - family_id 없을 때 un_name으로 패밀리 보완 (대소문자 무시: ILIKE) */
 		SELECT m.monster_id
 		     , m.kr_name
 		     , m.un_name
@@ -2170,7 +2170,7 @@
 		     , CAST(m.family_id AS INTEGER) AS family_id
 		  FROM monster m
 		 WHERE m.un_name IS NOT NULL
-		   AND LOWER(TRIM(m.un_name)) = LOWER(TRIM(#{un_name}))
+		   AND m.un_name ILIKE #{un_name}
 		   AND m.usg_yn = 'Y'
 		 ORDER BY m.monster_elemental, m.monster_id
 	</select>
@@ -2188,10 +2188,10 @@
 		     , CAST(m.family_id AS INTEGER) AS family_id
 		  FROM monster m
 		 WHERE COALESCE(m.usg_yn, 'Y') = 'Y'
-		   AND LENGTH(TRIM(m.monster_id)) >= 2
+		   AND LENGTH(m.monster_id) >= 2
 		   AND (
-		     SUBSTRING(TRIM(m.monster_id) FROM 1 FOR LENGTH(TRIM(m.monster_id)) - 2)
-		     || SUBSTRING(TRIM(m.monster_id) FROM LENGTH(TRIM(m.monster_id)) FOR 1)
+		     SUBSTRING(m.monster_id FROM 1 FOR LENGTH(m.monster_id) - 2)
+		     || SUBSTRING(m.monster_id FROM LENGTH(m.monster_id) FOR 1)
 		   ) = #{evolution_group_key}
 		 ORDER BY m.monster_elemental, m.monster_id
 	</select>
@@ -2239,9 +2239,9 @@
 		FROM monster m
 		WHERE m.usg_yn = 'Y'
 		  AND CAST(COALESCE(m.star, 0) AS INTEGER) = #{star}
-		  AND LENGTH(TRIM(m.monster_id)) >= 2
-		  AND SUBSTRING(TRIM(m.monster_id) FROM LENGTH(TRIM(m.monster_id)) - 1 FOR 1) ~ '^[0-9]$'
-		  AND CAST(SUBSTRING(TRIM(m.monster_id) FROM LENGTH(TRIM(m.monster_id)) - 1 FOR 1) AS INTEGER) = #{awaken_digit}
+		  AND LENGTH(m.monster_id) >= 2
+		  AND SUBSTRING(m.monster_id FROM LENGTH(m.monster_id) - 1 FOR 1) ~ '^[0-9]$'
+		  AND CAST(SUBSTRING(m.monster_id FROM LENGTH(m.monster_id) - 1 FOR 1) AS INTEGER) = #{awaken_digit}
 	</select>
 
 	<select id="selectMonsterSkills" parameterType="String" resultType="sqlMap">

@@ -18,7 +18,7 @@
                 pp.replay_id AS rid,
                 pp.played_at AS date_add,
                 m.battle_type,
-                TRIM(BOTH FROM m.winner_wizard_id::text) AS winner_wizard_id
+                m.winner_wizard_id AS winner_wizard_id
             FROM public.rta_match_participant pp
             INNER JOIN public.rta_match m ON m.replay_id = pp.replay_id
             WHERE pp.season_id = #{seasonId}
@@ -31,7 +31,7 @@
                 pp.replay_id AS rid,
                 pp.played_at AS date_add,
                 m.battle_type,
-                TRIM(BOTH FROM m.winner_wizard_id::text) AS winner_wizard_id
+                m.winner_wizard_id AS winner_wizard_id
             FROM public.rta_match_participant pp
             INNER JOIN public.rta_match m ON m.replay_id = pp.replay_id
             WHERE pp.season_id = #{seasonId}
@@ -45,7 +45,7 @@
                 m.replay_id AS rid,
                 m.played_at AS date_add,
                 m.battle_type,
-                TRIM(BOTH FROM m.winner_wizard_id::text) AS winner_wizard_id
+                m.winner_wizard_id AS winner_wizard_id
             FROM public.rta_match m
             WHERE 1 = 1
             <include refid="rtaMatchSeasonIdFilter"/>
@@ -57,17 +57,17 @@
         banned_pick AS (
             SELECT
                 ub.replay_id,
-                TRIM(BOTH FROM ub.wizard_id::text) AS wizard_id,
+                ub.wizard_id AS wizard_id,
                 MIN(ub.unit_master_id::text) AS banned_unit
             FROM public.rta_match_unit_pick ub
             INNER JOIN rms ON rms.rid = ub.replay_id
             WHERE ub.is_banned = true
-            GROUP BY ub.replay_id, TRIM(BOTH FROM ub.wizard_id::text)
+            GROUP BY ub.replay_id, ub.wizard_id
         ),
         user_info AS (
             SELECT
                 p.replay_id,
-                TRIM(BOTH FROM p.wizard_id::text) AS wizard_id,
+                p.wizard_id AS wizard_id,
                 p.wizard_name,
                 p.channel_uid,
                 p.country_code AS country,
@@ -81,7 +81,7 @@
             FROM public.rta_match_participant p
             INNER JOIN rms ON rms.rid = p.replay_id
             LEFT JOIN banned_pick bp ON bp.replay_id = p.replay_id
-                AND bp.wizard_id = TRIM(BOTH FROM p.wizard_id::text)
+                AND bp.wizard_id = p.wizard_id
         ),
         unit_info AS (
             SELECT
@@ -144,8 +144,8 @@
         JOIN pair pr ON pr.rid = rms.rid
         JOIN user_info u1 ON u1.replay_id = rms.rid AND u1.wizard_id = pr.p1w
         JOIN user_info u2 ON u2.replay_id = rms.rid AND u2.wizard_id = pr.p2w
-        LEFT JOIN unit_info un1 ON un1.replay_id = rms.rid AND TRIM(BOTH FROM un1.wizard_id::text) = u1.wizard_id
-        LEFT JOIN unit_info un2 ON un2.replay_id = rms.rid AND TRIM(BOTH FROM un2.wizard_id::text) = u2.wizard_id
+        LEFT JOIN unit_info un1 ON un1.replay_id = rms.rid AND un1.wizard_id = u1.wizard_id
+        LEFT JOIN unit_info un2 ON un2.replay_id = rms.rid AND un2.wizard_id = u2.wizard_id
         ORDER BY rms.date_add DESC NULLS LAST
     </select>
 
@@ -461,7 +461,7 @@
                 ELSE 0
             END AS ban_rate
         FROM s
-        LEFT JOIN public.monster m ON TRIM(BOTH FROM m.monster_id) = s.combo_unit_key
+        LEFT JOIN public.monster m ON m.monster_id = s.combo_unit_key
         WHERE m.kr_name IS NOT NULL
           AND s.pick_cnt &gt;= #{minPickCount}
         ORDER BY s.pick_cnt DESC
@@ -506,8 +506,8 @@
             s.match_cnt AS match_count,
             ROUND((s.win_cnt::numeric / NULLIF(s.match_cnt, 0) * 100)::numeric, 2) AS win_rate
         FROM s
-        LEFT JOIN public.monster m1 ON TRIM(BOTH FROM m1.monster_id) = split_part(s.combo_unit_key, ',', 1)
-        LEFT JOIN public.monster m2 ON TRIM(BOTH FROM m2.monster_id) = split_part(s.combo_unit_key, ',', 2)
+        LEFT JOIN public.monster m1 ON m1.monster_id = split_part(s.combo_unit_key, ',', 1)
+        LEFT JOIN public.monster m2 ON m2.monster_id = split_part(s.combo_unit_key, ',', 2)
         WHERE m1.kr_name IS NOT NULL AND m2.kr_name IS NOT NULL
           AND s.match_cnt &gt;= #{minPickCount}
         ORDER BY s.match_cnt DESC, (s.win_cnt::numeric / NULLIF(s.match_cnt, 0)) DESC NULLS LAST
@@ -556,9 +556,9 @@
             s.match_cnt AS match_count,
             ROUND((s.win_cnt::numeric / NULLIF(s.match_cnt, 0) * 100)::numeric, 2) AS win_rate
         FROM s
-        LEFT JOIN public.monster m1 ON TRIM(BOTH FROM m1.monster_id) = split_part(s.combo_unit_key, ',', 1)
-        LEFT JOIN public.monster m2 ON TRIM(BOTH FROM m2.monster_id) = split_part(s.combo_unit_key, ',', 2)
-        LEFT JOIN public.monster m3 ON TRIM(BOTH FROM m3.monster_id) = split_part(s.combo_unit_key, ',', 3)
+        LEFT JOIN public.monster m1 ON m1.monster_id = split_part(s.combo_unit_key, ',', 1)
+        LEFT JOIN public.monster m2 ON m2.monster_id = split_part(s.combo_unit_key, ',', 2)
+        LEFT JOIN public.monster m3 ON m3.monster_id = split_part(s.combo_unit_key, ',', 3)
         WHERE m1.kr_name IS NOT NULL AND m2.kr_name IS NOT NULL AND m3.kr_name IS NOT NULL
           AND s.match_cnt &gt;= #{minPickCount}
         ORDER BY s.match_cnt DESC, (s.win_cnt::numeric / NULLIF(s.match_cnt, 0)) DESC NULLS LAST
@@ -591,7 +591,7 @@
                 ELSE 0
             END AS ban_rate
         FROM public.rta_agg_monster_stats_tier_top_snap s
-        INNER JOIN public.monster m ON TRIM(BOTH FROM m.monster_id) = s.combo_unit_key
+        INNER JOIN public.monster m ON m.monster_id = s.combo_unit_key
         WHERE s.season_id = #{seasonId}
           AND s.rating_id = #{ratingId}
           AND s.stat_kind = 'S'
@@ -614,8 +614,8 @@
             s.match_cnt AS match_count,
             ROUND((s.win_cnt::numeric / NULLIF(s.match_cnt, 0) * 100)::numeric, 2) AS win_rate
         FROM public.rta_agg_monster_stats_tier_top_snap s
-        INNER JOIN public.monster m1 ON TRIM(BOTH FROM m1.monster_id) = split_part(s.combo_unit_key, ',', 1)
-        INNER JOIN public.monster m2 ON TRIM(BOTH FROM m2.monster_id) = split_part(s.combo_unit_key, ',', 2)
+        INNER JOIN public.monster m1 ON m1.monster_id = split_part(s.combo_unit_key, ',', 1)
+        INNER JOIN public.monster m2 ON m2.monster_id = split_part(s.combo_unit_key, ',', 2)
         WHERE s.season_id = #{seasonId}
           AND s.rating_id = #{ratingId}
           AND s.stat_kind = 'D'
@@ -643,9 +643,9 @@
             s.match_cnt AS match_count,
             ROUND((s.win_cnt::numeric / NULLIF(s.match_cnt, 0) * 100)::numeric, 2) AS win_rate
         FROM public.rta_agg_monster_stats_tier_top_snap s
-        INNER JOIN public.monster m1 ON TRIM(BOTH FROM m1.monster_id) = split_part(s.combo_unit_key, ',', 1)
-        INNER JOIN public.monster m2 ON TRIM(BOTH FROM m2.monster_id) = split_part(s.combo_unit_key, ',', 2)
-        INNER JOIN public.monster m3 ON TRIM(BOTH FROM m3.monster_id) = split_part(s.combo_unit_key, ',', 3)
+        INNER JOIN public.monster m1 ON m1.monster_id = split_part(s.combo_unit_key, ',', 1)
+        INNER JOIN public.monster m2 ON m2.monster_id = split_part(s.combo_unit_key, ',', 2)
+        INNER JOIN public.monster m3 ON m3.monster_id = split_part(s.combo_unit_key, ',', 3)
         WHERE s.season_id = #{seasonId}
           AND s.rating_id = #{ratingId}
           AND s.stat_kind = 'T'
@@ -1124,7 +1124,7 @@
             f.computed_at
         FROM public.rta_agg_summoner_season_fight_snap f
         WHERE f.season_id = #{seasonId}
-          AND f.wizard_id = TRIM(BOTH FROM #{wizardId})
+          AND f.wizard_id = #{wizardId}
         LIMIT 1
     </select>
 
@@ -1161,19 +1161,19 @@
             ON f.season_id = s.season_id
            AND f.wizard_id = s.wizard_id
         LEFT JOIN public.monster m
-            ON TRIM(BOTH FROM m.monster_id::text) = s.unit_master_id::text
+            ON m.monster_id = s.unit_master_id::text
         WHERE s.season_id = #{seasonId}
-          AND s.wizard_id = TRIM(BOTH FROM #{wizardId})
+          AND s.wizard_id = #{wizardId}
         ORDER BY s.pick_cnt DESC, s.unit_master_id ASC
     </select>
 
     <select id="selectMonsterPortraitMetaByIds" resultType="map">
-        SELECT TRIM(BOTH FROM monster_id::text) AS monster_id,
+        SELECT monster_id,
                image_url,
                kr_name,
                monster_elemental
         FROM public.monster
-        WHERE TRIM(BOTH FROM monster_id::text) IN
+        WHERE monster_id::text IN
         <foreach collection="ids" item="id" open="(" separator="," close=")">
             #{id}
         </foreach>

@@ -171,7 +171,7 @@ public class RtaBulkRidLookupService {
 			String sql = """
 					SELECT m.season_id,
 					       p.rating_id,
-					       TRIM(BOTH FROM COALESCE(mcm.original_monster_id, u.unit_master_id::text)) AS combo_unit_key,
+					       COALESCE(mcm.original_monster_id, u.unit_master_id::text) AS combo_unit_key,
 					       COUNT(*)::bigint AS delta
 					FROM public.rta_match_unit_pick u
 					INNER JOIN public.rta_match m ON m.replay_id = u.replay_id
@@ -179,13 +179,13 @@ public class RtaBulkRidLookupService {
 					        ON p.replay_id = u.replay_id
 					       AND p.wizard_id = u.wizard_id
 					LEFT JOIN public.monster_collaboration_mapping mcm
-					       ON TRIM(BOTH FROM mcm.collaboration_monster_id) = TRIM(BOTH FROM u.unit_master_id::text)
+					       ON mcm.collaboration_monster_id = u.unit_master_id::text
 					JOIN tmp_bulk_rids t ON t.rid = u.replay_id
 					WHERE COALESCE(u.is_banned, false) = true
 					  AND p.rating_id IS NOT NULL
 					  AND p.rating_id > 0
 					GROUP BY m.season_id, p.rating_id,
-					         TRIM(BOTH FROM COALESCE(mcm.original_monster_id, u.unit_master_id::text))
+					         COALESCE(mcm.original_monster_id, u.unit_master_id::text)
 					""";
 			try (Statement st = conn.createStatement(); ResultSet rs = st.executeQuery(sql)) {
 				while (rs.next()) {
@@ -213,7 +213,7 @@ public class RtaBulkRidLookupService {
 			throws SQLException {
 		String sql = """
 				SELECT m.replay_id AS rid,
-				       TRIM(BOTH FROM m.winner_wizard_id::text) AS winner_wizard_id,
+				       m.winner_wizard_id AS winner_wizard_id,
 				       m.played_at AS date_add,
 				       m.season_id
 				FROM public.rta_match m
@@ -236,7 +236,7 @@ public class RtaBulkRidLookupService {
 			throws SQLException {
 		String sql = """
 				SELECT DISTINCT u.replay_id AS rid,
-				       TRIM(BOTH FROM u.wizard_id::text) AS wizard_id,
+				       u.wizard_id AS wizard_id,
 				       u.unit_master_id AS unit_master_id
 				FROM public.rta_match_unit_pick u
 				JOIN tmp_bulk_rids t ON t.rid = u.replay_id
@@ -258,7 +258,7 @@ public class RtaBulkRidLookupService {
 			throws SQLException {
 		String sql = """
 				SELECT mp.replay_id AS rid,
-				       TRIM(BOTH FROM mp.wizard_id::text) AS wizard_id,
+				       mp.wizard_id AS wizard_id,
 				       CAST(mp.rating_id AS INTEGER) AS rating_id
 				FROM public.rta_match_participant mp
 				JOIN tmp_bulk_rids t ON t.rid = mp.replay_id

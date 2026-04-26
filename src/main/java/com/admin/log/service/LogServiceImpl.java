@@ -104,6 +104,17 @@ public class LogServiceImpl implements LogService {
 		return batchMapper.selectBatchConfig(queryParam);
 	}
 
+	@Override
+	public List<Map<String, ?>> selectBatchRunHisList(Map<String, Object> param) {
+		Map<String, Object> queryParam = param != null ? new HashMap<>(param) : new HashMap<>();
+		return batchMapper.selectBatchRunHisList(queryParam);
+	}
+
+	@Override
+	public Map<String, ?> selectBatchRunHisDetail(Long runSn) {
+		return batchMapper.selectBatchRunHisDetail(runSn);
+	}
+
 	private void applyOptionalApiLogColumns(Map<String, Object> param) {
 		Set<String> columns = getApiExecutionLogColumns();
 		param.put("api_log_has_trace_id", columns.contains("trace_id"));

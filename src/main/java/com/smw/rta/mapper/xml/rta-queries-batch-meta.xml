@@ -28,7 +28,7 @@
     <select id="selectSynergyReplayRow" resultType="map">
         SELECT
             m.replay_id AS rid,
-            TRIM(BOTH FROM m.winner_wizard_id::text) AS winner_wizard_id,
+            m.winner_wizard_id AS winner_wizard_id,
             m.played_at AS date_add,
             m.season_id
         FROM public.rta_match m
@@ -37,7 +37,7 @@
 
     <select id="selectSynergyFieldUnits" resultType="map">
         SELECT DISTINCT
-            TRIM(BOTH FROM u.wizard_id::text) AS wizard_id,
+            u.wizard_id AS wizard_id,
             u.unit_master_id AS unit_master_id
         FROM public.rta_match_unit_pick u
         WHERE u.replay_id = #{rid}
@@ -47,7 +47,7 @@
 
     <select id="selectSynergyWizardRatings" resultType="map">
         SELECT
-            TRIM(BOTH FROM mp.wizard_id::text) AS wizard_id,
+            mp.wizard_id AS wizard_id,
             CAST(mp.rating_id AS INTEGER) AS rating_id
         FROM public.rta_match_participant mp
         WHERE mp.replay_id = #{rid}
@@ -58,7 +58,7 @@
     <select id="selectSynergyWizardRatingsByRids" resultType="map">
         SELECT
             mp.replay_id AS rid,
-            TRIM(BOTH FROM mp.wizard_id::text) AS wizard_id,
+            mp.wizard_id AS wizard_id,
             CAST(mp.rating_id AS INTEGER) AS rating_id
         FROM public.rta_match_participant mp
         WHERE mp.replay_id = ANY(#{rids})
@@ -67,7 +67,7 @@
     <select id="selectSynergyReplayRowsByRids" resultType="map">
         SELECT
             m.replay_id AS rid,
-            TRIM(BOTH FROM m.winner_wizard_id::text) AS winner_wizard_id,
+            m.winner_wizard_id AS winner_wizard_id,
             m.played_at AS date_add,
             m.season_id
         FROM public.rta_match m
@@ -77,7 +77,7 @@
     <select id="selectSynergyFieldUnitsByRids" resultType="map">
         SELECT DISTINCT
             u.replay_id AS rid,
-            TRIM(BOTH FROM u.wizard_id::text) AS wizard_id,
+            u.wizard_id AS wizard_id,
             u.unit_master_id AS unit_master_id
         FROM public.rta_match_unit_pick u
         WHERE u.replay_id = ANY(#{rids})
@@ -240,9 +240,7 @@
 
     <!--
       랭킹 스냅: 해당 시즌 행은 호출부에서 먼저 DELETE 한 뒤 이 INSERT만 실행.
-      PK (season_id, rank_position) + UQ (season_id, wizard_id) — top_wizards 에서 wizard_id BTRIM 정규화,
-      pool_ranked_dedup_wizard / pool_ranked_final.
-      win_agg 는 participant id 도 BTRIM 해 pool_500 과 동일 키로 집계.
+      PK (season_id, rank_position) + UQ (season_id, wizard_id) — top_wizards·win_agg 는 participant.wizard_id 직접 키.
     -->
     <insert id="insertRtaSummonerRankingSnapForSeason">
         WITH
@@ -250,14 +248,14 @@
         <include refid="rtaSummonerRankingPool500AndFilterCte"/>,
         win_agg AS (
             SELECT
-                BTRIM(COALESCE(u.wizard_id::text, ''))::varchar(64) AS wizard_id,
+                u.wizard_id,
                 COUNT(*)::bigint AS match_count,
                 SUM(CASE WHEN u.is_winner THEN 1 ELSE 0 END)::bigint AS win_count
             FROM public.rta_match_participant u
             WHERE u.season_id = #{seasonId}
               AND u.ladder_score &gt; 0
-              AND BTRIM(COALESCE(u.wizard_id::text, '')) IN (SELECT pp.wizard_id FROM pool_500 pp)
-            GROUP BY BTRIM(COALESCE(u.wizard_id::text, ''))::varchar(64)
+              AND u.wizard_id IN (SELECT pp.wizard_id FROM pool_500 pp)
+            GROUP BY u.wizard_id
         ),
         pool_ranked_dedup_wizard AS (
             SELECT DISTINCT ON (p.wizard_id)
@@ -367,8 +365,9 @@
             WHERE s.season_id = #{seasonId}
             <if test="countryFilter != null and countryFilter != ''">
             AND (
-                CASE WHEN TRIM(COALESCE(s.country::text, '')) = '' THEN '—' ELSE TRIM(s.country::text) END
-            ) = #{countryFilter}
+                (#{countryFilter} = '—' AND (s.country IS NULL OR s.country = ''))
+                OR (#{countryFilter} &lt;&gt; '—' AND s.country = #{countryFilter})
+            )
             </if>
         ),
         pool_meta AS (
@@ -723,7 +722,7 @@
             (
                 SELECT string_agg(m.kr_name, ' + ' ORDER BY z.ord)
                 FROM unnest(string_to_array(x.opponent_combo_key, ',')) WITH ORDINALITY AS z(id, ord)
-                LEFT JOIN public.monster m ON m.monster_id = NULLIF(TRIM(BOTH FROM z.id), '')
+                LEFT JOIN public.monster m ON m.monster_id = NULLIF(z.id, '')
             ) AS "opponentLabel"
         FROM raw x
         ORDER BY (x.win_cnt + x.lose_cnt) DESC NULLS LAST
@@ -794,28 +793,28 @@
         WITH part AS (
             SELECT
                 mp.season_id,
-                TRIM(BOTH FROM mp.wizard_id::text)::varchar(64) AS wizard_id,
+                mp.wizard_id,
                 COUNT(DISTINCT mp.replay_id)::bigint AS match_cnt
             FROM public.rta_match_participant mp
             WHERE mp.season_id = #{seasonId}
               AND mp.rating_id IS NOT NULL
               AND mp.rating_id &gt; 0
-            GROUP BY mp.season_id, TRIM(BOTH FROM mp.wizard_id::text)::varchar(64)
+            GROUP BY mp.season_id, mp.wizard_id
         ),
         picks AS (
             SELECT
                 mp.season_id,
-                TRIM(BOTH FROM mp.wizard_id::text)::varchar(64) AS wizard_id,
+                mp.wizard_id,
                 SUM(CASE WHEN NOT up.is_banned THEN 1 ELSE 0 END)::bigint AS non_ban_pick_cnt,
                 SUM(CASE WHEN up.is_banned THEN 1 ELSE 0 END)::bigint     AS ban_event_cnt
             FROM public.rta_match_unit_pick up
             INNER JOIN public.rta_match_participant mp
                 ON mp.replay_id = up.replay_id
-               AND TRIM(BOTH FROM mp.wizard_id::text) = TRIM(BOTH FROM up.wizard_id::text)
+               AND mp.wizard_id = up.wizard_id
             WHERE mp.season_id = #{seasonId}
               AND mp.rating_id IS NOT NULL
               AND mp.rating_id &gt; 0
-            GROUP BY mp.season_id, TRIM(BOTH FROM mp.wizard_id::text)::varchar(64)
+            GROUP BY mp.season_id, mp.wizard_id
         )
         SELECT
             p.season_id,
@@ -839,7 +838,7 @@
             SELECT
                 mp.replay_id,
                 mp.season_id,
-                TRIM(BOTH FROM mp.wizard_id::text)::varchar(64) AS wizard_id,
+                mp.wizard_id,
                 mp.is_winner
             FROM public.rta_match_participant mp
             WHERE mp.season_id = #{seasonId}
@@ -849,7 +848,7 @@
         upnorm AS (
             SELECT
                 up.replay_id,
-                TRIM(BOTH FROM up.wizard_id::text)::varchar(64) AS wizard_id,
+                up.wizard_id,
                 up.unit_master_id,
                 up.is_banned,
                 up.pick_slot_no
@@ -904,11 +903,11 @@
         FROM agg a
         LEFT JOIN (
             SELECT
-                TRIM(BOTH FROM wizard_id::text)::varchar(64) AS wizard_id,
+                wizard_id,
                 master_id,
                 MAX(copy_count)::int AS copy_count
             FROM public.user_monster_owned_agg
-            GROUP BY TRIM(BOTH FROM wizard_id::text)::varchar(64), master_id
+            GROUP BY wizard_id, master_id
         ) o
             ON o.wizard_id = a.wizard_id
            AND o.master_id = a.unit_master_id
@@ -960,7 +959,7 @@
                     ORDER BY sg.pick_cnt DESC
                 ) AS rn
             FROM public.rta_agg_synergy_solo sg
-            INNER JOIN public.monster m ON TRIM(BOTH FROM m.monster_id) = sg.combo_unit_key
+            INNER JOIN public.monster m ON m.monster_id = sg.combo_unit_key
             WHERE sg.season_id = #{seasonId}
               AND sg.rating_id &gt; 0
               AND m.kr_name IS NOT NULL
@@ -996,8 +995,8 @@
                     ORDER BY sg.match_cnt DESC, (sg.win_cnt::numeric / NULLIF(sg.match_cnt, 0)) DESC NULLS LAST
                 ) AS rn
             FROM public.rta_agg_synergy_duo sg
-            INNER JOIN public.monster m1 ON TRIM(BOTH FROM m1.monster_id) = split_part(sg.combo_unit_key, ',', 1)
-            INNER JOIN public.monster m2 ON TRIM(BOTH FROM m2.monster_id) = split_part(sg.combo_unit_key, ',', 2)
+            INNER JOIN public.monster m1 ON m1.monster_id = split_part(sg.combo_unit_key, ',', 1)
+            INNER JOIN public.monster m2 ON m2.monster_id = split_part(sg.combo_unit_key, ',', 2)
             WHERE sg.season_id = #{seasonId}
               AND sg.rating_id &gt; 0
               AND m1.kr_name IS NOT NULL
@@ -1034,9 +1033,9 @@
                     ORDER BY sg.match_cnt DESC, (sg.win_cnt::numeric / NULLIF(sg.match_cnt, 0)) DESC NULLS LAST
                 ) AS rn
             FROM public.rta_agg_synergy_trio sg
-            INNER JOIN public.monster m1 ON TRIM(BOTH FROM m1.monster_id) = split_part(sg.combo_unit_key, ',', 1)
-            INNER JOIN public.monster m2 ON TRIM(BOTH FROM m2.monster_id) = split_part(sg.combo_unit_key, ',', 2)
-            INNER JOIN public.monster m3 ON TRIM(BOTH FROM m3.monster_id) = split_part(sg.combo_unit_key, ',', 3)
+            INNER JOIN public.monster m1 ON m1.monster_id = split_part(sg.combo_unit_key, ',', 1)
+            INNER JOIN public.monster m2 ON m2.monster_id = split_part(sg.combo_unit_key, ',', 2)
+            INNER JOIN public.monster m3 ON m3.monster_id = split_part(sg.combo_unit_key, ',', 3)
             WHERE sg.season_id = #{seasonId}
               AND sg.rating_id &gt; 0
               AND m1.kr_name IS NOT NULL
