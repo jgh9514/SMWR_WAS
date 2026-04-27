@@ -92,6 +92,28 @@ public class RtaBatchAggregationService {
 	}
 
 	/**
+	 * 시즌별 소환사×상대 H2H 스냅({@code rta_agg_summoner_opponent_h2h_snap}) — participant 1:1 집계,
+	 * 시즌마다 DELETE 후 INSERT. API는 이 스냅만 조회(라이브 폴백 없음).
+	 * <p>
+	 * 무거운 INSERT·스캔이므로 {@link RtaSummonerRankingAggJob} 등 긴 주기 배치에서 몬스터 스냅 직후 호출 권장.
+	 */
+	public SummonerOpponentH2hSnapRebuildResult rebuildSummonerOpponentH2hSnapAgg(RtaMapper rtaMapper) {
+		int inserted = 0;
+		List<Map<String, Object>> seasons = rtaMapper.listRtaSeasons();
+		for (Map<String, Object> row : seasons) {
+			Long seasonId = pickSeasonId(row);
+			if (seasonId == null) {
+				continue;
+			}
+			long sid = seasonId.longValue();
+			rtaMapper.deleteRtaSummonerOpponentH2hSnapBySeason(sid);
+			inserted += rtaMapper.insertRtaSummonerOpponentH2hSnapForSeason(sid);
+		}
+		return new SummonerOpponentH2hSnapRebuildResult(inserted,
+				(int) safeCount(rtaMapper.countRtaSummonerOpponentH2hSnapRows()));
+	}
+
+	/**
 	 * {@code user_monster_owned_agg} → {@code rta_agg_summoner_owned_box_snap} 전량(시즌 무관).
 	 * <p>
 	 * SWEX 집계가 먼저 갱신돼 있어야 copy_count가 의미가 있다(통합 Job 보유 단계 이후 권장).
@@ -290,6 +312,13 @@ public class RtaBatchAggregationService {
 	 * @param monsterRows {@code rta_agg_summoner_monster_snap} 합
 	 */
 	public record SummonerMonsterSnapRebuildResult(int fightRows, int monsterRows) {
+	}
+
+	/**
+	 * @param insertReported 루프에서 INSERT 반환 합(시즌별),
+	 * @param totalRows {@code COUNT(*)} 스냅 전체 행 수(로깅용)
+	 */
+	public record SummonerOpponentH2hSnapRebuildResult(int insertReported, int totalRows) {
 	}
 
 	/** @param rows {@code rta_agg_summoner_owned_box_snap} 전체 건수(적재 후 COUNT) */

@@ -19,6 +19,12 @@ public interface RtaMapper {
     List<Map<String, Object>> getPlayerRtaMatches(@Param("wizardId") String wizardId, @Param("limit") int limit,
             @Param("offset") int offset, @Param("seasonId") Long seasonId);
 
+    /**
+     * 시즌 전체 H2H 읽기 — {@code rta_agg_summoner_opponent_h2h_snap} (배치 적재, 라이브 집계 없음).
+     */
+    List<Map<String, Object>> listRtaPlayerOpponentHeadToHead(@Param("wizardId") String wizardId,
+            @Param("seasonId") long seasonId, @Param("limit") int limit, @Param("offset") int offset);
+
     int getTodayRtaMatches(@Param("seasonId") Long seasonId, @Param("ratingId") Integer ratingId,
             @Param("ratingIds") List<Integer> ratingIds);
 
@@ -175,6 +181,16 @@ public interface RtaMapper {
 
     /** 시즌 단위: 소환사×몬스터 스냅 삭제 */
     int deleteRtaSummonerMonsterSnapBySeason(@Param("seasonId") long seasonId);
+
+    /** 시즌 단위: 소환사×상대 H2H 스냅 삭제(재적재 직전) */
+    int deleteRtaSummonerOpponentH2hSnapBySeason(@Param("seasonId") long seasonId);
+
+    /**
+     * 시즌×participant 기준 1:1 H2H 전량 INSERT — {@code rta_match_participant} me/o 조인 집계.
+     */
+    int insertRtaSummonerOpponentH2hSnapForSeason(@Param("seasonId") long seasonId);
+
+    Long countRtaSummonerOpponentH2hSnapRows();
 
     /** 시즌 단위: {@code rta_agg_summoner_season_fight_snap} 적재 */
     int insertRtaSummonerSeasonFightSnapForSeason(@Param("seasonId") long seasonId);

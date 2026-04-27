@@ -96,6 +96,9 @@ public interface RtaService {
      */
     Map<String, Object> getRtaPlayerOwnedBox(String wizardId);
 
+    /** 시즌 전체 상대(위자드)별 전적 — {@code rta_agg_summoner_opponent_h2h_snap}만 조회(배치 적재) */
+    Map<String, Object> getRtaPlayerOpponentHeadToHead(String wizardId, Long seasonId, int limit, int offset);
+
     /** 등록된 RTA 시즌 목록 */
     Map<String, Object> getRtaSeasons();
 

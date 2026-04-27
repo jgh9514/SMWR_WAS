@@ -13,9 +13,10 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.HashMap;
 
 @Slf4j
 @Tag(name = "RTA", description = "RTA(Real-Time Arena) 관련 API")
@@ -242,6 +243,46 @@ public class RtaController {
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             log.error("RTA player monster-usage 조회 실패 wizardId={}", wizardId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    @Operation(summary = "RTA 소환사 상대 전적(스냅)", description = "시즌 전체 위자드별 H2H — rta_agg_summoner_opponent_h2h_snap (배치 적재)")
+    @PostMapping("/player/{wizardId}/opponent-records")
+    public ResponseEntity<Map<String, Object>> getRtaPlayerOpponentRecords(
+            @PathVariable String wizardId,
+            @RequestBody(required = false) Map<String, Object> param) {
+        try {
+            int limit = 50;
+            int offset = 0;
+            if (param != null) {
+                if (param.get("limit") != null) {
+                    int parsed = Integer.parseInt(param.get("limit").toString());
+                    if (parsed >= 1) {
+                        limit = Math.min(parsed, 100);
+                    }
+                }
+                if (param.get("offset") != null) {
+                    offset = Integer.parseInt(param.get("offset").toString());
+                }
+            }
+            if (offset < 0) {
+                offset = 0;
+            }
+            Long paramSid = pickSeasonId(param);
+            Long sid = rtaService.resolveSeasonId(paramSid);
+            if (sid == null) {
+                Map<String, Object> empty = new HashMap<>();
+                empty.put("seasonId", null);
+                empty.put("wizardId", wizardId == null ? "" : wizardId.trim());
+                empty.put("rows", Collections.emptyList());
+                empty.put("has_more", false);
+                return ResponseEntity.ok(empty);
+            }
+            Map<String, Object> response = rtaService.getRtaPlayerOpponentHeadToHead(wizardId, sid, limit, offset);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("RTA player opponent-records 조회 실패 wizardId={}", wizardId, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }

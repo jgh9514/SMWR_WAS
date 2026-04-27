@@ -47,6 +47,9 @@ public class RtaServiceImpl implements RtaService {
     /** {@link #getRtaDashboardLinkPreview} 는 {@code @Cacheable} 을 쓰지 않고 rtaMonster 전용 {@link CacheManager} 에 직접 적재(인프라가 잘못된 캐시 매니저로 해석하는 경우 방지) */
     private static final String RTA_MONSTER_CACHE_NAME = "rtaMonster";
 
+    /** 소환사 시즌 상대 전적(H2H) API: 페이지당 상대 수 상한 */
+    private static final int RTA_PLAYER_OPPONENTS_MAX_PAGE = 100;
+
     /** 몬스터 통계: 집계 최소 픽 수 임계값 */
     @Value("${smw.rta.monster-stats.min-pick-count:10}")
     private int monsterStatsMinPickCount;
@@ -476,6 +479,38 @@ public class RtaServiceImpl implements RtaService {
         out.put("wizardId", wid);
         out.put("fight", fight);
         out.put("rows", rows != null ? rows : Collections.emptyList());
+        return out;
+    }
+
+    @Override
+    @Cacheable(cacheNames = "rtaMatchList", cacheManager = "rtaListReadCacheManager",
+            key = "'popp_' + #wizardId + '_' + #seasonId + '_' + #limit + '_' + #offset",
+            condition = "#seasonId != null && #wizardId != null && !#wizardId.isBlank()")
+    public Map<String, Object> getRtaPlayerOpponentHeadToHead(String wizardId, Long seasonId, int limit, int offset) {
+        Map<String, Object> out = new HashMap<>();
+        if (wizardId == null || wizardId.trim().isEmpty() || seasonId == null) {
+            out.put("seasonId", null);
+            out.put("wizardId", wizardId == null || wizardId.isEmpty() ? "" : wizardId.trim());
+            out.put("rows", Collections.emptyList());
+            out.put("has_more", false);
+            return out;
+        }
+        int lim = Math.max(1, Math.min(limit, RTA_PLAYER_OPPONENTS_MAX_PAGE));
+        int off = Math.max(0, offset);
+        int fetch = lim + 1;
+        String wid = wizardId.trim();
+        long sid = seasonId.longValue();
+        List<Map<String, Object>> raw = rtaMapper.listRtaPlayerOpponentHeadToHead(wid, sid, fetch, off);
+        boolean hasMore = raw != null && raw.size() > lim;
+        List<Map<String, Object>> page = (raw == null || raw.isEmpty())
+                ? Collections.emptyList()
+                : hasMore ? new ArrayList<>(raw.subList(0, lim)) : new ArrayList<>(raw);
+        out.put("seasonId", seasonId);
+        out.put("wizardId", wid);
+        out.put("limit", lim);
+        out.put("offset", off);
+        out.put("rows", page);
+        out.put("has_more", hasMore);
         return out;
     }
 

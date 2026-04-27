@@ -1295,6 +1295,28 @@
         ORDER BY s.pick_cnt DESC, s.unit_master_id ASC
     </select>
 
+    <!-- 시즌 전체 상대 H2H — 배치 rta_agg_summoner_opponent_h2h_snap (라이브 집계 없음) -->
+    <select id="listRtaPlayerOpponentHeadToHead" resultType="map">
+        /* rta-queries-live.listRtaPlayerOpponentHeadToHead */
+        SELECT
+            h.opponent_wizard_id,
+            h.opponent_wizard_name,
+            h.opponent_channel_uid,
+            h.opponent_country_code,
+            h.match_cnt,
+            h.win_cnt,
+            h.lose_cnt,
+            CASE
+                WHEN h.match_cnt &gt; 0
+                THEN ROUND((100.0 * h.win_cnt::numeric / h.match_cnt::numeric), 2)
+            END AS win_rate_pct
+        FROM public.rta_agg_summoner_opponent_h2h_snap h
+        WHERE h.season_id = #{seasonId}
+          AND h.wizard_id = #{wizardId}
+        ORDER BY h.match_cnt DESC, h.opponent_wizard_id ASC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
     <!-- SWEX 보유 스냅(배치) — 시즌 무관, wizard_id PK 조회 -->
     <select id="listRtaSummonerOwnedBoxSnapByWizard" resultType="map">
         /* rta-queries-live.listRtaSummonerOwnedBoxSnapByWizard */

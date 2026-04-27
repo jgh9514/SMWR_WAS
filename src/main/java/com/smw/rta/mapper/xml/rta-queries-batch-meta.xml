@@ -790,6 +790,50 @@
         WHERE season_id = #{seasonId}
     </delete>
 
+    <delete id="deleteRtaSummonerOpponentH2hSnapBySeason">
+        /* rta-queries-batch-meta.deleteRtaSummonerOpponentH2hSnapBySeason */
+        DELETE FROM public.rta_agg_summoner_opponent_h2h_snap
+        WHERE season_id = #{seasonId}
+    </delete>
+
+    <insert id="insertRtaSummonerOpponentH2hSnapForSeason">
+        /* rta-queries-batch-meta.insertRtaSummonerOpponentH2hSnapForSeason */
+        INSERT INTO public.rta_agg_summoner_opponent_h2h_snap (
+            season_id,
+            wizard_id,
+            opponent_wizard_id,
+            opponent_wizard_name,
+            opponent_channel_uid,
+            opponent_country_code,
+            match_cnt,
+            win_cnt,
+            lose_cnt,
+            computed_at
+        )
+        SELECT
+            me.season_id,
+            me.wizard_id,
+            o.wizard_id,
+            MAX(o.wizard_name),
+            MAX(o.channel_uid),
+            MAX(o.country_code),
+            COUNT(*)::bigint,
+            SUM(CASE WHEN me.is_winner IS TRUE THEN 1 ELSE 0 END)::bigint,
+            SUM(CASE WHEN me.is_winner IS NOT TRUE THEN 1 ELSE 0 END)::bigint,
+            CURRENT_TIMESTAMP
+        FROM public.rta_match_participant me
+        INNER JOIN public.rta_match_participant o
+            ON o.replay_id = me.replay_id
+           AND o.wizard_id &lt;&gt; me.wizard_id
+        WHERE me.season_id = #{seasonId}
+        GROUP BY me.season_id, me.wizard_id, o.wizard_id
+    </insert>
+
+    <select id="countRtaSummonerOpponentH2hSnapRows" resultType="long">
+        /* rta-queries-batch-meta.countRtaSummonerOpponentH2hSnapRows */
+        SELECT COUNT(*)::bigint FROM public.rta_agg_summoner_opponent_h2h_snap
+    </select>
+
     <select id="selectReplayIdsForSummonerMonsterSnapKeyset" resultType="long">
         SELECT m.replay_id
         FROM public.rta_match m
