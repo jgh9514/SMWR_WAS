@@ -246,6 +246,18 @@ public class RtaController {
         }
     }
 
+    @Operation(summary = "RTA 소환사 보유 몬스터(박스)", description = "SWEX 보유 집계 스냅 rta_agg_summoner_owned_box_snap")
+    @PostMapping("/player/{wizardId}/owned-box")
+    public ResponseEntity<Map<String, Object>> getRtaPlayerOwnedBox(@PathVariable String wizardId) {
+        try {
+            Map<String, Object> response = rtaService.getRtaPlayerOwnedBox(wizardId);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("RTA player owned-box 조회 실패 wizardId={}", wizardId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
     @Operation(summary = "RTA 소환사 랭킹")
     @PostMapping("/summoner-ranking")
     public ResponseEntity<Map<String, Object>> getRtaSummonerRanking(@RequestBody(required = false) Map<String, Object> param) {

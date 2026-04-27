@@ -197,6 +197,13 @@ public interface RtaMapper {
 
     Long countRtaSummonerMonsterSnapRows();
 
+    /** SWEX user_monster_owned_agg → RTA 읽기 스냅(전량) */
+    int deleteAllRtaSummonerOwnedBoxSnap();
+
+    int insertRtaSummonerOwnedBoxSnapFromUserMonsterOwnedAgg();
+
+    Long countRtaSummonerOwnedBoxSnapRows();
+
     /** API 조회용 — {@code rta_agg_summoner_ranking_snap} */
     List<Map<String, Object>> getRtaSummonerRankingFromAgg(@Param("limit") int limit, @Param("offset") int offset,
             @Param("seasonId") Long seasonId, @Param("countryFilter") String countryFilter);
@@ -218,6 +225,9 @@ public interface RtaMapper {
      */
     List<Map<String, Object>> listRtaPlayerMonsterSnapFromAgg(@Param("wizardId") String wizardId,
             @Param("seasonId") long seasonId);
+
+    /** 보유 박스 스냅 — rta_agg_summoner_owned_box_snap + monster 메타 */
+    List<Map<String, Object>> listRtaSummonerOwnedBoxSnapByWizard(@Param("wizardId") String wizardId);
 
     /** 시너지 미집계 rid ({@code rta_match.synergy_applied_at IS NULL}, rid 오름차순). 성공/실패는 {@code synergy_apply_result}. */
     List<Long> selectPendingSynergyAggRids(@Param("batchSize") int batchSize);

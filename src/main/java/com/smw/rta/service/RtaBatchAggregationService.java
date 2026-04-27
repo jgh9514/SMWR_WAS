@@ -92,6 +92,19 @@ public class RtaBatchAggregationService {
 	}
 
 	/**
+	 * {@code user_monster_owned_agg} → {@code rta_agg_summoner_owned_box_snap} 전량(시즌 무관).
+	 * <p>
+	 * SWEX 집계가 먼저 갱신돼 있어야 copy_count가 의미가 있다(통합 Job 보유 단계 이후 권장).
+	 */
+	public SummonerOwnedBoxSnapRebuildResult rebuildSummonerOwnedBoxSnap(RtaMapper rtaMapper) {
+		transactionTemplate.executeWithoutResult(status -> {
+			rtaMapper.deleteAllRtaSummonerOwnedBoxSnap();
+			rtaMapper.insertRtaSummonerOwnedBoxSnapFromUserMonsterOwnedAgg();
+		});
+		return new SummonerOwnedBoxSnapRebuildResult((int) safeCount(rtaMapper.countRtaSummonerOwnedBoxSnapRows()));
+	}
+
+	/**
 	 * {@code insertRtaSummonerMonsterSnapForSeasonReplayChunk} 키셋 반복 — 대량 시즌에서 단일 INSERT…SELECT 부담 완화.
 	 */
 	private int insertSummonerMonsterSnapForSeasonChunked(RtaMapper rtaMapper, long seasonId) {
@@ -277,6 +290,10 @@ public class RtaBatchAggregationService {
 	 * @param monsterRows {@code rta_agg_summoner_monster_snap} 합
 	 */
 	public record SummonerMonsterSnapRebuildResult(int fightRows, int monsterRows) {
+	}
+
+	/** @param rows {@code rta_agg_summoner_owned_box_snap} 전체 건수(적재 후 COUNT) */
+	public record SummonerOwnedBoxSnapRebuildResult(int rows) {
 	}
 
 	/**

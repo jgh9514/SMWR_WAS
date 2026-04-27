@@ -83,6 +83,8 @@ public class RtaUnifiedPipelineAggJob extends BaseBatchJob {
 			accountSummaryMapper.insertUserMonsterOwnedAggFromSwex();
 			long ownedRows = accountSummaryMapper.countUserMonsterOwnedAgg();
 			addLog("[%d/%d] · 보유 몬스터 완료 — %d행", step, PIPELINE_STEPS, ownedRows);
+			RtaBatchAggregationService.SummonerOwnedBoxSnapRebuildResult boxSnap = aggregationService.rebuildSummonerOwnedBoxSnap(rtaMapper);
+			addLog("[%d/%d] · 보유 박스 스냅(rta_agg_summoner_owned_box_snap) %d행", step, PIPELINE_STEPS, boxSnap.rows());
 		} else {
 			addLog("[%d/%d] · 보유 몬스터 집계 생략 (smw.rta.batch.skip-user-monster-owned-agg-in-unified-job)", step, PIPELINE_STEPS);
 		}

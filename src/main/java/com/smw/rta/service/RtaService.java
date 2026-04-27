@@ -90,6 +90,12 @@ public interface RtaService {
      */
     Map<String, Object> getRtaPlayerMonsterUsage(String wizardId, Long seasonId);
 
+    /**
+     * RTA 소환사 보유 몬스터(박스) — 배치 {@code rta_agg_summoner_owned_box_snap} ( SWEX
+     * {@code user_monster_owned_agg} 복제).
+     */
+    Map<String, Object> getRtaPlayerOwnedBox(String wizardId);
+
     /** 등록된 RTA 시즌 목록 */
     Map<String, Object> getRtaSeasons();
 

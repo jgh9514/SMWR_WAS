@@ -778,7 +778,7 @@
 
     <!--
       시즌별 소환사 RTA 몬스터·전투 스냅: DELETE 후 INSERT (랭킹/검색 스냅과 별도).
-      rta_match_participant.rating_id IS NOT NULL (티어 집계와 동일 범주).
+      rating_id 제한 없음 — 수집된 시즌 리플레이의 전 participant·픽 집계.
     -->
     <delete id="deleteRtaSummonerSeasonFightSnapBySeason">
         DELETE FROM public.rta_agg_summoner_season_fight_snap
@@ -810,8 +810,6 @@
                 COUNT(DISTINCT mp.replay_id)::bigint AS match_cnt
             FROM public.rta_match_participant mp
             WHERE mp.season_id = #{seasonId}
-              AND mp.rating_id IS NOT NULL
-              AND mp.rating_id &gt; 0
             GROUP BY mp.season_id, mp.wizard_id
         ),
         picks AS (
@@ -825,8 +823,6 @@
                 ON mp.replay_id = up.replay_id
                AND mp.wizard_id = up.wizard_id
             WHERE mp.season_id = #{seasonId}
-              AND mp.rating_id IS NOT NULL
-              AND mp.rating_id &gt; 0
             GROUP BY mp.season_id, mp.wizard_id
         )
         SELECT
@@ -860,8 +856,6 @@
                 mp.is_winner
             FROM public.rta_match_participant mp
             WHERE mp.season_id = #{seasonId}
-              AND mp.rating_id IS NOT NULL
-              AND mp.rating_id &gt; 0
               AND mp.replay_id = ANY(#{rids})
         ),
         upnorm AS (
@@ -1101,4 +1095,28 @@
         ) t
         WHERE t.rn &lt;= 100
     </insert>
+
+    <!--
+      SWEX 집계 user_monster_owned_agg → RTA 읽기 전용 스냅(시즌 무관, 전량 DELETE 후 INSERT).
+      통합 Job 에서 user_monster_owned_agg 갱신 직후·또는 랭킹 Job 말미에 실행.
+    -->
+    <delete id="deleteAllRtaSummonerOwnedBoxSnap">
+        /* rta-queries-batch-meta.deleteAllRtaSummonerOwnedBoxSnap */
+        DELETE FROM public.rta_agg_summoner_owned_box_snap
+    </delete>
+
+    <insert id="insertRtaSummonerOwnedBoxSnapFromUserMonsterOwnedAgg">
+        /* rta-queries-batch-meta.insertRtaSummonerOwnedBoxSnapFromUserMonsterOwnedAgg */
+        INSERT INTO public.rta_agg_summoner_owned_box_snap (wizard_id, unit_master_id, copy_count, computed_at)
+        SELECT
+            u.wizard_id,
+            u.master_id::bigint,
+            u.copy_count,
+            CURRENT_TIMESTAMP
+        FROM public.user_monster_owned_agg u
+    </insert>
+
+    <select id="countRtaSummonerOwnedBoxSnapRows" resultType="long">
+        SELECT COUNT(*)::bigint FROM public.rta_agg_summoner_owned_box_snap
+    </select>
 </mapper>

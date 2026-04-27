@@ -11,6 +11,7 @@ import com.smw.rta.service.RtaBatchAggregationService;
  * RTA 소환사 랭킹 스냅샷({@code rta_agg_summoner_ranking_snap})을 시즌별로 전량 재적재하고, 검색용
  * {@code rta_agg_summoner_search_snap} 은 시즌 비저장·wizard_id 기준 participant 대표행 upsert 1회로 갱신한다. 이어서
  * {@code rta_agg_summoner_season_fight_snap} / {@code rta_agg_summoner_monster_snap}(소환사×몬스터 픽/밴/승/선피·보유)를 갱신한다.
+ * 보유 박스({@code rta_agg_summoner_owned_box_snap})는 SWEX 직후 {@link RtaUnifiedPipelineAggJob}에서 갱신한다.
  * 전체 티어 합산 상위 100({@code rta_agg_monster_stats_tier_top_snap})은 {@link RtaMonsterStatsTierTopSnapJob} 에서 별도 스케줄.
  * <p>
  * participant 시즌 집계를 다시 읽는 무거운 작업이라 {@link RtaUnifiedPipelineAggJob}(짧은 주기)와 분리해

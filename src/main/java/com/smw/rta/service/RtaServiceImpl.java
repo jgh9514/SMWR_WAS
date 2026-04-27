@@ -480,6 +480,22 @@ public class RtaServiceImpl implements RtaService {
     }
 
     @Override
+    @Cacheable(cacheNames = "rtaRanking", cacheManager = "rtaShortLivedCacheManager", key = "'pbox_' + #wizardId")
+    public Map<String, Object> getRtaPlayerOwnedBox(String wizardId) {
+        Map<String, Object> out = new HashMap<>();
+        if (wizardId == null || wizardId.trim().isEmpty()) {
+            out.put("wizardId", "");
+            out.put("rows", Collections.emptyList());
+            return out;
+        }
+        String wid = wizardId.trim();
+        List<Map<String, Object>> rows = rtaMapper.listRtaSummonerOwnedBoxSnapByWizard(wid);
+        out.put("wizardId", wid);
+        out.put("rows", rows != null ? rows : Collections.emptyList());
+        return out;
+    }
+
+    @Override
     @Cacheable(cacheNames = "rtaSeasons", cacheManager = "rtaShortLivedCacheManager", key = "'list'")
     public Map<String, Object> getRtaSeasons() {
         Map<String, Object> response = new HashMap<>();

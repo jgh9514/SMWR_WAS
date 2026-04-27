@@ -1183,8 +1183,13 @@
         ORDER BY s.sort_order, rg.tier_sort NULLS LAST, rg.rating_id
     </select>
 
-    <!-- 소환사 요약: 특정 wizard 만 집계 — 전체 풀스캔 없이 wizardId 먼저 필터 -->
+    <!--
+      소환사 요약: participant 위저드 한정 (latest / win / score_max).
+      순위: 배치 rta_agg_summoner_ranking_snap(상위 풀) — 시즌 전체 COUNT DISTINCT(ladder 비교) 제거(수 초~분 단위).
+      풀 밖(스냅 미적재) 소환사는 rank_position NULL — UI는 "—" (랭킹 API와 동일 풀 정의).
+    -->
     <select id="getRtaPlayerSummaryFromAgg" resultType="map">
+        /* rta-queries-live.getRtaPlayerSummaryFromAgg */
         WITH latest AS (
             SELECT DISTINCT ON (p.wizard_id)
                 p.wizard_id,
@@ -1212,34 +1217,30 @@
             FROM public.rta_match_participant p
             WHERE p.wizard_id = #{wizardId}
               AND p.season_id = #{seasonId}
-        ),
-        rank_pos AS (
-            SELECT COUNT(DISTINCT p2.wizard_id) + 1 AS rank_position
-            FROM public.rta_match_participant p2
-            WHERE p2.season_id = #{seasonId}
-              AND p2.ladder_score &gt; (SELECT COALESCE(score, 0)::numeric FROM latest LIMIT 1)
         )
         SELECT
-            rp.rank_position,
+            s.rank_position,
             l.wizard_id::text AS wizard_id,
             l.wizard_name,
             l.country,
             l.channel_uid,
-            l.score,
-            l.rating_id,
+            COALESCE(s.score, l.score) AS score,
+            COALESCE(s.rating_id, l.rating_id) AS rating_id,
             l.last_match_at,
-            COALESCE(wa.match_count, 0)::bigint AS match_count,
-            COALESCE(wa.win_count, 0)::bigint AS win_count,
-            COALESCE(sm.max_season_score, l.score::int) AS max_season_score,
+            COALESCE(s.match_count, COALESCE(wa.match_count, 0))::bigint AS match_count,
+            COALESCE(s.win_count, COALESCE(wa.win_count, 0))::bigint AS win_count,
+            COALESCE(s.max_season_score::int, sm.max_season_score, l.score::int) AS max_season_score,
             CASE
-                WHEN COALESCE(wa.match_count, 0) &gt; 0
-                THEN ROUND(100.0 * COALESCE(wa.win_count, 0)::numeric / wa.match_count::numeric, 1)
+                WHEN COALESCE(s.match_count, wa.match_count, 0) &gt; 0
+                THEN ROUND(100.0 * COALESCE(s.win_count, wa.win_count, 0)::numeric / NULLIF(COALESCE(s.match_count, wa.match_count, 0), 0)::numeric, 1)
                 ELSE NULL
             END AS win_rate_pct
         FROM latest l
         CROSS JOIN win_agg wa
         CROSS JOIN score_max sm
-        CROSS JOIN rank_pos rp
+        LEFT JOIN public.rta_agg_summoner_ranking_snap s
+            ON s.season_id = #{seasonId}
+           AND s.wizard_id = l.wizard_id
         LIMIT 1
     </select>
 
@@ -1292,6 +1293,22 @@
         WHERE s.season_id = #{seasonId}
           AND s.wizard_id = #{wizardId}
         ORDER BY s.pick_cnt DESC, s.unit_master_id ASC
+    </select>
+
+    <!-- SWEX 보유 스냅(배치) — 시즌 무관, wizard_id PK 조회 -->
+    <select id="listRtaSummonerOwnedBoxSnapByWizard" resultType="map">
+        /* rta-queries-live.listRtaSummonerOwnedBoxSnapByWizard */
+        SELECT
+            b.unit_master_id::bigint AS unit_master_id,
+            b.copy_count::int        AS copy_count,
+            m.kr_name                AS monster_name,
+            m.monster_elemental      AS monster_elemental,
+            <include refid="monsterPortraitUrl"><property name="alias" value="m"/></include> AS monster_image
+        FROM public.rta_agg_summoner_owned_box_snap b
+        LEFT JOIN public.monster m ON m.monster_id = b.unit_master_id::text
+        WHERE b.wizard_id = #{wizardId}
+        ORDER BY b.unit_master_id ASC
+        LIMIT 10000
     </select>
 
     <select id="selectMonsterPortraitMetaByIds" resultType="map">
