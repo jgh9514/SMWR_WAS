@@ -67,8 +67,9 @@ public class RtaBatchAggregationService {
 	}
 
 	/**
-	 * 시즌별 소환사×몬스터 통계·전투 분모 스냅
-	 * ({@code rta_agg_summoner_season_fight_snap}, {@code rta_agg_summoner_monster_snap}).
+	 * 시즌별 소환사×몬스터 통계·전투 분모 스냅·슬롯 구간 스냅·픽턴(snake) 소환사 스냅
+	 * ({@code rta_agg_summoner_season_fight_snap}, {@code rta_agg_summoner_monster_snap},
+	 * {@code rta_agg_summoner_monster_pick_bucket_snap}, {@code rta_agg_summoner_pick_turn_snap}).
 	 * <p>
 	 * {@link RtaSummonerRankingAggJob}에서 랭킹/검색 스냅 이후 동일 루프로 호출 권장.
 	 * SWEX {@code user_monster_owned_agg} 는 통합 배치 직전 갱신돼 있어야 owned_copy_count 가 채워진다.
@@ -77,18 +78,25 @@ public class RtaBatchAggregationService {
 		List<Map<String, Object>> seasons = rtaMapper.listRtaSeasons();
 		int fightRows = 0;
 		int monRows = 0;
+		int bucketRows = 0;
+		int pickTurnRows = 0;
 		for (Map<String, Object> row : seasons) {
 			Long seasonId = pickSeasonId(row);
 			if (seasonId == null) {
 				continue;
 			}
 			long sid = seasonId.longValue();
+			rtaMapper.deleteRtaSummonerPickTurnSnapBySeason(sid);
+			rtaMapper.deleteRtaSummonerMonsterPickBucketSnapBySeason(sid);
 			rtaMapper.deleteRtaSummonerMonsterSnapBySeason(sid);
 			rtaMapper.deleteRtaSummonerSeasonFightSnapBySeason(sid);
 			fightRows += rtaMapper.insertRtaSummonerSeasonFightSnapForSeason(sid);
-			monRows += insertSummonerMonsterSnapForSeasonChunked(rtaMapper, sid);
+			ChunkTotals ct = insertSummonerMonsterPickBucketAndPickTurnSnapForSeasonChunked(rtaMapper, sid);
+			monRows += ct.monsterInserted;
+			bucketRows += ct.bucketInserted;
+			pickTurnRows += ct.pickTurnInserted;
 		}
-		return new SummonerMonsterSnapRebuildResult(fightRows, monRows);
+		return new SummonerMonsterSnapRebuildResult(fightRows, monRows, bucketRows, pickTurnRows);
 	}
 
 	/**
@@ -127,11 +135,25 @@ public class RtaBatchAggregationService {
 	}
 
 	/**
-	 * {@code insertRtaSummonerMonsterSnapForSeasonReplayChunk} 키셋 반복 — 대량 시즌에서 단일 INSERT…SELECT 부담 완화.
+	 * 몬스터 스냅·버킷·픽턴(선후 라인) 소환사 스냅을 동일 rids 청크로 적재한다.
 	 */
-	private int insertSummonerMonsterSnapForSeasonChunked(RtaMapper rtaMapper, long seasonId) {
+	private static final class ChunkTotals {
+		final int monsterInserted;
+		final int bucketInserted;
+		final int pickTurnInserted;
+
+		ChunkTotals(int monsterInserted, int bucketInserted, int pickTurnInserted) {
+			this.monsterInserted = monsterInserted;
+			this.bucketInserted = bucketInserted;
+			this.pickTurnInserted = pickTurnInserted;
+		}
+	}
+
+	private ChunkTotals insertSummonerMonsterPickBucketAndPickTurnSnapForSeasonChunked(RtaMapper rtaMapper, long seasonId) {
 		int limit = Math.max(100, summonerMonsterSnapReplayChunkSize);
-		int total = 0;
+		int monTotal = 0;
+		int bucketTotal = 0;
+		int pickTurnTotal = 0;
 		long afterExclusive = -1L;
 		while (true) {
 			List<Long> rids = rtaMapper.selectReplayIdsForSummonerMonsterSnapKeyset(seasonId, afterExclusive, limit);
@@ -139,13 +161,15 @@ public class RtaBatchAggregationService {
 				break;
 			}
 			long[] arr = rids.stream().mapToLong(Long::longValue).toArray();
-			total += rtaMapper.insertRtaSummonerMonsterSnapForSeasonReplayChunk(seasonId, arr);
+			monTotal += rtaMapper.insertRtaSummonerMonsterSnapForSeasonReplayChunk(seasonId, arr);
+			bucketTotal += rtaMapper.insertRtaSummonerMonsterPickBucketSnapForSeasonReplayChunk(seasonId, arr);
+			pickTurnTotal += rtaMapper.insertRtaSummonerPickTurnSnapForSeasonReplayChunk(seasonId, arr);
 			if (rids.size() < limit) {
 				break;
 			}
 			afterExclusive = rids.get(rids.size() - 1);
 		}
-		return total;
+		return new ChunkTotals(monTotal, bucketTotal, pickTurnTotal);
 	}
 
 	/**
@@ -309,9 +333,11 @@ public class RtaBatchAggregationService {
 
 	/**
 	 * @param fightRows {@code rta_agg_summoner_season_fight_snap} 합(적재 루프 합이 아닌 전체 count),
-	 * @param monsterRows {@code rta_agg_summoner_monster_snap} 합
+	 * @param monsterRows {@code INSERT rta_agg_summoner_monster_snap} 청크 적재가 반환한 행 합(근사),
+	 * @param bucketRows {@code INSERT…upsert} 슬롯 버킷 스냅 청크 행 합(근사),
+	 * @param pickTurnRows 픽턴(선후 라인) 소환사 스냅 청크 행 합(근사)
 	 */
-	public record SummonerMonsterSnapRebuildResult(int fightRows, int monsterRows) {
+	public record SummonerMonsterSnapRebuildResult(int fightRows, int monsterRows, int bucketRows, int pickTurnRows) {
 	}
 
 	/**

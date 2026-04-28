@@ -91,6 +91,11 @@ public interface RtaService {
     Map<String, Object> getRtaPlayerMonsterUsage(String wizardId, Long seasonId);
 
     /**
+     * 시즌×소환사×몬스터별 드래프트 슬롯 묶음(1·2–3…) 픽 분포 및 구간 승률 — 배치 {@code rta_agg_summoner_monster_pick_bucket_snap}.
+     */
+    Map<String, Object> getRtaPlayerMonsterPickBreakdown(String wizardId, Long seasonId, int unitMasterId);
+
+    /**
      * RTA 소환사 보유 몬스터(박스) — 배치 {@code rta_agg_summoner_owned_box_snap} ( SWEX
      * {@code user_monster_owned_agg} 복제).
      */

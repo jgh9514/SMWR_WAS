@@ -483,6 +483,26 @@ public class RtaServiceImpl implements RtaService {
     }
 
     @Override
+    @Cacheable(cacheNames = "rtaRanking", cacheManager = "rtaShortLivedCacheManager",
+            key = "'pmb_' + (#seasonId != null ? #seasonId : 'null') + '_' + #wizardId + '_' + #unitMasterId")
+    public Map<String, Object> getRtaPlayerMonsterPickBreakdown(String wizardId, Long seasonId, int unitMasterId) {
+        Long sid = doResolveSeasonId(seasonId);
+        Map<String, Object> out = new HashMap<>();
+        if (wizardId == null || wizardId.trim().isEmpty() || sid == null || unitMasterId <= 0) {
+            out.put("seasonId", sid);
+            out.put("buckets", Collections.emptyList());
+            return out;
+        }
+        List<Map<String, Object>> buckets =
+                rtaMapper.listRtaPlayerMonsterPickBucketsFromSnap(wizardId.trim(), sid.longValue(), (long) unitMasterId);
+        out.put("seasonId", sid);
+        out.put("wizardId", wizardId.trim());
+        out.put("unitMasterId", unitMasterId);
+        out.put("buckets", buckets != null ? buckets : Collections.emptyList());
+        return out;
+    }
+
+    @Override
     @Cacheable(cacheNames = "rtaMatchList", cacheManager = "rtaListReadCacheManager",
             key = "'popp_' + #wizardId + '_' + #seasonId + '_' + #limit + '_' + #offset",
             condition = "#seasonId != null && #wizardId != null && !#wizardId.isBlank()")

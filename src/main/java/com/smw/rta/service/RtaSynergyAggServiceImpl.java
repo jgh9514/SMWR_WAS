@@ -211,7 +211,8 @@ public class RtaSynergyAggServiceImpl implements RtaSynergyAggService {
 		}
 		for (Long seasonId : seasonIds) {
 			long t0 = System.currentTimeMillis();
-			int rows = rtaMapper.rebuildRtaPickTurnAggForSeason(seasonId);
+			rtaMapper.deleteRtaPickTurnAggBySeason(seasonId.longValue());
+			int rows = rtaMapper.insertRtaPickTurnAggForSeason(seasonId.longValue());
 			log.info("[rta-pick-turn] seasonId={} upserted={} {}ms", seasonId, rows, System.currentTimeMillis() - t0);
 		}
 		return seasonIds.size();

@@ -11,6 +11,7 @@ import com.smw.rta.service.RtaBatchAggregationService;
  * RTA 소환사 랭킹 스냅샷({@code rta_agg_summoner_ranking_snap})을 시즌별로 전량 재적재하고, 검색용
  * {@code rta_agg_summoner_search_snap} 은 시즌 비저장·wizard_id 기준 participant 대표행 upsert 1회로 갱신한다. 이어서
  * {@code rta_agg_summoner_season_fight_snap} / {@code rta_agg_summoner_monster_snap}(소환사×몬스터 픽/밴/승/선피·보유) 및
+ * 슬롯 구간 스냅({@code rta_agg_summoner_monster_pick_bucket_snap})·픽턴 스냅({@code rta_agg_summoner_pick_turn_snap}) 및
  * 시즌 전체 상대 H2H({@code rta_agg_summoner_opponent_h2h_snap})를 갱신한다.
  * 보유 박스({@code rta_agg_summoner_owned_box_snap})는 SWEX 직후 {@link RtaUnifiedPipelineAggJob}에서 갱신한다.
  * 전체 티어 합산 상위 100({@code rta_agg_monster_stats_tier_top_snap})은 {@link RtaMonsterStatsTierTopSnapJob} 에서 별도 스케줄.
@@ -34,7 +35,8 @@ public class RtaSummonerRankingAggJob extends BaseBatchJob {
 
 		addLog("--- 소환사×몬스터·시즌 전투 스냅(픽/밴/승/선첫비밴·보유) ---");
 		RtaBatchAggregationService.SummonerMonsterSnapRebuildResult monSnap = aggregationService.rebuildSummonerMonsterSnapAgg(rtaMapper);
-		addLog("전투 분모 스냅 %d행, 몬스터 스냅 %d행", monSnap.fightRows(), monSnap.monsterRows());
+		addLog("전투 분모 스냅 %d행, 몬스터 청크합 %d, 슬롯버킷 청크합 %d, 픽턴(선후) 청크합 %d",
+				monSnap.fightRows(), monSnap.monsterRows(), monSnap.bucketRows(), monSnap.pickTurnRows());
 
 		addLog("--- 소환사×상대 H2H 스냅(시즌 전체) ---");
 		RtaBatchAggregationService.SummonerOpponentH2hSnapRebuildResult h2h = aggregationService.rebuildSummonerOpponentH2hSnapAgg(rtaMapper);

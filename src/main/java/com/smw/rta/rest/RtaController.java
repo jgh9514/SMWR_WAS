@@ -247,6 +247,30 @@ public class RtaController {
         }
     }
 
+    @Operation(summary = "소환사×몬스터 픽 슬롯 구간별 집계", description = "rta_agg_summoner_monster_pick_bucket_snap(배치). body: unit_master_id")
+    @PostMapping("/player/{wizardId}/monster-pick-breakdown")
+    public ResponseEntity<Map<String, Object>> getRtaPlayerMonsterPickBreakdown(
+            @PathVariable String wizardId,
+            @RequestBody(required = false) Map<String, Object> param) {
+        try {
+            Long sid = pickSeasonId(param);
+            Integer um = null;
+            if (param != null && param.get("unit_master_id") != null) {
+                um = Integer.parseInt(param.get("unit_master_id").toString());
+            }
+            if (um == null || um <= 0) {
+                Map<String, Object> bad = new HashMap<>();
+                bad.put("error", "unit_master_id required positive");
+                return ResponseEntity.badRequest().body(bad);
+            }
+            Map<String, Object> response = rtaService.getRtaPlayerMonsterPickBreakdown(wizardId, sid, um);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("RTA monster-pick-breakdown 조회 실패 wizardId={}", wizardId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
     @Operation(summary = "RTA 소환사 상대 전적(스냅)", description = "시즌 전체 위자드별 H2H — rta_agg_summoner_opponent_h2h_snap (배치 적재)")
     @PostMapping("/player/{wizardId}/opponent-records")
     public ResponseEntity<Map<String, Object>> getRtaPlayerOpponentRecords(

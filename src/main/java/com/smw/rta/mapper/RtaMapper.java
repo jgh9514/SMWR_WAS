@@ -179,6 +179,11 @@ public interface RtaMapper {
     /** 시즌 단위: 소환사 전투 스냅(분모) 삭제 */
     int deleteRtaSummonerSeasonFightSnapBySeason(@Param("seasonId") long seasonId);
 
+    /** 시즌 단위: 소환사 픽턴(snake)·선후 라인 스냅 삭제 */
+    int deleteRtaSummonerPickTurnSnapBySeason(@Param("seasonId") long seasonId);
+
+    int deleteRtaSummonerMonsterPickBucketSnapBySeason(@Param("seasonId") long seasonId);
+
     /** 시즌 단위: 소환사×몬스터 스냅 삭제 */
     int deleteRtaSummonerMonsterSnapBySeason(@Param("seasonId") long seasonId);
 
@@ -209,9 +214,19 @@ public interface RtaMapper {
      */
     int insertRtaSummonerMonsterSnapForSeasonReplayChunk(@Param("seasonId") long seasonId, @Param("rids") long[] rids);
 
+    /**
+     * {@code rta_agg_summoner_monster_pick_bucket_snap} — 해당 {@code rids} 만 집계 upsert(슬롯 구간별).
+     */
+    int insertRtaSummonerMonsterPickBucketSnapForSeasonReplayChunk(
+            @Param("seasonId") long seasonId, @Param("rids") long[] rids);
+
     Long countRtaSummonerSeasonFightSnapRows();
 
     Long countRtaSummonerMonsterSnapRows();
+
+    Long countRtaSummonerMonsterPickBucketSnapRows();
+
+    Long countRtaSummonerPickTurnSnapRows();
 
     /** SWEX user_monster_owned_agg → RTA 읽기 스냅(전량) */
     int deleteAllRtaSummonerOwnedBoxSnap();
@@ -241,6 +256,12 @@ public interface RtaMapper {
      */
     List<Map<String, Object>> listRtaPlayerMonsterSnapFromAgg(@Param("wizardId") String wizardId,
             @Param("seasonId") long seasonId);
+
+    /**
+     * 시즌×소환사×몬스터 — 드래프트 슬롯 묶음별 픽·승 — {@code rta_agg_summoner_monster_pick_bucket_snap}(배치).
+     */
+    List<Map<String, Object>> listRtaPlayerMonsterPickBucketsFromSnap(@Param("wizardId") String wizardId,
+            @Param("seasonId") long seasonId, @Param("unitMasterId") long unitMasterId);
 
     /** 보유 박스 스냅 — rta_agg_summoner_owned_box_snap + monster 메타 */
     List<Map<String, Object>> listRtaSummonerOwnedBoxSnapByWizard(@Param("wizardId") String wizardId);
@@ -295,10 +316,18 @@ public interface RtaMapper {
     void truncateStagingMatchupAgg();
 
     /**
-     * 픽 순서별 집계 재적재 — {@code rta_agg_pick_turn}.
-     * 시즌 내 전체 경기를 재계산(FULL REBUILD). 배치 전용.
+     * {@code rta_agg_summoner_pick_turn_snap} — 해당 {@code rids} 청크 upsert(시즌·위자드·몬 단위 snake 픽턴·선후 라인).
+
      */
-    int rebuildRtaPickTurnAggForSeason(@Param("seasonId") long seasonId);
+    int insertRtaSummonerPickTurnSnapForSeasonReplayChunk(
+            @Param("seasonId") long seasonId, @Param("rids") long[] rids);
+
+    /**
+     * 픽 순서별 집계 — {@code rta_agg_pick_turn}. 시즌 전량 DELETE 후 INSERT.
+     */
+    int deleteRtaPickTurnAggBySeason(@Param("seasonId") long seasonId);
+
+    int insertRtaPickTurnAggForSeason(@Param("seasonId") long seasonId);
 
     /** {@code rta_match_participant}에 존재하는 distinct season_id 목록. 픽턴 집계 대상 시즌 확정용. */
     List<Long> selectDistinctParticipantSeasonIds();
