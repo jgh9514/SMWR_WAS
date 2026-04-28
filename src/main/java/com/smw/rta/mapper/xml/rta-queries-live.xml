@@ -1280,9 +1280,10 @@
                 WHEN s.pick_cnt &gt; 0
                 THEN ROUND((100.0 * s.win_cnt::numeric / s.pick_cnt::numeric), 2)
             END AS win_rate_pct,
+            /* 선픽률: 해당 몬스터가 본인 1픽(비벤 최소 pick_slot)으로 나온 횟수 / 시즌 총 경기 수 */
             CASE
-                WHEN s.pick_cnt &gt; 0
-                THEN ROUND((100.0 * s.first_pick_cnt::numeric / s.pick_cnt::numeric), 2)
+                WHEN f.match_cnt IS NOT NULL AND f.match_cnt &gt; 0
+                THEN ROUND((100.0 * s.first_pick_cnt::numeric / f.match_cnt::numeric), 2)
             END AS first_pick_rate_pct
         FROM public.rta_agg_summoner_monster_snap s
         LEFT JOIN public.rta_agg_summoner_season_fight_snap f
