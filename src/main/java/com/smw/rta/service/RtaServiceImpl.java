@@ -166,6 +166,14 @@ public class RtaServiceImpl implements RtaService {
 
     @Override
     @Cacheable(cacheNames = "rtaMatchList", cacheManager = "rtaListReadCacheManager",
+            key = "'pvs_' + #seasonId + '_' + #wizardId + '_' + #opponentWizardId + '_' + #limit + '_' + #offset")
+    public List<Map<String, Object>> getPlayerVsOpponentMatches(String wizardId, String opponentWizardId, int limit, int offset, Long seasonId) {
+        Long sid = doResolveSeasonId(seasonId);
+        return rtaMapper.getPlayerVsOpponentMatches(wizardId, opponentWizardId, limit, offset, sid);
+    }
+
+    @Override
+    @Cacheable(cacheNames = "rtaMatchList", cacheManager = "rtaListReadCacheManager",
             key = "'today_' + #seasonId + '_' + (#ratingId != null ? #ratingId : 'x') + '_' + (#ratingIds != null && !#ratingIds.isEmpty() ? #ratingIds.toString() : 'all')")
     public int countTodayRtaMatches(Long seasonId, Integer ratingId, List<Integer> ratingIds) {
         Long sid = doResolveSeasonId(seasonId);

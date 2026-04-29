@@ -19,6 +19,10 @@ public interface RtaMapper {
     List<Map<String, Object>> getPlayerRtaMatches(@Param("wizardId") String wizardId, @Param("limit") int limit,
             @Param("offset") int offset, @Param("seasonId") Long seasonId);
 
+    List<Map<String, Object>> getPlayerVsOpponentMatches(@Param("wizardId") String wizardId,
+            @Param("opponentWizardId") String opponentWizardId, @Param("limit") int limit,
+            @Param("offset") int offset, @Param("seasonId") Long seasonId);
+
     /**
      * 시즌 전체 H2H 읽기 — {@code rta_agg_summoner_opponent_h2h_snap} (배치 적재, 라이브 집계 없음).
      */
@@ -182,8 +186,6 @@ public interface RtaMapper {
     /** 시즌 단위: 소환사 픽턴(snake)·선후 라인 스냅 삭제 */
     int deleteRtaSummonerPickTurnSnapBySeason(@Param("seasonId") long seasonId);
 
-    int deleteRtaSummonerMonsterPickBucketSnapBySeason(@Param("seasonId") long seasonId);
-
     /** 시즌 단위: 소환사×몬스터 스냅 삭제 */
     int deleteRtaSummonerMonsterSnapBySeason(@Param("seasonId") long seasonId);
 
@@ -201,12 +203,19 @@ public interface RtaMapper {
     int insertRtaSummonerSeasonFightSnapForSeason(@Param("seasonId") long seasonId);
 
     /**
-     * 키셋: 시즌의 {@code rta_match.replay_id} 중 after 보다 큰 것만 오름차순, 최대 limit 건.
+     * 키셋: 시즌 내 {@code summoner_ranking_applied_at IS NULL} 인 {@code rta_match.replay_id} 중
+     * after 보다 큰 것만 오름차순, 최대 limit 건.
      */
     List<Long> selectReplayIdsForSummonerMonsterSnapKeyset(
             @Param("seasonId") long seasonId,
             @Param("afterReplayIdExclusive") long afterReplayIdExclusive,
             @Param("limit") int limit);
+
+    /** 시즌 스냅 전량 삭제 직후 — 해당 시즌 {@code rta_match} 소환사 스냅 플래그를 NULL 로 (재집계 대기). */
+    int clearSummonerRankingMatchFlagsForSeason(@Param("seasonId") long seasonId);
+
+    /** 무거운 스냅 청크(몬·픽턴) 적재 성공 후 — 해당 rid 에 S 마킹. */
+    int markSummonerRankingAggDoneForRids(@Param("rids") long[] rids);
 
     /**
      * {@code rta_agg_summoner_monster_snap} — 해당 {@code rids} 리플레이만 집계하여 INSERT.
@@ -214,17 +223,9 @@ public interface RtaMapper {
      */
     int insertRtaSummonerMonsterSnapForSeasonReplayChunk(@Param("seasonId") long seasonId, @Param("rids") long[] rids);
 
-    /**
-     * {@code rta_agg_summoner_monster_pick_bucket_snap} — 해당 {@code rids} 만 집계 upsert(슬롯 구간별).
-     */
-    int insertRtaSummonerMonsterPickBucketSnapForSeasonReplayChunk(
-            @Param("seasonId") long seasonId, @Param("rids") long[] rids);
-
     Long countRtaSummonerSeasonFightSnapRows();
 
     Long countRtaSummonerMonsterSnapRows();
-
-    Long countRtaSummonerMonsterPickBucketSnapRows();
 
     Long countRtaSummonerPickTurnSnapRows();
 
@@ -258,7 +259,7 @@ public interface RtaMapper {
             @Param("seasonId") long seasonId);
 
     /**
-     * 시즌×소환사×몬스터 — 드래프트 슬롯 묶음별 픽·승 — {@code rta_agg_summoner_monster_pick_bucket_snap}(배치).
+     * 시즌×소환사×몬스터 — 드래프트 슬롯 묶음별 픽·승 — {@code rta_agg_summoner_pick_turn_snap} 롤업(스냅).
      */
     List<Map<String, Object>> listRtaPlayerMonsterPickBucketsFromSnap(@Param("wizardId") String wizardId,
             @Param("seasonId") long seasonId, @Param("unitMasterId") long unitMasterId);

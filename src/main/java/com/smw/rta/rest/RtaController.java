@@ -161,6 +161,34 @@ public class RtaController {
         }
     }
 
+    @Operation(summary = "두 소환사 간 맞대결 경기 목록", description = "wizardId vs opponentWizardId 경기 기록")
+    @PostMapping("/matches/player/{wizardId}/vs/{opponentWizardId}")
+    public ResponseEntity<Map<String, Object>> getPlayerVsOpponentMatches(
+            @PathVariable String wizardId,
+            @PathVariable String opponentWizardId,
+            @RequestBody(required = false) Map<String, Object> param) {
+        try {
+            Map<String, Object> p = param != null ? param : new HashMap<>();
+            int limit = p.get("limit") != null ? Math.min(Integer.parseInt(p.get("limit").toString()), 50) : 20;
+            int offset = p.get("offset") != null ? Integer.parseInt(p.get("offset").toString()) : 0;
+            Long paramSid = pickSeasonId(p);
+            Long sid = rtaService.resolveSeasonId(paramSid);
+            List<Map<String, Object>> matches = rtaService.getPlayerVsOpponentMatches(wizardId, opponentWizardId, limit + 1, offset, sid);
+            boolean hasMore = matches.size() > limit;
+            List<Map<String, Object>> page = hasMore ? new ArrayList<>(matches.subList(0, limit)) : new ArrayList<>(matches);
+            Map<String, Object> res = new HashMap<>();
+            res.put("wizardId", wizardId);
+            res.put("opponentWizardId", opponentWizardId);
+            res.put("seasonId", sid);
+            res.put("matches", page);
+            res.put("has_more", hasMore);
+            return ResponseEntity.ok(res);
+        } catch (Exception e) {
+            log.error("RTA vs matches 조회 실패 wizardId={} opponentWizardId={}", wizardId, opponentWizardId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
     @Operation(summary = "RTA 목록 페이지 묶음", description = "매치 목록 + stats.hasMore.")
     @RequestMapping(value = "/page", method = { GET, POST })
     public ResponseEntity<Map<String, Object>> getRtaListPage(
@@ -247,7 +275,7 @@ public class RtaController {
         }
     }
 
-    @Operation(summary = "소환사×몬스터 픽 슬롯 구간별 집계", description = "rta_agg_summoner_monster_pick_bucket_snap(배치). body: unit_master_id")
+    @Operation(summary = "소환사×몬스터 픽 슬롯 구간별 집계", description = "rta_agg_summoner_pick_turn_snap 롤업(배치). body: unit_master_id")
     @PostMapping("/player/{wizardId}/monster-pick-breakdown")
     public ResponseEntity<Map<String, Object>> getRtaPlayerMonsterPickBreakdown(
             @PathVariable String wizardId,

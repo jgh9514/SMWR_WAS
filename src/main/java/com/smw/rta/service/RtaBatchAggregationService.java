@@ -42,6 +42,10 @@ public class RtaBatchAggregationService {
 		this.transactionTemplate = new TransactionTemplate(transactionManager);
 	}
 
+	/**
+	 * {@link com.smw.monster.batch.RtaSummonerRankingTopSnapJob} 전용: 시즌별 상위 500 랭킹 스냅 + 검색 스냅.
+	 * {@code rta_match} 플래그와 무관하다.
+	 */
 	public SummonerRankingRebuildResult rebuildSummonerRankingAgg(RtaMapper rtaMapper) {
 		List<Map<String, Object>> seasons = rtaMapper.listRtaSeasons();
 		for (Map<String, Object> row : seasons) {
@@ -67,18 +71,19 @@ public class RtaBatchAggregationService {
 	}
 
 	/**
-	 * 시즌별 소환사×몬스터 통계·전투 분모 스냅·슬롯 구간 스냅·픽턴(snake) 소환사 스냅
+	 * 시즌별 소환사×몬스터 통계·전투 분모 스냅·픽턴(snake) 소환사 스냅
 	 * ({@code rta_agg_summoner_season_fight_snap}, {@code rta_agg_summoner_monster_snap},
-	 * {@code rta_agg_summoner_monster_pick_bucket_snap}, {@code rta_agg_summoner_pick_turn_snap}).
+	 * {@code rta_agg_summoner_pick_turn_snap} — 슬롯 구간 API는 이 테이블 롤업).
 	 * <p>
-	 * {@link RtaSummonerRankingAggJob}에서 랭킹/검색 스냅 이후 동일 루프로 호출 권장.
+	 * {@link com.smw.monster.batch.RtaSummonerRankingAggJob}에서 호출.
+	 * 스냅 DELETE 직후 해당 시즌 {@code rta_match} 소환사 스냅 플래그를 NULL 로 두어
+	 * 키셋이 미처리 건만 스캔하고, 몬·픽턴 청크마다 rid 단위로 {@code summoner_ranking_apply_result='S'} 를 남긴다.
 	 * SWEX {@code user_monster_owned_agg} 는 통합 배치 직전 갱신돼 있어야 owned_copy_count 가 채워진다.
 	 */
 	public SummonerMonsterSnapRebuildResult rebuildSummonerMonsterSnapAgg(RtaMapper rtaMapper) {
 		List<Map<String, Object>> seasons = rtaMapper.listRtaSeasons();
 		int fightRows = 0;
 		int monRows = 0;
-		int bucketRows = 0;
 		int pickTurnRows = 0;
 		for (Map<String, Object> row : seasons) {
 			Long seasonId = pickSeasonId(row);
@@ -87,23 +92,22 @@ public class RtaBatchAggregationService {
 			}
 			long sid = seasonId.longValue();
 			rtaMapper.deleteRtaSummonerPickTurnSnapBySeason(sid);
-			rtaMapper.deleteRtaSummonerMonsterPickBucketSnapBySeason(sid);
 			rtaMapper.deleteRtaSummonerMonsterSnapBySeason(sid);
 			rtaMapper.deleteRtaSummonerSeasonFightSnapBySeason(sid);
+			rtaMapper.clearSummonerRankingMatchFlagsForSeason(sid);
 			fightRows += rtaMapper.insertRtaSummonerSeasonFightSnapForSeason(sid);
-			ChunkTotals ct = insertSummonerMonsterPickBucketAndPickTurnSnapForSeasonChunked(rtaMapper, sid);
+			ChunkTotals ct = insertSummonerMonsterAndPickTurnSnapForSeasonChunked(rtaMapper, sid);
 			monRows += ct.monsterInserted;
-			bucketRows += ct.bucketInserted;
 			pickTurnRows += ct.pickTurnInserted;
 		}
-		return new SummonerMonsterSnapRebuildResult(fightRows, monRows, bucketRows, pickTurnRows);
+		return new SummonerMonsterSnapRebuildResult(fightRows, monRows, pickTurnRows);
 	}
 
 	/**
 	 * 시즌별 소환사×상대 H2H 스냅({@code rta_agg_summoner_opponent_h2h_snap}) — participant 1:1 집계,
 	 * 시즌마다 DELETE 후 INSERT. API는 이 스냅만 조회(라이브 폴백 없음).
 	 * <p>
-	 * 무거운 INSERT·스캔이므로 {@link RtaSummonerRankingAggJob} 등 긴 주기 배치에서 몬스터 스냅 직후 호출 권장.
+	 * 무거운 INSERT·스캔이므로 {@link com.smw.monster.batch.RtaSummonerRankingAggJob} 등 긴 주기 배치에서 몬스터 스냅 직후 호출 권장.
 	 */
 	public SummonerOpponentH2hSnapRebuildResult rebuildSummonerOpponentH2hSnapAgg(RtaMapper rtaMapper) {
 		int inserted = 0;
@@ -135,24 +139,21 @@ public class RtaBatchAggregationService {
 	}
 
 	/**
-	 * 몬스터 스냅·버킷·픽턴(선후 라인) 소환사 스냅을 동일 rids 청크로 적재한다.
+	 * 몬스터 스냅·픽턴(선후 라인) 소환사 스냅을 동일 rids 청크로 적재한다.
 	 */
 	private static final class ChunkTotals {
 		final int monsterInserted;
-		final int bucketInserted;
 		final int pickTurnInserted;
 
-		ChunkTotals(int monsterInserted, int bucketInserted, int pickTurnInserted) {
+		ChunkTotals(int monsterInserted, int pickTurnInserted) {
 			this.monsterInserted = monsterInserted;
-			this.bucketInserted = bucketInserted;
 			this.pickTurnInserted = pickTurnInserted;
 		}
 	}
 
-	private ChunkTotals insertSummonerMonsterPickBucketAndPickTurnSnapForSeasonChunked(RtaMapper rtaMapper, long seasonId) {
+	private ChunkTotals insertSummonerMonsterAndPickTurnSnapForSeasonChunked(RtaMapper rtaMapper, long seasonId) {
 		int limit = Math.max(100, summonerMonsterSnapReplayChunkSize);
 		int monTotal = 0;
-		int bucketTotal = 0;
 		int pickTurnTotal = 0;
 		long afterExclusive = -1L;
 		while (true) {
@@ -162,14 +163,14 @@ public class RtaBatchAggregationService {
 			}
 			long[] arr = rids.stream().mapToLong(Long::longValue).toArray();
 			monTotal += rtaMapper.insertRtaSummonerMonsterSnapForSeasonReplayChunk(seasonId, arr);
-			bucketTotal += rtaMapper.insertRtaSummonerMonsterPickBucketSnapForSeasonReplayChunk(seasonId, arr);
 			pickTurnTotal += rtaMapper.insertRtaSummonerPickTurnSnapForSeasonReplayChunk(seasonId, arr);
+			rtaMapper.markSummonerRankingAggDoneForRids(arr);
 			if (rids.size() < limit) {
 				break;
 			}
 			afterExclusive = rids.get(rids.size() - 1);
 		}
-		return new ChunkTotals(monTotal, bucketTotal, pickTurnTotal);
+		return new ChunkTotals(monTotal, pickTurnTotal);
 	}
 
 	/**
@@ -334,10 +335,9 @@ public class RtaBatchAggregationService {
 	/**
 	 * @param fightRows {@code rta_agg_summoner_season_fight_snap} 합(적재 루프 합이 아닌 전체 count),
 	 * @param monsterRows {@code INSERT rta_agg_summoner_monster_snap} 청크 적재가 반환한 행 합(근사),
-	 * @param bucketRows {@code INSERT…upsert} 슬롯 버킷 스냅 청크 행 합(근사),
 	 * @param pickTurnRows 픽턴(선후 라인) 소환사 스냅 청크 행 합(근사)
 	 */
-	public record SummonerMonsterSnapRebuildResult(int fightRows, int monsterRows, int bucketRows, int pickTurnRows) {
+	public record SummonerMonsterSnapRebuildResult(int fightRows, int monsterRows, int pickTurnRows) {
 	}
 
 	/**

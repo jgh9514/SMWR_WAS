@@ -22,7 +22,8 @@ import com.smw.rta.service.RtaBatchAggregationService;
  * <b>통합 Job 밖에서 도는 것들</b> (짧은 주기 통합과 주기·부하가 다름):
  * <ul>
  * <li>{@code rta_agg_tier_daily} → {@link RtaTierDailyAggJob}</li>
- * <li>{@code rta_agg_summoner_ranking_snap} → {@link RtaSummonerRankingAggJob}</li>
+ * <li>{@code rta_agg_summoner_ranking_snap}·검색 스냅 → {@link RtaSummonerRankingTopSnapJob}</li>
+ * <li>소환사 전투·몬·픽턴·H2H 스냅 → {@link RtaSummonerRankingAggJob}</li>
  * <li>랭크컷 앵커·등급 컷 스냅샷 → {@link RtaRankCutSnapshotAggJob}</li>
  * </ul>
  * 대시보드 티어 일별 분포는 {@code getRtaTierDistributionDaily} + 캐시이며, 풀스캔 재적재는 {@link RtaTierDailyAggJob} 권장.
@@ -108,7 +109,7 @@ public class RtaUnifiedPipelineAggJob extends BaseBatchJob {
 			addLog("[%d/%d] · 티어 일별 완료 — %d행", step, PIPELINE_STEPS, tier.totalRows());
 		}
 		if (!runMonster && !runTier) {
-			addLog("[%d/%d] · 부가 실행 없음 — 티어 일별은 RtaTierDailyAggJob, 랭킹 스냅샷은 RtaSummonerRankingAggJob, 랭크컷 스냅샷은 RtaRankCutSnapshotAggJob 등 별도 스케줄에서 처리하는 구성이 일반적입니다.",
+			addLog("[%d/%d] · 부가 실행 없음 — 티어 일별은 RtaTierDailyAggJob, 랭킹·검색 스냅은 RtaSummonerRankingTopSnapJob, 무거운 소환사 스냅은 RtaSummonerRankingAggJob, 랭크컷 스냅샷은 RtaRankCutSnapshotAggJob 등 별도 스케줄에서 처리하는 구성이 일반적입니다.",
 					step, PIPELINE_STEPS);
 		}
 

@@ -215,6 +215,28 @@
         WHERE replay_id = #{rid}
     </update>
 
+    <update id="clearSummonerRankingMatchFlagsForSeason">
+        /* rta-queries-batch-meta.clearSummonerRankingMatchFlagsForSeason — 시즌 스냅 전량 삭제 직후 재집계 대기 상태로 */
+        UPDATE public.rta_match
+        SET summoner_ranking_applied_at = NULL,
+            summoner_ranking_apply_result = NULL
+        WHERE season_id = #{seasonId}
+    </update>
+
+    <!-- 몬스터/픽턴 청크 적재 성공 직후 — 해당 rid 만 S (시너지 markSynergyAggDoneForRids 와 동일 패턴) -->
+    <update id="markSummonerRankingAggDoneForRids">
+        /* rta-queries-batch-meta.markSummonerRankingAggDoneForRids */
+        UPDATE public.rta_match m
+        SET summoner_ranking_applied_at = CURRENT_TIMESTAMP,
+            summoner_ranking_apply_result = 'S'
+        FROM unnest(ARRAY[
+        <foreach collection="rids" item="rid" separator=",">
+            #{rid}
+        </foreach>
+        ]::bigint[]) AS u(rid)
+        WHERE m.replay_id = u.rid
+    </update>
+
     <!-- 랭킹 스냅: RtaBatchAggregationService 에서 lock → delete(전량) → insert(이 구문) 동일 TX -->
     <select id="acquireRtaSummonerSnapSeasonXactLock" resultType="int">
         SELECT 1
@@ -814,12 +836,6 @@
         WHERE season_id = #{seasonId}
     </delete>
 
-    <delete id="deleteRtaSummonerMonsterPickBucketSnapBySeason">
-        /* rta-queries-batch-meta.deleteRtaSummonerMonsterPickBucketSnapBySeason */
-        DELETE FROM public.rta_agg_summoner_monster_pick_bucket_snap
-        WHERE season_id = #{seasonId}
-    </delete>
-
     <delete id="deleteRtaSummonerMonsterSnapBySeason">
         DELETE FROM public.rta_agg_summoner_monster_snap
         WHERE season_id = #{seasonId}
@@ -854,7 +870,7 @@
             MAX(o.country_code),
             COUNT(*)::bigint,
             SUM(CASE WHEN me.is_winner IS TRUE THEN 1 ELSE 0 END)::bigint,
-            SUM(CASE WHEN me.is_winner IS NOT TRUE THEN 1 ELSE 0 END)::bigint,
+            SUM(CASE WHEN me.is_winner IS FALSE THEN 1 ELSE 0 END)::bigint,
             CURRENT_TIMESTAMP
         FROM public.rta_match_participant me
         INNER JOIN public.rta_match_participant o
@@ -870,9 +886,11 @@
     </select>
 
     <select id="selectReplayIdsForSummonerMonsterSnapKeyset" resultType="long">
+        /* rta-queries-batch-meta.selectReplayIdsForSummonerMonsterSnapKeyset — idx_rta_match_summoner_ranking_pending */
         SELECT m.replay_id
         FROM public.rta_match m
         WHERE m.season_id = #{seasonId}
+          AND m.summoner_ranking_applied_at IS NULL
           AND m.replay_id &gt; #{afterReplayIdExclusive}
         ORDER BY m.replay_id
         LIMIT #{limit}
@@ -1013,85 +1031,6 @@
             computed_at        = EXCLUDED.computed_at
     </insert>
 
-    <!--
-      소환사×몬×슬롯구간 스냅: 몬스터 스냅과 동일 rids 청크 — 전량 DELETE 후 같은 키셋으로 채운다.
-    -->
-    <insert id="insertRtaSummonerMonsterPickBucketSnapForSeasonReplayChunk">
-        /* rta-queries-batch-meta.insertRtaSummonerMonsterPickBucketSnapForSeasonReplayChunk */
-        INSERT INTO public.rta_agg_summoner_monster_pick_bucket_snap (
-            season_id, wizard_id, unit_master_id, bucket_id,
-            event_cnt, field_cnt, win_cnt, computed_at
-        )
-        WITH pnorm AS (
-            SELECT
-                mp.replay_id,
-                mp.season_id,
-                mp.wizard_id,
-                mp.is_winner
-            FROM public.rta_match_participant mp
-            WHERE mp.season_id = #{seasonId}
-              AND mp.replay_id = ANY(#{rids})
-        ),
-        upnorm AS (
-            SELECT
-                up.replay_id,
-                up.wizard_id,
-                up.unit_master_id,
-                up.is_banned,
-                up.pick_slot_no
-            FROM public.rta_match_unit_pick up
-            WHERE up.replay_id = ANY(#{rids})
-        ),
-        picked AS (
-            SELECT
-                p.season_id,
-                p.wizard_id,
-                u.unit_master_id,
-                CASE
-                    WHEN u.pick_slot_no = 1 THEN 1
-                    WHEN u.pick_slot_no IN (2, 3) THEN 2
-                    WHEN u.pick_slot_no IN (4, 5) THEN 3
-                    WHEN u.pick_slot_no IN (6, 7) THEN 4
-                    WHEN u.pick_slot_no IS NOT NULL AND u.pick_slot_no &gt;= 8 THEN 5
-                    ELSE 0
-                END AS bucket_id,
-                u.is_banned,
-                p.is_winner
-            FROM pnorm p
-            INNER JOIN upnorm u
-                ON u.replay_id = p.replay_id
-               AND u.wizard_id = p.wizard_id
-        ),
-        agg AS (
-            SELECT
-                p.season_id,
-                p.wizard_id,
-                p.unit_master_id,
-                p.bucket_id::smallint AS bucket_id,
-                COUNT(*)::bigint AS event_cnt,
-                COUNT(*) FILTER (WHERE NOT p.is_banned)::bigint AS field_cnt,
-                COUNT(*) FILTER (WHERE NOT p.is_banned AND p.is_winner IS TRUE)::bigint AS win_cnt
-            FROM picked p
-            WHERE p.bucket_id BETWEEN 1 AND 5
-            GROUP BY p.season_id, p.wizard_id, p.unit_master_id, p.bucket_id
-        )
-        SELECT
-            a.season_id,
-            a.wizard_id,
-            a.unit_master_id,
-            a.bucket_id,
-            a.event_cnt,
-            a.field_cnt,
-            a.win_cnt,
-            CURRENT_TIMESTAMP
-        FROM agg a
-        ON CONFLICT ON CONSTRAINT rta_agg_summoner_monster_pick_bucket_snap_pkey DO UPDATE SET
-            event_cnt   = public.rta_agg_summoner_monster_pick_bucket_snap.event_cnt + EXCLUDED.event_cnt,
-            field_cnt   = public.rta_agg_summoner_monster_pick_bucket_snap.field_cnt + EXCLUDED.field_cnt,
-            win_cnt     = public.rta_agg_summoner_monster_pick_bucket_snap.win_cnt + EXCLUDED.win_cnt,
-            computed_at = EXCLUDED.computed_at
-    </insert>
-
     <!-- 소환사×몬×pick_slot_no(snake 선/후 라인, 티어 미구분)—몬 스냅과 동일 rids 청크 -->
     <insert id="insertRtaSummonerPickTurnSnapForSeasonReplayChunk">
         /* rta-queries-batch-meta.insertRtaSummonerPickTurnSnapForSeasonReplayChunk */
@@ -1198,11 +1137,6 @@
 
     <select id="countRtaSummonerMonsterSnapRows" resultType="long">
         SELECT COUNT(*)::bigint FROM public.rta_agg_summoner_monster_snap
-    </select>
-
-    <select id="countRtaSummonerMonsterPickBucketSnapRows" resultType="long">
-        /* rta-queries-batch-meta.countRtaSummonerMonsterPickBucketSnapRows */
-        SELECT COUNT(*)::bigint FROM public.rta_agg_summoner_monster_pick_bucket_snap
     </select>
 
     <select id="countRtaSummonerPickTurnSnapRows" resultType="long">

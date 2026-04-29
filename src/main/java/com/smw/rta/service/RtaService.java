@@ -17,6 +17,9 @@ public interface RtaService {
     /** 플레이어별 RTA 매치 목록 */
     List<Map<String, Object>> getPlayerRtaMatches(String wizardId, int limit, int offset, Long seasonId);
 
+    /** 두 소환사 간 맞대결 경기 목록 */
+    List<Map<String, Object>> getPlayerVsOpponentMatches(String wizardId, String opponentWizardId, int limit, int offset, Long seasonId);
+
     /** 오늘(UTC) 매치 건수 */
     int countTodayRtaMatches(Long seasonId, Integer ratingId, List<Integer> ratingIds);
 
@@ -91,7 +94,7 @@ public interface RtaService {
     Map<String, Object> getRtaPlayerMonsterUsage(String wizardId, Long seasonId);
 
     /**
-     * 시즌×소환사×몬스터별 드래프트 슬롯 묶음(1·2–3…) 픽 분포 및 구간 승률 — 배치 {@code rta_agg_summoner_monster_pick_bucket_snap}.
+     * 시즌×소환사×몬스터별 드래프트 슬롯 묶음(1·2–3…) 픽 분포 및 구간 승률 — 배치 {@code rta_agg_summoner_pick_turn_snap} 롤업.
      */
     Map<String, Object> getRtaPlayerMonsterPickBreakdown(String wizardId, Long seasonId, int unitMasterId);
 
