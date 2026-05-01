@@ -142,8 +142,12 @@ public class RtaBatchAggregationService {
 	}
 
 	/**
-	 * {@code rta_match_unit_pick} 기준 소환사별 RTA 사용 몬스터 DISTINCT → {@code rta_agg_summoner_owned_box_snap} 전량(시즌 무관).
-	 * {@link com.smw.monster.batch.RtaSummonerRankingAggJob} 말미·수동({@link com.smw.monster.batch.RtaSummonerOwnedBoxSnapJob}) 에서 호출.
+	 * {@code rta_match_unit_pick} 기준 소환사별 RTA 사용 몬스터 DISTINCT 로 {@code rta_agg_summoner_owned_box_snap}
+	 * 테이블을 전량 DELETE 후 채운다(시즌 무관 한 번에 교체).
+	 * 정식 무거운 스냅에서는 사용하지 않는다 —
+	 * {@link com.smw.monster.batch.RtaSummonerRankingAggJob} 매치 청크마다
+	 * {@link RtaMapper#mergeRtaSummonerOwnedBoxSnapFromStagingReplayChunk} 로 증분 MERGE 한다.
+	 * 수동({@link com.smw.monster.batch.RtaSummonerOwnedBoxSnapJob}) 또는 정합 진단 때만 호출한다.
 	 */
 	public SummonerOwnedBoxSnapRebuildResult rebuildSummonerOwnedBoxSnap(RtaMapper rtaMapper) {
 		transactionTemplate.executeWithoutResult(status -> {

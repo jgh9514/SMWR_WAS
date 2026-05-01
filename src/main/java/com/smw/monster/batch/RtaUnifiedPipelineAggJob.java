@@ -62,7 +62,7 @@ public class RtaUnifiedPipelineAggJob extends BaseBatchJob {
 				raw.stopReason());
 
 		// 시너지 집계는 RtaSynergyOnlyAggJob 에서 별도로 수행 — 통합 Job 에서는 생략.
-		// {@code rta_agg_summoner_owned_box_snap} 은 RtaSummonerRankingAggJob(무거운 스냅)에서 RTA 픽 기준 전량 재적재.
+		// {@code rta_agg_summoner_owned_box_snap} 은 RtaSummonerRankingAggJob 무거운 스냅에서 매치 청크마다 MERGE.
 		step++;
 
 		boolean runMonster = !rtaBatchProperties.isSkipMonsterStatsInUnifiedJob();

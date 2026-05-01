@@ -9,7 +9,8 @@ import com.smw.rta.service.RtaBatchAggregationService;
 
 /**
  * {@code rta_agg_summoner_owned_box_snap} 수동 전량 재적재.
- * 정식 주기 갱신은 {@link RtaSummonerRankingAggJob}(무거운 스냅, 매시 등) 말미와 동일하게 {@link RtaBatchAggregationService#rebuildSummonerOwnedBoxSnap} 을 호출한다.
+ * 정식 주기에서는 {@link RtaSummonerRankingAggJob}(매치 청크마다 증분 MERGE) 과 동선이 갈린다 —
+ * 전량으로 맞출 때만 실행한다.
  * 원천: 수집 리플레이 {@code rta_match_unit_pick}(픽·밴 포함 DISTINCT 몬스터).
  */
 @DisallowConcurrentExecution
