@@ -90,25 +90,36 @@ public class RtaBatchAggregationService {
 	 * 미처리 매치가 없는 시즌은 스캔하지 않는다({@link RtaMapper#selectSeasonIdsWithPendingSummonerRankingReplays}).
 	 */
 	public SummonerMonsterSnapRebuildResult rebuildSummonerMonsterSnapAgg(RtaMapper rtaMapper) {
+		long tq = System.nanoTime();
 		List<Long> targetSeasons = rtaMapper.selectSeasonIdsWithPendingSummonerRankingReplays();
+		long pendingQueryMs = msSinceNanos(tq);
 		if (targetSeasons == null || targetSeasons.isEmpty()) {
-			return new SummonerMonsterSnapRebuildResult(0, 0, 0, 0, 0, List.of());
+			return new SummonerMonsterSnapRebuildResult(0, 0, 0, 0, 0, List.of(),
+					SummonerMonsterSnapPerfAccumulator.formatNoPendingWork(pendingQueryMs));
 		}
+		SummonerMonsterSnapPerfAccumulator perf = new SummonerMonsterSnapPerfAccumulator(pendingQueryMs,
+				targetSeasons.size());
 		int fightRows = 0;
 		int monRows = 0;
 		int pickTurnRows = 0;
 		int ownedBoxUpserts = 0;
 		int opponentH2hInserts = 0;
 		for (long sid : targetSeasons) {
+			long tf = System.nanoTime();
 			fightRows += rtaMapper.insertRtaSummonerSeasonFightSnapForSeason(sid);
-			ChunkTotals ct = insertSummonerMonsterAndPickTurnSnapForSeasonChunked(rtaMapper, sid);
+			perf.addFightSnapUpsertMs(msSinceNanos(tf));
+
+			ChunkTotals ct = insertSummonerMonsterAndPickTurnSnapForSeasonChunked(rtaMapper, sid, perf);
 			monRows += ct.monsterInserted;
 			pickTurnRows += ct.pickTurnInserted;
 			ownedBoxUpserts += ct.ownedBoxUpserted;
+
+			long th = System.nanoTime();
 			opponentH2hInserts += replaceOpponentH2hSnapForSeasons(rtaMapper, List.of(sid));
+			perf.addH2hDeleteInsertMs(msSinceNanos(th));
 		}
 		return new SummonerMonsterSnapRebuildResult(fightRows, monRows, pickTurnRows, ownedBoxUpserts,
-				opponentH2hInserts, List.copyOf(targetSeasons));
+				opponentH2hInserts, List.copyOf(targetSeasons), perf.toSummaryBlock());
 	}
 
 	/**
@@ -194,14 +205,17 @@ public class RtaBatchAggregationService {
 		}
 	}
 
-	private ChunkTotals insertSummonerMonsterAndPickTurnSnapForSeasonChunked(RtaMapper rtaMapper, long seasonId) {
+	private ChunkTotals insertSummonerMonsterAndPickTurnSnapForSeasonChunked(RtaMapper rtaMapper, long seasonId,
+			SummonerMonsterSnapPerfAccumulator perf) {
 		int limit = Math.max(100, summonerMonsterSnapReplayChunkSize);
 		int monTotal = 0;
 		int pickTurnTotal = 0;
 		int ownedBoxTotal = 0;
 		long afterExclusive = -1L;
 		while (true) {
+			long tk = System.nanoTime();
 			List<Long> rids = rtaMapper.selectReplayIdsForSummonerMonsterSnapKeyset(seasonId, afterExclusive, limit);
+			perf.addChunkKeysetSelectMs(msSinceNanos(tk));
 			if (rids == null || rids.isEmpty()) {
 				break;
 			}
@@ -210,13 +224,28 @@ public class RtaBatchAggregationService {
 			int[] pick = { 0 };
 			int[] box = { 0 };
 			transactionTemplate.executeWithoutResult(status -> {
+				long t1 = System.nanoTime();
 				rtaMapper.truncateStagingRtaSummonerSnapRid();
 				rtaMapper.insertStagingRtaSummonerSnapRidBatch(seasonId, chunkRids);
+				perf.addChunkStagingMs(msSinceNanos(t1));
+
+				t1 = System.nanoTime();
 				mon[0] = rtaMapper.insertRtaSummonerMonsterSnapForSeasonReplayChunk(seasonId);
+				perf.addChunkMonsterSnapMs(msSinceNanos(t1));
+
+				t1 = System.nanoTime();
 				pick[0] = rtaMapper.insertRtaSummonerPickTurnSnapForSeasonReplayChunk(seasonId);
+				perf.addChunkPickTurnSnapMs(msSinceNanos(t1));
+
+				t1 = System.nanoTime();
 				box[0] = rtaMapper.mergeRtaSummonerOwnedBoxSnapFromStagingReplayChunk(seasonId);
+				perf.addChunkOwnedBoxMergeMs(msSinceNanos(t1));
+
+				t1 = System.nanoTime();
 				rtaMapper.markSummonerRankingAggDoneForStagingSeason(seasonId);
+				perf.addChunkMarkDoneMs(msSinceNanos(t1));
 			});
+			perf.incrementChunkIterations();
 			monTotal += mon[0];
 			pickTurnTotal += pick[0];
 			ownedBoxTotal += box[0];
@@ -394,6 +423,7 @@ public class RtaBatchAggregationService {
 	 * @param ownedBoxUpsertRows {@code mergeRtaSummonerOwnedBoxSnapFromStagingReplayChunk} 의 JDBC 영향 행 합(MERGE 포함),
 	 * @param opponentH2hInsertRows {@code insertRtaSummonerOpponentH2hSnapForSeason} 시즌별 합(이번 실행에서 청크 완료 직후 갱신),
 	 * @param seasonsWithPendingWork 이번 실행에서 분모·청크·H2H 를 돌린 시즌 ID 목록(미처리 매치가 없으면 빈 목록).
+	 * @param perfSummary 운영 검토용 — 구간별 누적 ms 텍스트. {@code sys_batch_run_his.rslt_txt} 에 함께 저장된다.
 	 */
 	public record SummonerMonsterSnapRebuildResult(
 			int fightRows,
@@ -401,7 +431,8 @@ public class RtaBatchAggregationService {
 			int pickTurnRows,
 			int ownedBoxUpsertRows,
 			int opponentH2hInsertRows,
-			List<Long> seasonsWithPendingWork) {
+			List<Long> seasonsWithPendingWork,
+			String perfSummary) {
 	}
 
 	/**
@@ -434,5 +465,106 @@ public class RtaBatchAggregationService {
 	}
 
 	public record RankCutSnapshotRebuildResult(long matchTotalRows, long anchorRows, long snapshotRows) {
+	}
+
+	private static long msSinceNanos(long startNanos) {
+		return Math.max(0L, (System.nanoTime() - startNanos) / 1_000_000L);
+	}
+
+	/**
+	 * {@link #rebuildSummonerMonsterSnapAgg} 단계별 누적 시간(ms). 요약 문자열은 {@code sys_batch_run_his.rslt_txt}(배치 로그)에 남김.
+	 */
+	public static final class SummonerMonsterSnapPerfAccumulator {
+		private final long wallStartNs = System.nanoTime();
+		private final long pendingSeasonsQueryMs;
+		private final int targetSeasonCount;
+		private long fightSnapUpsertSumMs;
+		private int chunkIterations;
+		private long chunkKeysetSumMs;
+		private long chunkStagingSumMs;
+		private long chunkMonsterSnapSumMs;
+		private long chunkPickTurnSumMs;
+		private long chunkOwnedBoxMergeSumMs;
+		private long chunkMarkDoneSumMs;
+		private long h2hDeleteInsertSumMs;
+
+		public SummonerMonsterSnapPerfAccumulator(long pendingSeasonsQueryMs, int targetSeasonCount) {
+			this.pendingSeasonsQueryMs = pendingSeasonsQueryMs;
+			this.targetSeasonCount = targetSeasonCount;
+		}
+
+		public static String formatNoPendingWork(long pendingQueryMs) {
+			String nl = System.lineSeparator();
+			return "--- PERF rebuildSummonerMonsterSnapAgg (ms) ---" + nl
+					+ "pending_seasons_query_ms=" + pendingQueryMs + nl + "status=no_pending" + nl;
+		}
+
+		void addFightSnapUpsertMs(long ms) {
+			fightSnapUpsertSumMs += ms;
+		}
+
+		void addH2hDeleteInsertMs(long ms) {
+			h2hDeleteInsertSumMs += ms;
+		}
+
+		void addChunkKeysetSelectMs(long ms) {
+			chunkKeysetSumMs += ms;
+		}
+
+		void addChunkStagingMs(long ms) {
+			chunkStagingSumMs += ms;
+		}
+
+		void addChunkMonsterSnapMs(long ms) {
+			chunkMonsterSnapSumMs += ms;
+		}
+
+		void addChunkPickTurnSnapMs(long ms) {
+			chunkPickTurnSumMs += ms;
+		}
+
+		void addChunkOwnedBoxMergeMs(long ms) {
+			chunkOwnedBoxMergeSumMs += ms;
+		}
+
+		void addChunkMarkDoneMs(long ms) {
+			chunkMarkDoneSumMs += ms;
+		}
+
+		void incrementChunkIterations() {
+			chunkIterations++;
+		}
+
+		public String toSummaryBlock() {
+			long wallMs = (System.nanoTime() - wallStartNs) / 1_000_000L;
+			String nl = System.lineSeparator();
+			StringBuilder sb = new StringBuilder(720);
+			sb.append("--- PERF rebuildSummonerMonsterSnapAgg (ms, 합계) ---").append(nl);
+			sb.append("wall_ms=").append(wallMs).append(nl);
+			sb.append("target_seasons=").append(targetSeasonCount).append(nl);
+			sb.append("pending_seasons_query_ms=").append(pendingSeasonsQueryMs).append(nl);
+			sb.append("fight_snap_upsert_sum_ms=").append(fightSnapUpsertSumMs).append(nl);
+			sb.append("h2h_delete_insert_sum_ms=").append(h2hDeleteInsertSumMs).append(nl);
+			if (targetSeasonCount > 0) {
+				sb.append("h2h_avg_per_season_ms=").append(h2hDeleteInsertSumMs / targetSeasonCount).append(nl);
+			}
+			sb.append("chunk_iterations=").append(chunkIterations).append(nl);
+			sb.append("chunk_keyset_select_sum_ms=").append(chunkKeysetSumMs).append(nl);
+			sb.append("chunk_staging_truncate_insert_sum_ms=").append(chunkStagingSumMs).append(nl);
+			sb.append("chunk_monster_snap_insert_sum_ms=").append(chunkMonsterSnapSumMs).append(nl);
+			sb.append("chunk_pick_turn_snap_insert_sum_ms=").append(chunkPickTurnSumMs).append(nl);
+			sb.append("chunk_owned_box_merge_sum_ms=").append(chunkOwnedBoxMergeSumMs).append(nl);
+			sb.append("chunk_mark_done_sum_ms=").append(chunkMarkDoneSumMs).append(nl);
+			if (chunkIterations > 0) {
+				sb.append("chunk_avg_keyset_ms=").append(chunkKeysetSumMs / chunkIterations).append(nl);
+				sb.append("chunk_avg_monster_snap_ms=").append(chunkMonsterSnapSumMs / chunkIterations).append(nl);
+				sb.append("chunk_avg_pick_turn_ms=").append(chunkPickTurnSumMs / chunkIterations).append(nl);
+				sb.append("chunk_avg_owned_box_merge_ms=").append(chunkOwnedBoxMergeSumMs / chunkIterations)
+						.append(nl);
+				sb.append("chunk_avg_mark_done_ms=").append(chunkMarkDoneSumMs / chunkIterations).append(nl);
+			}
+			sb.append("hint: PG log_min_duration_statement 또는 chunk_* 항목별 EXPLAIN ANALYZE").append(nl);
+			return sb.toString();
+		}
 	}
 }

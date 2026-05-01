@@ -14,8 +14,11 @@ import com.smw.rta.service.RtaBatchAggregationService;
  * RTA 관련 집계를 한 번의 스케줄로 순서대로 수행한다.
  * <ol>
  * <li>리플레이 raw 정규화 ({@code max-rows-per-run} 행을 1회 SELECT·처리. 잔여는 다음 스케줄에서)</li>
- * <li>부가 집계 — 설정에서 켠 항목만 실행. 시너지·티어 일별·소환사 무거운 스냅 등은 <b>별도 Quartz Job</b>이 담당.</li>
+ * <li>부가 집계 — 레거시 몬스터 통계·티어 일별(각각 설정에서 켠 경우만).</li>
  * </ol>
+ * 소환사 무거운 스냅(전투·몬·픽턴·owned_box·<strong>H2H 라이벌</strong>)은 통합 파이프라인에 포함하지 않는다 —
+ * {@link RtaSummonerRankingAggJob} 에서만 {@link RtaBatchAggregationService#rebuildSummonerMonsterSnapAgg} 를 수행한다.
+ * 시너지·랭킹 상위 스냅 등은 아래 목록처럼 <b>별도 Quartz Job</b>이다.
  * <p>
  * <b>통합 Job 밖에서 도는 것들</b> (짧은 주기 통합과 주기·부하가 다름):
  * <ul>
@@ -62,7 +65,7 @@ public class RtaUnifiedPipelineAggJob extends BaseBatchJob {
 				raw.stopReason());
 
 		// 시너지 집계는 RtaSynergyOnlyAggJob 에서 별도로 수행 — 통합 Job 에서는 생략.
-		// {@code rta_agg_summoner_owned_box_snap} 은 RtaSummonerRankingAggJob 무거운 스냅에서 매치 청크마다 MERGE.
+		// 소환사 무거운 스냅·H2H 는 RtaSummonerRankingAggJob 전용(rebuildSummonerMonsterSnapAgg).
 		step++;
 
 		boolean runMonster = !rtaBatchProperties.isSkipMonsterStatsInUnifiedJob();
@@ -83,7 +86,7 @@ public class RtaUnifiedPipelineAggJob extends BaseBatchJob {
 			addLog("[%d/%d] · 티어 일별 완료 — %d행", step, PIPELINE_STEPS, tier.totalRows());
 		}
 		if (!runMonster && !runTier) {
-			addLog("[%d/%d] · 부가 실행 없음 — 티어 일별은 RtaTierDailyAggJob, 랭킹·검색 스냅은 RtaSummonerRankingTopSnapJob, 무거운 소환사 스냅은 RtaSummonerRankingAggJob, 랭크컷 스냅샷은 RtaRankCutSnapshotAggJob 등 별도 스케줄에서 처리하는 구성이 일반적입니다.",
+			addLog("[%d/%d] · 부가 실행 없음 — 티어 일별은 RtaTierDailyAggJob, 랭킹·검색 스냅은 RtaSummonerRankingTopSnapJob, 무거운 소환사 스냅+H2H는 RtaSummonerRankingAggJob, 랭크컷 스냅샷은 RtaRankCutSnapshotAggJob 등 별도 스케줄에서 처리하는 구성이 일반적입니다.",
 					step, PIPELINE_STEPS);
 		}
 

@@ -8,18 +8,17 @@ import com.smw.rta.mapper.RtaMapper;
 import com.smw.rta.service.RtaBatchAggregationService;
 
 /**
- * RTA 소환사 무거운 소환사 스냅: {@code rta_agg_summoner_season_fight_snap} /
- * {@code rta_agg_summoner_monster_snap}(소환사×몬 픽/밴/승 등) /
- * {@code rta_agg_summoner_pick_turn_snap}(슬롯 구간 API 롤업 원천) /
- * {@code rta_agg_summoner_opponent_h2h_snap} 은 시즌별 청크 전부 처리 직후 갱신한다
- * ({@link RtaBatchAggregationService#rebuildSummonerMonsterSnapAgg}).
- * {@code rta_agg_summoner_owned_box_snap} 은 매치 청크 트랜잭션마다 스테이징 rid 에 해당하는
- * {@code rta_match_unit_pick} 으로 MERGE 증분한다(실행 말미 전량 DELETE+INSERT 없음).
- * 미처리 매치가 없으면 소환사 스냅·H2H 갱신 및 캐시 무효화를 생략한다.
+ * RTA 소환사 무거운 스냅({@link RtaBatchAggregationService#rebuildSummonerMonsterSnapAgg} 단독 진입점).
+ * {@link RtaUnifiedPipelineAggJob} 은 raw·부가만 수행하며 본 집계를 포함하지 않는다.
+ * 대상: {@code rta_agg_summoner_season_fight_snap},
+ * {@code rta_agg_summoner_monster_snap},
+ * {@code rta_agg_summoner_pick_turn_snap},
+ * {@code rta_agg_summoner_opponent_h2h_snap}(라이벌),
+ * 청크별 {@code rta_agg_summoner_owned_box_snap} MERGE.
  * <p>
- * 시즌 분모 스냅은 원천 기준 UPSERT 로 갱신하고, 리플레이 ID 키셋은 {@code summoner_ranking_apply_result IS NULL} 만 청크 적재한 뒤
- * 해당 rid 에 {@code summoner_ranking_apply_result='S'} 를 남긴다(몬·픽턴 스냅 시즌 전량 DELETE·매치 플래그 일괄 리셋 없음).
- * 상위 500 랭킹·검색 스냅은 {@link RtaSummonerRankingTopSnapJob} 에서 별도 실행.
+ * 미처리 매치가 없으면 갱신량 0·캐시 무효화 생략.
+ * 시즌 분모 스냅은 원천 UPSERT, 청크 대상은 {@code summoner_ranking_apply_result IS NULL} 만.
+ * 상위 500 랭킹·검색 스냅은 {@link RtaSummonerRankingTopSnapJob} 별도.
  */
 @DisallowConcurrentExecution
 public class RtaSummonerRankingAggJob extends BaseBatchJob {
@@ -36,6 +35,7 @@ public class RtaSummonerRankingAggJob extends BaseBatchJob {
 				monSnap.seasonsWithPendingWork().isEmpty() ? "(없음)" : monSnap.seasonsWithPendingWork().toString(),
 				monSnap.fightRows(), monSnap.monsterRows(), monSnap.pickTurnRows(), monSnap.ownedBoxUpsertRows(),
 				monSnap.opponentH2hInsertRows());
+		addLog("%s", monSnap.perfSummary());
 
 		if (monSnap.seasonsWithPendingWork().isEmpty()) {
 			addLog("--- 캐시: 변경 없음 — 스킵 ---");
