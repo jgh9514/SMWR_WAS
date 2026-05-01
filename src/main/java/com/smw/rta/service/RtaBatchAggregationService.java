@@ -83,6 +83,8 @@ public class RtaBatchAggregationService {
 	 * 몬·픽턴은 {@code rta_match.summoner_ranking_apply_result IS NULL} 인 리플레이만 키셋 청크로 적재한 뒤
 	 * 해당 rid 에 {@code summoner_ranking_apply_result='S'} 를 남긴다(시즌 단위 스냅 DELETE·매치 플래그 일괄 리셋 없음).
 	 * 청크마다 동일 트랜잭션에서 {@code rta_agg_summoner_owned_box_snap} 을 staging replay 기준 MERGE 증분한다(말미 전량 재교체 없음).
+	 * 시즌의 미처리 리플레이 청크를 모두 반영한 직후, 해당 시즌 {@code rta_agg_summoner_opponent_h2h_snap} 을 DELETE 후 INSERT 한다
+	 * (잡이 전 시즌 처리 후 H2H 직전에 실패하면 다음 실행에 미처리 rid 가 없어 라이벌만 비는 경우를 방지).
 	 * SWEX {@code user_monster_owned_agg} 는 통합 배치 직전 갱신돼 있어야 owned_copy_count 가 채워진다.
 	 * <p>
 	 * 미처리 매치가 없는 시즌은 스캔하지 않는다({@link RtaMapper#selectSeasonIdsWithPendingSummonerRankingReplays}).
@@ -90,20 +92,38 @@ public class RtaBatchAggregationService {
 	public SummonerMonsterSnapRebuildResult rebuildSummonerMonsterSnapAgg(RtaMapper rtaMapper) {
 		List<Long> targetSeasons = rtaMapper.selectSeasonIdsWithPendingSummonerRankingReplays();
 		if (targetSeasons == null || targetSeasons.isEmpty()) {
-			return new SummonerMonsterSnapRebuildResult(0, 0, 0, 0, List.of());
+			return new SummonerMonsterSnapRebuildResult(0, 0, 0, 0, 0, List.of());
 		}
 		int fightRows = 0;
 		int monRows = 0;
 		int pickTurnRows = 0;
 		int ownedBoxUpserts = 0;
+		int opponentH2hInserts = 0;
 		for (long sid : targetSeasons) {
 			fightRows += rtaMapper.insertRtaSummonerSeasonFightSnapForSeason(sid);
 			ChunkTotals ct = insertSummonerMonsterAndPickTurnSnapForSeasonChunked(rtaMapper, sid);
 			monRows += ct.monsterInserted;
 			pickTurnRows += ct.pickTurnInserted;
 			ownedBoxUpserts += ct.ownedBoxUpserted;
+			opponentH2hInserts += replaceOpponentH2hSnapForSeasons(rtaMapper, List.of(sid));
 		}
-		return new SummonerMonsterSnapRebuildResult(fightRows, monRows, pickTurnRows, ownedBoxUpserts, List.copyOf(targetSeasons));
+		return new SummonerMonsterSnapRebuildResult(fightRows, monRows, pickTurnRows, ownedBoxUpserts,
+				opponentH2hInserts, List.copyOf(targetSeasons));
+	}
+
+	/**
+	 * {@code rta_agg_summoner_opponent_h2h_snap} 시즌별 DELETE 후 INSERT 반환 행 합계.
+	 */
+	private static int replaceOpponentH2hSnapForSeasons(RtaMapper rtaMapper, Collection<Long> seasonIds) {
+		if (seasonIds == null || seasonIds.isEmpty()) {
+			return 0;
+		}
+		int inserted = 0;
+		for (long sid : new TreeSet<>(seasonIds)) {
+			rtaMapper.deleteRtaSummonerOpponentH2hSnapBySeason(sid);
+			inserted += rtaMapper.insertRtaSummonerOpponentH2hSnapForSeason(sid);
+		}
+		return inserted;
 	}
 
 	/**
@@ -118,11 +138,7 @@ public class RtaBatchAggregationService {
 		if (seasonIds == null || seasonIds.isEmpty()) {
 			return new SummonerOpponentH2hSnapRebuildResult(0, null);
 		}
-		int inserted = 0;
-		for (long sid : new TreeSet<>(seasonIds)) {
-			rtaMapper.deleteRtaSummonerOpponentH2hSnapBySeason(sid);
-			inserted += rtaMapper.insertRtaSummonerOpponentH2hSnapForSeason(sid);
-		}
+		int inserted = replaceOpponentH2hSnapForSeasons(rtaMapper, seasonIds);
 		return new SummonerOpponentH2hSnapRebuildResult(inserted,
 				safeCount(rtaMapper.countRtaSummonerOpponentH2hSnapRows()));
 	}
@@ -376,13 +392,15 @@ public class RtaBatchAggregationService {
 	 * @param monsterRows {@code INSERT rta_agg_summoner_monster_snap} 청크 적재가 반환한 행 합(근사),
 	 * @param pickTurnRows 픽턴(선후 라인) 소환사 스냅 청크 행 합(근사),
 	 * @param ownedBoxUpsertRows {@code mergeRtaSummonerOwnedBoxSnapFromStagingReplayChunk} 의 JDBC 영향 행 합(MERGE 포함),
-	 * @param seasonsWithPendingWork 이번 실행에서 분모·청크를 돌린 시즌 ID 목록(미처리 매치가 없으면 빈 목록).
+	 * @param opponentH2hInsertRows {@code insertRtaSummonerOpponentH2hSnapForSeason} 시즌별 합(이번 실행에서 청크 완료 직후 갱신),
+	 * @param seasonsWithPendingWork 이번 실행에서 분모·청크·H2H 를 돌린 시즌 ID 목록(미처리 매치가 없으면 빈 목록).
 	 */
 	public record SummonerMonsterSnapRebuildResult(
 			int fightRows,
 			int monsterRows,
 			int pickTurnRows,
 			int ownedBoxUpsertRows,
+			int opponentH2hInsertRows,
 			List<Long> seasonsWithPendingWork) {
 	}
 

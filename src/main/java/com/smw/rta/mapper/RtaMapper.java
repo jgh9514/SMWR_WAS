@@ -288,12 +288,11 @@ public interface RtaMapper {
             @Param("seasonId") long seasonId, @Param("unitMasterId") long unitMasterId);
 
     /**
-     * 소환사×몬스터 특정 픽 슬롯 경기 목록 — team_side(1=선픽/2=후픽) + pick_slot_no(1~5) 필터.
+     * 소환사×몬스터 특정 픽 슬롯 경기 — {@code rta_match_unit_pick.pick_slot_no} 는 팀별 내부 순서 {@code 1..5}.
      */
     List<Map<String, Object>> listRtaPlayerMonsterPickSlotMatches(@Param("wizardId") String wizardId,
             @Param("seasonId") long seasonId, @Param("unitMasterId") long unitMasterId,
-            @Param("teamSide") int teamSide, @Param("pickSlotNo") int pickSlotNo,
-            @Param("limit") int limit);
+            @Param("teamSide") int teamSide, @Param("pickSlotNo") int pickSlotNo, @Param("limit") int limit);
 
     /** 소환사별 RTA 픽·밴으로 노출된 몬스터 스냅 — {@code rta_agg_summoner_owned_box_snap} + {@code monster} 메타 */
     List<Map<String, Object>> listRtaSummonerOwnedBoxSnapByWizard(@Param("wizardId") String wizardId);

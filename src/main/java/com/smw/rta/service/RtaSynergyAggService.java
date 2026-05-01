@@ -73,7 +73,7 @@ public interface RtaSynergyAggService {
 
 	/**
 	 * {@code rta_agg_pick_turn} 전량 재계산: 시즌별 DELETE 후 INSERT.
-	 * 컬럼 {@code pick_slot_no}=유닛 픽 글로벌 턴, {@code team_side} (1 또는 2) — 선·후 픽 턴 라인(snake 슬롯 1·4·5·8·9 vs 2·3·6·7·10).
+	 * 컬럼 {@code pick_slot_no}={@code rta_match_unit_pick} 와 동일 플레이어 팀 기준 1~5, {@code team_side}=선턴(1)/후턴(2).
 	 * {@code rta_match_participant} 에 존재하는 모든 시즌을 대상으로 한다.
 	 *
 	 * @return 처리한 시즌 수

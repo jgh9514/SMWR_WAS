@@ -1376,63 +1376,66 @@
 
     <select id="getRtaPlayerSeasonFightSnapFromAgg" resultType="map">
         /* rta-queries-live.getRtaPlayerSeasonFightSnapFromAgg
-           match_cnt·win_rate 는 participant 라이브 집계 사용 — 스냅 배치 지연과 무관하게 항상 정확.
-           fight_snap 행이 없어도 라이브 카운트 기반으로 결과를 반환한다. */
-        WITH live AS (
+           집계 정의 = 배치 insertRtaSummonerSeasonFightSnapForSeason 과 동일 CTE( participant + unit_pick 조인 ).
+           한 응답 안에서 경기 수·승·픽/밴 이벤트 수가 서로 맞물린다. computed_at 만 스냅에서 조회(없으면 null). */
+        WITH part AS (
             SELECT
-                COUNT(DISTINCT p.replay_id)::bigint AS match_cnt,
-                COUNT(DISTINCT CASE WHEN p.is_winner IS TRUE THEN p.replay_id END)::bigint AS win_cnt
-            FROM public.rta_match_participant p
-            WHERE p.wizard_id = #{wizardId}
-              AND p.season_id = #{seasonId}
+                COUNT(DISTINCT mp.replay_id)::bigint AS match_cnt,
+                COUNT(DISTINCT CASE WHEN mp.is_winner IS TRUE THEN mp.replay_id END)::bigint AS win_cnt
+            FROM public.rta_match_participant mp
+            WHERE mp.season_id = #{seasonId}
+              AND mp.wizard_id = #{wizardId}
+        ),
+        picks AS (
+            SELECT
+                COALESCE(SUM(CASE WHEN NOT up.is_banned THEN 1 ELSE 0 END), 0)::bigint AS non_ban_pick_cnt,
+                COALESCE(SUM(CASE WHEN up.is_banned THEN 1 ELSE 0 END), 0)::bigint     AS ban_event_cnt
+            FROM public.rta_match_unit_pick up
+            INNER JOIN public.rta_match_participant mp
+                ON mp.replay_id = up.replay_id
+               AND mp.wizard_id = up.wizard_id
+            WHERE mp.season_id = #{seasonId}
+              AND mp.wizard_id = #{wizardId}
         )
         SELECT
-            lv.match_cnt::bigint                                   AS match_cnt,
-            COALESCE(f.non_ban_pick_cnt, 0)::bigint                AS non_ban_pick_cnt,
-            COALESCE(f.ban_event_cnt, 0)::bigint                   AS ban_event_cnt,
+            pt.match_cnt::bigint                                    AS match_cnt,
+            pk.non_ban_pick_cnt::bigint                             AS non_ban_pick_cnt,
+            pk.ban_event_cnt::bigint                                AS ban_event_cnt,
             CASE
-                WHEN lv.match_cnt &gt; 0
-                THEN ROUND(100.0 * lv.win_cnt::numeric / lv.match_cnt::numeric, 2)
+                WHEN pt.match_cnt &gt; 0
+                THEN ROUND(100.0 * pt.win_cnt::numeric / pt.match_cnt::numeric, 2)
                 ELSE NULL
             END AS season_win_rate_pct,
             f.computed_at
-        FROM live lv
+        FROM part pt
+        CROSS JOIN picks pk
         LEFT JOIN public.rta_agg_summoner_season_fight_snap f
             ON f.season_id = #{seasonId}
            AND f.wizard_id = #{wizardId}
-        WHERE lv.match_cnt &gt; 0
+        WHERE pt.match_cnt &gt; 0
         LIMIT 1
     </select>
 
     <select id="listRtaPlayerMonsterSnapFromAgg" resultType="map">
         /* rta-queries-live.listRtaPlayerMonsterSnapFromAgg
-           픽·밴·선첫픽·픽률·밴율: 배치 스냅. 승·패·승률: unit_pick+participant 라이브(COUNT DISTINCT replay) — 스냅 승패 누락·밴행 우선 DISTINCT 이슈와 무관. */
-        WITH user_total AS (
-            /* 픽률 분모: rta_match_participant 라이브 카운트 (스냅 lag 없음) */
-            SELECT COUNT(DISTINCT p.replay_id)::numeric AS real_total_matches
-            FROM public.rta_match_participant p
-            WHERE p.wizard_id = #{wizardId}
-              AND p.season_id = #{seasonId}
-        ),
-        live_wl AS (
-            SELECT
-                up.unit_master_id::bigint AS unit_master_id,
-                COUNT(DISTINCT up.replay_id) FILTER (WHERE p.is_winner IS TRUE)::bigint       AS live_win_cnt,
-                COUNT(DISTINCT up.replay_id) FILTER (WHERE p.is_winner IS NOT TRUE)::bigint AS live_lose_cnt
-            FROM public.rta_match_unit_pick up
-            INNER JOIN public.rta_match_participant p
-                ON p.replay_id = up.replay_id
-               AND p.wizard_id = up.wizard_id
-               AND p.season_id = #{seasonId}
-            WHERE up.wizard_id = #{wizardId}
-              AND up.is_banned = false
-              AND up.unit_master_id IS NOT NULL
-            GROUP BY up.unit_master_id
+           픽·밴·선첫·승·패·픽률·승률·밴율: 배치 스냅만 사용해 몹 행 간·시즌 fight 정의와 맞물리게 한다.
+           분모(match_cnt)= rta_agg_summoner_season_fight_snap 우선; 스냅 행 없으면 participant DISTINCT replay( 배치 동일 규약 ). */
+        WITH match_denom AS (
+            SELECT COALESCE(
+                (SELECT fs.match_cnt::numeric
+                 FROM public.rta_agg_summoner_season_fight_snap fs
+                 WHERE fs.season_id = #{seasonId}
+                   AND fs.wizard_id = #{wizardId}),
+                (SELECT COUNT(DISTINCT mp.replay_id)::numeric
+                 FROM public.rta_match_participant mp
+                 WHERE mp.season_id = #{seasonId}
+                   AND mp.wizard_id = #{wizardId})
+            ) AS total_matches
         ),
         stats_summary AS (
             SELECT
                 t.*,
-                /* pick_cnt 는 배치에서 픽+밴 전체 COUNT(*) */
+                /* pick_cnt 는 배치에서 픽+밴 포함 집계(몹 스냅 정의) */
                 t.pick_cnt AS actual_pick_cnt
             FROM public.rta_agg_summoner_monster_snap t
             WHERE t.season_id = #{seasonId}
@@ -1443,25 +1446,25 @@
             s.actual_pick_cnt::bigint AS actual_pick_cnt,
             s.pick_cnt::bigint AS pick_cnt,
             s.ban_cnt::bigint AS ban_cnt,
-            COALESCE(w.live_win_cnt, 0)::bigint AS win_cnt,
-            COALESCE(w.live_lose_cnt, 0)::bigint AS lose_cnt,
+            COALESCE(s.win_cnt, 0)::bigint AS win_cnt,
+            COALESCE(s.lose_cnt, 0)::bigint AS lose_cnt,
             s.first_pick_cnt::bigint AS first_pick_cnt,
             m.kr_name AS monster_name,
             m.monster_elemental AS monster_elemental,
             <include refid="monsterPortraitUrl"><property name="alias" value="m"/></include> AS monster_image,
             ROUND(
-                (100.0 * s.actual_pick_cnt::numeric / NULLIF(ut.real_total_matches, 0))::numeric,
+                (100.0 * s.actual_pick_cnt::numeric / NULLIF(md.total_matches, 0))::numeric,
                 2
             ) AS pick_rate_pct,
             ROUND(
-                (100.0 * COALESCE(s.first_pick_cnt, 0)::numeric / NULLIF(ut.real_total_matches, 0))::numeric,
+                (100.0 * COALESCE(s.first_pick_cnt, 0)::numeric / NULLIF(md.total_matches, 0))::numeric,
                 2
             ) AS first_pick_rate_pct,
             CASE
-                WHEN COALESCE(w.live_win_cnt, 0) + COALESCE(w.live_lose_cnt, 0) &gt; 0
+                WHEN COALESCE(s.win_cnt, 0) + COALESCE(s.lose_cnt, 0) &gt; 0
                 THEN ROUND(
-                    (100.0 * COALESCE(w.live_win_cnt, 0)::numeric
-                        / (COALESCE(w.live_win_cnt, 0) + COALESCE(w.live_lose_cnt, 0))::numeric)::numeric,
+                    (100.0 * COALESCE(s.win_cnt, 0)::numeric
+                        / (COALESCE(s.win_cnt, 0) + COALESCE(s.lose_cnt, 0))::numeric)::numeric,
                     2
                 )
             END AS win_rate_pct,
@@ -1470,13 +1473,12 @@
                 2
             ) AS ban_rate_pct
         FROM stats_summary s
-        CROSS JOIN user_total ut
-        LEFT JOIN live_wl w ON w.unit_master_id = s.unit_master_id
+        CROSS JOIN match_denom md
         LEFT JOIN public.monster m ON m.monster_id = s.unit_master_id::text
         ORDER BY s.actual_pick_cnt DESC NULLS LAST, s.unit_master_id ASC
     </select>
 
-    <!-- 소환사×몬 픽 순서별 통계 — pick_slot_no 는 플레이어 기준 1~5 (배치가 글로벌 턴을 매핑해 적재). per team_side -->
+    <!-- 소환사×몬 픽 순서별 통계 — pick_slot_no 는 rta_match_unit_pick·배치와 동일하게 플레이어 팀 기준 1~5 (전장 전체 순번 미사용). per team_side -->
     <select id="listRtaPlayerMonsterPickBucketsFromSnap" resultType="map">
         /* rta-queries-live.listRtaPlayerMonsterPickBucketsFromSnap */
         WITH all_slots AS (
@@ -1566,6 +1568,7 @@
             b.unit_master_id::bigint AS unit_master_id,
             m.kr_name                AS monster_name,
             m.monster_elemental      AS monster_elemental,
+            m.natural_stars          AS natural_stars,
             <include refid="monsterPortraitUrl"><property name="alias" value="m"/></include> AS monster_image
         FROM public.rta_agg_summoner_owned_box_snap b
         LEFT JOIN public.monster m ON m.monster_id = b.unit_master_id::text
@@ -1574,7 +1577,7 @@
         LIMIT 10000
     </select>
 
-    <!-- 소환사×몬스터 특정 픽 슬롯 경기 목록 — team_side(1=선픽/2=후픽) + pick_slot_no(1~5) 필터 -->
+    <!-- 소환사×몬스터 특정 픽 슬롯 경기 목록 — team_side(1=선턴/2=후턴) + pick_slot_no(1~5) 필터 -->
     <select id="listRtaPlayerMonsterPickSlotMatches" resultType="map">
         /* rta-queries-live.listRtaPlayerMonsterPickSlotMatches */
         WITH rms AS MATERIALIZED (
@@ -1595,7 +1598,8 @@
                 AND up0.wizard_id = p0.wizard_id
                 AND up0.unit_master_id = #{unitMasterId}
                 AND up0.is_banned = false
-                AND up0.pick_slot_no = <include refid="rtaPlayerPickGlobalTurnFromUiSlotExpr"/>
+                <!-- pick_slot_no: 팀 내 1..5 -->
+                AND up0.pick_slot_no::int = #{pickSlotNo}::int
             ORDER BY m.played_at DESC NULLS LAST
             LIMIT #{limit} OFFSET 0
         ),

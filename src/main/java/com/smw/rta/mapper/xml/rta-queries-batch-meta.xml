@@ -238,7 +238,8 @@
     </insert>
 
     <insert id="mergeRtaSummonerOwnedBoxSnapFromStagingReplayChunk">
-        /* rta-queries-batch-meta.mergeRtaSummonerOwnedBoxSnapFromStagingReplayChunk */
+        /* rta-queries-batch-meta.mergeRtaSummonerOwnedBoxSnapFromStagingReplayChunk
+           소환사×몬스터 스냅과 동일: participant 존재하는 픽 행만(고아 픽 제외). */
         INSERT INTO public.rta_agg_summoner_owned_box_snap (wizard_id, unit_master_id, computed_at)
         SELECT DISTINCT
             up.wizard_id::text,
@@ -248,6 +249,10 @@
         INNER JOIN public.staging_rta_summoner_snap_rid s
             ON s.replay_id = up.replay_id
            AND s.season_id = #{seasonId}
+        INNER JOIN public.rta_match_participant mp
+            ON mp.replay_id = up.replay_id
+           AND mp.wizard_id = up.wizard_id
+           AND mp.season_id = #{seasonId}
         WHERE up.unit_master_id IS NOT NULL
           AND up.wizard_id IS NOT NULL
         ON CONFLICT ON CONSTRAINT rta_agg_summoner_owned_box_snap_pkey DO UPDATE SET
@@ -1033,12 +1038,9 @@
                 COUNT(*) FILTER (WHERE u.is_banned)::bigint            AS ban_cnt,
                 COUNT(*) FILTER (WHERE NOT u.is_banned AND p.is_winner IS TRUE)::bigint     AS win_cnt,
                 COUNT(*) FILTER (WHERE NOT u.is_banned AND p.is_winner IS NOT TRUE)::bigint AS lose_cnt,
-                /* 선픽: 해당 팀의 첫 글로벌 픽 턴 — 선측=1, 후측=2 */
+                /* 1번픽 수: 해당 플레이어 팀의 pick 순서 로컬 1번(rta_match_unit_pick.pick_slot_no = 1) */
                 COUNT(*) FILTER (
-                    WHERE NOT u.is_banned AND (
-                        (p.is_first_pick IS TRUE AND u.pick_slot_no::int = 1)
-                        OR (COALESCE(p.is_first_pick, FALSE) IS NOT TRUE AND u.pick_slot_no::int = 2)
-                    )
+                    WHERE NOT u.is_banned AND u.pick_slot_no::int = 1
                 )::bigint AS first_pick_cnt
             FROM pnorm p
             INNER JOIN upnorm u
@@ -1141,17 +1143,8 @@
                 p.season_id,
                 p.wizard_id,
                 u.unit_master_id::bigint AS unit_master_id,
-                (
-                    CASE WHEN p.is_first_pick IS TRUE THEN
-                        CASE u.pick_slot_no::int
-                            WHEN 1 THEN 1 WHEN 4 THEN 2 WHEN 5 THEN 3 WHEN 8 THEN 4 WHEN 9 THEN 5
-                        END
-                    ELSE
-                        CASE u.pick_slot_no::int
-                            WHEN 2 THEN 1 WHEN 3 THEN 2 WHEN 6 THEN 3 WHEN 7 THEN 4 WHEN 10 THEN 5
-                        END
-                    END
-                )::smallint AS pick_slot_no,
+                /* 원천 pick_slot_no = 플레이어 팀 기준 1~5(별도 매핑 없음) */
+                u.pick_slot_no::smallint AS pick_slot_no,
                 CASE WHEN p.is_first_pick IS TRUE THEN 1::smallint ELSE 2::smallint END AS team_side,
                 u.is_banned,
                 p.is_winner
@@ -1159,10 +1152,7 @@
             INNER JOIN upnorm u
                 ON u.replay_id = p.replay_id
                AND u.wizard_id = p.wizard_id
-            WHERE (
-                (p.is_first_pick IS TRUE AND u.pick_slot_no::int IN (1, 4, 5, 8, 9))
-                OR (COALESCE(p.is_first_pick, FALSE) IS NOT TRUE AND u.pick_slot_no::int IN (2, 3, 6, 7, 10))
-            )
+            WHERE u.pick_slot_no::int BETWEEN 1 AND 5
         ),
         agg AS (
             SELECT
@@ -1360,8 +1350,8 @@
     </insert>
 
     <!--
-      소환사 RTA 픽 노출 DISTINCT — rta_match_unit_pick 만(participant 미조인). 무거운 스냅은 청크마다 staging MERGE.
-      DELETE+본 INSERT는 RtaSummonerOwnedBoxSnapJob 수동 때만 사용.
+      소환사 RTA 사용 몬 DISTINCT — 무거운 스냅은 청크 MERGE( participant 조인 ).
+      DELETE+본 INSERT 수동 Job: 참가자 라인 있는 픽만(몬 스냅·시즌 fight 스냅과 동일 정의).
     -->
     <delete id="deleteAllRtaSummonerOwnedBoxSnap">
         /* rta-queries-batch-meta.deleteAllRtaSummonerOwnedBoxSnap */
@@ -1376,6 +1366,9 @@
             up.unit_master_id::bigint,
             CURRENT_TIMESTAMP
         FROM public.rta_match_unit_pick up
+        INNER JOIN public.rta_match_participant mp
+            ON mp.replay_id = up.replay_id
+           AND mp.wizard_id = up.wizard_id
         WHERE up.unit_master_id IS NOT NULL
           AND up.wizard_id IS NOT NULL
     </insert>

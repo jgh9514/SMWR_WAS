@@ -299,7 +299,8 @@ public class RtaController {
         }
     }
 
-    @Operation(summary = "Monster pick slot matches", description = "teamSide(1=first/2=second) + pickSlotNo(1-5) filtered matches")
+    @Operation(summary = "Monster pick slot matches",
+            description = "team_side(1=선턴/2=후턴), pick_slot_no(해당 플레이어 팀의 픽 순서 1~5). 원천 pick_slot_no 역시 팀별 1~5.")
     @PostMapping("/player/{wizardId}/monster-pick-slot-matches")
     public ResponseEntity<Map<String, Object>> getRtaPlayerMonsterPickSlotMatches(
             @PathVariable String wizardId,
@@ -374,7 +375,7 @@ public class RtaController {
         }
     }
 
-    @Operation(summary = "RTA 소환사 보유 몬스터(박스)", description = "수집 리플레이 RTA 픽 기준 스냅 rta_agg_summoner_owned_box_snap (무거운 스냅 배치와 동일 갱신)")
+    @Operation(summary = "RTA 소환사 보유 몬스터(박스)", description = "참가자 기준 RTA 픽 스냅 rta_agg_summoner_owned_box_snap (몬스터 스냅과 동일 조인; 무거운 스냅 배치와 동일 갱신)")
     @PostMapping("/player/{wizardId}/owned-box")
     public ResponseEntity<Map<String, Object>> getRtaPlayerOwnedBox(@PathVariable String wizardId) {
         try {
