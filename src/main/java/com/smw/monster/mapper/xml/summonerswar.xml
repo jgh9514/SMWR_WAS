@@ -1233,7 +1233,8 @@
 			#{m.rid}
 			, #{m.season_id}
 			, (#{m.date_add})::timestamptz
-			, #{m.wizard_id}
+			/* winner_wizard_id: 적재 경로에서 user_list 승자 기준으로 세팅, 없으면 루트 wizard_id (구 호환) */
+			, COALESCE(#{m.winner_wizard_id,jdbcType=VARCHAR}, CAST(#{m.wizard_id} AS VARCHAR))
 			, #{m.battle_ver}
 			, #{m.battle_type}
 		)
@@ -1255,7 +1256,7 @@
 			m.played_at,
 			v.wizard_name,
 			v.channel_uid,
-			COALESCE(v.team_no, 1::smallint),
+			v.team_no,
 			v.country,
 			r.rating_id,
 			v.score,

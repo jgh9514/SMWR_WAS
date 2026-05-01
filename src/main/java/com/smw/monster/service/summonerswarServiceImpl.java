@@ -608,7 +608,140 @@ public class summonerswarServiceImpl implements summonerswarService {
 		}
 		return rid + "|" + String.valueOf(wizardId).trim();
 	}
-	
+
+	/**
+	 * RTA 업로드 JSON {@code win_lose} 의 승패 해석 ({@link #applyArenaRtaUploadFromParsedItemsWithMode}) — participant{@code .is_winner}와 동일 규약.
+	 * 승: boolean true, 숫자 1, 문자열 {@code "1"} / {@code "true"} / {@code "t"}; 패: false, 2, {@code "2"} / {@code "false"} / {@code "f"}; 그 외·null: 패.
+	 */
+	static boolean arenaWinLoseMeansVictory(Object winLose) {
+		if (winLose == null) {
+			return false;
+		}
+		if (winLose instanceof Boolean b) {
+			return b.booleanValue();
+		}
+		if (winLose instanceof Number n) {
+			return n.intValue() == 1;
+		}
+		String s = String.valueOf(winLose).trim();
+		if (s.isEmpty()) {
+			return false;
+		}
+		if ("1".equals(s)) {
+			return true;
+		}
+		if ("2".equals(s)) {
+			return false;
+		}
+		if ("true".equalsIgnoreCase(s) || "t".equals(s)) {
+			return true;
+		}
+		if ("false".equalsIgnoreCase(s) || "f".equals(s)) {
+			return false;
+		}
+		try {
+			return Integer.parseInt(s) == 1;
+		} catch (NumberFormatException ignored) {
+			return false;
+		}
+	}
+
+	private static String normalizeWizardIdNullable(Object wizardId) {
+		if (wizardId == null) {
+			return null;
+		}
+		String s = String.valueOf(wizardId).trim();
+		return s.isEmpty() ? null : s;
+	}
+
+	private static String resolveArenaMatchWinnerWizardIdFromParticipants(
+			Map<String, Object> userList,
+			Object fallbackRootWizardId) {
+		if (userList == null || userList.isEmpty()) {
+			return normalizeWizardIdNullable(fallbackRootWizardId);
+		}
+		String winnerWizard = null;
+		for (Object val : userList.values()) {
+			if (!(val instanceof Map)) {
+				continue;
+			}
+			@SuppressWarnings("unchecked")
+			Map<String, Object> ui = (Map<String, Object>) val;
+			if (!Boolean.TRUE.equals(ui.get("is_winner"))) {
+				continue;
+			}
+			String wzs = normalizeWizardIdNullable(ui.get("wizard_id"));
+			if (wzs == null) {
+				continue;
+			}
+			if (winnerWizard != null && !winnerWizard.equals(wzs)) {
+				log.warn("[rta-upload] 동일 rid 에 is_winner=true 인 소환사가 서로 다릅니다 — 우선 [{}] 유지, [{}] 무시",
+						winnerWizard, wzs);
+				continue;
+			}
+			winnerWizard = wzs;
+		}
+		if (winnerWizard != null) {
+			return winnerWizard;
+		}
+		return normalizeWizardIdNullable(fallbackRootWizardId);
+	}
+
+	/**
+	 * {@code team_no} 또는 {@code team_side} 필수 — DB {@link com.smw.monster.mapper.summonerswarMapper#insertArenaUserInfoBulk} 의
+	 * participant {@code team_side} (1 또는 2). 업로드 객체는 {@link #normalizeJsonKeysToSnakeCase} 적용 후 호출 권장.
+	 */
+	private static void requireAndNormalizeArenaParticipantTeamNo(Map<String, Object> userInfo, Object ridForMessage)
+			throws RtaUploadValidationException {
+		if (userInfo == null) {
+			throw new RtaUploadValidationException("participant 맵 없음 rid=" + ridForMessage);
+		}
+		Object raw = userInfo.get("team_no");
+		if (raw == null) {
+			raw = userInfo.get("team_side");
+		}
+		Object wid = userInfo.get("wizard_id");
+		if (raw == null) {
+			throw new RtaUploadValidationException(
+					"team_no 없음 rid=" + ridForMessage + " wizard_id=" + wid);
+		}
+		int side;
+		if (raw instanceof Number n) {
+			side = n.intValue();
+		} else if (raw instanceof Boolean) {
+			throw new RtaUploadValidationException(
+					"team_no 가 boolean 타입 rid=" + ridForMessage + " wizard_id=" + wid + " raw=" + raw);
+		} else {
+			String s = String.valueOf(raw).trim();
+			if (s.isEmpty()) {
+				throw new RtaUploadValidationException(
+						"team_no 빈 문자열 rid=" + ridForMessage + " wizard_id=" + wid);
+			}
+			try {
+				side = Integer.parseInt(s);
+			} catch (NumberFormatException e) {
+				throw new RtaUploadValidationException(
+						"team_no 파싱 실패 rid=" + ridForMessage + " wizard_id=" + wid + " raw=" + raw + ": "
+								+ e.getMessage());
+			}
+		}
+		if (side != 1 && side != 2) {
+			throw new RtaUploadValidationException(
+					"team_no 는 1 또는 2 여야 함 rid=" + ridForMessage + " wizard_id=" + wid + " value=" + side);
+		}
+		userInfo.put("team_no", side);
+	}
+
+	private static LinkedHashMap<String, Object> mutableArenaUserRowCopy(Map<String, ?> row) {
+		LinkedHashMap<String, Object> m = new LinkedHashMap<>();
+		for (Map.Entry<String, ?> e : row.entrySet()) {
+			if (e.getKey() != null) {
+				m.put(e.getKey(), e.getValue());
+			}
+		}
+		return m;
+	}
+
 	@Override
 	public int insertArenaInfo(Map<String, ?> param) {
 		if (param == null) {
@@ -628,7 +761,13 @@ public class summonerswarServiceImpl implements summonerswarService {
 		if (param == null) {
 			return 0;
 		}
-		return swMapper.insertArenaUserInfoBulk(Collections.singletonList(param));
+		if (!(param instanceof Map)) {
+			throw new RtaUploadValidationException("insertArenaUserInfo: Map 아님");
+		}
+		LinkedHashMap<String, Object> row = mutableArenaUserRowCopy(param);
+		normalizeJsonKeysToSnakeCase(row);
+		requireAndNormalizeArenaParticipantTeamNo(row, row.get("rid"));
+		return swMapper.insertArenaUserInfoBulk(Collections.singletonList(row));
 	}
 
 	@Override
@@ -683,7 +822,19 @@ public class summonerswarServiceImpl implements summonerswarService {
 		int step = arenaRtaBulkChunkSize();
 		for (int from = 0; from < rows.size(); from += step) {
 			int to = Math.min(from + step, rows.size());
-			total += swMapper.insertArenaUserInfoBulk(rows.subList(from, to));
+			List<Map<String, ?>> validated = new ArrayList<>(to - from);
+			for (int i = from; i < to; i++) {
+				Map<String, ?> src = rows.get(i);
+				if (!(src instanceof Map)) {
+					throw new RtaUploadValidationException(
+							"insertArenaUserInfoBatch: Map 아님 index=" + i);
+				}
+				LinkedHashMap<String, Object> row = mutableArenaUserRowCopy(src);
+				normalizeJsonKeysToSnakeCase(row);
+				requireAndNormalizeArenaParticipantTeamNo(row, row.get("rid"));
+				validated.add(row);
+			}
+			total += swMapper.insertArenaUserInfoBulk(validated);
 		}
 		return total;
 	}
@@ -962,52 +1113,6 @@ public class summonerswarServiceImpl implements summonerswarService {
 			return "infocsv";
 		}
 		return snakeOrKey;
-	}
-
-	/**
-	 * API가 메타 필드를 루트가 아닌 첫 user 쪽에만 줄 때 rta_match 적재용 매치 행으로 승격.
-	 */
-	private static void enrichArenaReplayListFromPayload(Map<String, Object> arenaRow) {
-		if (arenaRow == null) {
-			return;
-		}
-		Object ulo = arenaRow.get("user_list");
-		if (!(ulo instanceof Map)) {
-			return;
-		}
-		Map<String, Object> userList = (Map<String, Object>) ulo;
-		Map<String, Object> firstUser = null;
-		for (Object v : userList.values()) {
-			if (v instanceof Map) {
-				firstUser = (Map<String, Object>) v;
-				break;
-			}
-		}
-		if (firstUser == null) {
-			return;
-		}
-		String[] promoteKeys = { "server_id", "slot_id", "replay_rid_ref", "infocsv", "group_id" };
-		for (String k : promoteKeys) {
-			if (isBlank(arenaRow.get(k)) && !isBlank(firstUser.get(k))) {
-				arenaRow.put(k, firstUser.get(k));
-			}
-		}
-		if (isBlank(arenaRow.get("infocsv")) && !isBlank(firstUser.get("info_csv"))) {
-			arenaRow.put("infocsv", firstUser.get("info_csv"));
-		}
-		if (isBlank(arenaRow.get("replay_rid_ref"))) {
-			Object rr = firstUser.get("replay_rid");
-			if (!isBlank(rr)) {
-				arenaRow.put("replay_rid_ref", rr);
-			}
-		}
-	}
-
-	private static boolean isBlank(Object o) {
-		if (o == null) {
-			return true;
-		}
-		return String.valueOf(o).trim().isEmpty();
 	}
 
 	private static String camelToSnake(String s) {
@@ -1452,8 +1557,8 @@ public class summonerswarServiceImpl implements summonerswarService {
 					log.warn("[rta-upload] {}", msg);
 					throw new RtaUploadValidationException(msg);
 				}
+				requireAndNormalizeArenaParticipantTeamNo(user_info, list.get("rid"));
 			}
-			enrichArenaReplayListFromPayload(arenaRow);
 			seenInRequest.add(rid);
 			arenaBatch.add(list);
 			success += 1;
@@ -1487,8 +1592,7 @@ public class summonerswarServiceImpl implements summonerswarService {
 					throw new RtaUploadValidationException("pick_info 없음 rid=" + list.get("rid"));
 				}
 				user_info.put("leader_pick_slot", pick_info.get("leader_slot_id"));
-				Object wl = user_info.get("win_lose");
-				user_info.put("is_winner", wl != null && "1".equals(String.valueOf(wl).trim()));
+				user_info.put("is_winner", arenaWinLoseMeansVictory(user_info.get("win_lose")));
 				pick_info.put("rid", list.get("rid"));
 				pick_info.put("wizard_id", user_info.get("wizard_id"));
 				List<?> banList = (List<?>) pick_info.get("banned_slot_ids");
@@ -1515,6 +1619,8 @@ public class summonerswarServiceImpl implements summonerswarService {
 					unitBatch.add(unit);
 				}
 			}
+			String matchWinnerWizardId = resolveArenaMatchWinnerWizardIdFromParticipants(user_list, arenaRow.get("wizard_id"));
+			arenaRow.put("winner_wizard_id", matchWinnerWizardId);
 		}
 		if (!arenaBatch.isEmpty()) {
 			ArenaRtaUploadApplyResult applied = applyArenaRtaUploadPersistence(arenaBatch, userBatch, pickBatch, unitBatch, persistMode);

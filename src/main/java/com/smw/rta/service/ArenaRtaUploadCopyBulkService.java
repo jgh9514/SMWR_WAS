@@ -97,7 +97,7 @@ public class ArenaRtaUploadCopyBulkService {
 			  wz_hex text NOT NULL,
 			  wname_hex text,
 			  ch_hex text,
-			  team_no smallint,
+			  team_no smallint NOT NULL,
 			  country_hex text,
 			  rating_id_raw int,
 			  score int,
@@ -123,7 +123,7 @@ public class ArenaRtaUploadCopyBulkService {
 				, m.played_at
 				, convert_from(decode(v.wname_hex, 'hex'), 'UTF8')::varchar
 				, convert_from(decode(v.ch_hex, 'hex'), 'UTF8')::varchar
-				, COALESCE(v.team_no, 1::smallint)
+				, v.team_no
 				, CASE WHEN v.country_hex IS NULL THEN NULL
 				       ELSE convert_from(decode(v.country_hex, 'hex'), 'UTF8')::varchar END
 				, r.rating_id
@@ -302,7 +302,10 @@ public class ArenaRtaUploadCopyBulkService {
 			Long season = normalizeLong(row.get("season_id"));
 			Timestamp ts = row.get("date_add") instanceof Timestamp ? (Timestamp) row.get("date_add") : null;
 			long ms = ts != null ? ts.getTime() : 0L;
-			String wz = hexUtf8(row.get("wizard_id") != null ? String.valueOf(row.get("wizard_id")).trim() : "");
+			Object winWiz = row.get("winner_wizard_id");
+			String winPlain = winWiz != null ? String.valueOf(winWiz).trim() : "";
+			String rootPlain = row.get("wizard_id") != null ? String.valueOf(row.get("wizard_id")).trim() : "";
+			String wz = hexUtf8(!winPlain.isEmpty() ? winPlain : rootPlain);
 			String bv = hexNullable(row.get("battle_ver"));
 			String bt = hexNullable(row.get("battle_type"));
 			return tabLine(
@@ -317,7 +320,7 @@ public class ArenaRtaUploadCopyBulkService {
 		}
 	}
 
-	/** insertArenaInfoBulk 와 동일: winner = wizard_id 필드 */
+	/** insertArenaInfoBulk 와 동일: winner = winner_wizard_id 있으면 그 값, 없으면 루트 wizard_id */
 	private static String hexNullable(Object o) {
 		if (o == null) {
 			return null;
