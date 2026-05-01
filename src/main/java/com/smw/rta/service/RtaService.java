@@ -98,9 +98,13 @@ public interface RtaService {
      */
     Map<String, Object> getRtaPlayerMonsterPickBreakdown(String wizardId, Long seasonId, int unitMasterId);
 
+    /** 소환사 x 몬스터 특정 픽 슬롯 경기 목록 (teamSide 1=선픽/2=후픽, pickSlotNo 1~5). */
+    Map<String, Object> getRtaPlayerMonsterPickSlotMatches(String wizardId, Long seasonId,
+            int unitMasterId, int teamSide, int pickSlotNo, int limit);
+
     /**
-     * RTA 소환사 보유 몬스터(박스) — 배치 {@code rta_agg_summoner_owned_box_snap} ( SWEX
-     * {@code user_monster_owned_agg} 복제).
+     * RTA 소환사 보유 몬스터(박스) — 배치 {@code rta_agg_summoner_owned_box_snap}.
+     * 수집 리플레이에서 해당 소환사가 픽·밴으로 노출한 몬스터 DISTINCT(RTA 무거운 스냅 Job과 동일 주기 재적재).
      */
     Map<String, Object> getRtaPlayerOwnedBox(String wizardId);
 

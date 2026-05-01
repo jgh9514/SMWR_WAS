@@ -379,6 +379,57 @@
 		SELECT COUNT(*)::bigint FROM public.user_monster_owned_agg
 	</select>
 
+	<!-- 청크 처리용: swex_account_import 에서 wizard_id 키셋 페이징 -->
+	<select id="selectDistinctWizardIdsFromSwexKeyset" resultType="string">
+		SELECT DISTINCT si.wizard_id
+		FROM public.swex_account_import si
+		WHERE si.wizard_id IS NOT NULL
+		<if test="afterWizardId != null">
+			AND si.wizard_id &gt; #{afterWizardId}
+		</if>
+		ORDER BY si.wizard_id
+		LIMIT #{limit}
+	</select>
+
+	<!-- 청크 처리용: 지정 wizard_id 목록의 보유 집계 삭제 -->
+	<delete id="deleteUserMonsterOwnedAggForWizards">
+		DELETE FROM public.user_monster_owned_agg
+		WHERE wizard_id IN
+		<foreach collection="wizardIds" item="id" open="(" separator="," close=")">
+			#{id}
+		</foreach>
+	</delete>
+
+	<!-- 청크 처리용: 지정 wizard_id 목록에 대해 SWEX 최신 임포트 기준 집계 INSERT -->
+	<insert id="insertUserMonsterOwnedAggFromSwexForWizards">
+		INSERT INTO public.user_monster_owned_agg (
+			wizard_id, master_id, copy_count, source_import_id, source_import_at, computed_at
+		)
+		WITH latest_import AS (
+			SELECT DISTINCT ON (si.wizard_id)
+				si.wizard_id,
+				si.import_id,
+				si.crt_date
+			FROM public.swex_account_import si
+			WHERE si.wizard_id IN
+			<foreach collection="wizardIds" item="id" open="(" separator="," close=")">
+				#{id}
+			</foreach>
+			ORDER BY si.wizard_id, si.import_id DESC
+		)
+		SELECT
+			li.wizard_id,
+			sm.master_id,
+			COUNT(*)::int,
+			li.import_id,
+			li.crt_date,
+			CURRENT_TIMESTAMP
+		FROM latest_import li
+		INNER JOIN public.swex_monster sm ON sm.import_id = li.import_id
+		WHERE sm.master_id IS NOT NULL
+		GROUP BY li.wizard_id, li.import_id, li.crt_date, sm.master_id
+	</insert>
+
 </mapper>
 
 

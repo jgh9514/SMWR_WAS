@@ -46,6 +46,15 @@ public interface AccountSummaryMapper {
 
 	/** {@link #insertUserMonsterOwnedAggFromSwex()} 직후 행 수 확인용 (INSERT 반환값은 PG JDBC에서 2^31 초과 시 int 오버플로로 음수가 될 수 있음) */
 	long countUserMonsterOwnedAgg();
+
+	/** 청크 처리용: swex_account_import 에서 wizard_id 를 키셋 순으로 limit 개 조회. afterWizardId=null 이면 처음부터. */
+	List<String> selectDistinctWizardIdsFromSwexKeyset(@Param("afterWizardId") String afterWizardId, @Param("limit") int limit);
+
+	/** 청크 처리용: 지정 wizard_id 목록의 보유 집계 행 삭제 */
+	int deleteUserMonsterOwnedAggForWizards(@Param("wizardIds") List<String> wizardIds);
+
+	/** 청크 처리용: 지정 wizard_id 목록에 대해 SWEX 최신 임포트 기준 집계 INSERT */
+	int insertUserMonsterOwnedAggFromSwexForWizards(@Param("wizardIds") List<String> wizardIds);
 }
 
 

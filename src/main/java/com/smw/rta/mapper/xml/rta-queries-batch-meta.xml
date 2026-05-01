@@ -216,25 +216,53 @@
     </update>
 
     <update id="clearSummonerRankingMatchFlagsForSeason">
-        /* rta-queries-batch-meta.clearSummonerRankingMatchFlagsForSeason — 시즌 스냅 전량 삭제 직후 재집계 대기 상태로 */
+        /* rta-queries-batch-meta.clearSummonerRankingMatchFlagsForSeason — 수동 리셋·DDL 후 재집계용: 해당 시즌 rta_match 무거운 스냅 플래그 초기화 */
         UPDATE public.rta_match
         SET summoner_ranking_applied_at = NULL,
             summoner_ranking_apply_result = NULL
         WHERE season_id = #{seasonId}
     </update>
 
-    <!-- 몬스터/픽턴 청크 적재 성공 직후 — 해당 rid 만 S (시너지 markSynergyAggDoneForRids 와 동일 패턴) -->
-    <update id="markSummonerRankingAggDoneForRids">
-        /* rta-queries-batch-meta.markSummonerRankingAggDoneForRids */
+    <update id="truncateStagingRtaSummonerSnapRid">
+        /* rta-queries-batch-meta.truncateStagingRtaSummonerSnapRid — 청크 시작 시 비움(UNLOGGED) */
+        TRUNCATE public.staging_rta_summoner_snap_rid
+    </update>
+
+    <insert id="insertStagingRtaSummonerSnapRidBatch">
+        /* rta-queries-batch-meta.insertStagingRtaSummonerSnapRidBatch */
+        INSERT INTO public.staging_rta_summoner_snap_rid (season_id, replay_id)
+        VALUES
+        <foreach collection="rids" item="rid" separator=",">
+        (#{seasonId}, #{rid})
+        </foreach>
+    </insert>
+
+    <insert id="mergeRtaSummonerOwnedBoxSnapFromStagingReplayChunk">
+        /* rta-queries-batch-meta.mergeRtaSummonerOwnedBoxSnapFromStagingReplayChunk */
+        INSERT INTO public.rta_agg_summoner_owned_box_snap (wizard_id, unit_master_id, computed_at)
+        SELECT DISTINCT
+            up.wizard_id::text,
+            up.unit_master_id::bigint,
+            CURRENT_TIMESTAMP
+        FROM public.rta_match_unit_pick up
+        INNER JOIN public.staging_rta_summoner_snap_rid s
+            ON s.replay_id = up.replay_id
+           AND s.season_id = #{seasonId}
+        WHERE up.unit_master_id IS NOT NULL
+          AND up.wizard_id IS NOT NULL
+        ON CONFLICT ON CONSTRAINT rta_agg_summoner_owned_box_snap_pkey DO UPDATE SET
+            computed_at = EXCLUDED.computed_at
+    </insert>
+
+    <update id="markSummonerRankingAggDoneForStagingSeason">
+        /* rta-queries-batch-meta.markSummonerRankingAggDoneForStagingSeason — 스테이징에 올린 rid 만 S */
         UPDATE public.rta_match m
         SET summoner_ranking_applied_at = CURRENT_TIMESTAMP,
             summoner_ranking_apply_result = 'S'
-        FROM unnest(ARRAY[
-        <foreach collection="rids" item="rid" separator=",">
-            #{rid}
-        </foreach>
-        ]::bigint[]) AS u(rid)
-        WHERE m.replay_id = u.rid
+        FROM public.staging_rta_summoner_snap_rid s
+        WHERE m.replay_id = s.replay_id
+          AND m.season_id = s.season_id
+          AND s.season_id = #{seasonId}
     </update>
 
     <!-- 랭킹 스냅: RtaBatchAggregationService 에서 lock → delete(전량) → insert(이 구문) 동일 TX -->
@@ -792,7 +820,7 @@
             COUNT(*)::bigint AS pick_cnt,
             SUM(CASE WHEN NOT z.is_banned THEN 1 ELSE 0 END)::bigint               AS match_cnt,
             SUM(CASE WHEN NOT z.is_banned AND z.is_winner IS TRUE THEN 1 ELSE 0 END)::bigint AS win_cnt,
-            SUM(CASE WHEN NOT z.is_banned AND z.is_winner IS NOT TRUE THEN 1 ELSE 0 END)::bigint AS lose_cnt,
+            SUM(CASE WHEN NOT z.is_banned AND z.is_winner IS FALSE THEN 1 ELSE 0 END)::bigint AS lose_cnt,
             SUM(CASE WHEN z.is_banned THEN 1 ELSE 0 END)::bigint                     AS ban_cnt,
             CURRENT_TIMESTAMP
         FROM (
@@ -801,9 +829,9 @@
                 mp.rating_id,
                 up.unit_master_id::bigint                                               AS monster_id,
                 up.pick_slot_no::smallint                                               AS pick_slot_no,
-                CASE
-                    WHEN up.pick_slot_no IN (1, 4, 5, 8, 9) THEN 1::smallint
-                    WHEN up.pick_slot_no IN (2, 3, 6, 7, 10) THEN 2::smallint
+                /* team_side: is_first_pick 기준 — pick_slot_no 는 플레이어별 1~5 */
+                CASE WHEN mp.is_first_pick IS TRUE THEN 1::smallint
+                     ELSE 2::smallint
                 END                                                                     AS team_side,
                 up.is_banned,
                 mp.is_winner
@@ -813,10 +841,7 @@
             WHERE mp.season_id = #{seasonId}
               AND mp.rating_id IS NOT NULL
               AND mp.rating_id &gt; 0
-              AND (
-                    up.pick_slot_no IN (1, 4, 5, 8, 9)
-                 OR up.pick_slot_no IN (2, 3, 6, 7, 10)
-                  )
+              AND up.pick_slot_no BETWEEN 1 AND 5
         ) z
         GROUP BY z.season_id, z.rating_id, z.monster_id, z.pick_slot_no, z.team_side
     </insert>
@@ -848,7 +873,8 @@
     </delete>
 
     <insert id="insertRtaSummonerOpponentH2hSnapForSeason">
-        /* rta-queries-batch-meta.insertRtaSummonerOpponentH2hSnapForSeason */
+        /* rta-queries-batch-meta.insertRtaSummonerOpponentH2hSnapForSeason
+           동일 replay_id×위자드 participant 중복 행이 있어도 경기당 1회만 집계한다. */
         INSERT INTO public.rta_agg_summoner_opponent_h2h_snap (
             season_id,
             wizard_id,
@@ -862,22 +888,33 @@
             computed_at
         )
         SELECT
-            me.season_id,
-            me.wizard_id,
-            o.wizard_id,
-            MAX(o.wizard_name),
-            MAX(o.channel_uid),
-            MAX(o.country_code),
+            d.season_id,
+            d.wizard_id,
+            d.opponent_wizard_id,
+            MAX(d.opponent_wizard_name),
+            MAX(d.opponent_channel_uid),
+            MAX(d.opponent_country_code),
             COUNT(*)::bigint,
-            SUM(CASE WHEN me.is_winner IS TRUE THEN 1 ELSE 0 END)::bigint,
-            SUM(CASE WHEN me.is_winner IS FALSE THEN 1 ELSE 0 END)::bigint,
+            SUM(CASE WHEN d.is_winner IS TRUE THEN 1 ELSE 0 END)::bigint,
+            SUM(CASE WHEN d.is_winner IS FALSE THEN 1 ELSE 0 END)::bigint,
             CURRENT_TIMESTAMP
-        FROM public.rta_match_participant me
-        INNER JOIN public.rta_match_participant o
-            ON o.replay_id = me.replay_id
-           AND o.wizard_id &lt;&gt; me.wizard_id
-        WHERE me.season_id = #{seasonId}
-        GROUP BY me.season_id, me.wizard_id, o.wizard_id
+        FROM (
+            SELECT DISTINCT ON (me.replay_id, me.wizard_id, o.wizard_id)
+                me.season_id,
+                me.wizard_id,
+                o.wizard_id AS opponent_wizard_id,
+                o.wizard_name AS opponent_wizard_name,
+                o.channel_uid AS opponent_channel_uid,
+                o.country_code AS opponent_country_code,
+                me.is_winner
+            FROM public.rta_match_participant me
+            INNER JOIN public.rta_match_participant o
+                ON o.replay_id = me.replay_id
+               AND o.wizard_id &lt;&gt; me.wizard_id
+            WHERE me.season_id = #{seasonId}
+            ORDER BY me.replay_id, me.wizard_id, o.wizard_id
+        ) d
+        GROUP BY d.season_id, d.wizard_id, d.opponent_wizard_id
     </insert>
 
     <select id="countRtaSummonerOpponentH2hSnapRows" resultType="long">
@@ -890,13 +927,22 @@
         SELECT m.replay_id
         FROM public.rta_match m
         WHERE m.season_id = #{seasonId}
-          AND m.summoner_ranking_applied_at IS NULL
+          AND m.summoner_ranking_apply_result IS NULL
           AND m.replay_id &gt; #{afterReplayIdExclusive}
         ORDER BY m.replay_id
         LIMIT #{limit}
     </select>
 
+    <select id="selectSeasonIdsWithPendingSummonerRankingReplays" resultType="long">
+        /* rta-queries-batch-meta.selectSeasonIdsWithPendingSummonerRankingReplays */
+        SELECT DISTINCT m.season_id
+        FROM public.rta_match m
+        WHERE m.summoner_ranking_apply_result IS NULL
+        ORDER BY m.season_id
+    </select>
+
     <insert id="insertRtaSummonerSeasonFightSnapForSeason">
+        /* rta-queries-batch-meta.insertRtaSummonerSeasonFightSnapForSeason — 시즌 전원 분모 집계 UPSERT (rta_match 소환사 스냅 플래그와 무관) */
         INSERT INTO public.rta_agg_summoner_season_fight_snap (
             season_id, wizard_id, match_cnt, non_ban_pick_cnt, ban_event_cnt, computed_at
         )
@@ -933,11 +979,16 @@
         LEFT JOIN picks pk
             ON pk.season_id = p.season_id
            AND pk.wizard_id = p.wizard_id
+        ON CONFLICT ON CONSTRAINT rta_agg_summoner_season_fight_snap_pkey DO UPDATE SET
+            match_cnt         = EXCLUDED.match_cnt,
+            non_ban_pick_cnt  = EXCLUDED.non_ban_pick_cnt,
+            ban_event_cnt     = EXCLUDED.ban_event_cnt,
+            computed_at       = EXCLUDED.computed_at
     </insert>
 
     <!--
       소환사×몬스터 스냅: 시즌 전량을 한 문에 집계하면 I/O·work_mem·JDBC "sending" 오류가 날 수 있어
-      rids(리플레이) 청크로만 집계 — 서비스에서 키셋 반복 호출.
+      스테이징 rid 청크로 집계 — INSERT 전 {@code truncateStagingRtaSummonerSnapRid} + {@code insertStagingRtaSummonerSnapRidBatch} 필수.
     -->
     <insert id="insertRtaSummonerMonsterSnapForSeasonReplayChunk">
         /* rta-queries-batch-meta.insertRtaSummonerMonsterSnapForSeasonReplayChunk */
@@ -950,20 +1001,27 @@
                 mp.replay_id,
                 mp.season_id,
                 mp.wizard_id,
-                mp.is_winner
+                mp.is_winner,
+                mp.is_first_pick
             FROM public.rta_match_participant mp
+            INNER JOIN public.staging_rta_summoner_snap_rid s
+                ON s.season_id = mp.season_id
+               AND s.replay_id = mp.replay_id
             WHERE mp.season_id = #{seasonId}
-              AND mp.replay_id = ANY(#{rids})
         ),
         upnorm AS (
-            SELECT
+            /* (replay_id, wizard_id, unit_master_id) 중복 시 논밴 픽 행 우선 — 밴 행만 남으면 승패 집계가 0으로 깨짐 */
+            SELECT DISTINCT ON (up.replay_id, up.wizard_id, up.unit_master_id)
                 up.replay_id,
                 up.wizard_id,
                 up.unit_master_id,
                 up.is_banned,
                 up.pick_slot_no
             FROM public.rta_match_unit_pick up
-            WHERE up.replay_id = ANY(#{rids})
+            INNER JOIN public.staging_rta_summoner_snap_rid s
+                ON s.replay_id = up.replay_id
+               AND s.season_id = #{seasonId}
+            ORDER BY up.replay_id, up.wizard_id, up.unit_master_id, up.is_banned ASC, up.pick_slot_no ASC
         ),
         agg AS (
             SELECT
@@ -973,10 +1031,15 @@
                 /* pick_cnt: 드래프트에서 이 몬을 택한 횟수(밴으로 끝난 판 포함). 리스트 노출·픽률 분모와 일치 */
                 COUNT(*)::bigint                                       AS pick_cnt,
                 COUNT(*) FILTER (WHERE u.is_banned)::bigint            AS ban_cnt,
-                COUNT(*) FILTER (WHERE NOT u.is_banned AND p.is_winner)::bigint     AS win_cnt,
-                COUNT(*) FILTER (WHERE NOT u.is_banned AND NOT p.is_winner)::bigint AS lose_cnt,
-                /* 선픽: 드래프트 슬롯 1번(벤이어도 pick_slot_no=1 이면 선픽으로 집계) */
-                COUNT(*) FILTER (WHERE u.pick_slot_no = 1)::bigint AS first_pick_cnt
+                COUNT(*) FILTER (WHERE NOT u.is_banned AND p.is_winner IS TRUE)::bigint     AS win_cnt,
+                COUNT(*) FILTER (WHERE NOT u.is_banned AND p.is_winner IS NOT TRUE)::bigint AS lose_cnt,
+                /* 선픽: 해당 팀의 첫 글로벌 픽 턴 — 선측=1, 후측=2 */
+                COUNT(*) FILTER (
+                    WHERE NOT u.is_banned AND (
+                        (p.is_first_pick IS TRUE AND u.pick_slot_no::int = 1)
+                        OR (COALESCE(p.is_first_pick, FALSE) IS NOT TRUE AND u.pick_slot_no::int = 2)
+                    )
+                )::bigint AS first_pick_cnt
             FROM pnorm p
             INNER JOIN upnorm u
                 ON u.replay_id = p.replay_id
@@ -1031,7 +1094,7 @@
             computed_at        = EXCLUDED.computed_at
     </insert>
 
-    <!-- 소환사×몬×pick_slot_no(snake 선/후 라인, 티어 미구분)—몬 스냅과 동일 rids 청크 -->
+    <!-- 소환사×몬×pick_slot_no(snake) — 몬 스냅과 동일 스테이징 rid; TRUNCATE+적재 후 같은 TX에서 호출 -->
     <insert id="insertRtaSummonerPickTurnSnapForSeasonReplayChunk">
         /* rta-queries-batch-meta.insertRtaSummonerPickTurnSnapForSeasonReplayChunk */
         INSERT INTO public.rta_agg_summoner_pick_turn_snap (
@@ -1052,42 +1115,54 @@
                 mp.replay_id,
                 mp.season_id,
                 mp.wizard_id,
-                mp.is_winner
+                mp.is_winner,
+                mp.is_first_pick
             FROM public.rta_match_participant mp
+            INNER JOIN public.staging_rta_summoner_snap_rid s
+                ON s.season_id = mp.season_id
+               AND s.replay_id = mp.replay_id
             WHERE mp.season_id = #{seasonId}
-              AND mp.replay_id = ANY(#{rids})
         ),
         upnorm AS (
-            SELECT
+            /* (replay_id, wizard_id, unit_master_id, pick_slot_no) 중복 방지 */
+            SELECT DISTINCT
                 up.replay_id,
                 up.wizard_id,
                 up.unit_master_id,
                 up.is_banned,
                 up.pick_slot_no
             FROM public.rta_match_unit_pick up
-            WHERE up.replay_id = ANY(#{rids})
+            INNER JOIN public.staging_rta_summoner_snap_rid s
+                ON s.replay_id = up.replay_id
+               AND s.season_id = #{seasonId}
         ),
         picked AS (
             SELECT
                 p.season_id,
                 p.wizard_id,
-                u.unit_master_id::bigint                         AS unit_master_id,
-                u.pick_slot_no::smallint                         AS pick_slot_no,
-                CASE
-                    WHEN u.pick_slot_no IN (1, 4, 5, 8, 9) THEN 1::smallint
-                    WHEN u.pick_slot_no IN (2, 3, 6, 7, 10) THEN 2::smallint
-                END                                              AS team_side,
+                u.unit_master_id::bigint AS unit_master_id,
+                (
+                    CASE WHEN p.is_first_pick IS TRUE THEN
+                        CASE u.pick_slot_no::int
+                            WHEN 1 THEN 1 WHEN 4 THEN 2 WHEN 5 THEN 3 WHEN 8 THEN 4 WHEN 9 THEN 5
+                        END
+                    ELSE
+                        CASE u.pick_slot_no::int
+                            WHEN 2 THEN 1 WHEN 3 THEN 2 WHEN 6 THEN 3 WHEN 7 THEN 4 WHEN 10 THEN 5
+                        END
+                    END
+                )::smallint AS pick_slot_no,
+                CASE WHEN p.is_first_pick IS TRUE THEN 1::smallint ELSE 2::smallint END AS team_side,
                 u.is_banned,
                 p.is_winner
             FROM pnorm p
             INNER JOIN upnorm u
                 ON u.replay_id = p.replay_id
                AND u.wizard_id = p.wizard_id
-            WHERE u.pick_slot_no IS NOT NULL
-              AND (
-                    u.pick_slot_no IN (1, 4, 5, 8, 9)
-                 OR u.pick_slot_no IN (2, 3, 6, 7, 10)
-                  )
+            WHERE (
+                (p.is_first_pick IS TRUE AND u.pick_slot_no::int IN (1, 4, 5, 8, 9))
+                OR (COALESCE(p.is_first_pick, FALSE) IS NOT TRUE AND u.pick_slot_no::int IN (2, 3, 6, 7, 10))
+            )
         ),
         agg AS (
             SELECT
@@ -1285,23 +1360,24 @@
     </insert>
 
     <!--
-      SWEX 집계 user_monster_owned_agg → RTA 읽기 전용 스냅(시즌 무관, 전량 DELETE 후 INSERT).
-      통합 Job 에서 user_monster_owned_agg 갱신 직후·또는 랭킹 Job 말미에 실행.
+      소환사 RTA 픽 노출 DISTINCT — rta_match_unit_pick 만(participant 미조인). 무거운 스냅은 청크마다 staging MERGE.
+      DELETE+본 INSERT는 RtaSummonerOwnedBoxSnapJob 수동 때만 사용.
     -->
     <delete id="deleteAllRtaSummonerOwnedBoxSnap">
         /* rta-queries-batch-meta.deleteAllRtaSummonerOwnedBoxSnap */
         DELETE FROM public.rta_agg_summoner_owned_box_snap
     </delete>
 
-    <insert id="insertRtaSummonerOwnedBoxSnapFromUserMonsterOwnedAgg">
-        /* rta-queries-batch-meta.insertRtaSummonerOwnedBoxSnapFromUserMonsterOwnedAgg */
-        INSERT INTO public.rta_agg_summoner_owned_box_snap (wizard_id, unit_master_id, copy_count, computed_at)
-        SELECT
-            u.wizard_id,
-            u.master_id::bigint,
-            u.copy_count,
+    <insert id="insertRtaSummonerOwnedBoxSnapFromRtaUnitPicks">
+        /* rta-queries-batch-meta.insertRtaSummonerOwnedBoxSnapFromRtaUnitPicks */
+        INSERT INTO public.rta_agg_summoner_owned_box_snap (wizard_id, unit_master_id, computed_at)
+        SELECT DISTINCT
+            up.wizard_id::text,
+            up.unit_master_id::bigint,
             CURRENT_TIMESTAMP
-        FROM public.user_monster_owned_agg u
+        FROM public.rta_match_unit_pick up
+        WHERE up.unit_master_id IS NOT NULL
+          AND up.wizard_id IS NOT NULL
     </insert>
 
     <select id="countRtaSummonerOwnedBoxSnapRows" resultType="long">

@@ -210,7 +210,7 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
                     monsterDataList.add(monsterData);
                 }
             } catch (Exception e) {
-                log.warn("병렬 이미지 처리 결과 수집 중 오류 발생", e);
+                log.error("병렬 이미지 처리 결과 수집 중 오류 발생 (몬스터 저장 건너뜀): {}", e.getMessage(), e);
             }
         }
         return monsterDataList;
@@ -218,6 +218,10 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
 
     private Map<String, Object> prepareMonsterData(SwarfarmMonsterResponse.MonsterData monster) {
         try {
+            if (monster.getCom2usId() == null) {
+                addBatchLog("com2us_id 없음으로 패스: swarfarm_id=%d, name=%s", monster.getId(), monster.getName());
+                return null;
+            }
             if (monster.getImageFilename() == null || monster.getElement() == null) {
                 addBatchLog("이미지 정보 없음으로 패스: swarfarm_id=%d, name=%s, image_filename=%s, element=%s",
                         monster.getId(), monster.getName(), monster.getImageFilename(), monster.getElement());
@@ -313,10 +317,7 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
                 }
             }
             
-            int result = swarfarmMonsterMapper.upsertMonster(monsterData);
-            if (result <= 0) {
-                throw new IllegalStateException("몬스터 upsert 결과가 0입니다. monster_id=" + monsterId);
-            }
+            swarfarmMonsterMapper.upsertMonster(monsterData);
             return monsterId;
         } catch (RuntimeException e) {
             throw e;

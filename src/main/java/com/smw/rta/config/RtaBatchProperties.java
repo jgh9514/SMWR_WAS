@@ -34,11 +34,6 @@ public class RtaBatchProperties {
 	private boolean skipTierAggDailyInUnifiedJob = true;
 
 	/**
-	 * true 이면 통합 Job 의 <b>시너지 단계 직후</b>에 두는 {@code user_monster_owned_agg} 재적재를 생략한다.
-	 */
-	private boolean skipUserMonsterOwnedAggInUnifiedJob = false;
-
-	/**
 	 * 시너지 단독 Job({@link com.smw.monster.batch.RtaSynergyOnlyAggJob})에서
 	 * 각 라운드가 끝날 때마다 RTA 조회 캐시를 무효화할지 여부.
 	 * <p>

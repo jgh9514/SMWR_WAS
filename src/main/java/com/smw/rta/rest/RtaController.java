@@ -299,6 +299,41 @@ public class RtaController {
         }
     }
 
+    @Operation(summary = "Monster pick slot matches", description = "teamSide(1=first/2=second) + pickSlotNo(1-5) filtered matches")
+    @PostMapping("/player/{wizardId}/monster-pick-slot-matches")
+    public ResponseEntity<Map<String, Object>> getRtaPlayerMonsterPickSlotMatches(
+            @PathVariable String wizardId,
+            @RequestBody(required = false) Map<String, Object> param) {
+        try {
+            Long sid = pickSeasonId(param);
+            int unitMasterId = 0;
+            int teamSide = 0;
+            int pickSlotNo = 0;
+            int limit = 20;
+            if (param != null) {
+                if (param.get("unit_master_id") != null)
+                    unitMasterId = Integer.parseInt(param.get("unit_master_id").toString());
+                if (param.get("team_side") != null)
+                    teamSide = Integer.parseInt(param.get("team_side").toString());
+                if (param.get("pick_slot_no") != null)
+                    pickSlotNo = Integer.parseInt(param.get("pick_slot_no").toString());
+                if (param.get("limit") != null)
+                    limit = Math.min(30, Math.max(1, Integer.parseInt(param.get("limit").toString())));
+            }
+            if (unitMasterId <= 0 || teamSide < 1 || teamSide > 2 || pickSlotNo < 1 || pickSlotNo > 5) {
+                Map<String, Object> bad = new HashMap<>();
+                bad.put("error", "unit_master_id, team_side(1-2), pick_slot_no(1-5) required");
+                return ResponseEntity.badRequest().body(bad);
+            }
+            Map<String, Object> response = rtaService.getRtaPlayerMonsterPickSlotMatches(
+                    wizardId, sid, unitMasterId, teamSide, pickSlotNo, limit);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("RTA monster-pick-slot-matches 조회 실패 wizardId={}", wizardId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
     @Operation(summary = "RTA 소환사 상대 전적(스냅)", description = "시즌 전체 위자드별 H2H — rta_agg_summoner_opponent_h2h_snap (배치 적재)")
     @PostMapping("/player/{wizardId}/opponent-records")
     public ResponseEntity<Map<String, Object>> getRtaPlayerOpponentRecords(
@@ -339,7 +374,7 @@ public class RtaController {
         }
     }
 
-    @Operation(summary = "RTA 소환사 보유 몬스터(박스)", description = "SWEX 보유 집계 스냅 rta_agg_summoner_owned_box_snap")
+    @Operation(summary = "RTA 소환사 보유 몬스터(박스)", description = "수집 리플레이 RTA 픽 기준 스냅 rta_agg_summoner_owned_box_snap (무거운 스냅 배치와 동일 갱신)")
     @PostMapping("/player/{wizardId}/owned-box")
     public ResponseEntity<Map<String, Object>> getRtaPlayerOwnedBox(@PathVariable String wizardId) {
         try {

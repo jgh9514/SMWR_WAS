@@ -512,6 +512,31 @@ public class RtaServiceImpl implements RtaService {
 
     @Override
     @Cacheable(cacheNames = "rtaMatchList", cacheManager = "rtaListReadCacheManager",
+            key = "'pmps_' + #wizardId + '_' + #seasonId + '_' + #unitMasterId + '_' + #teamSide + '_' + #pickSlotNo",
+            condition = "#seasonId != null && #wizardId != null && !#wizardId.isBlank()")
+    public Map<String, Object> getRtaPlayerMonsterPickSlotMatches(String wizardId, Long seasonId,
+            int unitMasterId, int teamSide, int pickSlotNo, int limit) {
+        Long sid = doResolveSeasonId(seasonId);
+        Map<String, Object> out = new HashMap<>();
+        if (wizardId == null || wizardId.trim().isEmpty() || sid == null || unitMasterId <= 0
+                || teamSide < 1 || teamSide > 2 || pickSlotNo < 1 || pickSlotNo > 5) {
+            out.put("matches", Collections.emptyList());
+            return out;
+        }
+        int lim = Math.max(1, Math.min(limit, 30));
+        List<Map<String, Object>> matches = rtaMapper.listRtaPlayerMonsterPickSlotMatches(
+                wizardId.trim(), sid, (long) unitMasterId, teamSide, pickSlotNo, lim);
+        out.put("seasonId", sid);
+        out.put("wizardId", wizardId.trim());
+        out.put("unitMasterId", unitMasterId);
+        out.put("teamSide", teamSide);
+        out.put("pickSlotNo", pickSlotNo);
+        out.put("matches", matches != null ? matches : Collections.emptyList());
+        return out;
+    }
+
+    @Override
+    @Cacheable(cacheNames = "rtaMatchList", cacheManager = "rtaListReadCacheManager",
             key = "'popp_' + #wizardId + '_' + #seasonId + '_' + #limit + '_' + #offset",
             condition = "#seasonId != null && #wizardId != null && !#wizardId.isBlank()")
     public Map<String, Object> getRtaPlayerOpponentHeadToHead(String wizardId, Long seasonId, int limit, int offset) {

@@ -203,7 +203,7 @@ public interface RtaMapper {
     int insertRtaSummonerSeasonFightSnapForSeason(@Param("seasonId") long seasonId);
 
     /**
-     * 키셋: 시즌 내 {@code summoner_ranking_applied_at IS NULL} 인 {@code rta_match.replay_id} 중
+     * 키셋: 시즌 내 {@code summoner_ranking_apply_result IS NULL} 인 {@code rta_match.replay_id} 중
      * after 보다 큰 것만 오름차순, 최대 limit 건.
      */
     List<Long> selectReplayIdsForSummonerMonsterSnapKeyset(
@@ -211,17 +211,35 @@ public interface RtaMapper {
             @Param("afterReplayIdExclusive") long afterReplayIdExclusive,
             @Param("limit") int limit);
 
+    /**
+     * {@code summoner_ranking_apply_result IS NULL} 인 매치가 하나라도 있는 시즌만 (무거운 스냅 배치 대상 시즌).
+     */
+    List<Long> selectSeasonIdsWithPendingSummonerRankingReplays();
+
     /** 시즌 스냅 전량 삭제 직후 — 해당 시즌 {@code rta_match} 소환사 스냅 플래그를 NULL 로 (재집계 대기). */
     int clearSummonerRankingMatchFlagsForSeason(@Param("seasonId") long seasonId);
 
-    /** 무거운 스냅 청크(몬·픽턴) 적재 성공 후 — 해당 rid 에 S 마킹. */
-    int markSummonerRankingAggDoneForRids(@Param("rids") long[] rids);
+    /** 무거운 스냅: 청크 시작 시 스테이징 비우기(UNLOGGED). */
+    void truncateStagingRtaSummonerSnapRid();
+
+    /** 스테이징에 replay_id 적재 — 이후 집계 SQL 이 JOIN 으로 참조. */
+    int insertStagingRtaSummonerSnapRidBatch(@Param("seasonId") long seasonId, @Param("rids") List<Long> rids);
 
     /**
-     * {@code rta_agg_summoner_monster_snap} — 해당 {@code rids} 리플레이만 집계하여 INSERT.
-     * 대량 시즌은 서비스에서 rids 를 청크로 나눠 반복 호출. {@code user_monster_owned_agg} 는 LEFT JOIN.
+     * {@code rta_agg_summoner_monster_snap} — 스테이징에 올린 rid 만 집계하여 INSERT.
+     * 직전에 {@link #truncateStagingRtaSummonerSnapRid}, {@link #insertStagingRtaSummonerSnapRidBatch} 필수.
      */
-    int insertRtaSummonerMonsterSnapForSeasonReplayChunk(@Param("seasonId") long seasonId, @Param("rids") long[] rids);
+    int insertRtaSummonerMonsterSnapForSeasonReplayChunk(@Param("seasonId") long seasonId);
+
+    /**
+     * {@code staging_rta_summoner_snap_rid} 에 올린 rid 의 {@code rta_match_unit_pick} 만으로
+     * {@code rta_agg_summoner_owned_box_snap} 를 MERGE한다(청크 단위 증분. 전량 DELETE 없음).
+     * 직전에 스테이징 적재되어 있어야 한다.
+     */
+    int mergeRtaSummonerOwnedBoxSnapFromStagingReplayChunk(@Param("seasonId") long seasonId);
+
+    /** 스테이징 rid 에 해당하는 {@code rta_match} 만 S 마킹. */
+    int markSummonerRankingAggDoneForStagingSeason(@Param("seasonId") long seasonId);
 
     Long countRtaSummonerSeasonFightSnapRows();
 
@@ -229,10 +247,15 @@ public interface RtaMapper {
 
     Long countRtaSummonerPickTurnSnapRows();
 
-    /** SWEX user_monster_owned_agg → RTA 읽기 스냅(전량) */
+    /**
+     * RTA 픽 원천 전체 → 스냅 전량 교체(전량 DELETE 후 INSERT).
+     * 정식 무거운 스냅 {@link com.smw.monster.batch.RtaSummonerRankingAggJob} 에서는 청크별
+     * {@link #mergeRtaSummonerOwnedBoxSnapFromStagingReplayChunk} 만 사용하고, 수동
+     * {@link com.smw.monster.batch.RtaSummonerOwnedBoxSnapJob} 에서만 호출한다.
+     */
     int deleteAllRtaSummonerOwnedBoxSnap();
 
-    int insertRtaSummonerOwnedBoxSnapFromUserMonsterOwnedAgg();
+    int insertRtaSummonerOwnedBoxSnapFromRtaUnitPicks();
 
     Long countRtaSummonerOwnedBoxSnapRows();
 
@@ -264,7 +287,15 @@ public interface RtaMapper {
     List<Map<String, Object>> listRtaPlayerMonsterPickBucketsFromSnap(@Param("wizardId") String wizardId,
             @Param("seasonId") long seasonId, @Param("unitMasterId") long unitMasterId);
 
-    /** 보유 박스 스냅 — rta_agg_summoner_owned_box_snap + monster 메타 */
+    /**
+     * 소환사×몬스터 특정 픽 슬롯 경기 목록 — team_side(1=선픽/2=후픽) + pick_slot_no(1~5) 필터.
+     */
+    List<Map<String, Object>> listRtaPlayerMonsterPickSlotMatches(@Param("wizardId") String wizardId,
+            @Param("seasonId") long seasonId, @Param("unitMasterId") long unitMasterId,
+            @Param("teamSide") int teamSide, @Param("pickSlotNo") int pickSlotNo,
+            @Param("limit") int limit);
+
+    /** 소환사별 RTA 픽·밴으로 노출된 몬스터 스냅 — {@code rta_agg_summoner_owned_box_snap} + {@code monster} 메타 */
     List<Map<String, Object>> listRtaSummonerOwnedBoxSnapByWizard(@Param("wizardId") String wizardId);
 
     /** 시너지 미집계 rid ({@code rta_match.synergy_applied_at IS NULL}, rid 오름차순). 성공/실패는 {@code synergy_apply_result}. */
@@ -317,11 +348,9 @@ public interface RtaMapper {
     void truncateStagingMatchupAgg();
 
     /**
-     * {@code rta_agg_summoner_pick_turn_snap} — 해당 {@code rids} 청크 upsert(시즌·위자드·몬 단위 snake 픽턴·선후 라인).
-
+     * {@code rta_agg_summoner_pick_turn_snap} — 스테이징 rid 청크 upsert. 몬 스냅과 동일 트랜잭션에서 호출.
      */
-    int insertRtaSummonerPickTurnSnapForSeasonReplayChunk(
-            @Param("seasonId") long seasonId, @Param("rids") long[] rids);
+    int insertRtaSummonerPickTurnSnapForSeasonReplayChunk(@Param("seasonId") long seasonId);
 
     /**
      * 픽 순서별 집계 — {@code rta_agg_pick_turn}. 시즌 전량 DELETE 후 INSERT.

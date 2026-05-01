@@ -15,10 +15,9 @@
 한 번의 스케줄 실행으로 다음을 **순서대로** 처리한다.
 
 1. **리플레이 raw**(`ranker_rtpvp_replay_raw`) 중 미적용 건을 **정규화 테이블**(`rta_match` 계열)로 반영  
-2. **시너지·카운터 등 미집계 경기**를 `rta_agg_synergy_combo` 등에 반영 (`synergy_applied_at` 갱신)  
-3. (선택) **SWEX 기반 보유 몬스터 집계** `user_monster_owned_agg`  
-4. (선택) **레거시 몬스터 통계·티어 일별** — 기본은 생략하고 별도 Job 권장  
-5. 마지막에 **RTA 조회 캐시 전역 무효화**
+2. **시너지·카운터 등 미집계 경기** — 통합 Job에서는 보통 생략, `RtaSynergyOnlyAggJob` 등 별도 스케줄  
+3. (선택) **레거시 몬스터 통계·티어 일별** — 기본 생략, 별도 Job 권장  
+4. 마지막에 **RTA 조회 캐시 전역 무효화**
 
 ### 1.1 이 Job이 하지 않는 것
 
@@ -27,15 +26,15 @@
 | `rta_match` 없는 자식 테이블 고아 삭제 | `ArenaRtaOrphanCleanupBatchJob` + `deleteArenaRtaOrphanChildrenGlobal` |
 | 랭크컷 앵컷/등급 컷 스냅샷 | `RtaRankCutSnapshotAggJob` |
 | 티어 일별(`rta_agg_tier_daily`) 전량 재적재 | 기본 스킵 → `RtaTierDailyAggJob` 권장 |
-| 소환사 랭킹 agg 재적재 | 통합 파이프라인에서 제거됨(`rebuildSummonerRankingAgg`는 no-op) |
+| 소환사 RTA 픽 기반 박스 스냅 전량 재적재 | `RtaSummonerRankingAggJob` 말미 (`rta_agg_summoner_owned_box_snap`) |
 
 ---
 
-## 2. 파이프라인 단계 (로그 기준 `[n/3]`)
+## 2. 파이프라인 단계 (로그 기준 `[n/2]`)
 
-상수 `PIPELINE_STEPS = 3`. 단계 번호는 스킵 여부와 무관하게 **1→2→3** 고정.
+상수 `PIPELINE_STEPS = 2`. 시너지 drain·보유 청크는 통합 Job에서 생략되며 별도 Job 또는 무거운 스냅에서 처리한다.
 
-### 2.1 [1/3] RTA raw 정규화
+### 2.1 [1/2] RTA raw 정규화
 
 | 항목 | 내용 |
 |------|------|
@@ -61,9 +60,9 @@
 
 ---
 
-### 2.2 [2/3] 시너지 집계 + (선택) 보유 몬스터
+### 2.2 [2/2] 시너지 집계 (별도 Job에서 처리하는 경우가 일반적)
 
-#### A) 시너지 drain
+#### A) 시너지 drain (통합 Job 기본 생략 시 참고)
 
 | 항목 | 내용 |
 |------|------|
@@ -84,15 +83,14 @@
 
 시너지·카운터 대량 경로는 `RtaSynergyAggServiceImpl` 내부의 COPY 스테이징·`smw.rta.synergy-agg.*`, `smw.rta.counter-agg.*` 로 튜닝.
 
-#### B) 사용자 보유 몬스터 (시너지 직후, 같은 step 번호로 로그)
+#### B) `rta_agg_summoner_owned_box_snap`
 
-| 조건 | `skipUserMonsterOwnedAggInUnifiedJob == false` 일 때만 실행 |
-| 처리 | `AccountSummaryMapper.deleteAllUserMonsterOwnedAgg()` → `insertUserMonsterOwnedAggFromSwex()` → `countUserMonsterOwnedAgg()` |
-| 기본값 | `application.yml` 에서 스킵 **true** (`SMW_RTA_UNIFIED_SKIP_USER_OWNED_AGG`) — 운영에서 false 로 켜는 패턴 |
+통합 Job에서는 보유 박스 스냅을 **처리하지 않는다.**  
+정식 전량 재적재는 **`RtaSummonerRankingAggJob`** 말미에서 `rta_match_unit_pick`(픽·밴 포함) 기준 DISTINCT 로 수행한다. 수동만 필요하면 `RtaSummonerOwnedBoxSnapJob`.
 
 ---
 
-### 2.3 [3/3] 부가 집계 (설정 시만)
+### 2.3 부가 집계 (동일 실행 내 step 2 로그에서 선택 실행)
 
 | 플래그 | 처리 | 구현 |
 |--------|------|------|
@@ -106,7 +104,7 @@
 ### 2.4 종료 처리
 
 - `RtaCacheEvictor.evictAllRtaCaches()` — RTA 관련 조회 캐시 무효화  
-- 로그: `[종료] (3/3) RTA 조회 캐시 무효화`
+- 로그: `[종료] (2/2) RTA 조회 캐시 무효화`
 
 ---
 
@@ -119,7 +117,6 @@
 | `RtaSynergyAggService` | `applySynergyBatch` |
 | `RtaBatchAggregationService` | drain·rebuild 래퍼 |
 | `RtaCacheEvictor` | 캐시 무효화 |
-| `AccountSummaryMapper` | SWEX → `user_monster_owned_agg` |
 | `RtaBatchProperties` | `smw.rta.batch.*` |
 | `RtaRawApplyProperties` | `smw.rta.raw-apply.*` |
 
