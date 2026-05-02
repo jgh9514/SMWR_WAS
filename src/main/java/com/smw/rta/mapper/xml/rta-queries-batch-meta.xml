@@ -561,23 +561,45 @@
                 ladder_score,
                 ROW_NUMBER() OVER (ORDER BY ladder_score DESC) AS rn
             FROM latest_scores
+        ),
+        computed_cuts AS MATERIALIZED (
+            /* 티어별 랭크컷 점수 계산 */
+            SELECT
+                rg.grade_slot,
+                COALESCE(rg.tier_sort, 0)::smallint AS sort_order,
+                GREATEST(
+                    COALESCE(rgs.min_win_points, 0)::bigint,
+                    COALESCE(r.ladder_score, 0)::bigint
+                ) AS cutoff_score
+            FROM public.rta_rating_grade_season rgs
+            INNER JOIN public.rta_rating_grade rg
+                ON rg.rating_id = rgs.rating_id
+               AND rg.grade_slot IS NOT NULL
+            LEFT JOIN ranked r ON r.rn = regexp_replace(rgs.rank_rule, '[^0-9]', '', 'g')::bigint
+            WHERE rgs.season_id = #{seasonId}
+              AND rgs.min_win_points IS NOT NULL
+        ),
+        all_hours AS (
+            /* 시즌 시작 시각부터 현재까지 1시간 단위 전체 시계열 */
+            SELECT generate_series(
+                DATE_TRUNC('hour', (SELECT start_at FROM public.rta_season WHERE season_id = #{seasonId})),
+                DATE_TRUNC('hour', CURRENT_TIMESTAMP),
+                INTERVAL '1 hour'
+            ) AS h
+        ),
+        missing_hours AS (
+            /* 이미 존재하는 (snapped_at, grade_slot) 제외 — 누락 시간대만 추출 */
+            SELECT ah.h
+            FROM all_hours ah
+            WHERE NOT EXISTS (
+                SELECT 1 FROM public.rta_agg_rank_cut_hourly_snap s
+                WHERE s.season_id = #{seasonId}
+                  AND s.snapped_at = ah.h
+            )
         )
-        SELECT
-            #{seasonId},
-            CURRENT_TIMESTAMP,
-            rg.grade_slot,
-            COALESCE(rg.tier_sort, 0)::smallint,
-            GREATEST(
-                COALESCE(rgs.min_win_points, 0)::bigint,
-                COALESCE(r.ladder_score, 0)::bigint
-            ) AS cutoff_score
-        FROM public.rta_rating_grade_season rgs
-        INNER JOIN public.rta_rating_grade rg
-            ON rg.rating_id = rgs.rating_id
-           AND rg.grade_slot IS NOT NULL
-        LEFT JOIN ranked r ON r.rn = rgs.rank_rule
-        WHERE rgs.season_id = #{seasonId}
-          AND rgs.min_win_points IS NOT NULL
+        SELECT #{seasonId}, mh.h, cc.grade_slot, cc.sort_order, cc.cutoff_score
+        FROM missing_hours mh
+        CROSS JOIN computed_cuts cc
         ON CONFLICT (season_id, snapped_at, grade_slot) DO NOTHING
     </insert>
 
@@ -591,10 +613,10 @@
     <select id="getRtaRankCutHourlyForDashboard" resultType="map">
         SELECT DISTINCT ON (a.sort_order, h.grade_slot)
             a.sort_order   AS "anchorSort",
-            a.anchor_key   AS "anchorKey",
+            a.anchor_key   AS "anchor_key",
             h.grade_slot   AS "gradeSlot",
             h.sort_order   AS "tierSort",
-            h.cutoff_score AS "cutoffScore",
+            h.cutoff_score AS "cutoff_score",
             h.snapped_at   AS "snappedAt"
         FROM (VALUES
             (0, 'now', INTERVAL '0'),
