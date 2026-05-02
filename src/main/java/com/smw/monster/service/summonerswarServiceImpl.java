@@ -1640,21 +1640,39 @@ public class summonerswarServiceImpl implements summonerswarService {
 	@Override
 	public int applyPendingArenaReplayRawFromDb() {
 		int maxRows = Math.max(1, rtaRawApplyProperties.getMaxRowsPerRun());
+		int maxBatches = Math.max(1, rtaRawApplyProperties.getMaxBatchesPerJob());
 
 		long t0 = System.currentTimeMillis();
-		List<Map<String, ?>> pending = swMapper.selectRtaReplayRawPending(maxRows);
-		long selectMs = System.currentTimeMillis() - t0;
+		int totalApplied = 0;
 
-		if (pending.isEmpty()) {
-			log.info("[rta-raw-apply] 종료: 미처리 조회 0건 (select {}ms)", selectMs);
-			return 0;
+		for (int batchIdx = 1; batchIdx <= maxBatches; batchIdx++) {
+			long ts = System.currentTimeMillis();
+			List<Map<String, ?>> pending = swMapper.selectRtaReplayRawPending(maxRows);
+			long selectMs = System.currentTimeMillis() - ts;
+
+			if (pending.isEmpty()) {
+				log.info("[rta-raw-apply] 종료: 배치#{}/{}, 미처리 조회 0건 (select {}ms), 누적 적용 {}건, 경과 {}ms",
+						batchIdx, maxBatches, selectMs, totalApplied, System.currentTimeMillis() - t0);
+				return totalApplied;
+			}
+
+			log.info("[rta-raw-apply] 배치#{}/{}: 조회 {}건 (select {}ms), 누적 적용(이전까지) {}건",
+					batchIdx, maxBatches, pending.size(), selectMs, totalApplied);
+			int applied = applyPendingArenaReplayRawRows(pending);
+			totalApplied += applied;
+			log.info("[rta-raw-apply] 배치#{}/{}: 이번 적용 {}건, 누적 {}건, 경과 {}ms",
+					batchIdx, maxBatches, applied, totalApplied, System.currentTimeMillis() - t0);
+
+			if (applied == 0 && !pending.isEmpty()) {
+				// 동일 행만 반복 선택되는 비정상 시 무한 라운드를 막음 (다음 스케줄에서 재시도)
+				log.warn("[rta-raw-apply] 배치#{} 적용 0건·조회>0 → 라운드 중단", batchIdx);
+				break;
+			}
 		}
 
-		log.info("[rta-raw-apply] 시작: 조회 {}건 (select {}ms)", pending.size(), selectMs);
-		int applied = applyPendingArenaReplayRawRows(pending);
-		log.info("[rta-raw-apply] 완료: 적용 {}건 / 조회 {}건, 전체 {}ms — 잔여 raw 는 다음 스케줄에서 계속",
-				applied, pending.size(), System.currentTimeMillis() - t0);
-		return applied;
+		log.info("[rta-raw-apply] 라운드 상한 종료: maxBatches={} — 잔여 raw 는 다음 스케줄·수동 재실행에서 계속",
+				maxBatches);
+		return totalApplied;
 	}
 
 	/** pending/failed 행 목록에 대해 파싱·이미 replay 존재 시 bulk 적용·정규화 청크 처리. */

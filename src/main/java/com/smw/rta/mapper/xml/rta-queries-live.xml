@@ -493,7 +493,6 @@
         WITH deleted AS (
             DELETE FROM public.rta_agg_tier_daily
             WHERE season_id = #{seasonId}
-            RETURNING 1
         )
         INSERT INTO public.rta_agg_tier_daily (season_id, bucket_date, grade_slot, player_count, sort_order, computed_at)
         SELECT #{seasonId}, d.bucket_date, d.grade_slot, d.player_count, d.sort_order, now()

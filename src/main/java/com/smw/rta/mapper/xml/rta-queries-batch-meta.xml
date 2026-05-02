@@ -301,39 +301,18 @@
         WITH
         <include refid="rtaSummonerRankingTopWizardsPairCte"/>,
         <include refid="rtaSummonerRankingPool500AndFilterCte"/>,
-        win_agg AS (
+        pool_ranked_final AS (
             SELECT
-                u.wizard_id,
-                COUNT(*)::bigint AS match_count,
-                SUM(CASE WHEN u.is_winner THEN 1 ELSE 0 END)::bigint AS win_count
-            FROM public.rta_match_participant u
-            WHERE u.season_id = #{seasonId}
-              AND u.ladder_score &gt; 0
-              AND u.wizard_id IN (SELECT pp.wizard_id FROM pool_500 pp)
-            GROUP BY u.wizard_id
-        ),
-        pool_ranked_dedup_wizard AS (
-            SELECT DISTINCT ON (p.wizard_id)
+                p.rank_position,
                 p.wizard_id,
                 p.wizard_name,
                 p.country,
                 p.channel_uid,
                 p.max_score,
                 p.rating_id,
-                p.rank_position
+                p.match_count,
+                p.win_count
             FROM pool_ranked p
-            ORDER BY p.wizard_id, p.rank_position ASC, p.wizard_name NULLS LAST
-        ),
-        pool_ranked_final AS (
-            SELECT
-                ROW_NUMBER() OVER (ORDER BY d.rank_position ASC, d.wizard_id ASC) AS rank_position,
-                d.wizard_id,
-                d.wizard_name,
-                d.country,
-                d.channel_uid,
-                d.max_score,
-                d.rating_id
-            FROM pool_ranked_dedup_wizard d
             LIMIT 500
         )
         INSERT INTO public.rta_agg_summoner_ranking_snap (
@@ -360,17 +339,16 @@
             p.max_score AS score,
             p.rating_id,
             p.max_score::int AS max_season_score,
-            COALESCE(wa.match_count, 0)::bigint AS match_count,
-            COALESCE(wa.win_count, 0)::bigint AS win_count,
+            p.match_count,
+            p.win_count,
             now()
         FROM pool_ranked_final p
-        LEFT JOIN win_agg wa ON wa.wizard_id = p.wizard_id
         ORDER BY p.rank_position
     </insert>
 
     <!--
-      검색 스냅: 시즌 비저장, wizard_id PK. participant 전체에서 대표 1행(래더 최고, 동률이면 replay_id 큰 쪽) upsert.
-      닉/국가/channel_uid가 기존과 동일하면 DO UPDATE 는 WHERE 로 스킵(불필요한 쓰기 감소).
+      검색 스냅: 시즌 비저장, wizard_id PK. 현재 시즌 participant 에서 대표 1행(래더 최고, 동률이면 replay_id 큰 쪽) upsert.
+      과거 시즌 항목은 삭제되지 않고 유지(upsert 방식). 닉/국가/channel_uid가 동일하면 DO UPDATE 스킵.
     -->
     <insert id="upsertRtaSummonerSearchSnap">
         WITH pick AS (
@@ -380,7 +358,8 @@
                 mp.country_code AS country,
                 mp.channel_uid
             FROM public.rta_match_participant mp
-            WHERE mp.wizard_id &lt;&gt; ''
+            WHERE mp.season_id = #{seasonId}
+              AND mp.wizard_id &lt;&gt; ''
             ORDER BY mp.wizard_id, mp.ladder_score DESC NULLS LAST, mp.replay_id DESC
         )
         INSERT INTO public.rta_agg_summoner_search_snap (wizard_id, wizard_name, country, channel_uid)
@@ -561,9 +540,9 @@
         ORDER BY rg.tier_sort NULLS LAST, s.rating_id
     </select>
 
-    <!-- 랭크컷 앵커 스냅: 운영 락 완화용 DELETE 후 재적재 -->
+    <!-- 랭크컷 앵커 스냅: TRUNCATE(dead-tuple 없이 전량 제거, DELETE 대비 빠름) -->
     <update id="deleteAllRtaRankCutoffAnchorSnap">
-        DELETE FROM public.rta_rank_cutoff_anchor_snap
+        TRUNCATE public.rta_rank_cutoff_anchor_snap
     </update>
 
     <!-- getRtaRankCutoffAnchorsFromLive 와 동일 로직 → 집계 테이블 적재 (배치 전용) -->
@@ -588,7 +567,8 @@
                 (5, '7d',  INTERVAL '7 days')
             ) AS v(sort_order, anchor_key, iv)
         ),
-        base AS (
+        base AS MATERIALIZED (
+            /* MATERIALIZED: lower_bound 가 anchors×tiers(25조합) 로 반복 조인하므로 한 번만 계산 */
             SELECT
                 r.date_add,
                 u.ladder_score AS score_val,
@@ -671,24 +651,30 @@
       소스 등급 집합은 rta_rating_grade_season(해당 시즌 공식)만 — 전 등급 × LEFT rgs 는 타 시즌/미정의 티어가 섞임.
       MIN 은 rta_match / participant 의 season_id 로 한정(날짜 구간만 쓰면 season_id 미일치 리플 섞임).
       getRtaSnapshotRankCutLatest 와 맞추기 위해 min_win_points IS NULL 인 티어(예: P1)는 제외.
+      개선: correlated subquery(시즌×등급 N+1) → min_scores CTE 단일 사전 집계 후 LEFT JOIN.
     -->
-    <insert id="insertRtaSnapshotRankCutForAllSeasons">
+    <insert id="insertRtaSnapshotRankCutForSeason">
         INSERT INTO public.rta_snapshot_rank_cut (season_id, snapshot_at, rating_id, cutoff_score)
-        SELECT DISTINCT ON (s.season_id, rg.rating_id)
+        WITH min_scores AS (
+            /* participant.played_at 직접 사용 — rta_match JOIN 불필요(동일 값 보유).
+               idx_rta_participant_season_rating_played(season_id, rating_id, played_at, replay_id) 완전 커버. */
+            SELECT
+                u.season_id,
+                u.rating_id,
+                MIN(u.ladder_score)::bigint AS min_ladder
+            FROM public.rta_match_participant u
+            INNER JOIN public.rta_season s ON s.season_id = u.season_id
+            WHERE u.season_id = #{seasonId}
+              AND u.ladder_score &gt; 0
+              AND u.played_at &gt;= s.start_at
+              AND u.played_at &lt; s.end_at
+            GROUP BY u.season_id, u.rating_id
+        )
+        SELECT
             s.season_id,
             CURRENT_TIMESTAMP,
             rg.rating_id,
-            COALESCE((
-                SELECT MIN(u.ladder_score)
-                FROM public.rta_match_participant u
-                INNER JOIN public.rta_match m ON m.replay_id = u.replay_id
-                WHERE u.season_id = s.season_id
-                  AND m.season_id = s.season_id
-                  AND m.played_at &gt;= s.start_at
-                  AND m.played_at &lt; s.end_at
-                  AND u.rating_id = rg.rating_id
-                  AND u.ladder_score &gt; 0
-            ), rgs.min_win_points, 0)::bigint
+            COALESCE(ms.min_ladder, rgs.min_win_points, 0)::bigint
         FROM public.rta_season s
         INNER JOIN public.rta_rating_grade_season rgs
             ON rgs.season_id = s.season_id
@@ -696,22 +682,26 @@
         INNER JOIN public.rta_rating_grade rg
             ON rg.rating_id = rgs.rating_id
            AND rg.grade_slot IS NOT NULL
-        ORDER BY s.season_id, rg.rating_id
+        LEFT JOIN min_scores ms
+            ON ms.season_id = s.season_id
+           AND ms.rating_id = rg.rating_id
+        WHERE s.season_id = #{seasonId}
     </insert>
 
-    <!-- 시즌×티어별 총 경기 수 재집계: 픽률·밴률 분모용 -->
+    <!-- 현재 시즌×티어별 총 경기 수 재집계: 픽률·밴률 분모용.
+         participant.season_id 직접 사용 — rta_match JOIN 불필요(season_id 중복 보유). -->
     <insert id="rebuildRtaSeasonRatingMatchTotal">
         INSERT INTO public.rta_agg_season_rating_match_total (season_id, rating_id, total_matches, computed_at)
         SELECT
-            m.season_id,
+            p.season_id,
             p.rating_id,
             COUNT(DISTINCT p.replay_id)::bigint AS total_matches,
             CURRENT_TIMESTAMP
         FROM public.rta_match_participant p
-        INNER JOIN public.rta_match m ON m.replay_id = p.replay_id
-        WHERE p.rating_id IS NOT NULL
+        WHERE p.season_id = #{seasonId}
+          AND p.rating_id IS NOT NULL
           AND p.rating_id &gt; 0
-        GROUP BY m.season_id, p.rating_id
+        GROUP BY p.season_id, p.rating_id
         ON CONFLICT (season_id, rating_id) DO UPDATE SET
             total_matches = EXCLUDED.total_matches,
             computed_at = EXCLUDED.computed_at

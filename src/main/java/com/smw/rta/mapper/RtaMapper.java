@@ -126,11 +126,11 @@ public interface RtaMapper {
 
     int insertRtaRankCutoffAnchorSnapFromLive(@Param("seasonId") long seasonId);
 
-    /** 시즌×등급별 컷 히스토리 1회 적재 */
-    int insertRtaSnapshotRankCutForAllSeasons();
+    /** 현재 시즌 등급별 컷 히스토리 1회 적재 */
+    int insertRtaSnapshotRankCutForSeason(@Param("seasonId") long seasonId);
 
-    /** 시즌×티어별 총 경기 수 upsert 재집계 ({@code rta_agg_season_rating_match_total}). */
-    int rebuildRtaSeasonRatingMatchTotal();
+    /** 현재 시즌×티어별 총 경기 수 upsert 재집계 ({@code rta_agg_season_rating_match_total}). */
+    int rebuildRtaSeasonRatingMatchTotal(@Param("seasonId") long seasonId);
 
     /** {@code rta_rank_cutoff_anchor_snap} 전체 행 수 (배치 적재 후 로깅) */
     Long countRtaRankCutoffAnchorSnapRows();
@@ -159,8 +159,8 @@ public interface RtaMapper {
      */
     Integer acquireRtaSummonerSearchSnapGlobalXactLock();
 
-    /** participant 기준 wizard_id 당 대표 1행을 upsert(닉·국가 동일이면 UPDATE 생략) */
-    int upsertRtaSummonerSearchSnap();
+    /** 현재 시즌 participant 기준 wizard_id 당 대표 1행을 upsert(닉·국가 동일이면 UPDATE 생략) */
+    int upsertRtaSummonerSearchSnap(@Param("seasonId") long seasonId);
 
     /** {@code rta_agg_monster_stats_tier_top_snap} 시즌 전체 삭제 후 솔/듀/트 상위 100 재적재 */
     int deleteRtaMonsterStatsTierTopSnapBySeason(@Param("seasonId") long seasonId);

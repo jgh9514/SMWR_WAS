@@ -75,20 +75,13 @@ day_last AS (
     ) t
     ORDER BY t.wizard_id, t.match_day, t.played_at DESC, t.replay_id DESC
 ),
-wizard_ordered AS (
-    SELECT
-        wizard_id,
-        match_day,
-        day_end_rating AS cum_max
-    FROM day_last
-),
 wizard_segments AS (
     SELECT
         wizard_id,
         match_day,
-        cum_max,
+        day_end_rating AS cum_max,
         LEAD(match_day) OVER (PARTITION BY wizard_id ORDER BY match_day) AS next_match_day
-    FROM wizard_ordered
+    FROM day_last
 ),
 by_day AS (
     SELECT
@@ -198,13 +191,17 @@ GROUP BY bucket_date, grade_slot
 	-->
 	<sql id="rtaSummonerRankingTopWizardsPairCte">
 		top_wizards AS (
+			/* match_count·win_count 를 윈도 함수로 함께 계산 — rta_match_participant 단일 스캔.
+			   DISTINCT ON 이 행을 선택한 뒤에도 윈도 값은 위자드 전체 집계를 유지함. */
 			SELECT DISTINCT ON (wizard_id)
 				wizard_id,
 				wizard_name,
 				country_code AS country,
 				channel_uid,
 				ladder_score AS max_score,
-				rating_id
+				rating_id,
+				COUNT(*) OVER (PARTITION BY wizard_id)::bigint AS match_count,
+				SUM(CASE WHEN is_winner THEN 1 ELSE 0 END) OVER (PARTITION BY wizard_id)::bigint AS win_count
 			FROM public.rta_match_participant
 			WHERE season_id = #{seasonId}
 			  AND ladder_score &gt; 0
@@ -223,14 +220,16 @@ GROUP BY bucket_date, grade_slot
 		  중복이 생기면 top_wizards row 가 둘 이상이 될 수 있음 → pool_500·ROW_NUMBER() 에서 rank_position 충돌
 		  (PK season_id, rank_position). 1인 1슬롯으로 눌러 상위 500 + 고유 rank 만 보장.
 		-->
-		pool_500 AS (
+		pool_500 AS MATERIALIZED (
 			SELECT
 				wizard_id,
 				wizard_name,
 				country,
 				channel_uid,
 				max_score,
-				rating_id
+				rating_id,
+				match_count,
+				win_count
 			FROM (
 				SELECT
 					wizard_id,
@@ -239,6 +238,8 @@ GROUP BY bucket_date, grade_slot
 					channel_uid,
 					max_score,
 					rating_id,
+					match_count,
+					win_count,
 					ROW_NUMBER() OVER (
 						PARTITION BY wizard_id
 						ORDER BY max_score DESC, channel_uid::text, wizard_name, country::text
@@ -257,6 +258,8 @@ GROUP BY bucket_date, grade_slot
 				channel_uid,
 				max_score,
 				rating_id,
+				match_count,
+				win_count,
 				ROW_NUMBER() OVER (ORDER BY max_score DESC, wizard_id ASC) AS rank_position
 			FROM pool_500
 		)

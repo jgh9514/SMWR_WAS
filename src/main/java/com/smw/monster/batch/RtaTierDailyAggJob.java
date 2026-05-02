@@ -28,7 +28,8 @@ public class RtaTierDailyAggJob extends BaseBatchJob {
 
 		addLog("--- rta_agg_tier_daily 재적재 (시즌별 DELETE+UPSERT) ---");
 		RtaBatchAggregationService.TierDailyAggRebuildResult tier = aggregationService.rebuildTierAggDaily(rtaMapper);
-		addLog("적재 행 합계: %d", tier.totalRows());
+		addLog("적재 행 합계: %d, 전체 소요: %dms, 최장 시즌: sid=%d (%dms)",
+				tier.totalRows(), tier.wallMs(), tier.slowestSeasonId(), tier.maxSeasonMs());
 
 		rtaCacheEvictor.evictAllRtaCaches();
 		addLog("RTA 조회 캐시 무효화 완료");

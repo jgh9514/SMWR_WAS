@@ -13,7 +13,7 @@ import com.smw.rta.service.RtaBatchAggregationService;
 /**
  * RTA 관련 집계를 한 번의 스케줄로 순서대로 수행한다.
  * <ol>
- * <li>리플레이 raw 정규화 ({@code max-rows-per-run} 행을 1회 SELECT·처리. 잔여는 다음 스케줄에서)</li>
+ * <li>리플레이 raw 정규화 — 매 실행마다 최대 {@code max-batches-per-job} 회, 회당 최대 {@code max-rows-per-run}건 SELECT·처리(빈 조회 전까지).</li>
  * <li>부가 집계 — 레거시 몬스터 통계·티어 일별(각각 설정에서 켠 경우만).</li>
  * </ol>
  * 소환사 무거운 스냅(전투·몬·픽턴·owned_box·<strong>H2H 라이벌</strong>)은 통합 파이프라인에 포함하지 않는다 —
@@ -55,9 +55,10 @@ public class RtaUnifiedPipelineAggJob extends BaseBatchJob {
 		addLog("[시작] RTA 통합 파이프라인 — 핵심 %d단계 (raw → 부가)", PIPELINE_STEPS);
 
 		step++;
-		addLog("[%d/%d] RTA raw 정규화 — LIMIT %d행 1회 처리 (잔여 있어도 다음 스케줄에서)",
+		addLog("[%d/%d] RTA raw 정규화 — LIMIT %d행×최대 %d회(빈 조회까지, 미처리만 다음 스케줄)",
 				step, PIPELINE_STEPS,
-				rtaRawApplyProperties.getMaxRowsPerRun());
+				rtaRawApplyProperties.getMaxRowsPerRun(),
+				rtaRawApplyProperties.getMaxBatchesPerJob());
 		RtaBatchAggregationService.RawApplyDrainResult raw = aggregationService.drainReplayRawPending(summonerswarService);
 		addLog("[%d/%d] · 완료 — 누적 적용 %d건, %s",
 				step, PIPELINE_STEPS,

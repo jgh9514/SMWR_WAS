@@ -50,27 +50,37 @@ public class RtaBatchAggregationService {
 	 * {@code rta_match} 플래그와 무관하다.
 	 */
 	public SummonerRankingRebuildResult rebuildSummonerRankingAgg(RtaMapper rtaMapper) {
-		List<Map<String, Object>> seasons = rtaMapper.listRtaSeasons();
-		for (Map<String, Object> row : seasons) {
-			Long seasonId = pickSeasonId(row);
-			if (seasonId == null) {
-				continue;
-			}
+		final long wallStart = System.nanoTime();
+		Long seasonId = rtaMapper.selectDefaultSeasonIdForNow();
+		long rankingMs = 0L;
+		long searchMs = 0L;
+		if (seasonId == null) {
+			log.warn("rebuildSummonerRankingAgg: 현재 시즌 없음 — 랭킹 스냅 생략, 검색 스냅만 갱신");
+		} else {
 			long sid = seasonId.longValue();
-			// 시즌당 독립 TX: advisory lock + 해당 시즌 랭킹 스냅만 전량 DELETE 후 INSERT
+			long t0 = System.nanoTime();
+			// 독립 TX: advisory lock + 해당 시즌 랭킹 스냅만 전량 DELETE 후 INSERT
 			transactionTemplate.executeWithoutResult(status -> {
 				rtaMapper.acquireRtaSummonerSnapSeasonXactLock(sid);
 				rtaMapper.deleteRtaSummonerRankingSnapBySeason(sid);
 				rtaMapper.insertRtaSummonerRankingSnapForSeason(sid);
 			});
+			rankingMs = msSinceNanos(t0);
 		}
+		// 검색 스냅은 현재 시즌 participant 기준 upsert — 과거 항목은 유지(삭제 없음)
+		final long searchSid = seasonId != null ? seasonId.longValue() : -1L;
+		long t1 = System.nanoTime();
 		transactionTemplate.executeWithoutResult(status -> {
 			rtaMapper.acquireRtaSummonerSearchSnapGlobalXactLock();
-			rtaMapper.upsertRtaSummonerSearchSnap();
+			rtaMapper.upsertRtaSummonerSearchSnap(searchSid);
 		});
+		searchMs = msSinceNanos(t1);
+		long wallMs = msSinceNanos(wallStart);
+		log.info("랭킹 스냅 {}ms, 검색 스냅 {}ms, 전체 {}ms", rankingMs, searchMs, wallMs);
 		return new SummonerRankingRebuildResult(
 				(int) safeCount(rtaMapper.countRtaSummonerRankingSnapRows()),
-				(int) safeCount(rtaMapper.countRtaSummonerSearchSnapRows()));
+				(int) safeCount(rtaMapper.countRtaSummonerSearchSnapRows()),
+				rankingMs, searchMs, wallMs);
 	}
 
 	/**
@@ -263,30 +273,29 @@ public class RtaBatchAggregationService {
 	 * 시너지 집계가 먼저 반영돼 있어야 함.
 	 */
 	public MonsterStatsTierTopSnapRebuildResult rebuildMonsterStatsTierTopSnap(RtaMapper rtaMapper) {
-		AtomicInteger total = new AtomicInteger(0);
-		List<Map<String, Object>> seasons = rtaMapper.listRtaSeasons();
-		for (Map<String, Object> row : seasons) {
-			Long seasonId = pickSeasonId(row);
-			if (seasonId == null) {
-				continue;
-			}
-			long sid = seasonId.longValue();
-			transactionTemplate.executeWithoutResult(status -> {
-				rtaMapper.deleteRtaMonsterStatsTierTopSnapBySeason(sid);
-				int n = 0;
-				n += rtaMapper.insertRtaMonsterStatsTierTopSoloSnapForSeason(sid, monsterStatsMinPickCount);
-				n += rtaMapper.insertRtaMonsterStatsTierTopDuoSnapForSeason(sid, monsterStatsMinPickCount);
-				n += rtaMapper.insertRtaMonsterStatsTierTopTrioSnapForSeason(sid, monsterStatsMinPickCount);
-				total.addAndGet(n);
-			});
+		Long seasonId = rtaMapper.selectDefaultSeasonIdForNow();
+		if (seasonId == null) {
+			log.warn("rebuildMonsterStatsTierTopSnap: 현재 시즌 없음");
+			return new MonsterStatsTierTopSnapRebuildResult(0);
 		}
+		long sid = seasonId.longValue();
+		AtomicInteger total = new AtomicInteger(0);
+		transactionTemplate.executeWithoutResult(status -> {
+			rtaMapper.deleteRtaMonsterStatsTierTopSnapBySeason(sid);
+			int n = 0;
+			n += rtaMapper.insertRtaMonsterStatsTierTopSoloSnapForSeason(sid, monsterStatsMinPickCount);
+			n += rtaMapper.insertRtaMonsterStatsTierTopDuoSnapForSeason(sid, monsterStatsMinPickCount);
+			n += rtaMapper.insertRtaMonsterStatsTierTopTrioSnapForSeason(sid, monsterStatsMinPickCount);
+			total.addAndGet(n);
+		});
 		return new MonsterStatsTierTopSnapRebuildResult(total.get());
 	}
 
 	/**
 	 * 원본 스테이징 미적용 건을 정규화 테이블로 반영한다.
-	 * {@link summonerswarService#applyPendingArenaReplayRawFromDb()} 는 {@code max-rows-per-run} 행을
-	 * 1회만 조회·처리하고 종료한다. 잔여 행은 다음 스케줄에서 처리된다. 고아 행 삭제는 통합 Job 에서 하지 않는다.
+	 * {@link summonerswarService#applyPendingArenaReplayRawFromDb()} 는 빈 조회가 나올 때까지
+	 * {@code max-rows-per-run} 행 단위 조회를 {@code max-batches-per-job} 회 이내에서 반복한다.
+	 * 회당 상한·라운드 상한 후 잔여는 다음 스케줄 또는 수동 재실행에서 처리된다.
 	 */
 	public RawApplyDrainResult drainReplayRawPending(summonerswarService service) {
 		int totalApplied = service.applyPendingArenaReplayRawFromDb();
@@ -355,35 +364,49 @@ public class RtaBatchAggregationService {
 	 * 배치가 중간에 실패했더라도 다음 실행에서 같은 방식으로 전 일자가 일관되게 복구된다.
 	 */
 	public TierDailyAggRebuildResult rebuildTierAggDaily(RtaMapper rtaMapper) {
-		List<Map<String, Object>> seasons = rtaMapper.listRtaSeasons();
-		int totalRows = 0;
-		for (Map<String, Object> row : seasons) {
-			Long seasonId = pickSeasonId(row);
-			if (seasonId == null) {
-				continue;
-			}
-			totalRows += rtaMapper.insertRtaTierAggDailyForSeason(seasonId.longValue());
+		Long seasonId = rtaMapper.selectDefaultSeasonIdForNow();
+		if (seasonId == null) {
+			log.warn("rebuildTierAggDaily: 현재 시즌 없음 — rta_season 에 is_active=true 또는 등록된 시즌이 있는지 확인");
+			return new TierDailyAggRebuildResult(0, 0L, 0L, -1L);
 		}
-		return new TierDailyAggRebuildResult(totalRows);
+		long t0 = System.nanoTime();
+		int rows = rtaMapper.insertRtaTierAggDailyForSeason(seasonId);
+		long ms = msSinceNanos(t0);
+		return new TierDailyAggRebuildResult(rows, ms, ms, seasonId);
 	}
 
 	/**
 	 * 시즌×티어 총 경기 수({@code rta_agg_season_rating_match_total})를 먼저 재집계한 뒤,
-	 * 랭크 컷 앵커({@code rta_rank_cutoff_anchor_snap})를 DELETE 후 라이브와 동일 로직으로 재적재,
+	 * 랭크 컷 앵커({@code rta_rank_cutoff_anchor_snap})를 TRUNCATE 후 라이브와 동일 로직으로 재적재,
 	 * 시즌×등급 컷({@code rta_snapshot_rank_cut}) 히스토리 1회 적재.
 	 */
 	public RankCutSnapshotRebuildResult rebuildRankCutSnapshots(RtaMapper rtaMapper) {
-		rtaMapper.rebuildRtaSeasonRatingMatchTotal();
-		rtaMapper.deleteAllRtaRankCutoffAnchorSnap();
 		Long defaultSid = rtaMapper.selectDefaultSeasonIdForNow();
-		if (defaultSid != null) {
-			rtaMapper.insertRtaRankCutoffAnchorSnapFromLive(defaultSid.longValue());
+		if (defaultSid == null) {
+			log.warn("rebuildRankCutSnapshots: 현재 시즌 없음");
+			return new RankCutSnapshotRebuildResult(0L, 0L, 0L, 0L, 0L, 0L);
 		}
-		rtaMapper.insertRtaSnapshotRankCutForAllSeasons();
+		long sid = defaultSid.longValue();
+
+		long t0 = System.nanoTime();
+		rtaMapper.rebuildRtaSeasonRatingMatchTotal(sid);
+		long matchTotalMs = msSinceNanos(t0);
+
+		rtaMapper.deleteAllRtaRankCutoffAnchorSnap();
+
+		t0 = System.nanoTime();
+		rtaMapper.insertRtaRankCutoffAnchorSnapFromLive(sid);
+		long anchorMs = msSinceNanos(t0);
+
+		t0 = System.nanoTime();
+		rtaMapper.insertRtaSnapshotRankCutForSeason(sid);
+		long snapshotMs = msSinceNanos(t0);
+
 		long matchTotalRows = safeCount(rtaMapper.countRtaSeasonRatingMatchTotalRows());
 		long anchorRows = safeCount(rtaMapper.countRtaRankCutoffAnchorSnapRows());
 		long snapshotRows = safeCount(rtaMapper.countRtaSnapshotRankCutAtLatestSnapshot());
-		return new RankCutSnapshotRebuildResult(matchTotalRows, anchorRows, snapshotRows);
+		return new RankCutSnapshotRebuildResult(matchTotalRows, anchorRows, snapshotRows,
+				matchTotalMs, anchorMs, snapshotMs);
 	}
 
 	private static long safeCount(Long n) {
@@ -413,7 +436,7 @@ public class RtaBatchAggregationService {
 	}
 
 	/** @param rankingRows {@code rta_agg_summoner_ranking_snap} 합, @param searchRows {@code rta_agg_summoner_search_snap} 합 */
-	public record SummonerRankingRebuildResult(int rankingRows, int searchRows) {
+	public record SummonerRankingRebuildResult(int rankingRows, int searchRows, long rankingMs, long searchMs, long wallMs) {
 	}
 
 	/**
@@ -461,10 +484,22 @@ public class RtaBatchAggregationService {
 	public record MonsterStatsRebuildResult(int metaRows, int pickRows) {
 	}
 
-	public record TierDailyAggRebuildResult(int totalRows) {
+	/**
+	 * @param wallMs         전체 소요(ms)
+	 * @param maxSeasonMs    시즌 중 가장 오래 걸린 소요(ms)
+	 * @param slowestSeasonId 가장 오래 걸린 시즌 ID (-1 이면 처리 시즌 없음)
+	 */
+	public record TierDailyAggRebuildResult(int totalRows, long wallMs, long maxSeasonMs, long slowestSeasonId) {
 	}
 
-	public record RankCutSnapshotRebuildResult(long matchTotalRows, long anchorRows, long snapshotRows) {
+	/**
+	 * @param matchTotalMs {@code rebuildRtaSeasonRatingMatchTotal} 소요(ms)
+	 * @param anchorMs     {@code insertRtaRankCutoffAnchorSnapFromLive} 소요(ms)
+	 * @param snapshotMs   {@code insertRtaSnapshotRankCutForAllSeasons} 소요(ms)
+	 */
+	public record RankCutSnapshotRebuildResult(
+			long matchTotalRows, long anchorRows, long snapshotRows,
+			long matchTotalMs, long anchorMs, long snapshotMs) {
 	}
 
 	private static long msSinceNanos(long startNanos) {
