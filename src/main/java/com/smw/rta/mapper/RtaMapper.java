@@ -118,28 +118,23 @@ public interface RtaMapper {
      */
     List<Map<String, Object>> getRtaTierDistributionDaily(@Param("seasonId") Long seasonId);
 
-    /** 랭크 컷 앵커 — {@code rta_rank_cutoff_anchor_snap} 배치 적재 결과 */
-    List<Map<String, Object>> getRtaRankCutoffAnchorsFromAgg();
-
-    /** 앵커 스냅샷 전체 삭제 (운영 락 완화용 DELETE) */
-    void deleteAllRtaRankCutoffAnchorSnap();
-
-    int insertRtaRankCutoffAnchorSnapFromLive(@Param("seasonId") long seasonId);
-
-    /** 현재 시즌 등급별 컷 히스토리 1회 적재 */
-    int insertRtaSnapshotRankCutForSeason(@Param("seasonId") long seasonId);
-
     /** 현재 시즌×티어별 총 경기 수 upsert 재집계 ({@code rta_agg_season_rating_match_total}). */
     int rebuildRtaSeasonRatingMatchTotal(@Param("seasonId") long seasonId);
 
-    /** {@code rta_rank_cutoff_anchor_snap} 전체 행 수 (배치 적재 후 로깅) */
-    Long countRtaRankCutoffAnchorSnapRows();
-
-    /** 가장 최근 {@code snapshot_at} 묶음의 행 수 (직전 INSERT 배치 규모 추정) */
-    Long countRtaSnapshotRankCutAtLatestSnapshot();
-
     /** {@code rta_agg_season_rating_match_total} 전체 행 수 (배치 적재 후 로깅) */
     Long countRtaSeasonRatingMatchTotalRows();
+
+    /** 시간별 랭크 컷 스냅 1회 적재 ({@code rta_agg_rank_cut_hourly_snap}) */
+    int insertRtaRankCutHourlySnapForSeason(@Param("seasonId") long seasonId);
+
+    /** 92일 초과 시간별 랭크 컷 스냅 정리 */
+    int pruneRtaRankCutHourlySnap();
+
+    /** 대시보드용: 현재·3h·6h·12h·3d·7d 시점 랭크 컷 */
+    List<Map<String, Object>> getRtaRankCutHourlyForDashboard(@Param("seasonId") Long seasonId);
+
+    /** 상세 페이지용: 시즌 전체 일별 랭크 컷 히스토리 */
+    List<Map<String, Object>> getRtaRankCutHourlyDaily(@Param("seasonId") Long seasonId);
 
     /**
      * 랭킹 스냅 쓰기 직렬화(트랜잭션 범위). {@link RtaBatchAggregationService#rebuildSummonerRankingAgg} 에서
@@ -382,9 +377,6 @@ public interface RtaMapper {
     /** 공식 티어 규칙 참고 — 시즌별 커트라인(rta_rating_grade_season) 포함 */
     List<Map<String, Object>> listRtaRatingGradeReference(@Param("seasonId") long seasonId);
 
-    /** 시즌별 최신 스냅샷 컷 (rta_snapshot_rank_cut) */
-    List<Map<String, Object>> getRtaSnapshotRankCutLatest(@Param("seasonId") Long seasonId);
-
     /** 몬스터 상세: 카운터 매치업 — {@code rta_agg_counter_solo/duo/trio} UNION, 전 티어 합산 */
     List<Map<String, Object>> getRtaMonsterCounterMatchups(@Param("monsterId") long monsterId,
             @Param("seasonId") Long seasonId);
@@ -392,6 +384,4 @@ public interface RtaMapper {
     /** 배치·점검용. API에서는 호출하지 않음. */
     List<Map<String, Object>> getRtaTierDistributionDailyLive(@Param("seasonId") Long seasonId);
 
-    /** 배치 적재 SQL과 동일 로직 점검용. API에서는 호출하지 않음. */
-    List<Map<String, Object>> getRtaRankCutoffAnchorsFromLive(@Param("seasonId") Long seasonId);
 }

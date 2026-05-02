@@ -43,6 +43,7 @@ public class RtaCaffeineCacheManagersConfig {
 		CaffeineCacheManager cacheManager = new CaffeineCacheManager();
 		cacheManager.setCacheNames(Arrays.asList(
 				"rtaDashboardRankCut",
+				"rtaRankCutDetail",
 				"rtaDashboardTiers",
 				"rtaRanking",
 				"rtaSeasons"));
@@ -75,14 +76,4 @@ public class RtaCaffeineCacheManagersConfig {
 		return cacheManager;
 	}
 
-	@Bean("rtaOneHourCacheManager")
-	public CacheManager rtaOneHourCacheManager() {
-		CaffeineCacheManager cacheManager = new CaffeineCacheManager();
-		cacheManager.setCacheNames(Arrays.asList("rtaRankCutoffLive"));
-		cacheManager.setCaffeine(Caffeine.newBuilder()
-				.maximumSize(20)
-				.expireAfterWrite(Duration.ofHours(1))
-				.recordStats());
-		return cacheManager;
-	}
 }

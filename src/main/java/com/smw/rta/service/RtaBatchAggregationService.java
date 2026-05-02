@@ -376,15 +376,14 @@ public class RtaBatchAggregationService {
 	}
 
 	/**
-	 * 시즌×티어 총 경기 수({@code rta_agg_season_rating_match_total})를 먼저 재집계한 뒤,
-	 * 랭크 컷 앵커({@code rta_rank_cutoff_anchor_snap})를 TRUNCATE 후 라이브와 동일 로직으로 재적재,
-	 * 시즌×등급 컷({@code rta_snapshot_rank_cut}) 히스토리 1회 적재.
+	 * 시즌×티어 총 경기 수({@code rta_agg_season_rating_match_total}) 재집계 후
+	 * 시간별 랭크 컷 스냅({@code rta_agg_rank_cut_hourly_snap}) 적재 및 구 데이터 정리.
 	 */
 	public RankCutSnapshotRebuildResult rebuildRankCutSnapshots(RtaMapper rtaMapper) {
 		Long defaultSid = rtaMapper.selectDefaultSeasonIdForNow();
 		if (defaultSid == null) {
 			log.warn("rebuildRankCutSnapshots: 현재 시즌 없음");
-			return new RankCutSnapshotRebuildResult(0L, 0L, 0L, 0L, 0L, 0L);
+			return new RankCutSnapshotRebuildResult(0L, 0L, 0L);
 		}
 		long sid = defaultSid.longValue();
 
@@ -392,21 +391,13 @@ public class RtaBatchAggregationService {
 		rtaMapper.rebuildRtaSeasonRatingMatchTotal(sid);
 		long matchTotalMs = msSinceNanos(t0);
 
-		rtaMapper.deleteAllRtaRankCutoffAnchorSnap();
-
 		t0 = System.nanoTime();
-		rtaMapper.insertRtaRankCutoffAnchorSnapFromLive(sid);
-		long anchorMs = msSinceNanos(t0);
-
-		t0 = System.nanoTime();
-		rtaMapper.insertRtaSnapshotRankCutForSeason(sid);
-		long snapshotMs = msSinceNanos(t0);
+		rtaMapper.insertRtaRankCutHourlySnapForSeason(sid);
+		rtaMapper.pruneRtaRankCutHourlySnap();
+		long hourlyMs = msSinceNanos(t0);
 
 		long matchTotalRows = safeCount(rtaMapper.countRtaSeasonRatingMatchTotalRows());
-		long anchorRows = safeCount(rtaMapper.countRtaRankCutoffAnchorSnapRows());
-		long snapshotRows = safeCount(rtaMapper.countRtaSnapshotRankCutAtLatestSnapshot());
-		return new RankCutSnapshotRebuildResult(matchTotalRows, anchorRows, snapshotRows,
-				matchTotalMs, anchorMs, snapshotMs);
+		return new RankCutSnapshotRebuildResult(matchTotalRows, matchTotalMs, hourlyMs);
 	}
 
 	private static long safeCount(Long n) {
@@ -497,9 +488,7 @@ public class RtaBatchAggregationService {
 	 * @param anchorMs     {@code insertRtaRankCutoffAnchorSnapFromLive} 소요(ms)
 	 * @param snapshotMs   {@code insertRtaSnapshotRankCutForAllSeasons} 소요(ms)
 	 */
-	public record RankCutSnapshotRebuildResult(
-			long matchTotalRows, long anchorRows, long snapshotRows,
-			long matchTotalMs, long anchorMs, long snapshotMs) {
+	public record RankCutSnapshotRebuildResult(long matchTotalRows, long matchTotalMs, long hourlyMs) {
 	}
 
 	private static long msSinceNanos(long startNanos) {

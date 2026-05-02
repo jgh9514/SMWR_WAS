@@ -41,7 +41,7 @@ public class RtaRedisCacheManagersConfig {
 	@Bean("rtaShortLivedCacheManager")
 	public CacheManager rtaShortLivedCacheManager(RedisConnectionFactory connectionFactory, ObjectMapper objectMapper) {
 		return buildManager(connectionFactory, objectMapper,
-				Arrays.asList("rtaDashboardRankCut", "rtaDashboardTiers", "rtaRanking", "rtaSeasons"),
+				Arrays.asList("rtaDashboardRankCut", "rtaRankCutDetail", "rtaDashboardTiers", "rtaRanking", "rtaSeasons"),
 				Duration.ofMinutes(shortLivedExpireAfterWriteMinutes));
 	}
 
@@ -57,13 +57,6 @@ public class RtaRedisCacheManagersConfig {
 		return buildManager(connectionFactory, objectMapper,
 				Arrays.asList("rtaMatchList"),
 				Duration.ofMinutes(rtaListReadExpireAfterWriteMinutes));
-	}
-
-	@Bean("rtaOneHourCacheManager")
-	public CacheManager rtaOneHourCacheManager(RedisConnectionFactory connectionFactory, ObjectMapper objectMapper) {
-		return buildManager(connectionFactory, objectMapper,
-				Arrays.asList("rtaRankCutoffLive"),
-				Duration.ofHours(1));
 	}
 
 	private static RedisCacheManager buildManager(RedisConnectionFactory connectionFactory, ObjectMapper objectMapper,

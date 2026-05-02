@@ -68,6 +68,9 @@ public class RtaServiceImpl implements RtaService {
     private RtaDashboardRankCutoffCacheService rtaDashboardRankCutoffCacheService;
 
     @Autowired
+    private RtaRankCutDetailCacheService rtaRankCutDetailCacheService;
+
+    @Autowired
     @Qualifier("rtaMonsterCacheManager")
     private CacheManager rtaMonsterCacheManager;
 
@@ -332,6 +335,12 @@ public class RtaServiceImpl implements RtaService {
     public Map<String, Object> getRtaDashboardRankCutoff(Long seasonId) {
         Long sid = doResolveSeasonId(seasonId);
         return rtaDashboardRankCutoffCacheService.getRankCutoffPart(sid);
+    }
+
+    @Override
+    public Map<String, Object> getRtaRankCutDetail(Long seasonId) {
+        Long sid = doResolveSeasonId(seasonId);
+        return rtaRankCutDetailCacheService.getRankCutDetail(sid);
     }
 
     @Override

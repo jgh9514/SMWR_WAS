@@ -52,8 +52,11 @@ public interface RtaService {
     /** RTA 대시보드 — 소환사 티어별 분포(일별×티어)만 */
     Map<String, Object> getRtaDashboardTierDistribution(Long seasonId);
 
-    /** RTA 대시보드 — 랭크 컷 앵커·스냅샷만 */
+    /** RTA 대시보드 — 랭크 컷 6개 시점(현재·3h·6h·12h·3d·7d) */
     Map<String, Object> getRtaDashboardRankCutoff(Long seasonId);
+
+    /** RTA 랭크 컷 상세 — 시즌 전체 일별 히스토리 */
+    Map<String, Object> getRtaRankCutDetail(Long seasonId);
 
     /**
      * 메인/대시보드 4패널(솔·듀·트·소환사 랭킹)을 한 응답으로 — 내부는 가상 스레드로 4쿼리 병렬.

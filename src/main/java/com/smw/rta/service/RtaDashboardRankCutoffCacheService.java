@@ -12,7 +12,7 @@ import org.springframework.stereotype.Service;
 import com.smw.rta.mapper.RtaMapper;
 
 /**
- * 대시보드 랭크 컷: 앵커 스냅 + 시즌별 스냅샷 테이블 — 시즌 PK 단위 캐시.
+ * 대시보드 랭크 컷: {@code rta_agg_rank_cut_hourly_snap} 에서 6개 시점(현재·3h·6h·12h·3d·7d) 조회 — 시즌 PK 단위 캐시.
  */
 @Service
 public class RtaDashboardRankCutoffCacheService {
@@ -20,27 +20,18 @@ public class RtaDashboardRankCutoffCacheService {
 	@Autowired
 	private RtaMapper rtaMapper;
 
-	@Autowired
-	private RtaRankCutoffLiveCacheService rtaRankCutoffLiveCacheService;
-
 	@Cacheable(cacheNames = "rtaDashboardRankCut", cacheManager = "rtaShortLivedCacheManager",
 			key = "'rc_' + (#seasonId != null ? #seasonId : 'dflt')")
 	public Map<String, Object> getRankCutoffPart(Long seasonId) {
-		Long sid = seasonId;
-		List<Map<String, Object>> anchors = rtaRankCutoffLiveCacheService.getAnchors();
-		List<Map<String, Object>> snap;
-		if (sid != null) {
-			snap = rtaMapper.getRtaSnapshotRankCutLatest(sid);
-			if (snap == null) {
-				snap = Collections.emptyList();
-			}
-		} else {
-			snap = Collections.emptyList();
+		List<Map<String, Object>> anchors = seasonId != null
+				? rtaMapper.getRtaRankCutHourlyForDashboard(seasonId)
+				: Collections.emptyList();
+		if (anchors == null) {
+			anchors = Collections.emptyList();
 		}
 		Map<String, Object> m = new HashMap<>();
 		m.put("rank_cutoff_anchors", anchors);
-		m.put("snapshot_rank_cut", snap);
-		m.put("seasonId", sid);
+		m.put("seasonId", seasonId);
 		return m;
 	}
 }

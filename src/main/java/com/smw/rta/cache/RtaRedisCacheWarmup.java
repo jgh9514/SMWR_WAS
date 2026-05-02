@@ -5,7 +5,6 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import com.smw.rta.mapper.RtaMapper;
-import com.smw.rta.service.RtaRankCutoffLiveCacheService;
 import com.smw.rta.service.RtaService;
 
 import lombok.extern.slf4j.Slf4j;
@@ -24,13 +23,9 @@ public class RtaRedisCacheWarmup {
 	@Autowired
 	private RtaService rtaService;
 
-	@Autowired
-	private RtaRankCutoffLiveCacheService rtaRankCutoffLiveCacheService;
-
 	public void warmAfterEviction() {
 		try {
 			rtaService.getRtaSeasons();
-			rtaRankCutoffLiveCacheService.getAnchors();
 			Long sid = rtaMapper.selectDefaultSeasonIdForNow();
 			if (sid == null) {
 				log.debug("[rta-cache] warmup: no default season, skipped detail keys");

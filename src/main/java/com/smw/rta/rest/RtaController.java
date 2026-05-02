@@ -496,7 +496,7 @@ public class RtaController {
         }
     }
 
-    @Operation(summary = "RTA 대시보드 — 랭크 컷", description = "앵커·스냅샷만 (랭크 컷 섹션용)")
+    @Operation(summary = "RTA 대시보드 — 랭크 컷", description = "현재·3h·6h·12h·3d·7d 시점 랭크 컷 (시간별 스냅 기반)")
     @PostMapping("/dashboard/rank-cutoff")
     public ResponseEntity<Map<String, Object>> getRtaDashboardRankCutoff(
             @RequestBody(required = false) Map<String, Object> param) {
@@ -506,6 +506,20 @@ public class RtaController {
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             log.error("RTA dashboard rank-cutoff 조회 실패", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    @Operation(summary = "RTA 랭크 컷 상세", description = "시즌 시작일~현재 일별 랭크 컷 히스토리 (시간별 스냅 기반)")
+    @PostMapping("/rank-cutoff/detail")
+    public ResponseEntity<Map<String, Object>> getRtaRankCutDetail(
+            @RequestBody(required = false) Map<String, Object> param) {
+        try {
+            Long sid = pickSeasonId(param);
+            Map<String, Object> response = rtaService.getRtaRankCutDetail(sid);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("RTA rank-cutoff detail 조회 실패", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }

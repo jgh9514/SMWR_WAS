@@ -21,6 +21,7 @@ public class RtaCacheEvictor {
 	/** {@link com.smw.infra.cache.RtaCaffeineCacheManagersConfig#rtaShortLivedCacheManager} RTA 5분 대 캐시(몬스터 제외) */
 	private static final String[] SHORT_LIVED_RTA_CACHE_NAMES = {
 			"rtaDashboardRankCut",
+			"rtaRankCutDetail",
 			"rtaDashboardTiers",
 			"rtaRanking",
 			"rtaSeasons",
@@ -32,29 +33,17 @@ public class RtaCacheEvictor {
 	/** {@code rtaMonster} — 목록/상세/link-preview, TTL 1h ({@code rtaMonsterCacheManager}) */
 	private final CacheManager rtaMonsterCacheManager;
 	private final CacheManager rtaListReadCacheManager;
-	private final CacheManager rtaOneHourCacheManager;
 	private final ObjectProvider<RtaRedisCacheWarmup> rtaRedisCacheWarmup;
 
 	public RtaCacheEvictor(
 			@Qualifier("rtaShortLivedCacheManager") CacheManager rtaShortLivedCacheManager,
 			@Qualifier("rtaMonsterCacheManager") CacheManager rtaMonsterCacheManager,
 			@Qualifier("rtaListReadCacheManager") CacheManager rtaListReadCacheManager,
-			@Qualifier("rtaOneHourCacheManager") CacheManager rtaOneHourCacheManager,
 			ObjectProvider<RtaRedisCacheWarmup> rtaRedisCacheWarmup) {
 		this.rtaShortLivedCacheManager = rtaShortLivedCacheManager;
 		this.rtaMonsterCacheManager = rtaMonsterCacheManager;
 		this.rtaListReadCacheManager = rtaListReadCacheManager;
-		this.rtaOneHourCacheManager = rtaOneHourCacheManager;
 		this.rtaRedisCacheWarmup = rtaRedisCacheWarmup;
-	}
-
-	/** 랭크 컷 앵커 캐시({@code rtaRankCutoffLive}) — 배치 재적재 후 호출 */
-	public void evictRtaRankCutoffLiveCache() {
-		Cache cache = rtaOneHourCacheManager.getCache("rtaRankCutoffLive");
-		if (cache != null) {
-			cache.clear();
-			log.debug("[rta-cache] cleared: rtaRankCutoffLive");
-		}
 	}
 
 	/**
@@ -87,8 +76,7 @@ public class RtaCacheEvictor {
 			matchList.clear();
 			log.debug("[rta-cache] cleared: rtaMatchList (rtaListReadCacheManager)");
 		}
-		evictRtaRankCutoffLiveCache();
-		log.debug("[rta-cache] short-lived {} + rtaMonster + rtaMatchList + rtaRankCutoffLive 무효화", SHORT_LIVED_RTA_CACHE_NAMES.length);
+		log.debug("[rta-cache] short-lived {} + rtaMonster + rtaMatchList 무효화", SHORT_LIVED_RTA_CACHE_NAMES.length);
 		rtaRedisCacheWarmup.ifAvailable(RtaRedisCacheWarmup::warmAfterEviction);
 	}
 }

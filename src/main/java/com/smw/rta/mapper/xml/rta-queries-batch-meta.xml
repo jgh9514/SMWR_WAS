@@ -512,182 +512,6 @@
         ORDER BY rg.tier_sort NULLS LAST, rg.rating_id
     </select>
 
-    <!-- 대시보드: 시즌별 최신 스냅샷 시각의 등급별 컷 (rta_snapshot_rank_cut).
-         min_win_points IS NOT NULL 인 등급만 포함 — P1처럼 최소 컷이 없는 등급은 제외. -->
-    <!-- seasonId(Long) 직접 수신 — 호출부에서 이미 resolve 됨. seasonCode 재조회 제거. -->
-    <select id="getRtaSnapshotRankCutLatest" resultType="map">
-        WITH mx AS (
-            SELECT MAX(s.snapshot_at) AS ts
-            FROM public.rta_snapshot_rank_cut s
-            WHERE s.season_id = #{seasonId}
-        )
-        SELECT
-            s.snapshot_at AS "snapshotAt",
-            s.rating_id AS "ratingId",
-            rg.grade_name AS "gradeName",
-            rg.grade_abbr AS "gradeAbbr",
-            s.cutoff_score AS "cutoffScore"
-        FROM public.rta_snapshot_rank_cut s
-        INNER JOIN public.rta_rating_grade rg ON rg.rating_id = s.rating_id
-        INNER JOIN public.rta_rating_grade_season rgs
-               ON rgs.rating_id = s.rating_id
-              AND rgs.season_id = #{seasonId}
-        CROSS JOIN mx
-        WHERE s.season_id = #{seasonId}
-          AND mx.ts IS NOT NULL
-          AND s.snapshot_at = mx.ts
-          AND rgs.min_win_points IS NOT NULL
-        ORDER BY rg.tier_sort NULLS LAST, s.rating_id
-    </select>
-
-    <!-- 랭크컷 앵커 스냅: TRUNCATE(dead-tuple 없이 전량 제거, DELETE 대비 빠름) -->
-    <update id="deleteAllRtaRankCutoffAnchorSnap">
-        TRUNCATE public.rta_rank_cutoff_anchor_snap
-    </update>
-
-    <!-- getRtaRankCutoffAnchorsFromLive 와 동일 로직 → 집계 테이블 적재 (배치 전용) -->
-    <insert id="insertRtaRankCutoffAnchorSnapFromLive">
-        INSERT INTO public.rta_rank_cutoff_anchor_snap (snapshot_at, sort_order, anchor_key, grade_slot, cutoff_score)
-        WITH <include refid="rtaMatchInSeasonCte"/>,
-        rank_window AS (
-            SELECT (MAX(r.date_add)::date - INTERVAL '120 days')::date AS min_date
-            FROM rta_match_in_season r
-        ),
-        rta_match_in_window AS (
-            SELECT r.rid, r.date_add, r.winner_wizard_id, r.battle_type
-            FROM rta_match_in_season r
-            INNER JOIN rank_window w ON r.date_add::date &gt;= w.min_date
-        ),
-        anchors AS (
-            SELECT * FROM (VALUES
-                (1, '3h',  INTERVAL '3 hours'),
-                (2, '6h',  INTERVAL '6 hours'),
-                (3, '12h', INTERVAL '12 hours'),
-                (4, '3d',  INTERVAL '3 days'),
-                (5, '7d',  INTERVAL '7 days')
-            ) AS v(sort_order, anchor_key, iv)
-        ),
-        base AS MATERIALIZED (
-            /* MATERIALIZED: lower_bound 가 anchors×tiers(25조합) 로 반복 조인하므로 한 번만 계산 */
-            SELECT
-                r.date_add,
-                u.ladder_score AS score_val,
-                (
-                    CASE
-                        WHEN u.rating_id &gt;= 5000 THEN 60
-                        WHEN u.rating_id &gt;= 4000 THEN 50
-                        WHEN u.rating_id &gt;= 3500 THEN 40
-                        WHEN u.rating_id &gt;= 3000 THEN 30
-                        WHEN u.rating_id &gt;= 2000 THEN 20
-                        ELSE 10
-                    END
-                    +
-                    CASE
-                        WHEN (u.rating_id % 10) IN (1, 2, 3) THEN (u.rating_id % 10)
-                        ELSE 2
-                    END
-                ) AS tier_sort_order,
-                (
-                    CASE
-                        WHEN u.rating_id &gt;= 5000 THEN 'L'
-                        WHEN u.rating_id &gt;= 4000 THEN 'G'
-                        WHEN u.rating_id &gt;= 3500 THEN 'P'
-                        WHEN u.rating_id &gt;= 3000 THEN 'C'
-                        WHEN u.rating_id &gt;= 2000 THEN 'F'
-                        ELSE 'Ch'
-                    END
-                )
-                ||
-                CASE
-                    WHEN (u.rating_id % 10) IN (1, 2, 3)
-                    THEN (u.rating_id % 10)::text
-                    ELSE '2'
-                END AS grade_slot
-            FROM public.rta_match_participant u
-            INNER JOIN rta_match_in_window r ON u.replay_id = r.rid
-            WHERE u.rating_id &gt;= 1000
-              AND u.ladder_score &gt; 0
-        ),
-        tiers AS (
-            SELECT * FROM (VALUES
-                ('G3', 53), ('G2', 52), ('G1', 51), ('P3', 43), ('P2', 42)
-            ) AS tv(grade_slot, tier_sort_order)
-        ),
-        <include refid="rtaRankCutoffOfficialTierFloorCte"/>,
-        lower_bound AS (
-            SELECT
-                a.sort_order,
-                a.anchor_key,
-                t.grade_slot,
-                MAX(b.score_val)::bigint AS lower_max_score
-            FROM anchors a
-            CROSS JOIN tiers t
-            LEFT JOIN base b
-                ON b.tier_sort_order &lt; t.tier_sort_order
-               AND b.date_add &gt;= CURRENT_TIMESTAMP - a.iv
-               AND b.date_add &lt;= CURRENT_TIMESTAMP
-            GROUP BY a.sort_order, a.anchor_key, a.iv, t.grade_slot, t.tier_sort_order
-        )
-        SELECT
-            CURRENT_TIMESTAMP,
-            a.sort_order,
-            a.anchor_key,
-            t.grade_slot,
-            GREATEST(
-                COALESCE(tof.min_pts, 0)::bigint,
-                COALESCE(lb.lower_max_score + 1, 0)::bigint
-            ) AS cutoff_score
-        FROM anchors a
-        CROSS JOIN tiers t
-        LEFT JOIN tier_official tof ON tof.grade_slot = t.grade_slot
-        LEFT JOIN lower_bound lb
-            ON lb.sort_order = a.sort_order
-           AND lb.anchor_key = a.anchor_key
-           AND lb.grade_slot = t.grade_slot
-    </insert>
-
-    <!--
-      시즌별 등급(rating_id) 최저 래더 점수 스냅샷 (히스토리, 배치 1회에 모든 시즌 행 — snapshot_at 공통).
-      소스 등급 집합은 rta_rating_grade_season(해당 시즌 공식)만 — 전 등급 × LEFT rgs 는 타 시즌/미정의 티어가 섞임.
-      MIN 은 rta_match / participant 의 season_id 로 한정(날짜 구간만 쓰면 season_id 미일치 리플 섞임).
-      getRtaSnapshotRankCutLatest 와 맞추기 위해 min_win_points IS NULL 인 티어(예: P1)는 제외.
-      개선: correlated subquery(시즌×등급 N+1) → min_scores CTE 단일 사전 집계 후 LEFT JOIN.
-    -->
-    <insert id="insertRtaSnapshotRankCutForSeason">
-        INSERT INTO public.rta_snapshot_rank_cut (season_id, snapshot_at, rating_id, cutoff_score)
-        WITH min_scores AS (
-            /* participant.played_at 직접 사용 — rta_match JOIN 불필요(동일 값 보유).
-               idx_rta_participant_season_rating_played(season_id, rating_id, played_at, replay_id) 완전 커버. */
-            SELECT
-                u.season_id,
-                u.rating_id,
-                MIN(u.ladder_score)::bigint AS min_ladder
-            FROM public.rta_match_participant u
-            INNER JOIN public.rta_season s ON s.season_id = u.season_id
-            WHERE u.season_id = #{seasonId}
-              AND u.ladder_score &gt; 0
-              AND u.played_at &gt;= s.start_at
-              AND u.played_at &lt; s.end_at
-            GROUP BY u.season_id, u.rating_id
-        )
-        SELECT
-            s.season_id,
-            CURRENT_TIMESTAMP,
-            rg.rating_id,
-            COALESCE(ms.min_ladder, rgs.min_win_points, 0)::bigint
-        FROM public.rta_season s
-        INNER JOIN public.rta_rating_grade_season rgs
-            ON rgs.season_id = s.season_id
-           AND rgs.min_win_points IS NOT NULL
-        INNER JOIN public.rta_rating_grade rg
-            ON rg.rating_id = rgs.rating_id
-           AND rg.grade_slot IS NOT NULL
-        LEFT JOIN min_scores ms
-            ON ms.season_id = s.season_id
-           AND ms.rating_id = rg.rating_id
-        WHERE s.season_id = #{seasonId}
-    </insert>
-
     <!-- 현재 시즌×티어별 총 경기 수 재집계: 픽률·밴률 분모용.
          participant.season_id 직접 사용 — rta_match JOIN 불필요(season_id 중복 보유). -->
     <insert id="rebuildRtaSeasonRatingMatchTotal">
@@ -707,22 +531,96 @@
             computed_at = EXCLUDED.computed_at
     </insert>
 
-    <!-- 배치 로깅용: JDBC updateCount 가 INSERT…SELECT 에서 부정확할 수 있어 실측 COUNT 사용 -->
-    <select id="countRtaRankCutoffAnchorSnapRows" resultType="long">
-        SELECT COUNT(*)::bigint FROM public.rta_rank_cutoff_anchor_snap
-    </select>
-
-    <select id="countRtaSnapshotRankCutAtLatestSnapshot" resultType="long">
-        SELECT COUNT(*)::bigint
-        FROM public.rta_snapshot_rank_cut s
-        WHERE s.snapshot_at = (SELECT MAX(snapshot_at) FROM public.rta_snapshot_rank_cut)
-    </select>
-
     <select id="countRtaSeasonRatingMatchTotalRows" resultType="long">
         SELECT COUNT(*)::bigint
         FROM public.rta_agg_season_rating_match_total
     </select>
 
+    <!--
+      시간별 랭크 컷 스냅 적재.
+      컷 = MAX(min_win_points, rank_rule 위 플레이어의 점수).
+      소환사별 최신 점수(played_at DESC)만 사용 — 시즌 초반 낮은 점수가 컷을 끌어내리는 문제 방지.
+      ON CONFLICT DO NOTHING — 배치 재실행 시 같은 초 PK 충돌 방지.
+    -->
+    <insert id="insertRtaRankCutHourlySnapForSeason">
+        INSERT INTO public.rta_agg_rank_cut_hourly_snap (season_id, snapped_at, grade_slot, sort_order, cutoff_score)
+        WITH latest_scores AS MATERIALIZED (
+            /* 소환사별 가장 최근 경기 기준 점수·등급 */
+            SELECT DISTINCT ON (u.wizard_id)
+                u.wizard_id,
+                u.rating_id,
+                u.ladder_score
+            FROM public.rta_match_participant u
+            WHERE u.season_id = #{seasonId}
+              AND u.ladder_score &gt; 0
+            ORDER BY u.wizard_id, u.played_at DESC, u.replay_id DESC
+        ),
+        ranked AS MATERIALIZED (
+            /* 전체 점수 순위 — rank_rule 위 플레이어 점수 조회용 */
+            SELECT
+                ladder_score,
+                ROW_NUMBER() OVER (ORDER BY ladder_score DESC) AS rn
+            FROM latest_scores
+        )
+        SELECT
+            #{seasonId},
+            CURRENT_TIMESTAMP,
+            rg.grade_slot,
+            COALESCE(rg.tier_sort, 0)::smallint,
+            GREATEST(
+                COALESCE(rgs.min_win_points, 0)::bigint,
+                COALESCE(r.ladder_score, 0)::bigint
+            ) AS cutoff_score
+        FROM public.rta_rating_grade_season rgs
+        INNER JOIN public.rta_rating_grade rg
+            ON rg.rating_id = rgs.rating_id
+           AND rg.grade_slot IS NOT NULL
+        LEFT JOIN ranked r ON r.rn = rgs.rank_rule
+        WHERE rgs.season_id = #{seasonId}
+          AND rgs.min_win_points IS NOT NULL
+        ON CONFLICT (season_id, snapped_at, grade_slot) DO NOTHING
+    </insert>
+
+    <!-- 92일 초과 구 스냅 정리 (시즌 최대 90일 + 여유 2일) -->
+    <delete id="pruneRtaRankCutHourlySnap">
+        DELETE FROM public.rta_agg_rank_cut_hourly_snap
+        WHERE snapped_at &lt; CURRENT_TIMESTAMP - INTERVAL '92 days'
+    </delete>
+
+    <!-- 대시보드용: 현재·3h·6h·12h·3d·7d 시점에 가장 가까운(직전) 스냅 1행씩 반환. -->
+    <select id="getRtaRankCutHourlyForDashboard" resultType="map">
+        SELECT DISTINCT ON (a.sort_order, h.grade_slot)
+            a.sort_order   AS "anchorSort",
+            a.anchor_key   AS "anchorKey",
+            h.grade_slot   AS "gradeSlot",
+            h.sort_order   AS "tierSort",
+            h.cutoff_score AS "cutoffScore",
+            h.snapped_at   AS "snappedAt"
+        FROM (VALUES
+            (0, 'now', INTERVAL '0'),
+            (1, '3h',  INTERVAL '3 hours'),
+            (2, '6h',  INTERVAL '6 hours'),
+            (3, '12h', INTERVAL '12 hours'),
+            (4, '3d',  INTERVAL '3 days'),
+            (5, '7d',  INTERVAL '7 days')
+        ) AS a(sort_order, anchor_key, iv)
+        JOIN public.rta_agg_rank_cut_hourly_snap h
+            ON h.season_id = #{seasonId}
+           AND h.snapped_at &lt;= CURRENT_TIMESTAMP - a.iv
+        ORDER BY a.sort_order, h.grade_slot, h.snapped_at DESC
+    </select>
+
+    <!-- 상세 페이지용: 시즌 전체 일별(서울 기준) 최신 스냅 1건씩 반환. -->
+    <select id="getRtaRankCutHourlyDaily" resultType="map">
+        SELECT DISTINCT ON ((h.snapped_at AT TIME ZONE 'Asia/Seoul')::date, h.grade_slot)
+            (h.snapped_at AT TIME ZONE 'Asia/Seoul')::date AS "snappedDay",
+            h.grade_slot   AS "gradeSlot",
+            h.sort_order   AS "tierSort",
+            h.cutoff_score AS "cutoffScore"
+        FROM public.rta_agg_rank_cut_hourly_snap h
+        WHERE h.season_id = #{seasonId}
+        ORDER BY (h.snapped_at AT TIME ZONE 'Asia/Seoul')::date, h.grade_slot, h.snapped_at DESC
+    </select>
 
     <!-- 몬스터 상세: 카운터 매치업 — rta_agg_counter_solo/duo/trio 3개 테이블 UNION.
          모든 티어 합산(rating_id 무관). -->
