@@ -659,16 +659,74 @@ public class RtaController {
     public ResponseEntity<Map<String, Object>> getRtaMonsterOverview(@RequestBody Map<String, Object> param) {
         try {
             int monsterId = parseIntOpt(param.get("monster_id"), 0);
-            if (monsterId == 0) {
-                return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
-            }
+            if (monsterId == 0) return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
             Long sid = pickSeasonId(param);
             Object ratingIdRaw = param.get("rating_id");
             Integer ratingId = (ratingIdRaw != null) ? parseIntOpt(ratingIdRaw, -1) : null;
-            Map<String, Object> response = rtaService.getRtaMonsterOverview(monsterId, sid, ratingId);
-            return ResponseEntity.ok(response);
+            return ResponseEntity.ok(rtaService.getRtaMonsterOverview(monsterId, sid, ratingId));
         } catch (Exception e) {
             log.error("RTA monster overview 조회 실패 param={}", param, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    private int monsterIdOrBad(Map<String, Object> param) {
+        return parseIntOpt(param.get("monster_id"), 0);
+    }
+
+    private Integer ratingIdOrNull(Map<String, Object> param) {
+        Object raw = param.get("rating_id");
+        return raw != null ? parseIntOpt(raw, -1) : null;
+    }
+
+    @Operation(summary = "RTA 몬스터 요약 통계 (Win/Pick/Ban/Lead Rate)")
+    @PostMapping("/monster/summary-stats")
+    public ResponseEntity<Map<String, Object>> getRtaMonsterSummaryStats(@RequestBody Map<String, Object> param) {
+        try {
+            int mid = monsterIdOrBad(param);
+            if (mid == 0) return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
+            return ResponseEntity.ok(rtaService.getRtaMonsterSummaryStats(mid, pickSeasonId(param), ratingIdOrNull(param)));
+        } catch (Exception e) {
+            log.error("RTA monster summary-stats 실패 param={}", param, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    @Operation(summary = "RTA 몬스터 7일 추이")
+    @PostMapping("/monster/daily-trend")
+    public ResponseEntity<Map<String, Object>> getRtaMonsterDailyTrend(@RequestBody Map<String, Object> param) {
+        try {
+            int mid = monsterIdOrBad(param);
+            if (mid == 0) return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
+            return ResponseEntity.ok(rtaService.getRtaMonsterDailyTrend(mid, pickSeasonId(param), ratingIdOrNull(param)));
+        } catch (Exception e) {
+            log.error("RTA monster daily-trend 실패 param={}", param, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    @Operation(summary = "RTA 몬스터 슬롯별 픽 통계")
+    @PostMapping("/monster/pick-slots")
+    public ResponseEntity<Map<String, Object>> getRtaMonsterPickSlots(@RequestBody Map<String, Object> param) {
+        try {
+            int mid = monsterIdOrBad(param);
+            if (mid == 0) return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
+            return ResponseEntity.ok(rtaService.getRtaMonsterPickSlots(mid, pickSeasonId(param), ratingIdOrNull(param)));
+        } catch (Exception e) {
+            log.error("RTA monster pick-slots 실패 param={}", param, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    @Operation(summary = "RTA 몬스터 장인 랭킹")
+    @PostMapping("/monster/top-summoners")
+    public ResponseEntity<Map<String, Object>> getRtaMonsterTopSummoners(@RequestBody Map<String, Object> param) {
+        try {
+            int mid = monsterIdOrBad(param);
+            if (mid == 0) return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
+            return ResponseEntity.ok(rtaService.getRtaMonsterTopSummoners(mid, pickSeasonId(param)));
+        } catch (Exception e) {
+            log.error("RTA monster top-summoners 실패 param={}", param, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }

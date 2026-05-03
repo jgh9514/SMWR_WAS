@@ -333,6 +333,57 @@ public class RtaServiceImpl implements RtaService {
     }
 
     @Override
+    @Cacheable(cacheNames = "rtaMonster", cacheManager = "rtaMonsterCacheManager",
+            key = "'ms_' + #seasonId + '_' + #ratingId + '_' + #monsterId")
+    public Map<String, Object> getRtaMonsterSummaryStats(int monsterId, Long seasonId, Integer ratingId) {
+        Long sid = doResolveSeasonId(seasonId);
+        Map<String, Object> r = new HashMap<>();
+        r.put("seasonId", sid);
+        r.put("ratingId", ratingId);
+        if (sid == null) { r.put("data", null); return r; }
+        r.put("data", rtaMapper.getRtaMonsterOverviewStats(monsterId, sid, ratingId != null ? ratingId : -1));
+        return r;
+    }
+
+    @Override
+    @Cacheable(cacheNames = "rtaMonster", cacheManager = "rtaMonsterCacheManager",
+            key = "'mdt_' + #seasonId + '_' + #ratingId + '_' + #monsterId")
+    public Map<String, Object> getRtaMonsterDailyTrend(int monsterId, Long seasonId, Integer ratingId) {
+        Long sid = doResolveSeasonId(seasonId);
+        Map<String, Object> r = new HashMap<>();
+        r.put("seasonId", sid);
+        r.put("ratingId", ratingId);
+        if (sid == null) { r.put("data", Collections.emptyList()); return r; }
+        r.put("data", rtaMapper.getRtaMonsterDailyTrend(monsterId, sid, ratingId != null ? ratingId : -1, 7));
+        return r;
+    }
+
+    @Override
+    @Cacheable(cacheNames = "rtaMonster", cacheManager = "rtaMonsterCacheManager",
+            key = "'mps_' + #seasonId + '_' + #ratingId + '_' + #monsterId")
+    public Map<String, Object> getRtaMonsterPickSlots(int monsterId, Long seasonId, Integer ratingId) {
+        Long sid = doResolveSeasonId(seasonId);
+        Map<String, Object> r = new HashMap<>();
+        r.put("seasonId", sid);
+        r.put("ratingId", ratingId);
+        if (sid == null) { r.put("data", Collections.emptyList()); return r; }
+        r.put("data", rtaMapper.getRtaMonsterPickSlots(monsterId, sid, ratingId != null ? ratingId : -1));
+        return r;
+    }
+
+    @Override
+    @Cacheable(cacheNames = "rtaMonster", cacheManager = "rtaMonsterCacheManager",
+            key = "'mts_' + #seasonId + '_' + #monsterId")
+    public Map<String, Object> getRtaMonsterTopSummoners(int monsterId, Long seasonId) {
+        Long sid = doResolveSeasonId(seasonId);
+        Map<String, Object> r = new HashMap<>();
+        r.put("seasonId", sid);
+        if (sid == null) { r.put("data", Collections.emptyList()); return r; }
+        r.put("data", rtaMapper.getRtaMonsterTopSummoners(monsterId, sid, 10));
+        return r;
+    }
+
+    @Override
     @Cacheable(cacheNames = "rtaSeasons", cacheManager = "rtaShortLivedCacheManager",
             key = "'gradeRules_' + #seasonId")
     public List<Map<String, Object>> listRtaRatingGradeReference(long seasonId) {
