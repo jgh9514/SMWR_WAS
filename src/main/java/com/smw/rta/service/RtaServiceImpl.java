@@ -384,6 +384,17 @@ public class RtaServiceImpl implements RtaService {
     }
 
     @Override
+    public Map<String, Object> getMonsterRecentMatches(int monsterId, Long seasonId, int limit) {
+        Long sid = doResolveSeasonId(seasonId);
+        Map<String, Object> r = new HashMap<>();
+        r.put("seasonId", sid);
+        if (sid == null) { r.put("matches", Collections.emptyList()); return r; }
+        int safeLimit = Math.min(Math.max(limit, 1), 20);
+        r.put("matches", rtaMapper.getMonsterRecentMatches(monsterId, sid, safeLimit));
+        return r;
+    }
+
+    @Override
     @Cacheable(cacheNames = "rtaSeasons", cacheManager = "rtaShortLivedCacheManager",
             key = "'gradeRules_' + #seasonId")
     public List<Map<String, Object>> listRtaRatingGradeReference(long seasonId) {

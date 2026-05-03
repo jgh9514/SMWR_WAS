@@ -15,6 +15,8 @@ import org.springframework.transaction.support.DefaultTransactionDefinition;
 import com.admin.batch.mapper.BatchMapper;
 import com.admin.batch.sse.BatchLogBroadcaster;
 import com.smw.monster.service.SwarfarmSyncService;
+import com.smw.monster.util.SlackNotifier;
+import com.smw.rta.config.RtaBatchProperties;
 
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -29,7 +31,7 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 public abstract class BaseBatchJob implements Job {
-    
+
     protected StringBuilder logContent = new StringBuilder();
     protected Long runSn = null;
     protected Long currentBatId = null;
@@ -41,6 +43,14 @@ public abstract class BaseBatchJob implements Job {
     /** 수동 실행 시 SSE로 실시간 로그를 보낼 때 사용하는 스트림 ID (없으면 null) */
     private String streamId;
     private BatchLogBroadcaster logBroadcaster;
+
+    /**
+     * ApplicationContext가 종료 중일 때도 슬랙 전송이 가능하도록 execute() 시작 시 미리 캡처.
+     * getBean()을 실패 시점에 호출하면 컨텍스트 destroy 중 예외가 발생해 알림이 누락된다.
+     */
+    private String cachedSlackToken;
+    private String cachedSlackChannelId;
+    private SlackNotifier cachedSlackNotifier;
     
     @Override
     public void execute(JobExecutionContext context) throws JobExecutionException {
@@ -69,6 +79,16 @@ public abstract class BaseBatchJob implements Job {
                 } catch (Exception e) {
                     log.debug("BatchLogBroadcaster 사용 불가", e);
                 }
+            }
+
+            // 슬랙 정보를 컨텍스트가 살아 있는 지금 미리 캡처 — 실패 시 컨텍스트가 종료 중일 수 있음
+            try {
+                RtaBatchProperties slackProps = applicationContext.getBean(RtaBatchProperties.class);
+                cachedSlackToken     = slackProps.getSlackToken();
+                cachedSlackChannelId = slackProps.getSlackChannelId();
+                cachedSlackNotifier  = applicationContext.getBean(SlackNotifier.class);
+            } catch (Exception e) {
+                log.debug("[slack] 슬랙 설정 캡처 실패 — 실패 알림 불가", e);
             }
 
             meterRegistry = applicationContext.getBeanProvider(MeterRegistry.class).getIfAvailable();
@@ -140,8 +160,16 @@ public abstract class BaseBatchJob implements Job {
             
             updateBatchRunHis("FAILED", errorLog);
             recordBatchMetrics("FAILED", batchTimerSample);
-            sendSlackFailureAlert(getBatchName(), e);
-            disableJobOnFailure();
+
+            if (isInfraFailure(e)) {
+                // 커넥션 풀 종료·앱 재시작 등 인프라 문제 — 배치 비활성화 없이 다음 스케줄에서 재시도
+                log.warn("[batch] 인프라 오류로 실패 — 스케줄 유지 (batchName={}, error={})",
+                        getBatchName(), e.getMessage());
+                sendSlackFailureAlert(getBatchName(), e, false);
+            } else {
+                sendSlackFailureAlert(getBatchName(), e, true);
+                disableJobOnFailure();
+            }
 
             log.error("배치 실행 중 오류 발생", e);
             throw new JobExecutionException("배치 실행 실패: " + e.getMessage(), e);
@@ -342,17 +370,49 @@ public abstract class BaseBatchJob implements Job {
         return sw.toString();
     }
 
-    private void sendSlackFailureAlert(String batchName, Exception e) {
+    private void sendSlackFailureAlert(String batchName, Exception e, boolean disabled) {
+        if (cachedSlackNotifier == null) {
+            log.warn("[slack] 슬랙 노티파이어 미캡처 — 배치 실패 알림 생략 (batchName={})", batchName);
+            return;
+        }
         try {
-            com.smw.rta.config.RtaBatchProperties props =
-                    applicationContext.getBean(com.smw.rta.config.RtaBatchProperties.class);
-            com.smw.monster.util.SlackNotifier notifier =
-                    applicationContext.getBean(com.smw.monster.util.SlackNotifier.class);
-            String msg = String.format("[배치 실패] *%s*\n오류: %s\n스케줄이 비활성화되었습니다. 확인 후 수동으로 재활성화하세요.", batchName, e.getMessage());
-            notifier.send(props.getSlackToken(), props.getSlackChannelId(), msg);
+            String suffix = disabled
+                    ? "\n스케줄이 비활성화되었습니다. 확인 후 수동으로 재활성화하세요."
+                    : "\n인프라 오류(커넥션 등)로 인한 일시 실패 — 스케줄은 유지됩니다.";
+            String msg = String.format("[배치 실패] *%s*\n오류: %s%s", batchName, e.getMessage(), suffix);
+            cachedSlackNotifier.send(cachedSlackToken, cachedSlackChannelId, msg);
         } catch (Exception ex) {
             log.warn("[slack] 배치 실패 알림 전송 중 오류", ex);
         }
+    }
+
+    /**
+     * 커넥션 풀 종료·앱 재시작 등 인프라 문제로 인한 예외 여부.
+     * 이 경우 배치 자체 로직 오류가 아니므로 스케줄을 비활성화하지 않는다.
+     */
+    private static boolean isInfraFailure(Throwable e) {
+        for (Throwable t = e; t != null; t = t.getCause()) {
+            String msg = t.getMessage();
+            if (msg != null) {
+                String lc = msg.toLowerCase();
+                if (lc.contains("has been closed")
+                        || lc.contains("hikaripool")
+                        || lc.contains("connection is closed")
+                        || lc.contains("connection closed")
+                        || lc.contains("datasource")
+                        || lc.contains("i/o error")) {
+                    return true;
+                }
+            }
+            if (t instanceof java.sql.SQLException
+                    || t.getClass().getName().contains("HikariPool")) {
+                String cn = t.getClass().getName();
+                if (cn.contains("Connection") || cn.contains("Hikari")) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private void disableJobOnFailure() {

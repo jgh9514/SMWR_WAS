@@ -730,4 +730,19 @@ public class RtaController {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
+
+    @Operation(summary = "특정 몬스터가 사용된 최근 경기 목록")
+    @PostMapping("/monster/recent-matches")
+    public ResponseEntity<Map<String, Object>> getMonsterRecentMatches(@RequestBody Map<String, Object> param) {
+        try {
+            int mid = monsterIdOrBad(param);
+            if (mid == 0) return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
+            Object rawLimit = param.get("limit");
+            int limit = rawLimit != null ? parseIntOpt(rawLimit, 10) : 10;
+            return ResponseEntity.ok(rtaService.getMonsterRecentMatches(mid, pickSeasonId(param), limit));
+        } catch (Exception e) {
+            log.error("RTA monster recent-matches 실패 param={}", param, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
 }

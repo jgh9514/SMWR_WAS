@@ -23,6 +23,10 @@ public interface RtaMapper {
             @Param("opponentWizardId") String opponentWizardId, @Param("limit") int limit,
             @Param("offset") int offset, @Param("seasonId") Long seasonId);
 
+    /** 특정 몬스터가 픽·밴된 최근 N경기 */
+    List<Map<String, Object>> getMonsterRecentMatches(@Param("monsterId") int monsterId,
+            @Param("seasonId") Long seasonId, @Param("limit") int limit);
+
     /**
      * 시즌 전체 H2H 읽기 — {@code rta_agg_summoner_opponent_h2h_snap} (배치 적재, 라이브 집계 없음).
      */

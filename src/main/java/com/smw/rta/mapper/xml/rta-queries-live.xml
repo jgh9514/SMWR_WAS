@@ -390,6 +390,105 @@
         ORDER BY rms.date_add DESC NULLS LAST
     </select>
 
+    <!-- 특정 몬스터가 픽·밴된 최근 N경기 -->
+    <select id="getMonsterRecentMatches" resultType="map">
+        WITH rms AS MATERIALIZED (
+            SELECT DISTINCT ON (u.replay_id)
+                u.replay_id AS rid,
+                m.played_at AS date_add,
+                m.battle_type,
+                m.winner_wizard_id
+            FROM public.rta_match_unit_pick u
+            INNER JOIN public.rta_match m ON m.replay_id = u.replay_id
+            INNER JOIN public.rta_match_participant pp ON pp.replay_id = u.replay_id
+            WHERE u.unit_master_id = #{monsterId}
+              AND pp.season_id = #{seasonId}
+            ORDER BY u.replay_id, m.played_at DESC NULLS LAST
+            LIMIT #{limit}
+        ),
+        banned_pick AS (
+            SELECT
+                ub.replay_id,
+                ub.wizard_id,
+                MIN(ub.unit_master_id::text) AS banned_unit
+            FROM public.rta_match_unit_pick ub
+            INNER JOIN rms ON rms.rid = ub.replay_id
+            WHERE ub.is_banned = true
+            GROUP BY ub.replay_id, ub.wizard_id
+        ),
+        user_info AS (
+            SELECT
+                p.replay_id,
+                p.wizard_id,
+                p.wizard_name,
+                p.channel_uid,
+                p.country_code AS country,
+                CAST(p.ladder_score AS text) AS score,
+                CAST(p.rating_id AS text) AS rating,
+                CASE WHEN p.is_winner THEN '1' ELSE '0' END AS result,
+                CASE WHEN p.is_first_pick THEN '1' ELSE '0' END AS first_pick,
+                p.alive_count,
+                p.leader_pick_slot,
+                bp.banned_unit
+            FROM public.rta_match_participant p
+            INNER JOIN rms ON rms.rid = p.replay_id
+            LEFT JOIN banned_pick bp ON bp.replay_id = p.replay_id AND bp.wizard_id = p.wizard_id
+        ),
+        unit_info AS (
+            SELECT
+                u.replay_id,
+                u.wizard_id,
+                array_agg(u.unit_master_id::text ORDER BY u.pick_slot_no) AS picked_units,
+                array_agg(<include refid="monsterPortraitUrl"><property name="alias" value="mo"/></include> ORDER BY u.pick_slot_no) AS unit_images,
+                array_agg(mo.kr_name ORDER BY u.pick_slot_no) AS unit_names,
+                array_agg(u.is_banned ORDER BY u.pick_slot_no) AS unit_banned_flags,
+                array_agg(u.pick_slot_no::int ORDER BY u.pick_slot_no) AS unit_pick_slot_nos,
+                string_agg(u.unit_master_id::text, ',' ORDER BY u.pick_slot_no) AS picked_units_str
+            FROM public.rta_match_unit_pick u
+            LEFT JOIN public.monster mo ON mo.monster_id = u.unit_master_id::text
+            INNER JOIN rms ON rms.rid = u.replay_id
+            GROUP BY u.replay_id, u.wizard_id
+        ),
+        pair AS (
+            SELECT rms.rid, MIN(ui.wizard_id) AS p1w, MAX(ui.wizard_id) AS p2w
+            FROM rms
+            JOIN user_info ui ON ui.replay_id = rms.rid
+            GROUP BY rms.rid
+        )
+        SELECT
+            rms.rid,
+            rms.battle_type,
+            rms.date_add,
+            CASE WHEN rms.winner_wizard_id = pr.p1w THEN '1' ELSE '2' END AS winner_position,
+            u1.wizard_id AS p1_wizard_id, u1.channel_uid AS p1_channel_uid, u1.wizard_name AS p1_name,
+            u1.country AS p1_country, u1.score AS p1_score, u1.rating AS p1_rating,
+            u1.result AS p1_result, u1.first_pick AS p1_first_pick, u1.alive_count AS p1_alive_count,
+            u1.banned_unit AS p1_banned_unit, u1.leader_pick_slot AS p1_leader_unit,
+            COALESCE(un1.picked_units, ARRAY[]::text[]) AS p1_units,
+            COALESCE(un1.unit_images, ARRAY[]::text[]) AS p1_unit_images,
+            COALESCE(un1.unit_names, ARRAY[]::text[]) AS p1_unit_names,
+            COALESCE(un1.unit_banned_flags, ARRAY[]::boolean[]) AS p1_unit_banned,
+            COALESCE(un1.unit_pick_slot_nos, ARRAY[]::int[]) AS p1_unit_pick_slot_no,
+            COALESCE(un1.picked_units_str, '') AS p1_units_str,
+            u2.wizard_id AS p2_wizard_id, u2.channel_uid AS p2_channel_uid, u2.wizard_name AS p2_name,
+            u2.country AS p2_country, u2.score AS p2_score, u2.rating AS p2_rating,
+            u2.result AS p2_result, u2.first_pick AS p2_first_pick, u2.alive_count AS p2_alive_count,
+            u2.banned_unit AS p2_banned_unit, u2.leader_pick_slot AS p2_leader_unit,
+            COALESCE(un2.picked_units, ARRAY[]::text[]) AS p2_units,
+            COALESCE(un2.unit_images, ARRAY[]::text[]) AS p2_unit_images,
+            COALESCE(un2.unit_names, ARRAY[]::text[]) AS p2_unit_names,
+            COALESCE(un2.unit_banned_flags, ARRAY[]::boolean[]) AS p2_unit_banned,
+            COALESCE(un2.unit_pick_slot_nos, ARRAY[]::int[]) AS p2_unit_pick_slot_no,
+            COALESCE(un2.picked_units_str, '') AS p2_units_str
+        FROM rms
+        JOIN pair pr ON pr.rid = rms.rid
+        JOIN user_info u1 ON u1.replay_id = rms.rid AND u1.wizard_id = pr.p1w
+        JOIN user_info u2 ON u2.replay_id = rms.rid AND u2.wizard_id = pr.p2w
+        LEFT JOIN unit_info un1 ON un1.replay_id = rms.rid AND un1.wizard_id = u1.wizard_id
+        LEFT JOIN unit_info un2 ON un2.replay_id = rms.rid AND un2.wizard_id = u2.wizard_id
+        ORDER BY rms.date_add DESC NULLS LAST
+    </select>
+
     <select id="getTodayRtaMatches" resultType="int">
         <choose>
             <when test="ratingId != null">

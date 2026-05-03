@@ -187,26 +187,36 @@ GROUP BY bucket_date, grade_slot
 
 	<!--
 	  소환사 랭킹 전용: participant 에 season_id 가 있으므로 rta_match_in_season JOIN 불필요.
-	  DISTINCT ON 에서 wizard_name 등 모든 필드를 바로 가져와 중간 JOIN CTE 제거.
+	  top_wizards(최고점 행) + win_agg(경기수·승수) 두 CTE로 분리 — 윈도 함수 + DISTINCT ON 동시 사용 시
+	  테이블 전체 정렬이 두 번 발생해 대용량 시즌에서 커넥션 I/O 오류 유발, GROUP BY로 교체.
 	-->
 	<sql id="rtaSummonerRankingTopWizardsPairCte">
 		top_wizards AS (
-			/* match_count·win_count 를 윈도 함수로 함께 계산 — rta_match_participant 단일 스캔.
-			   DISTINCT ON 이 행을 선택한 뒤에도 윈도 값은 위자드 전체 집계를 유지함. */
+			/* wizard_id 별 최고 ladder_score 행만 추출 — 단순 DISTINCT ON */
 			SELECT DISTINCT ON (wizard_id)
 				wizard_id,
 				wizard_name,
 				country_code AS country,
 				channel_uid,
 				ladder_score AS max_score,
-				rating_id,
-				COUNT(*) OVER (PARTITION BY wizard_id)::bigint AS match_count,
-				SUM(CASE WHEN is_winner THEN 1 ELSE 0 END) OVER (PARTITION BY wizard_id)::bigint AS win_count
+				rating_id
 			FROM public.rta_match_participant
 			WHERE season_id = #{seasonId}
 			  AND ladder_score &gt; 0
 			  AND wizard_id &lt;&gt; ''
 			ORDER BY wizard_id, ladder_score DESC, replay_id DESC
+		),
+		win_agg AS (
+			/* 경기수·승수는 GROUP BY 집계 — 윈도 함수보다 훨씬 가볍고 플래너가 Hash Aggregate 사용 */
+			SELECT
+				wizard_id,
+				COUNT(*)::bigint                                                AS match_count,
+				SUM(CASE WHEN is_winner THEN 1 ELSE 0 END)::bigint             AS win_count
+			FROM public.rta_match_participant
+			WHERE season_id = #{seasonId}
+			  AND ladder_score &gt; 0
+			  AND wizard_id &lt;&gt; ''
+			GROUP BY wizard_id
 		)
 	</sql>
 
@@ -221,33 +231,20 @@ GROUP BY bucket_date, grade_slot
 		  (PK season_id, rank_position). 1인 1슬롯으로 눌러 상위 500 + 고유 rank 만 보장.
 		-->
 		pool_500 AS MATERIALIZED (
+			/* top_wizards 는 DISTINCT ON 으로 이미 wizard_id 고유 → ROW_NUMBER 중복 제거 불필요.
+			   win_agg 와 LEFT JOIN 해서 match_count·win_count 합산. */
 			SELECT
-				wizard_id,
-				wizard_name,
-				country,
-				channel_uid,
-				max_score,
-				rating_id,
-				match_count,
-				win_count
-			FROM (
-				SELECT
-					wizard_id,
-					wizard_name,
-					country,
-					channel_uid,
-					max_score,
-					rating_id,
-					match_count,
-					win_count,
-					ROW_NUMBER() OVER (
-						PARTITION BY wizard_id
-						ORDER BY max_score DESC, channel_uid::text, wizard_name, country::text
-					) AS _rn
-				FROM top_wizards
-			) d
-			WHERE d._rn = 1
-			ORDER BY max_score DESC, wizard_id ASC
+				t.wizard_id,
+				t.wizard_name,
+				t.country,
+				t.channel_uid,
+				t.max_score,
+				t.rating_id,
+				COALESCE(a.match_count, 0) AS match_count,
+				COALESCE(a.win_count,   0) AS win_count
+			FROM top_wizards t
+			LEFT JOIN win_agg a ON a.wizard_id = t.wizard_id
+			ORDER BY t.max_score DESC, t.wizard_id ASC
 			LIMIT 500
 		),
 		pool_ranked AS (
