@@ -307,6 +307,32 @@ public class RtaServiceImpl implements RtaService {
     }
 
     @Override
+    @Cacheable(cacheNames = "rtaMonster", cacheManager = "rtaMonsterCacheManager",
+            key = "'mo_' + #seasonId + '_' + #ratingId + '_' + #monsterId")
+    public Map<String, Object> getRtaMonsterOverview(int monsterId, Long seasonId, Integer ratingId) {
+        Long sid = doResolveSeasonId(seasonId);
+        Map<String, Object> response = new HashMap<>();
+        response.put("seasonId", sid);
+        response.put("ratingId", ratingId);
+
+        if (sid == null) {
+            response.put("overview_stats", null);
+            response.put("daily_trend", Collections.emptyList());
+            response.put("pick_slots", Collections.emptyList());
+            response.put("top_summoners", Collections.emptyList());
+            return response;
+        }
+
+        int rid = ratingId != null ? ratingId : -1;
+
+        response.put("overview_stats", rtaMapper.getRtaMonsterOverviewStats(monsterId, sid, rid));
+        response.put("daily_trend", rtaMapper.getRtaMonsterDailyTrend(monsterId, sid, rid, 7));
+        response.put("pick_slots", rtaMapper.getRtaMonsterPickSlots(monsterId, sid, rid));
+        response.put("top_summoners", rtaMapper.getRtaMonsterTopSummoners(monsterId, sid, 10));
+        return response;
+    }
+
+    @Override
     @Cacheable(cacheNames = "rtaSeasons", cacheManager = "rtaShortLivedCacheManager",
             key = "'gradeRules_' + #seasonId")
     public List<Map<String, Object>> listRtaRatingGradeReference(long seasonId) {

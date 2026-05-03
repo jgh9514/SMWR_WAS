@@ -1588,6 +1588,117 @@
         ORDER BY rms.date_add DESC NULLS LAST
     </select>
 
+    <!-- ============================================================
+         getRtaMonsterOverviewStats  — 개요 집계 (픽/승/밴/리더율 + 총 경기수)
+         rta_agg_monster_daily_snap 전 날짜 합산
+    ============================================================ -->
+    <select id="getRtaMonsterOverviewStats" resultType="map">
+        /* rta-queries-live.getRtaMonsterOverviewStats */
+        SELECT
+            s.unit_master_id,
+            SUM(s.pick_cnt)::bigint                                    AS pick_cnt,
+            SUM(s.win_cnt)::bigint                                     AS win_cnt,
+            SUM(s.ban_cnt)::bigint                                     AS ban_cnt,
+            SUM(s.lead_cnt)::bigint                                    AS lead_cnt,
+            MAX(s.field_cnt)::bigint                                   AS field_cnt,
+            CASE WHEN SUM(s.field_cnt) > 0
+                 THEN ROUND(100.0 * SUM(s.pick_cnt) / SUM(s.field_cnt), 2)
+            END                                                        AS pick_rate_pct,
+            CASE WHEN SUM(s.pick_cnt) - SUM(s.ban_cnt) > 0
+                 THEN ROUND(100.0 * SUM(s.win_cnt) / (SUM(s.pick_cnt) - SUM(s.ban_cnt)), 2)
+            END                                                        AS win_rate_pct,
+            CASE WHEN SUM(s.field_cnt) > 0
+                 THEN ROUND(100.0 * SUM(s.ban_cnt) / SUM(s.field_cnt), 2)
+            END                                                        AS ban_rate_pct,
+            CASE WHEN SUM(s.pick_cnt) - SUM(s.ban_cnt) > 0
+                 THEN ROUND(100.0 * SUM(s.lead_cnt) / (SUM(s.pick_cnt) - SUM(s.ban_cnt)), 2)
+            END                                                        AS lead_rate_pct
+        FROM public.rta_agg_monster_daily_snap s
+        WHERE s.unit_master_id = #{monsterId}
+          AND s.season_id = #{seasonId}
+          AND s.rating_id = #{ratingId}
+        GROUP BY s.unit_master_id
+    </select>
+
+    <!-- ============================================================
+         getRtaMonsterDailyTrend  — 최근 N일 일별 지표
+    ============================================================ -->
+    <select id="getRtaMonsterDailyTrend" resultType="map">
+        /* rta-queries-live.getRtaMonsterDailyTrend */
+        SELECT
+            s.snap_date,
+            s.pick_cnt,
+            s.win_cnt,
+            s.ban_cnt,
+            s.lead_cnt,
+            s.field_cnt,
+            CASE WHEN s.field_cnt > 0
+                 THEN ROUND(100.0 * s.pick_cnt / s.field_cnt, 2)
+            END AS pick_rate_pct,
+            CASE WHEN s.pick_cnt - s.ban_cnt > 0
+                 THEN ROUND(100.0 * s.win_cnt / (s.pick_cnt - s.ban_cnt), 2)
+            END AS win_rate_pct,
+            CASE WHEN s.field_cnt > 0
+                 THEN ROUND(100.0 * s.ban_cnt / s.field_cnt, 2)
+            END AS ban_rate_pct
+        FROM public.rta_agg_monster_daily_snap s
+        WHERE s.unit_master_id = #{monsterId}
+          AND s.season_id = #{seasonId}
+          AND s.rating_id = #{ratingId}
+          AND s.snap_date >= CURRENT_DATE - (#{days} - 1)
+        ORDER BY s.snap_date ASC
+    </select>
+
+    <!-- ============================================================
+         getRtaMonsterPickSlots  — 슬롯별 픽 집계
+    ============================================================ -->
+    <select id="getRtaMonsterPickSlots" resultType="map">
+        /* rta-queries-live.getRtaMonsterPickSlots */
+        SELECT
+            ps.team_side,
+            ps.pick_slot_no,
+            ps.pick_cnt,
+            ps.win_cnt,
+            ps.field_cnt,
+            CASE WHEN ps.field_cnt > 0
+                 THEN ROUND(100.0 * ps.pick_cnt / ps.field_cnt, 2)
+            END AS pick_share_pct,
+            CASE WHEN ps.pick_cnt > 0
+                 THEN ROUND(100.0 * ps.win_cnt / ps.pick_cnt, 2)
+            END AS win_rate_pct
+        FROM public.rta_agg_monster_pick_slot_snap ps
+        WHERE ps.unit_master_id = #{monsterId}
+          AND ps.season_id = #{seasonId}
+          AND ps.rating_id = #{ratingId}
+        ORDER BY ps.team_side, ps.pick_slot_no
+    </select>
+
+    <!-- ============================================================
+         getRtaMonsterTopSummoners  — 장인 랭킹 (픽 횟수 + 승률 기준)
+    ============================================================ -->
+    <select id="getRtaMonsterTopSummoners" resultType="map">
+        /* rta-queries-live.getRtaMonsterTopSummoners */
+        SELECT
+            s.wizard_id,
+            ui.wizard_name,
+            ui.channel_uid,
+            s.pick_cnt,
+            s.ban_cnt,
+            s.win_cnt,
+            s.lose_cnt,
+            s.pick_cnt + s.ban_cnt                                            AS actual_pick_cnt,
+            CASE WHEN s.win_cnt + s.lose_cnt > 0
+                 THEN ROUND(100.0 * s.win_cnt / (s.win_cnt + s.lose_cnt), 1)
+            END                                                                AS win_rate_pct
+        FROM public.rta_agg_summoner_monster_snap s
+        INNER JOIN public.user_info ui ON ui.wizard_id::text = s.wizard_id::text
+        WHERE s.unit_master_id = #{monsterId}
+          AND s.season_id = #{seasonId}
+          AND s.pick_cnt >= 5
+        ORDER BY s.pick_cnt DESC, win_rate_pct DESC NULLS LAST
+        LIMIT #{limit}
+    </select>
+
     <select id="selectMonsterPortraitMetaByIds" resultType="map">
         SELECT monster_id,
                image_url,

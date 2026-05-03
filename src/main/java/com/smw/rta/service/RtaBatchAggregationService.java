@@ -1,5 +1,7 @@
 package com.smw.rta.service;
 
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -424,6 +426,63 @@ public class RtaBatchAggregationService {
 		} catch (InterruptedException e) {
 			Thread.currentThread().interrupt();
 		}
+	}
+
+	// ── 몬스터 일별·슬롯 집계 ────────────────────────────────────────────
+
+	private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+
+	/**
+	 * 시즌 시작일 ~ 오늘까지 {@code rta_agg_monster_daily_snap}에서 누락된 날짜만 적재.
+	 * 이미 데이터가 있는 날짜는 건너뛰므로 멱등(idempotent)하고 재실행 부담이 작다.
+	 *
+	 * @return 새로 적재된 (시즌, 날짜) 쌍의 수
+	 */
+	public int rebuildMonsterDailySnap(RtaMapper mapper) {
+		List<Map<String, Object>> seasons = mapper.selectParticipantSeasonsWithStart();
+		if (seasons == null || seasons.isEmpty()) {
+			return 0;
+		}
+		int totalInserted = 0;
+		for (Map<String, Object> row : seasons) {
+			long seasonId = ((Number) row.get("season_id")).longValue();
+			Object startDateObj = row.get("start_date");
+			if (startDateObj == null) continue;
+			String fromDate = startDateObj.toString();
+			List<String> missingDates = mapper.selectMissingMonsterDailySnapDates(seasonId, fromDate);
+			if (missingDates == null || missingDates.isEmpty()) continue;
+			for (String snapDate : missingDates) {
+				transactionTemplate.executeWithoutResult(tx ->
+					mapper.insertRtaMonsterDailySnapForDate(seasonId, snapDate)
+				);
+			}
+			totalInserted += missingDates.size();
+			log.info("rebuildMonsterDailySnap: seasonId={}, missingFilled={}", seasonId, missingDates.size());
+		}
+		log.info("rebuildMonsterDailySnap done: totalInserted={}", totalInserted);
+		return totalInserted;
+	}
+
+	/**
+	 * 모든 활성 시즌의 {@code rta_agg_monster_pick_slot_snap} 재적재.
+	 * rating_id=-1(전 티어) 만 적재.
+	 */
+	public int rebuildMonsterPickSlotSnap(RtaMapper mapper) {
+		List<Long> seasonIds = mapper.selectDistinctParticipantSeasonIds();
+		if (seasonIds == null || seasonIds.isEmpty()) {
+			return 0;
+		}
+		for (Long seasonId : seasonIds) {
+			transactionTemplate.executeWithoutResult(tx -> {
+				mapper.deleteRtaMonsterPickSlotSnapBySeason(seasonId, -1);
+				mapper.insertRtaMonsterPickSlotSnapForSeason(seasonId, -1);
+			});
+		}
+		log.info("rebuildMonsterPickSlotSnap: seasonCount={}", seasonIds.size());
+		return seasonIds.size();
+	}
+
+	public record MonsterDailySnapRebuildResult(int seasonCount, int days) {
 	}
 
 	/** @param rankingRows {@code rta_agg_summoner_ranking_snap} 합, @param searchRows {@code rta_agg_summoner_search_snap} 합 */

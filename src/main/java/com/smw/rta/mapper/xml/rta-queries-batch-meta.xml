@@ -1286,4 +1286,197 @@
     <select id="countRtaSummonerOwnedBoxSnapRows" resultType="long">
         SELECT COUNT(*)::bigint FROM public.rta_agg_summoner_owned_box_snap
     </select>
+
+    <!-- 시즌별 (season_id, start_at::date) 목록 — rta_match_participant 에 경기가 있는 시즌만 -->
+    <select id="selectParticipantSeasonsWithStart" resultType="map">
+        /* rta-queries-batch-meta.selectParticipantSeasonsWithStart */
+        SELECT DISTINCT mp.season_id,
+               rs.start_at::date AS start_date
+        FROM public.rta_match_participant mp
+        INNER JOIN public.rta_season rs ON rs.season_id = mp.season_id
+        WHERE mp.season_id IS NOT NULL
+          AND rs.start_at IS NOT NULL
+        ORDER BY mp.season_id
+    </select>
+
+    <!-- 특정 시즌에서 fromDate~today 사이 snap이 없는 날짜 목록 반환 -->
+    <select id="selectMissingMonsterDailySnapDates" resultType="string">
+        /* rta-queries-batch-meta.selectMissingMonsterDailySnapDates */
+        SELECT gs::date::text AS snap_date
+        FROM generate_series(
+            #{fromDate}::date,
+            CURRENT_DATE,
+            INTERVAL '1 day'
+        ) AS gs
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM public.rta_agg_monster_daily_snap s
+            WHERE s.season_id = #{seasonId}
+              AND s.snap_date = gs::date
+        )
+        ORDER BY gs
+    </select>
+
+    <!-- ============================================================
+         rta_agg_monster_daily_snap  —  일별 몬스터 집계
+         snap_date 기준 당일 경기에서 픽/승/밴/리더 집계
+         rating_id=-1 은 전 티어 합산
+    ============================================================ -->
+    <delete id="deleteRtaMonsterDailySnapByDate">
+        /* rta-queries-batch-meta.deleteRtaMonsterDailySnapByDate */
+        DELETE FROM public.rta_agg_monster_daily_snap
+        WHERE season_id = #{seasonId}
+          AND snap_date = #{snapDate}::date
+    </delete>
+
+    <insert id="insertRtaMonsterDailySnapForDate">
+        /* rta-queries-batch-meta.insertRtaMonsterDailySnapForDate */
+        INSERT INTO public.rta_agg_monster_daily_snap
+            (snap_date, season_id, rating_id, unit_master_id,
+             pick_cnt, win_cnt, ban_cnt, lead_cnt, field_cnt)
+        WITH matches AS (
+            SELECT mp.replay_id,
+                   mp.rating_id,
+                   mp.is_winner,
+                   mp.is_first_pick,
+                   mp.leader_pick_slot
+            FROM public.rta_match_participant mp
+            INNER JOIN public.rta_match rm ON rm.replay_id = mp.replay_id
+            WHERE mp.season_id = #{seasonId}
+              AND rm.played_at::date = #{snapDate}::date
+        ),
+        picks AS (
+            SELECT up.unit_master_id,
+                   m.rating_id,
+                   up.is_banned::boolean       AS is_banned,
+                   m.is_winner::boolean         AS is_winner,
+                   (up.pick_slot_no IS NOT NULL
+                    AND m.leader_pick_slot = up.pick_slot_no
+                    AND NOT up.is_banned)::boolean AS is_leader
+            FROM public.rta_match_unit_pick up
+            INNER JOIN matches m ON m.replay_id = up.replay_id
+               AND (up.is_first_pick IS NOT DISTINCT FROM m.is_first_pick)
+            WHERE up.unit_master_id IS NOT NULL
+        ),
+        field AS (
+            SELECT rating_id, COUNT(DISTINCT replay_id)::integer AS field_cnt
+            FROM matches
+            GROUP BY rating_id
+        ),
+        per_tier AS (
+            SELECT p.unit_master_id,
+                   p.rating_id::smallint             AS rating_id,
+                   COUNT(*) FILTER (WHERE NOT p.is_banned)::integer   AS pick_cnt,
+                   COUNT(*) FILTER (WHERE p.is_winner AND NOT p.is_banned)::integer AS win_cnt,
+                   COUNT(*) FILTER (WHERE p.is_banned)::integer        AS ban_cnt,
+                   COUNT(*) FILTER (WHERE p.is_leader)::integer        AS lead_cnt
+            FROM picks p
+            GROUP BY p.unit_master_id, p.rating_id
+        ),
+        -- 전 티어 합산 (rating_id = -1)
+        all_tier AS (
+            SELECT p.unit_master_id,
+                   (-1)::smallint                    AS rating_id,
+                   COUNT(*) FILTER (WHERE NOT p.is_banned)::integer   AS pick_cnt,
+                   COUNT(*) FILTER (WHERE p.is_winner AND NOT p.is_banned)::integer AS win_cnt,
+                   COUNT(*) FILTER (WHERE p.is_banned)::integer        AS ban_cnt,
+                   COUNT(*) FILTER (WHERE p.is_leader)::integer        AS lead_cnt
+            FROM picks p
+            GROUP BY p.unit_master_id
+        ),
+        combined AS (
+            SELECT unit_master_id, rating_id, pick_cnt, win_cnt, ban_cnt, lead_cnt FROM per_tier
+            UNION ALL
+            SELECT unit_master_id, rating_id, pick_cnt, win_cnt, ban_cnt, lead_cnt FROM all_tier
+        ),
+        total_field AS (
+            SELECT (-1)::smallint AS rating_id,
+                   SUM(field_cnt)::integer AS field_cnt
+            FROM field
+        ),
+        field_all AS (
+            SELECT rating_id::smallint, field_cnt FROM field
+            UNION ALL
+            SELECT rating_id, field_cnt FROM total_field
+        )
+        SELECT #{snapDate}::date          AS snap_date,
+               #{seasonId}::bigint        AS season_id,
+               c.rating_id,
+               c.unit_master_id,
+               c.pick_cnt,
+               c.win_cnt,
+               c.ban_cnt,
+               c.lead_cnt,
+               COALESCE(fa.field_cnt, 0) AS field_cnt
+        FROM combined c
+        LEFT JOIN field_all fa ON fa.rating_id = c.rating_id
+        ON CONFLICT (snap_date, season_id, rating_id, unit_master_id) DO UPDATE
+            SET pick_cnt  = EXCLUDED.pick_cnt,
+                win_cnt   = EXCLUDED.win_cnt,
+                ban_cnt   = EXCLUDED.ban_cnt,
+                lead_cnt  = EXCLUDED.lead_cnt,
+                field_cnt = EXCLUDED.field_cnt
+    </insert>
+
+    <!-- ============================================================
+         rta_agg_monster_pick_slot_snap  —  슬롯별 집계 (전 경기)
+         시즌 단위로 DELETE+INSERT 방식으로 재적재
+    ============================================================ -->
+    <delete id="deleteRtaMonsterPickSlotSnapBySeason">
+        /* rta-queries-batch-meta.deleteRtaMonsterPickSlotSnapBySeason */
+        DELETE FROM public.rta_agg_monster_pick_slot_snap
+        WHERE season_id = #{seasonId}
+          AND rating_id = #{ratingId}
+    </delete>
+
+    <insert id="insertRtaMonsterPickSlotSnapForSeason">
+        /* rta-queries-batch-meta.insertRtaMonsterPickSlotSnapForSeason */
+        INSERT INTO public.rta_agg_monster_pick_slot_snap
+            (season_id, rating_id, unit_master_id, team_side, pick_slot_no,
+             pick_cnt, win_cnt, field_cnt)
+        WITH matches AS (
+            SELECT mp.replay_id,
+                   mp.is_winner::boolean  AS is_winner,
+                   mp.is_first_pick::boolean AS is_first_pick
+            FROM public.rta_match_participant mp
+            WHERE mp.season_id = #{seasonId}
+            <if test="ratingId != null and ratingId != -1">
+              AND mp.rating_id = #{ratingId}
+            </if>
+        ),
+        picks AS (
+            SELECT up.unit_master_id,
+                   CASE WHEN m.is_first_pick THEN 1 ELSE 2 END::smallint AS team_side,
+                   up.pick_slot_no::smallint                               AS pick_slot_no,
+                   m.is_winner
+            FROM public.rta_match_unit_pick up
+            INNER JOIN matches m ON m.replay_id = up.replay_id
+               AND (up.is_first_pick IS NOT DISTINCT FROM m.is_first_pick)
+            WHERE up.unit_master_id IS NOT NULL
+              AND NOT up.is_banned
+              AND up.pick_slot_no BETWEEN 1 AND 5
+        ),
+        field AS (
+            SELECT CASE WHEN m.is_first_pick THEN 1 ELSE 2 END::smallint AS team_side,
+                   COUNT(DISTINCT m.replay_id)::integer AS field_cnt
+            FROM matches m
+            GROUP BY 1
+        )
+        SELECT #{seasonId}::bigint          AS season_id,
+               #{ratingId}::smallint        AS rating_id,
+               p.unit_master_id,
+               p.team_side,
+               p.pick_slot_no,
+               COUNT(*)::integer                                              AS pick_cnt,
+               COUNT(*) FILTER (WHERE p.is_winner)::integer                   AS win_cnt,
+               COALESCE(f.field_cnt, 0)                                       AS field_cnt
+        FROM picks p
+        LEFT JOIN field f ON f.team_side = p.team_side
+        GROUP BY p.unit_master_id, p.team_side, p.pick_slot_no, f.field_cnt
+        ON CONFLICT (season_id, rating_id, unit_master_id, team_side, pick_slot_no) DO UPDATE
+            SET pick_cnt  = EXCLUDED.pick_cnt,
+                win_cnt   = EXCLUDED.win_cnt,
+                field_cnt = EXCLUDED.field_cnt
+    </insert>
+
 </mapper>

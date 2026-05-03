@@ -384,4 +384,35 @@ public interface RtaMapper {
     /** 배치·점검용. API에서는 호출하지 않음. */
     List<Map<String, Object>> getRtaTierDistributionDailyLive(@Param("seasonId") Long seasonId);
 
+    // ── 몬스터 일별/슬롯 집계 (배치) ──────────────────────────────────────
+
+    /** 경기가 있는 시즌 목록과 시즌 시작일 반환 */
+    List<Map<String, Object>> selectParticipantSeasonsWithStart();
+
+    /** fromDate~today 사이 snap이 없는 날짜 목록 */
+    List<String> selectMissingMonsterDailySnapDates(@Param("seasonId") long seasonId,
+            @Param("fromDate") String fromDate);
+
+    void deleteRtaMonsterDailySnapByDate(@Param("seasonId") long seasonId, @Param("snapDate") String snapDate);
+
+    void insertRtaMonsterDailySnapForDate(@Param("seasonId") long seasonId, @Param("snapDate") String snapDate);
+
+    void deleteRtaMonsterPickSlotSnapBySeason(@Param("seasonId") long seasonId, @Param("ratingId") int ratingId);
+
+    void insertRtaMonsterPickSlotSnapForSeason(@Param("seasonId") long seasonId, @Param("ratingId") int ratingId);
+
+    // ── 몬스터 개요 (라이브 API) ──────────────────────────────────────────
+
+    Map<String, Object> getRtaMonsterOverviewStats(@Param("monsterId") int monsterId,
+            @Param("seasonId") long seasonId, @Param("ratingId") int ratingId);
+
+    List<Map<String, Object>> getRtaMonsterDailyTrend(@Param("monsterId") int monsterId,
+            @Param("seasonId") long seasonId, @Param("ratingId") int ratingId, @Param("days") int days);
+
+    List<Map<String, Object>> getRtaMonsterPickSlots(@Param("monsterId") int monsterId,
+            @Param("seasonId") long seasonId, @Param("ratingId") int ratingId);
+
+    List<Map<String, Object>> getRtaMonsterTopSummoners(@Param("monsterId") int monsterId,
+            @Param("seasonId") long seasonId, @Param("limit") int limit);
+
 }

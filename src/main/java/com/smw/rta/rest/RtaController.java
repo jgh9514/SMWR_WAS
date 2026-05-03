@@ -653,4 +653,23 @@ public class RtaController {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
+
+    @Operation(summary = "RTA 몬스터 개요: 통계·7일 추이·슬롯별 픽·장인 랭킹")
+    @PostMapping("/monster/overview")
+    public ResponseEntity<Map<String, Object>> getRtaMonsterOverview(@RequestBody Map<String, Object> param) {
+        try {
+            int monsterId = parseIntOpt(param.get("monster_id"), 0);
+            if (monsterId == 0) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
+            }
+            Long sid = pickSeasonId(param);
+            Object ratingIdRaw = param.get("rating_id");
+            Integer ratingId = (ratingIdRaw != null) ? parseIntOpt(ratingIdRaw, -1) : null;
+            Map<String, Object> response = rtaService.getRtaMonsterOverview(monsterId, sid, ratingId);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("RTA monster overview 조회 실패 param={}", param, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
 }
