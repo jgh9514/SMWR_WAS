@@ -181,10 +181,9 @@ public class SwarfarmLeaderSkillServiceImpl implements SwarfarmLeaderSkillServic
                 return false;
             }
             
-            // 기존 데이터 업데이트 또는 신규 삽입
-            int result = swarfarmLeaderSkillMapper.upsertLeaderSkill(leaderSkillData);
-            
-            return result > 0;
+            // 기존 데이터 업데이트 또는 신규 삽입 (ON CONFLICT DO UPDATE는 변경 없으면 0 반환 가능)
+            swarfarmLeaderSkillMapper.upsertLeaderSkill(leaderSkillData);
+            return true;
         } catch (Exception e) {
             log.error("리더 스킬 저장 중 오류 발생", e);
             return false;

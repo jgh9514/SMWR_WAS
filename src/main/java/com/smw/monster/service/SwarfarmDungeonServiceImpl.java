@@ -132,14 +132,13 @@ public class SwarfarmDungeonServiceImpl implements SwarfarmDungeonService {
                     // 던전 데이터 변환
                     Map<String, Object> dungeonData = convertToMap(dungeon);
                     
-                    // 이미지 다운로드 (icon이 있는 경우만)
+                    // 이미지 다운로드 (icon이 있는 경우만 — 404 등 실패 시 패스)
                     if (dungeon.getIcon() != null && !dungeon.getIcon().isEmpty()) {
                         try {
                             String imagePath = downloadDungeonImage(dungeon.getIcon());
                             dungeonData.put("icon_path", imagePath);
                         } catch (Exception e) {
-                            log.error("이미지 다운로드 실패: {}", dungeon.getIcon(), e);
-                            throw new RuntimeException("던전 이미지 다운로드 실패: " + dungeon.getIcon(), e);
+                            log.warn("던전 이미지 다운로드 실패 (패스): {} - {}", dungeon.getIcon(), e.getMessage());
                         }
                     }
                     
@@ -208,10 +207,9 @@ public class SwarfarmDungeonServiceImpl implements SwarfarmDungeonService {
                 return false;
             }
             
-            // 기존 데이터 업데이트 또는 신규 삽입
-            int result = swarfarmDungeonMapper.upsertDungeon(dungeonData);
-            
-            return result > 0;
+            // 기존 데이터 업데이트 또는 신규 삽입 (ON CONFLICT DO UPDATE는 변경 없으면 0 반환 가능)
+            swarfarmDungeonMapper.upsertDungeon(dungeonData);
+            return true;
         } catch (Exception e) {
             log.error("던전 저장 중 오류 발생", e);
             return false;

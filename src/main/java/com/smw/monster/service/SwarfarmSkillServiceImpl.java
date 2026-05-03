@@ -261,10 +261,7 @@ public class SwarfarmSkillServiceImpl implements SwarfarmSkillService {
         for (int i = 0; i < rows.size(); i += dbBatchSize) {
             int end = Math.min(i + dbBatchSize, rows.size());
             List<Map<String, Object>> chunk = new ArrayList<>(rows.subList(i, end));
-            int n = swarfarmSkillMapper.upsertSkillsBatch(chunk);
-            if (n <= 0) {
-                throw new IllegalStateException("스킬 마스터 일괄 upsert 결과가 0입니다.");
-            }
+            swarfarmSkillMapper.upsertSkillsBatch(chunk);
         }
     }
 
