@@ -1680,8 +1680,8 @@
         /* rta-queries-live.getRtaMonsterTopSummoners */
         SELECT
             s.wizard_id,
-            ui.wizard_name,
-            ui.channel_uid,
+            mp.wizard_name,
+            mp.channel_uid,
             s.pick_cnt,
             s.ban_cnt,
             s.win_cnt,
@@ -1691,7 +1691,14 @@
                  THEN ROUND(100.0 * s.win_cnt / (s.win_cnt + s.lose_cnt), 1)
             END                                                                AS win_rate_pct
         FROM public.rta_agg_summoner_monster_snap s
-        INNER JOIN public.user_info ui ON ui.wizard_id::text = s.wizard_id::text
+        LEFT JOIN LATERAL (
+            SELECT mp.wizard_name, mp.channel_uid
+            FROM public.rta_match_participant mp
+            WHERE mp.wizard_id::text = s.wizard_id::text
+              AND mp.season_id = s.season_id
+            ORDER BY mp.replay_id DESC
+            LIMIT 1
+        ) mp ON true
         WHERE s.unit_master_id = #{monsterId}
           AND s.season_id = #{seasonId}
           AND s.pick_cnt >= 5
