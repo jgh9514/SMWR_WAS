@@ -17,6 +17,13 @@ public class RtaBatchProperties {
 	private int synergyBatchSize = 2000;
 
 	/**
+	 * {@link com.smw.monster.batch.RtaSynergyOnlyAggJob} 가 한 실행에서 처리하는 시너지 drain 라운드 상한.
+	 * {@code 1}(기본)이면 라운드 1회만 수행하고 잔여 pending 은 다음 스케줄에서 이어 처리한다.
+	 * {@code 0} 이하면 상한 없음(기존처럼 pending 소진까지 반복).
+	 */
+	private int synergyMaxRoundsPerJob = 1;
+
+	/**
 	 * 시너지 라운드 사이 대기(ms). 0 이면 생략. GC·DB 부하 완화.
 	 */
 	private int synergyPauseMsBetweenRounds = 50;

@@ -13,7 +13,8 @@ import com.smw.rta.service.RtaSynergyAggService;
  * 시너지·카운터 집계만 수행하는 단독 배치.
  * <p>
  * {@link RtaUnifiedPipelineAggJob}(raw 정규화 → 시너지 → 부가)와 달리 <b>시너지 drain 만</b> 실행한다.
- * pending 이 완전히 소진될 때까지 라운드를 반복하며, 완료 후 RTA 조회 캐시를 무효화한다.
+ * 한 실행당 라운드 수는 {@code smw.rta.batch.synergy-max-rounds-per-job}(기본 1); 잔여 pending 은 다음 스케줄에서 이어 처리한다.
+ * 작업 후 RTA 조회 캐시를 무효화한다.
  * <p>
  * 대상 테이블: {@code rta_agg_synergy_solo / duo / trio}, {@code rta_agg_counter_solo / duo / trio}
  * <p>
@@ -37,9 +38,12 @@ public class RtaSynergyOnlyAggJob extends BaseBatchJob {
 		int     synergyBatch      = Math.max(1, rtaBatchProperties.getSynergyBatchSize());
 		int     synPause          = Math.max(0, rtaBatchProperties.getSynergyPauseMsBetweenRounds());
 		boolean evictEachRound    = rtaBatchProperties.isSynergyOnlyEvictCachesEachRound();
+		int     maxRounds         = rtaBatchProperties.getSynergyMaxRoundsPerJob();
 
-		addLog("[시작] RTA 시너지·카운터 단독 집계 — 배치 %d건/라운드, 라운드별캐시무효화=%s",
-				synergyBatch, evictEachRound ? "Y" : "N");
+		addLog("[시작] RTA 시너지·카운터 단독 집계 — 배치 %d건/라운드, Job당 라운드상한=%s, 라운드별캐시무효화=%s",
+				synergyBatch,
+				maxRounds <= 0 ? "무제한(pending 소진까지)" : String.valueOf(maxRounds),
+				evictEachRound ? "Y" : "N");
 		if (synPause > 0) {
 			addLog("· 라운드 간 대기: %dms", synPause);
 		}
@@ -50,7 +54,8 @@ public class RtaSynergyOnlyAggJob extends BaseBatchJob {
 				rtaCacheEvictor,
 				synergyBatch,
 				evictEachRound,
-				synPause);
+				synPause,
+				maxRounds);
 
 		addLog("· 완료 — 라운드 %d, ok %d, fail %d, %s",
 				syn.rounds(),

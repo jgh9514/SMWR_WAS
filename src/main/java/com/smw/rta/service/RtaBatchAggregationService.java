@@ -308,8 +308,10 @@ public class RtaBatchAggregationService {
 	/**
 	 * {@code rta_match.synergy_applied_at IS NULL} 인 rid 를 배치 단위로
 	 * {@code rta_agg_synergy_solo/duo/trio} 및 {@code rta_agg_counter_solo/duo/trio}에 반영한다.
-	 * 완료 시 {@code synergy_apply_result='S'}. pending 이 모두 소진될 때까지 반복한다 (라운드 상한 없음).
+	 * 완료 시 {@code synergy_apply_result='S'}.
+	 * {@code maxRoundsPerJob > 0} 이면 그 횟수만큼만 라운드 후 종료하고, 잔여 pending 은 다음 실행에서 처리한다.
 	 *
+	 * @param maxRoundsPerJob {@code <= 0} 이면 pending 소진까지 반복
 	 * @param pauseMsBetweenRounds 라운드 사이 대기(ms), 0 이면 생략
 	 */
 	public SynergyDrainResult drainSynergyPending(
@@ -318,39 +320,47 @@ public class RtaBatchAggregationService {
 			RtaCacheEvictor cacheEvictor,
 			int batchSize,
 			boolean evictCachesEachRound,
-			int pauseMsBetweenRounds) {
+			int pauseMsBetweenRounds,
+			int maxRoundsPerJob) {
 		int rounds = 0;
 		int totalOk = 0;
 		int totalFail = 0;
+		boolean capped = maxRoundsPerJob > 0;
 
 		// idx_rta_match_synergy_pending(partial index) 강제 사용 — Seq Scan 방지
 		rtaMapper.hintBatchDisableSeqScan();
 		try {
-		while (true) {
-			List<Long> rids = rtaMapper.selectPendingSynergyAggRids(batchSize);
-			if (rids == null || rids.isEmpty()) {
-				break;
-			}
-			// 첫 rid 실패 시 예외로 상위 Quartz Job 이 FAILED 처리되도록 전파
-			RtaSynergyAggService.SynergyBatchApplyResult batch = synergyAggService.applySynergyBatch(rids);
-			int ok = batch.ok();
-			totalOk += ok;
-			totalFail += batch.fail();
-			rounds++;
+			String stopReason = "완료";
+			while (true) {
+				List<Long> rids = rtaMapper.selectPendingSynergyAggRids(batchSize);
+				if (rids == null || rids.isEmpty()) {
+					stopReason = rounds == 0 ? "시너지 pending 없음" : "pending 소진";
+					break;
+				}
+				// 첫 rid 실패 시 예외로 상위 Quartz Job 이 FAILED 처리되도록 전파
+				RtaSynergyAggService.SynergyBatchApplyResult batch = synergyAggService.applySynergyBatch(rids);
+				int ok = batch.ok();
+				totalOk += ok;
+				totalFail += batch.fail();
+				rounds++;
 
-			if (evictCachesEachRound && ok > 0) {
-				cacheEvictor.evictAllRtaCaches();
-			}
+				if (evictCachesEachRound && ok > 0) {
+					cacheEvictor.evictAllRtaCaches();
+				}
 
-			if (pauseMsBetweenRounds > 0) {
-				sleepQuiet(pauseMsBetweenRounds);
+				if (pauseMsBetweenRounds > 0) {
+					sleepQuiet(pauseMsBetweenRounds);
+				}
+				if (capped && rounds >= maxRoundsPerJob) {
+					stopReason = "라운드 상한 도달 — 잔여는 다음 스케줄에서 처리";
+					break;
+				}
 			}
-		}
+			return new SynergyDrainResult(rounds, totalOk, totalFail, stopReason);
 		} finally {
 			// 세션 플래너 설정 복원 — 예외 발생 시에도 반드시 복원
 			rtaMapper.hintBatchEnableSeqScan();
 		}
-		return new SynergyDrainResult(rounds, totalOk, totalFail, "완료");
 	}
 
 	/** no-op — 몬스터 통계는 {@code rta_agg_synergy_solo/duo/trio} 집계 테이블에서 직접 조회. */

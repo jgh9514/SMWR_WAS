@@ -250,6 +250,8 @@ smw:
     batch:
       # rid 한 라운드당 상한. 크면 힙·merge 부담↑ — OOM 시 SMW_RTA_SYNERGY_BATCH_SIZE로 더 낮춤(예: 1000)
       synergy-batch-size: ${SMW_RTA_SYNERGY_BATCH_SIZE:20000}
+      # 시너지 단독 Job(RtaSynergyOnlyAggJob) 실행당 라운드 상한. 1 이면 1회만 SELECT·적용 후 종료 — 잔여는 다음 크론. 0 이하=무제한(기존 drain-until-empty)
+      synergy-max-rounds-per-job: ${SMW_RTA_SYNERGY_MAX_ROUNDS_PER_JOB:1}
       # 시너지 라운드 사이 대기(ms). GC·DB 숨돌릴 여지. 0=비활성(처리량 우선).
       synergy-pause-ms-between-rounds: ${SMW_RTA_SYNERGY_PAUSE_MS:50}
       # 시너지 단독 Job(RtaSynergyOnlyAggJob)에서 각 라운드 완료 후 RTA 조회 캐시 무효화 여부.
