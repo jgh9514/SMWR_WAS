@@ -245,7 +245,7 @@ smw:
       # 첫 파싱/정규화 오류 시 통합 Job 즉시 실패. 대량 백필은 bulkload 또는 SMW_RTA_RAW_APPLY_FAIL_FAST=false
       fail-fast-on-error: ${SMW_RTA_RAW_APPLY_FAIL_FAST:true}
       # 한 통합 Job 안에서 SELECT→처리 라운드 최대 횟수(applyPendingArenaReplayRawFromDb). 빈 조회 시 종료. env: SMW_RTA_RAW_APPLY_MAX_BATCHES
-      max-batches-per-job: ${SMW_RTA_RAW_APPLY_MAX_BATCHES:2000}
+      max-batches-per-job: ${SMW_RTA_RAW_APPLY_MAX_BATCHES:5}
     # 통합 RTA 배치(시너지 등). 수치·스킵은 DB 여유에 맞게 조절.
     batch:
       # rid 한 라운드당 상한. 크면 힙·merge 부담↑ — OOM 시 SMW_RTA_SYNERGY_BATCH_SIZE로 더 낮춤(예: 1000)
