@@ -400,7 +400,10 @@ public abstract class BaseBatchJob implements Job {
                         || lc.contains("connection is closed")
                         || lc.contains("connection closed")
                         || lc.contains("datasource")
-                        || lc.contains("i/o error")) {
+                        || lc.contains("i/o error")
+                        || lc.contains("socket closed")
+                        || lc.contains("broken pipe")
+                        || lc.contains("sending to the backend")) {
                     return true;
                 }
             }

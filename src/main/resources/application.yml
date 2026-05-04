@@ -31,6 +31,8 @@ spring:
       idle-timeout: 30000
       max-lifetime: 1800000
       connection-timeout: 30000
+      # 120초마다 Hikari가 idle 커넥션에 SELECT 1 전송 → NAT 350초 timeout 이전에 갱신
+      keepalive-time: 120000
       leak-detection-threshold: ${SPRING_DATASOURCE_HIKARI_LEAK_DETECTION_THRESHOLD:0}
       # PostgreSQL: PreparedStatement 배치를 멀티-INSERT로 재작성 → 왕복·파싱 부담 감소(MyBatis ExecutorType.BATCH 와 함께 권장)
       # MySQL 계열은 JDBC URL 에 rewriteBatchedStatements=true (Hikari data-source-properties 가 아님)
@@ -47,6 +49,10 @@ spring:
                set_config('idle_in_transaction_session_timeout', '300000', false)
       data-source-properties:
         reWriteBatchedInserts: ${SPRING_DATASOURCE_REWRITE_BATCHED_INSERTS:true}
+        # JDBC 소켓 레벨 keepalive — tcp_keepalives_idle은 PG 서버 측만 적용, 클라이언트 소켓은 별도 설정 필요
+        # AWS NAT Gateway 350초 idle timeout: socketTimeout=600으로 COPY/MERGE 긴 작업도 커버
+        tcpKeepAlive: true
+        socketTimeout: ${SPRING_DATASOURCE_SOCKET_TIMEOUT:600}
   servlet:
     # 아레나 rta-upload(JSON body)·멀티파트 등 대용량 — 필요 시 SMW_MULTIPART_* 로 상향
     multipart.max-file-size: ${SMW_MULTIPART_MAX_FILE_SIZE:512MB}
