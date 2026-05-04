@@ -233,7 +233,7 @@ smw:
     raw-apply:
       # 통합 파이프라인 등: 회당 조회 행 상한 × 아래 라운드 수만큼 한 Job 실행 안에서 이어 처리(잔량은 빈 조회·라운드 상한 시 다음 크론)
       # 정규화 배치 한 라운드당 SELECT 상한(너무 크면 WAL·실행 시간↑ — 저사양이면 더 낮게)
-      max-rows-per-run: ${SMW_RTA_RAW_APPLY_MAX_ROWS:10000}
+      max-rows-per-run: ${SMW_RTA_RAW_APPLY_MAX_ROWS:1000}
       # 한 트랜잭션에 묶는 건수(작을수록 락·롤백 범위 축소)
       apply-chunk-size: ${SMW_RTA_RAW_APPLY_CHUNK_SIZE:1000}
       # VALUES 다중행 INSERT 한 문당 행 수(COPY 폴백 시). 크면 PG JDBC I/O error while sending — 25~75 권장
@@ -245,7 +245,7 @@ smw:
       # 첫 파싱/정규화 오류 시 통합 Job 즉시 실패. 대량 백필은 bulkload 또는 SMW_RTA_RAW_APPLY_FAIL_FAST=false
       fail-fast-on-error: ${SMW_RTA_RAW_APPLY_FAIL_FAST:true}
       # 한 통합 Job 안에서 SELECT→처리 라운드 최대 횟수(applyPendingArenaReplayRawFromDb). 빈 조회 시 종료. env: SMW_RTA_RAW_APPLY_MAX_BATCHES
-      max-batches-per-job: ${SMW_RTA_RAW_APPLY_MAX_BATCHES:5}
+      max-batches-per-job: ${SMW_RTA_RAW_APPLY_MAX_BATCHES:1}
     # 통합 RTA 배치(시너지 등). 수치·스킵은 DB 여유에 맞게 조절.
     batch:
       # rid 한 라운드당 상한. 크면 힙·merge 부담↑ — OOM 시 SMW_RTA_SYNERGY_BATCH_SIZE로 더 낮춤(예: 1000)

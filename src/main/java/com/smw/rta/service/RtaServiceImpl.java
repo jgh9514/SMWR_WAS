@@ -278,6 +278,8 @@ public class RtaServiceImpl implements RtaService {
     @Override
     @Cacheable(cacheNames = "rtaMonster", cacheManager = "rtaMonsterCacheManager",
             key = "'md_' + #seasonId + '_' + #monsterId")
+    @Cacheable(cacheNames = "rtaMonster", cacheManager = "rtaMonsterCacheManager",
+            key = "'md_' + #seasonId + '_' + #monsterId")
     public Map<String, Object> getRtaMonsterDetail(int monsterId, Long seasonId) {
         Long sid = doResolveSeasonId(seasonId);
         Map<String, Object> response = new HashMap<>();
@@ -292,15 +294,22 @@ public class RtaServiceImpl implements RtaService {
             return response;
         }
 
-        Map<String, Object> basicInfo = rtaMapper.getRtaMonsterBasicInfo(monsterId, sid);
-        response.putAll(basicInfo);
+        final long sidF = sid;
+        CompletableFuture<Map<String, Object>> fBasic    = CompletableFuture.supplyAsync(() -> rtaMapper.getRtaMonsterBasicInfo(monsterId, sidF), RTA_LINK_PREVIEW_EXECUTOR);
+        CompletableFuture<List<Map<String, Object>>> fStrong  = CompletableFuture.supplyAsync(() -> rtaMapper.getRtaMonsterStrongAgainst(monsterId, sidF), RTA_LINK_PREVIEW_EXECUTOR);
+        CompletableFuture<List<Map<String, Object>>> fCombos  = CompletableFuture.supplyAsync(() -> rtaMapper.getRtaMonsterGoodCombos(monsterId, sidF), RTA_LINK_PREVIEW_EXECUTOR);
+        CompletableFuture<List<Map<String, Object>>> fTriple  = CompletableFuture.supplyAsync(() -> rtaMapper.getRtaMonsterGoodTripleCombos(monsterId, sidF), RTA_LINK_PREVIEW_EXECUTOR);
+        CompletableFuture<List<Map<String, Object>>> fRecent  = CompletableFuture.supplyAsync(() -> rtaMapper.getRtaMonsterRecentMatches(monsterId, sidF), RTA_LINK_PREVIEW_EXECUTOR);
+        CompletableFuture<List<Map<String, Object>>> fCounter = CompletableFuture.supplyAsync(() -> rtaMapper.getRtaMonsterCounterMatchups(monsterId, sidF), RTA_LINK_PREVIEW_EXECUTOR);
 
-        response.put("strong_against", rtaMapper.getRtaMonsterStrongAgainst(monsterId, sid));
-        response.put("good_combos", rtaMapper.getRtaMonsterGoodCombos(monsterId, sid));
-        response.put("good_triple_combos", rtaMapper.getRtaMonsterGoodTripleCombos(monsterId, sid));
-        response.put("recent_matches", rtaMapper.getRtaMonsterRecentMatches(monsterId, sid));
+        CompletableFuture.allOf(fBasic, fStrong, fCombos, fTriple, fRecent, fCounter).join();
 
-        List<Map<String, Object>> counters = rtaMapper.getRtaMonsterCounterMatchups(monsterId, sid);
+        response.putAll(fBasic.join());
+        response.put("strong_against",   fStrong.join());
+        response.put("good_combos",      fCombos.join());
+        response.put("good_triple_combos", fTriple.join());
+        response.put("recent_matches",   fRecent.join());
+        List<Map<String, Object>> counters = fCounter.join();
         response.put("counter_matchups", counters != null ? counters : Collections.emptyList());
         response.put("seasonId", sid);
         return response;
@@ -323,12 +332,20 @@ public class RtaServiceImpl implements RtaService {
             return response;
         }
 
-        int rid = ratingId != null ? ratingId : -1;
+        final int rid = ratingId != null ? ratingId : -1;
+        final long sidF = sid;
 
-        response.put("overview_stats", rtaMapper.getRtaMonsterOverviewStats(monsterId, sid, rid));
-        response.put("daily_trend", rtaMapper.getRtaMonsterDailyTrend(monsterId, sid, rid, 7));
-        response.put("pick_slots", rtaMapper.getRtaMonsterPickSlots(monsterId, sid, rid));
-        response.put("top_summoners", rtaMapper.getRtaMonsterTopSummoners(monsterId, sid, 10));
+        CompletableFuture<Map<String, Object>> fStats    = CompletableFuture.supplyAsync(() -> rtaMapper.getRtaMonsterOverviewStats(monsterId, sidF, rid), RTA_LINK_PREVIEW_EXECUTOR);
+        CompletableFuture<List<Map<String, Object>>> fTrend   = CompletableFuture.supplyAsync(() -> rtaMapper.getRtaMonsterDailyTrend(monsterId, sidF, rid, 7), RTA_LINK_PREVIEW_EXECUTOR);
+        CompletableFuture<List<Map<String, Object>>> fSlots   = CompletableFuture.supplyAsync(() -> rtaMapper.getRtaMonsterPickSlots(monsterId, sidF, rid), RTA_LINK_PREVIEW_EXECUTOR);
+        CompletableFuture<List<Map<String, Object>>> fTop     = CompletableFuture.supplyAsync(() -> rtaMapper.getRtaMonsterTopSummoners(monsterId, sidF, 10), RTA_LINK_PREVIEW_EXECUTOR);
+
+        CompletableFuture.allOf(fStats, fTrend, fSlots, fTop).join();
+
+        response.put("overview_stats", fStats.join());
+        response.put("daily_trend",    fTrend.join());
+        response.put("pick_slots",     fSlots.join());
+        response.put("top_summoners",  fTop.join());
         return response;
     }
 
