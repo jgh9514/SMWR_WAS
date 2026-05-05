@@ -272,13 +272,13 @@
 			,#{role}
 			,null
 			,COALESCE(#{join_by_invite}, 'N')
-			,#{sess_user_id}
+			,#{crt_user_id}
 			,CURRENT_TIMESTAMP
-			,#{sess_user_id}
+			,#{crt_user_id}
 			,CURRENT_TIMESTAMP
 		)
 	</insert>
-	
+
 	<!-- 유저 길드 이력 조회 -->
 	<select id="selectUserGuildHistory" parameterType="sqlMap" resultType="sqlMap">
 		/* selectUserGuildHistory */

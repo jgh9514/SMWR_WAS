@@ -399,6 +399,7 @@ public class GuildController {
 			return ResponseEntity.status(401).body(result);
 		}
 		Map<String, Object> param = new HashMap<>();
+		param.put("sess_user_id", sessUserId);
 		Map<String, ?> app = service.selectMyPendingJoinApplication(param);
 		result.put("result", "SUCCESS");
 		result.put("hasPendingJoinApplication", app != null);

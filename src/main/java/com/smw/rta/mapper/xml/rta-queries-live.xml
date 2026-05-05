@@ -1782,6 +1782,7 @@
             s.wizard_id,
             mp.wizard_name,
             mp.channel_uid,
+            mp.ladder_score,
             s.pick_cnt,
             s.ban_cnt,
             s.win_cnt,
@@ -1789,10 +1790,11 @@
             s.pick_cnt + s.ban_cnt                                            AS actual_pick_cnt,
             CASE WHEN s.win_cnt + s.lose_cnt > 0
                  THEN ROUND(100.0 * s.win_cnt / (s.win_cnt + s.lose_cnt), 1)
-            END                                                                AS win_rate_pct
+            END                                                                AS win_rate_pct,
+            CASE WHEN COALESCE(mp.ladder_score, 0) >= 3500 THEN true ELSE false END AS above_threshold
         FROM public.rta_agg_summoner_monster_snap s
         LEFT JOIN LATERAL (
-            SELECT mp.wizard_name, mp.channel_uid
+            SELECT mp.wizard_name, mp.channel_uid, mp.ladder_score
             FROM public.rta_match_participant mp
             WHERE mp.wizard_id::text = s.wizard_id::text
               AND mp.season_id = s.season_id
@@ -1802,7 +1804,7 @@
         WHERE s.unit_master_id = #{monsterId}
           AND s.season_id = #{seasonId}
           AND s.pick_cnt >= 5
-        ORDER BY s.pick_cnt DESC, win_rate_pct DESC NULLS LAST
+        ORDER BY above_threshold DESC, win_rate_pct DESC NULLS LAST, s.pick_cnt DESC
         LIMIT #{limit}
     </select>
 

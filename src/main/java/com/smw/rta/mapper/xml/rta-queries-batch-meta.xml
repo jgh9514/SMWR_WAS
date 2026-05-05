@@ -644,58 +644,48 @@
         ORDER BY (h.snapped_at AT TIME ZONE 'Asia/Seoul')::date, h.grade_slot, h.snapped_at DESC
     </select>
 
-    <!-- 몬스터 상세: 카운터 매치업 — rta_agg_counter_solo/duo/trio 3개 테이블 UNION.
-         모든 티어 합산(rating_id 무관). -->
-    <select id="getRtaMonsterCounterMatchups" resultType="map">
-        WITH raw AS (
-            SELECT
-                c.opponent_monster_id::text AS opponent_combo_key,
-                1::smallint AS opponent_combo_size,
-                SUM(c.win_cnt)::bigint  AS win_cnt,
-                SUM(c.lose_cnt)::bigint AS lose_cnt
-            FROM public.rta_agg_counter_solo c
-            WHERE c.season_id = #{seasonId}
-              AND c.subject_monster_id = #{monsterId}
-            GROUP BY c.opponent_monster_id
-            UNION ALL
-            SELECT
-                c.opponent_monster_id AS opponent_combo_key,
-                2::smallint AS opponent_combo_size,
-                SUM(c.win_cnt)::bigint  AS win_cnt,
-                SUM(c.lose_cnt)::bigint AS lose_cnt
-            FROM public.rta_agg_counter_duo c
-            WHERE c.season_id = #{seasonId}
-              AND c.subject_monster_id = #{monsterId}
-            GROUP BY c.opponent_monster_id
-            UNION ALL
-            SELECT
-                c.opponent_monster_id AS opponent_combo_key,
-                3::smallint AS opponent_combo_size,
-                SUM(c.win_cnt)::bigint  AS win_cnt,
-                SUM(c.lose_cnt)::bigint AS lose_cnt
-            FROM public.rta_agg_counter_trio c
-            WHERE c.season_id = #{seasonId}
-              AND c.subject_monster_id = #{monsterId}
-            GROUP BY c.opponent_monster_id
-        )
+    <!-- 몬스터 상세: 카운터 매치업 — 3개 테이블 분리 조회 후 Java에서 병합.
+         opponentLabel 은 애플리케이션 레이어에서 monster 배치 조회로 처리. -->
+    <select id="getRtaCounterSoloMatchups" resultType="map">
         SELECT
-            x.opponent_combo_key AS "opponentComboKey",
-            x.opponent_combo_size AS "opponentComboSize",
-            x.win_cnt  AS "winCnt",
-            x.lose_cnt AS "loseCnt",
-            CASE
-                WHEN (x.win_cnt + x.lose_cnt) &gt; 0 THEN
-                    ROUND(100.0 * x.win_cnt::numeric / (x.win_cnt + x.lose_cnt)::numeric, 2)
-                ELSE NULL
-            END AS "winRate",
-            (
-                SELECT string_agg(m.kr_name, ' + ' ORDER BY z.ord)
-                FROM unnest(string_to_array(x.opponent_combo_key, ',')) WITH ORDINALITY AS z(id, ord)
-                LEFT JOIN public.monster m ON m.monster_id = NULLIF(z.id, '')
-            ) AS "opponentLabel"
-        FROM raw x
-        ORDER BY (x.win_cnt + x.lose_cnt) DESC NULLS LAST
-        LIMIT 40
+            c.opponent_monster_id::text AS "opponentComboKey",
+            1::smallint                AS "opponentComboSize",
+            SUM(c.win_cnt)::bigint     AS "winCnt",
+            SUM(c.lose_cnt)::bigint    AS "loseCnt"
+        FROM public.rta_agg_counter_solo c
+        WHERE c.season_id         = #{seasonId}
+          AND c.subject_monster_id = #{monsterId}
+        GROUP BY c.opponent_monster_id
+        ORDER BY (SUM(c.win_cnt) + SUM(c.lose_cnt)) DESC NULLS LAST
+        LIMIT 100
+    </select>
+
+    <select id="getRtaCounterDuoMatchups" resultType="map">
+        SELECT
+            c.opponent_monster_id      AS "opponentComboKey",
+            2::smallint                AS "opponentComboSize",
+            SUM(c.win_cnt)::bigint     AS "winCnt",
+            SUM(c.lose_cnt)::bigint    AS "loseCnt"
+        FROM public.rta_agg_counter_duo c
+        WHERE c.season_id         = #{seasonId}
+          AND c.subject_monster_id = #{monsterId}
+        GROUP BY c.opponent_monster_id
+        ORDER BY (SUM(c.win_cnt) + SUM(c.lose_cnt)) DESC NULLS LAST
+        LIMIT 100
+    </select>
+
+    <select id="getRtaCounterTrioMatchups" resultType="map">
+        SELECT
+            c.opponent_monster_id      AS "opponentComboKey",
+            3::smallint                AS "opponentComboSize",
+            SUM(c.win_cnt)::bigint     AS "winCnt",
+            SUM(c.lose_cnt)::bigint    AS "loseCnt"
+        FROM public.rta_agg_counter_trio c
+        WHERE c.season_id         = #{seasonId}
+          AND c.subject_monster_id = #{monsterId}
+        GROUP BY c.opponent_monster_id
+        ORDER BY (SUM(c.win_cnt) + SUM(c.lose_cnt)) DESC NULLS LAST
+        LIMIT 100
     </select>
 
     <select id="selectDistinctParticipantSeasonIds" resultType="long">
@@ -1336,6 +1326,7 @@
              pick_cnt, win_cnt, ban_cnt, lead_cnt, field_cnt)
         WITH matches AS (
             SELECT mp.replay_id,
+                   mp.wizard_id,
                    mp.rating_id,
                    mp.is_winner,
                    mp.is_first_pick,
@@ -1355,7 +1346,7 @@
                     AND NOT up.is_banned)::boolean AS is_leader
             FROM public.rta_match_unit_pick up
             INNER JOIN matches m ON m.replay_id = up.replay_id
-               AND (up.is_first_pick IS NOT DISTINCT FROM m.is_first_pick)
+               AND up.wizard_id = m.wizard_id
             WHERE up.unit_master_id IS NOT NULL
         ),
         field AS (
@@ -1436,6 +1427,7 @@
              pick_cnt, win_cnt, field_cnt)
         WITH matches AS (
             SELECT mp.replay_id,
+                   mp.wizard_id,
                    mp.is_winner::boolean  AS is_winner,
                    mp.is_first_pick::boolean AS is_first_pick
             FROM public.rta_match_participant mp
@@ -1451,7 +1443,7 @@
                    m.is_winner
             FROM public.rta_match_unit_pick up
             INNER JOIN matches m ON m.replay_id = up.replay_id
-               AND (up.is_first_pick IS NOT DISTINCT FROM m.is_first_pick)
+               AND up.wizard_id = m.wizard_id
             WHERE up.unit_master_id IS NOT NULL
               AND NOT up.is_banned
               AND up.pick_slot_no BETWEEN 1 AND 5

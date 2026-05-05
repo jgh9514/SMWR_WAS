@@ -11,14 +11,22 @@ import org.springframework.context.annotation.Lazy;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 @Service
 @Primary
@@ -278,8 +286,6 @@ public class RtaServiceImpl implements RtaService {
     @Override
     @Cacheable(cacheNames = "rtaMonster", cacheManager = "rtaMonsterCacheManager",
             key = "'md_' + #seasonId + '_' + #monsterId")
-    @Cacheable(cacheNames = "rtaMonster", cacheManager = "rtaMonsterCacheManager",
-            key = "'md_' + #seasonId + '_' + #monsterId")
     public Map<String, Object> getRtaMonsterDetail(int monsterId, Long seasonId) {
         Long sid = doResolveSeasonId(seasonId);
         Map<String, Object> response = new HashMap<>();
@@ -300,17 +306,18 @@ public class RtaServiceImpl implements RtaService {
         CompletableFuture<List<Map<String, Object>>> fCombos  = CompletableFuture.supplyAsync(() -> rtaMapper.getRtaMonsterGoodCombos(monsterId, sidF), RTA_LINK_PREVIEW_EXECUTOR);
         CompletableFuture<List<Map<String, Object>>> fTriple  = CompletableFuture.supplyAsync(() -> rtaMapper.getRtaMonsterGoodTripleCombos(monsterId, sidF), RTA_LINK_PREVIEW_EXECUTOR);
         CompletableFuture<List<Map<String, Object>>> fRecent  = CompletableFuture.supplyAsync(() -> rtaMapper.getRtaMonsterRecentMatches(monsterId, sidF), RTA_LINK_PREVIEW_EXECUTOR);
-        CompletableFuture<List<Map<String, Object>>> fCounter = CompletableFuture.supplyAsync(() -> rtaMapper.getRtaMonsterCounterMatchups(monsterId, sidF), RTA_LINK_PREVIEW_EXECUTOR);
+        CompletableFuture<List<Map<String, Object>>> fCounterSolo  = CompletableFuture.supplyAsync(() -> rtaMapper.getRtaCounterSoloMatchups(monsterId, sidF),  RTA_LINK_PREVIEW_EXECUTOR);
+        CompletableFuture<List<Map<String, Object>>> fCounterDuo   = CompletableFuture.supplyAsync(() -> rtaMapper.getRtaCounterDuoMatchups(monsterId, sidF),   RTA_LINK_PREVIEW_EXECUTOR);
+        CompletableFuture<List<Map<String, Object>>> fCounterTrio  = CompletableFuture.supplyAsync(() -> rtaMapper.getRtaCounterTrioMatchups(monsterId, sidF),  RTA_LINK_PREVIEW_EXECUTOR);
 
-        CompletableFuture.allOf(fBasic, fStrong, fCombos, fTriple, fRecent, fCounter).join();
+        CompletableFuture.allOf(fBasic, fStrong, fCombos, fTriple, fRecent, fCounterSolo, fCounterDuo, fCounterTrio).join();
 
         response.putAll(fBasic.join());
-        response.put("strong_against",   fStrong.join());
-        response.put("good_combos",      fCombos.join());
+        response.put("strong_against",     fStrong.join());
+        response.put("good_combos",        fCombos.join());
         response.put("good_triple_combos", fTriple.join());
-        response.put("recent_matches",   fRecent.join());
-        List<Map<String, Object>> counters = fCounter.join();
-        response.put("counter_matchups", counters != null ? counters : Collections.emptyList());
+        response.put("recent_matches",     fRecent.join());
+        response.put("counter_matchups",   mergeCounterMatchups(fCounterSolo.join(), fCounterDuo.join(), fCounterTrio.join()));
         response.put("seasonId", sid);
         return response;
     }
@@ -730,5 +737,77 @@ public class RtaServiceImpl implements RtaService {
     public Map<String, Object> getDashboardPreviewTrio(Long seasonId, int limit) {
         int n = Math.max(1, Math.min(limit, 50));
         return rtaServiceSelf.getRtaMonsterStats(n, 0, "trio", seasonId, null, null);
+    }
+
+    private List<Map<String, Object>> mergeCounterMatchups(
+            List<Map<String, Object>> solo,
+            List<Map<String, Object>> duo,
+            List<Map<String, Object>> trio) {
+
+        List<Map<String, Object>> merged = Stream.of(
+                solo  != null ? solo  : Collections.<Map<String, Object>>emptyList(),
+                duo   != null ? duo   : Collections.<Map<String, Object>>emptyList(),
+                trio  != null ? trio  : Collections.<Map<String, Object>>emptyList()
+        ).flatMap(List::stream).collect(Collectors.toList());
+
+        merged.sort(Comparator.comparingLong((Map<String, Object> r) -> {
+            long w = toLong(r.get("winCnt"));
+            long l = toLong(r.get("loseCnt"));
+            return w + l;
+        }).reversed());
+
+        List<Map<String, Object>> top40 = merged.size() > 40 ? merged.subList(0, 40) : merged;
+
+        // monster ID 일괄 조회 → opponentLabel 구성
+        Set<String> idSet = new HashSet<>();
+        for (Map<String, Object> r : top40) {
+            String key = (String) r.get("opponentComboKey");
+            if (key != null) {
+                Arrays.stream(key.split(",")).map(String::trim).filter(s -> !s.isEmpty()).forEach(idSet::add);
+            }
+        }
+
+        Map<String, String> nameMap = new HashMap<>();
+        if (!idSet.isEmpty()) {
+            List<Map<String, Object>> monsters = rtaMapper.selectMonsterPortraitMetaByIds(new ArrayList<>(idSet));
+            for (Map<String, Object> m : monsters) {
+                Object mid = m.get("monster_id");
+                Object name = m.get("kr_name");
+                if (mid != null && name != null) {
+                    nameMap.put(String.valueOf(mid), String.valueOf(name));
+                }
+            }
+        }
+
+        List<Map<String, Object>> result = new ArrayList<>(top40.size());
+        for (Map<String, Object> r : top40) {
+            Map<String, Object> row = new HashMap<>(r);
+            String key = (String) row.get("opponentComboKey");
+            long winCnt  = toLong(row.get("winCnt"));
+            long loseCnt = toLong(row.get("loseCnt"));
+            long total   = winCnt + loseCnt;
+
+            row.put("winRate", total > 0
+                    ? new BigDecimal(100L * winCnt).divide(new BigDecimal(total), 2, RoundingMode.HALF_UP)
+                    : null);
+
+            if (key != null) {
+                String label = Arrays.stream(key.split(","))
+                        .map(String::trim)
+                        .map(id -> nameMap.getOrDefault(id, id))
+                        .collect(Collectors.joining(" + "));
+                row.put("opponentLabel", label);
+            } else {
+                row.put("opponentLabel", null);
+            }
+            result.add(row);
+        }
+        return result;
+    }
+
+    private static long toLong(Object v) {
+        if (v == null) return 0L;
+        if (v instanceof Number) return ((Number) v).longValue();
+        try { return Long.parseLong(v.toString()); } catch (NumberFormatException e) { return 0L; }
     }
 }

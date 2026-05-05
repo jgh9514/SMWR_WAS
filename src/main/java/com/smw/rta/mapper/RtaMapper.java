@@ -381,8 +381,16 @@ public interface RtaMapper {
     /** 공식 티어 규칙 참고 — 시즌별 커트라인(rta_rating_grade_season) 포함 */
     List<Map<String, Object>> listRtaRatingGradeReference(@Param("seasonId") long seasonId);
 
-    /** 몬스터 상세: 카운터 매치업 — {@code rta_agg_counter_solo/duo/trio} UNION, 전 티어 합산 */
-    List<Map<String, Object>> getRtaMonsterCounterMatchups(@Param("monsterId") long monsterId,
+    /** 카운터 매치업(솔로) — {@code rta_agg_counter_solo}, 전 티어 합산, 상위 100 */
+    List<Map<String, Object>> getRtaCounterSoloMatchups(@Param("monsterId") long monsterId,
+            @Param("seasonId") Long seasonId);
+
+    /** 카운터 매치업(듀오) — {@code rta_agg_counter_duo}, 전 티어 합산, 상위 100 */
+    List<Map<String, Object>> getRtaCounterDuoMatchups(@Param("monsterId") long monsterId,
+            @Param("seasonId") Long seasonId);
+
+    /** 카운터 매치업(트리오) — {@code rta_agg_counter_trio}, 전 티어 합산, 상위 100 */
+    List<Map<String, Object>> getRtaCounterTrioMatchups(@Param("monsterId") long monsterId,
             @Param("seasonId") Long seasonId);
 
     /** 배치·점검용. API에서는 호출하지 않음. */
