@@ -96,7 +96,7 @@ public class SwarfarmLeaderSkillServiceImpl implements SwarfarmLeaderSkillServic
             addBatchLog("오류 발생: %s", e.getMessage());
             log.error("리더 스킬 동기화 중 오류 발생", e);
             stats.addFailed(1);
-            swarfarmSyncMetrics.recordSummary("leader_skill", "FAILED", stats, syncTimerSample);
+            swarfarmSyncMetrics.recordSummary("leader_skill", "FAIL", stats, syncTimerSample);
             throw new RuntimeException("리더 스킬 동기화 실패", e);
         }
         

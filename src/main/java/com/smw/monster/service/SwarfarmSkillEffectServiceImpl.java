@@ -98,7 +98,7 @@ public class SwarfarmSkillEffectServiceImpl implements SwarfarmSkillEffectServic
         } catch (Exception e) {
             log.error("스킬 이펙트 동기화 중 오류 발생", e);
             stats.addFailed(1);
-            swarfarmSyncMetrics.recordSummary("skill_effect", "FAILED", stats, syncTimerSample);
+            swarfarmSyncMetrics.recordSummary("skill_effect", "FAIL", stats, syncTimerSample);
             throw new RuntimeException("스킬 이펙트 동기화 실패", e);
         }
     }

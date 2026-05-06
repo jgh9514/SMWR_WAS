@@ -98,7 +98,7 @@ public class SwarfarmLevelServiceImpl implements SwarfarmLevelService {
             addBatchLog("오류 발생: %s", e.getMessage());
             log.error("레벨 동기화 중 오류 발생", e);
             stats.addFailed(1);
-            swarfarmSyncMetrics.recordSummary("level", "FAILED", stats, syncTimerSample);
+            swarfarmSyncMetrics.recordSummary("level", "FAIL", stats, syncTimerSample);
             throw new RuntimeException("레벨 동기화 실패", e);
         }
         

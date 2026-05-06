@@ -117,7 +117,7 @@ public class SwarfarmSkillServiceImpl implements SwarfarmSkillService {
         } catch (Exception e) {
             log.error("스킬 동기화 중 오류 발생", e);
             stats.addFailed(1);
-            swarfarmSyncMetrics.recordSummary("skill", "FAILED", stats, syncTimerSample);
+            swarfarmSyncMetrics.recordSummary("skill", "FAIL", stats, syncTimerSample);
             throw new RuntimeException("스킬 동기화 실패", e);
         }
     }

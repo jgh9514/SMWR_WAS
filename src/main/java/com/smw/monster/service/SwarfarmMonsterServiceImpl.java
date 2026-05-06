@@ -127,7 +127,7 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
             addBatchLog("오류 발생: %s", e.getMessage());
             log.error("몬스터 동기화 중 오류 발생", e);
             stats.addFailed(1);
-            swarfarmSyncMetrics.recordSummary("monster", "FAILED", stats, syncTimerSample);
+            swarfarmSyncMetrics.recordSummary("monster", "FAIL", stats, syncTimerSample);
             throw e; // 예외를 다시 던져서 트랜잭션 롤백 유도
         }
         

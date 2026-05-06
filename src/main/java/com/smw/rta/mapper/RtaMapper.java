@@ -409,6 +409,18 @@ public interface RtaMapper {
 
     void insertRtaMonsterDailySnapForDate(@Param("seasonId") long seasonId, @Param("snapDate") String snapDate);
 
+    /** pick_slot_snap 미처리 replay_id 청크 */
+    List<Long> selectPendingPickSlotSnapRids(@Param("batchSize") int batchSize);
+
+    /** pick_slot_snap 청크 누적 UPSERT — per_rating + all_rating(-1) 동시 처리 */
+    int insertPickSlotSnapForRids(@Param("rids") long[] rids);
+
+    /** pick_slot_snap 처리 성공 마킹 (pick_slot_snap_apply_result='S') */
+    int markPickSlotSnapDoneForRids(@Param("rids") long[] rids);
+
+    /** pick_slot_snap 처리 실패 마킹 (pick_slot_snap_apply_result='F', 재시도 제외) */
+    int markPickSlotSnapFailedForRids(@Param("rids") long[] rids);
+
     void deleteRtaMonsterPickSlotSnapBySeason(@Param("seasonId") long seasonId, @Param("ratingId") int ratingId);
 
     void insertRtaMonsterPickSlotSnapForSeason(@Param("seasonId") long seasonId, @Param("ratingId") int ratingId);
@@ -416,13 +428,25 @@ public interface RtaMapper {
     // ── 몬스터 개요 (라이브 API) ──────────────────────────────────────────
 
     Map<String, Object> getRtaMonsterOverviewStats(@Param("monsterId") int monsterId,
-            @Param("seasonId") long seasonId, @Param("ratingId") int ratingId);
+            @Param("seasonId") long seasonId, @Param("ratingId") Integer ratingId);
+
+    Map<String, Object> getRtaMonsterOverviewStatsByIds(@Param("monsterId") int monsterId,
+            @Param("seasonId") long seasonId, @Param("ratingIds") List<Integer> ratingIds);
 
     List<Map<String, Object>> getRtaMonsterDailyTrend(@Param("monsterId") int monsterId,
-            @Param("seasonId") long seasonId, @Param("ratingId") int ratingId, @Param("days") int days);
+            @Param("seasonId") long seasonId, @Param("ratingId") Integer ratingId, @Param("days") int days);
+
+    List<Map<String, Object>> getRtaMonsterDailyTrendByIds(@Param("monsterId") int monsterId,
+            @Param("seasonId") long seasonId, @Param("ratingIds") List<Integer> ratingIds, @Param("days") int days);
+
+    List<Map<String, Object>> getRtaMonsterDailyTrendPerRating(@Param("monsterId") int monsterId,
+            @Param("seasonId") long seasonId, @Param("ratingIds") List<Integer> ratingIds, @Param("days") int days);
 
     List<Map<String, Object>> getRtaMonsterPickSlots(@Param("monsterId") int monsterId,
-            @Param("seasonId") long seasonId, @Param("ratingId") int ratingId);
+            @Param("seasonId") long seasonId, @Param("ratingId") Integer ratingId);
+
+    List<Map<String, Object>> getRtaMonsterPickSlotsByIds(@Param("monsterId") int monsterId,
+            @Param("seasonId") long seasonId, @Param("ratingIds") List<Integer> ratingIds);
 
     List<Map<String, Object>> getRtaMonsterTopSummoners(@Param("monsterId") int monsterId,
             @Param("seasonId") long seasonId, @Param("limit") int limit);

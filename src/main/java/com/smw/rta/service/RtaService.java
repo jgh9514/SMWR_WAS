@@ -47,7 +47,7 @@ public interface RtaService {
     Map<String, Object> getRtaMonsterDetail(int monsterId, Long seasonId);
 
     /** RTA 몬스터 개요: 개요 통계 + 7일 추이 + 슬롯별 픽 + 장인 랭킹 */
-    Map<String, Object> getRtaMonsterOverview(int monsterId, Long seasonId, Integer ratingId);
+    Map<String, Object> getRtaMonsterOverview(int monsterId, Long seasonId, Integer ratingId, List<Integer> ratingIds);
 
     /** RTA 몬스터 요약 통계 (Win/Pick/Ban/Lead Rate) */
     Map<String, Object> getRtaMonsterSummaryStats(int monsterId, Long seasonId, Integer ratingId);

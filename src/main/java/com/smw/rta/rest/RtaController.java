@@ -663,7 +663,8 @@ public class RtaController {
             Long sid = pickSeasonId(param);
             Object ratingIdRaw = param.get("rating_id");
             Integer ratingId = (ratingIdRaw != null) ? parseIntOpt(ratingIdRaw, -1) : null;
-            return ResponseEntity.ok(rtaService.getRtaMonsterOverview(monsterId, sid, ratingId));
+            List<Integer> ratingIds = pickRatingIds(param);
+            return ResponseEntity.ok(rtaService.getRtaMonsterOverview(monsterId, sid, ratingId, ratingIds));
         } catch (Exception e) {
             log.error("RTA monster overview 조회 실패 param={}", param, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();

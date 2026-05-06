@@ -98,7 +98,7 @@ public class SwarfarmDungeonServiceImpl implements SwarfarmDungeonService {
         } catch (Exception e) {
             log.error("던전 동기화 중 오류 발생", e);
             stats.addFailed(1);
-            swarfarmSyncMetrics.recordSummary("dungeon", "FAILED", stats, syncTimerSample);
+            swarfarmSyncMetrics.recordSummary("dungeon", "FAIL", stats, syncTimerSample);
             throw new RuntimeException("던전 동기화 실패", e);
         }
     }

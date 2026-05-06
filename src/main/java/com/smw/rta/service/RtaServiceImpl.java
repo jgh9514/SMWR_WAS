@@ -323,9 +323,7 @@ public class RtaServiceImpl implements RtaService {
     }
 
     @Override
-    @Cacheable(cacheNames = "rtaMonster", cacheManager = "rtaMonsterCacheManager",
-            key = "'mo_' + #seasonId + '_' + #ratingId + '_' + #monsterId")
-    public Map<String, Object> getRtaMonsterOverview(int monsterId, Long seasonId, Integer ratingId) {
+    public Map<String, Object> getRtaMonsterOverview(int monsterId, Long seasonId, Integer ratingId, List<Integer> ratingIds) {
         Long sid = doResolveSeasonId(seasonId);
         Map<String, Object> response = new HashMap<>();
         response.put("seasonId", sid);
@@ -334,25 +332,37 @@ public class RtaServiceImpl implements RtaService {
         if (sid == null) {
             response.put("overview_stats", null);
             response.put("daily_trend", Collections.emptyList());
+            response.put("daily_trend_per_rating", Collections.emptyList());
             response.put("pick_slots", Collections.emptyList());
             response.put("top_summoners", Collections.emptyList());
             return response;
         }
 
-        final int rid = ratingId != null ? ratingId : -1;
         final long sidF = sid;
+        final boolean useIds = ratingIds != null && !ratingIds.isEmpty();
+        final Integer rid = ratingId;
 
-        CompletableFuture<Map<String, Object>> fStats    = CompletableFuture.supplyAsync(() -> rtaMapper.getRtaMonsterOverviewStats(monsterId, sidF, rid), RTA_LINK_PREVIEW_EXECUTOR);
-        CompletableFuture<List<Map<String, Object>>> fTrend   = CompletableFuture.supplyAsync(() -> rtaMapper.getRtaMonsterDailyTrend(monsterId, sidF, rid, 7), RTA_LINK_PREVIEW_EXECUTOR);
-        CompletableFuture<List<Map<String, Object>>> fSlots   = CompletableFuture.supplyAsync(() -> rtaMapper.getRtaMonsterPickSlots(monsterId, sidF, rid), RTA_LINK_PREVIEW_EXECUTOR);
-        CompletableFuture<List<Map<String, Object>>> fTop     = CompletableFuture.supplyAsync(() -> rtaMapper.getRtaMonsterTopSummoners(monsterId, sidF, 10), RTA_LINK_PREVIEW_EXECUTOR);
+        CompletableFuture<Map<String, Object>> fStats = useIds
+                ? CompletableFuture.supplyAsync(() -> rtaMapper.getRtaMonsterOverviewStatsByIds(monsterId, sidF, ratingIds), RTA_LINK_PREVIEW_EXECUTOR)
+                : CompletableFuture.supplyAsync(() -> rtaMapper.getRtaMonsterOverviewStats(monsterId, sidF, rid), RTA_LINK_PREVIEW_EXECUTOR);
+        CompletableFuture<List<Map<String, Object>>> fTrend = useIds
+                ? CompletableFuture.supplyAsync(() -> rtaMapper.getRtaMonsterDailyTrendByIds(monsterId, sidF, ratingIds, 7), RTA_LINK_PREVIEW_EXECUTOR)
+                : CompletableFuture.supplyAsync(() -> rtaMapper.getRtaMonsterDailyTrend(monsterId, sidF, rid, 7), RTA_LINK_PREVIEW_EXECUTOR);
+        CompletableFuture<List<Map<String, Object>>> fTrendPer = useIds
+                ? CompletableFuture.supplyAsync(() -> rtaMapper.getRtaMonsterDailyTrendPerRating(monsterId, sidF, ratingIds, 7), RTA_LINK_PREVIEW_EXECUTOR)
+                : CompletableFuture.completedFuture(Collections.emptyList());
+        CompletableFuture<List<Map<String, Object>>> fSlots = useIds
+                ? CompletableFuture.supplyAsync(() -> rtaMapper.getRtaMonsterPickSlotsByIds(monsterId, sidF, ratingIds), RTA_LINK_PREVIEW_EXECUTOR)
+                : CompletableFuture.supplyAsync(() -> rtaMapper.getRtaMonsterPickSlots(monsterId, sidF, rid), RTA_LINK_PREVIEW_EXECUTOR);
+        CompletableFuture<List<Map<String, Object>>> fTop = CompletableFuture.supplyAsync(() -> rtaMapper.getRtaMonsterTopSummoners(monsterId, sidF, 10), RTA_LINK_PREVIEW_EXECUTOR);
 
-        CompletableFuture.allOf(fStats, fTrend, fSlots, fTop).join();
+        CompletableFuture.allOf(fStats, fTrend, fTrendPer, fSlots, fTop).join();
 
-        response.put("overview_stats", fStats.join());
-        response.put("daily_trend",    fTrend.join());
-        response.put("pick_slots",     fSlots.join());
-        response.put("top_summoners",  fTop.join());
+        response.put("overview_stats",         fStats.join());
+        response.put("daily_trend",            fTrend.join());
+        response.put("daily_trend_per_rating", fTrendPer.join());
+        response.put("pick_slots",             fSlots.join());
+        response.put("top_summoners",          fTop.join());
         return response;
     }
 

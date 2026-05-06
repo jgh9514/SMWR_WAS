@@ -1700,23 +1700,52 @@
             SUM(s.win_cnt)::bigint                                     AS win_cnt,
             SUM(s.ban_cnt)::bigint                                     AS ban_cnt,
             SUM(s.lead_cnt)::bigint                                    AS lead_cnt,
-            MAX(s.field_cnt)::bigint                                   AS field_cnt,
+            SUM(s.field_cnt)::bigint                                   AS field_cnt,
             CASE WHEN SUM(s.field_cnt) > 0
                  THEN ROUND(100.0 * SUM(s.pick_cnt) / SUM(s.field_cnt), 2)
             END                                                        AS pick_rate_pct,
-            CASE WHEN SUM(s.pick_cnt) - SUM(s.ban_cnt) > 0
-                 THEN ROUND(100.0 * SUM(s.win_cnt) / (SUM(s.pick_cnt) - SUM(s.ban_cnt)), 2)
+            CASE WHEN SUM(s.pick_cnt) > 0
+                 THEN ROUND(100.0 * SUM(s.win_cnt) / SUM(s.pick_cnt), 2)
             END                                                        AS win_rate_pct,
             CASE WHEN SUM(s.field_cnt) > 0
                  THEN ROUND(100.0 * SUM(s.ban_cnt) / SUM(s.field_cnt), 2)
             END                                                        AS ban_rate_pct,
-            CASE WHEN SUM(s.pick_cnt) - SUM(s.ban_cnt) > 0
-                 THEN ROUND(100.0 * SUM(s.lead_cnt) / (SUM(s.pick_cnt) - SUM(s.ban_cnt)), 2)
+            CASE WHEN SUM(s.pick_cnt) > 0
+                 THEN ROUND(100.0 * SUM(s.lead_cnt) / SUM(s.pick_cnt), 2)
             END                                                        AS lead_rate_pct
         FROM public.rta_agg_monster_daily_snap s
         WHERE s.unit_master_id = #{monsterId}
           AND s.season_id = #{seasonId}
-          AND s.rating_id = #{ratingId}
+          <if test="ratingId != null">AND s.rating_id = #{ratingId}</if>
+        GROUP BY s.unit_master_id
+    </select>
+
+    <select id="getRtaMonsterOverviewStatsByIds" resultType="map">
+        /* rta-queries-live.getRtaMonsterOverviewStatsByIds */
+        SELECT
+            s.unit_master_id,
+            SUM(s.pick_cnt)::bigint                                    AS pick_cnt,
+            SUM(s.win_cnt)::bigint                                     AS win_cnt,
+            SUM(s.ban_cnt)::bigint                                     AS ban_cnt,
+            SUM(s.lead_cnt)::bigint                                    AS lead_cnt,
+            SUM(s.field_cnt)::bigint                                   AS field_cnt,
+            CASE WHEN SUM(s.field_cnt) > 0
+                 THEN ROUND(100.0 * SUM(s.pick_cnt) / SUM(s.field_cnt), 2)
+            END                                                        AS pick_rate_pct,
+            CASE WHEN SUM(s.pick_cnt) > 0
+                 THEN ROUND(100.0 * SUM(s.win_cnt) / SUM(s.pick_cnt), 2)
+            END                                                        AS win_rate_pct,
+            CASE WHEN SUM(s.field_cnt) > 0
+                 THEN ROUND(100.0 * SUM(s.ban_cnt) / SUM(s.field_cnt), 2)
+            END                                                        AS ban_rate_pct,
+            CASE WHEN SUM(s.pick_cnt) > 0
+                 THEN ROUND(100.0 * SUM(s.lead_cnt) / SUM(s.pick_cnt), 2)
+            END                                                        AS lead_rate_pct
+        FROM public.rta_agg_monster_daily_snap s
+        WHERE s.unit_master_id = #{monsterId}
+          AND s.season_id = #{seasonId}
+          AND s.rating_id IN
+          <foreach collection="ratingIds" item="rid" open="(" separator="," close=")">#{rid}</foreach>
         GROUP BY s.unit_master_id
     </select>
 
@@ -1735,8 +1764,8 @@
             CASE WHEN s.field_cnt > 0
                  THEN ROUND(100.0 * s.pick_cnt / s.field_cnt, 2)
             END AS pick_rate_pct,
-            CASE WHEN s.pick_cnt - s.ban_cnt > 0
-                 THEN ROUND(100.0 * s.win_cnt / (s.pick_cnt - s.ban_cnt), 2)
+            CASE WHEN s.pick_cnt > 0
+                 THEN ROUND(100.0 * s.win_cnt / s.pick_cnt, 2)
             END AS win_rate_pct,
             CASE WHEN s.field_cnt > 0
                  THEN ROUND(100.0 * s.ban_cnt / s.field_cnt, 2)
@@ -1744,9 +1773,64 @@
         FROM public.rta_agg_monster_daily_snap s
         WHERE s.unit_master_id = #{monsterId}
           AND s.season_id = #{seasonId}
-          AND s.rating_id = #{ratingId}
+          <if test="ratingId != null">AND s.rating_id = #{ratingId}</if>
           AND s.snap_date >= CURRENT_DATE - (#{days} - 1)
         ORDER BY s.snap_date ASC
+    </select>
+
+    <select id="getRtaMonsterDailyTrendByIds" resultType="map">
+        /* rta-queries-live.getRtaMonsterDailyTrendByIds */
+        SELECT
+            s.snap_date,
+            SUM(s.pick_cnt)                                            AS pick_cnt,
+            SUM(s.win_cnt)                                             AS win_cnt,
+            SUM(s.ban_cnt)                                             AS ban_cnt,
+            SUM(s.lead_cnt)                                            AS lead_cnt,
+            SUM(s.field_cnt)                                           AS field_cnt,
+            CASE WHEN SUM(s.field_cnt) > 0
+                 THEN ROUND(100.0 * SUM(s.pick_cnt) / SUM(s.field_cnt), 2)
+            END AS pick_rate_pct,
+            CASE WHEN SUM(s.pick_cnt) > 0
+                 THEN ROUND(100.0 * SUM(s.win_cnt) / SUM(s.pick_cnt), 2)
+            END AS win_rate_pct,
+            CASE WHEN SUM(s.field_cnt) > 0
+                 THEN ROUND(100.0 * SUM(s.ban_cnt) / SUM(s.field_cnt), 2)
+            END AS ban_rate_pct
+        FROM public.rta_agg_monster_daily_snap s
+        WHERE s.unit_master_id = #{monsterId}
+          AND s.season_id = #{seasonId}
+          AND s.rating_id IN
+          <foreach collection="ratingIds" item="rid" open="(" separator="," close=")">#{rid}</foreach>
+          AND s.snap_date >= CURRENT_DATE - (#{days} - 1)
+        GROUP BY s.snap_date
+        ORDER BY s.snap_date ASC
+    </select>
+
+    <select id="getRtaMonsterDailyTrendPerRating" resultType="map">
+        /* rta-queries-live.getRtaMonsterDailyTrendPerRating */
+        SELECT
+            s.snap_date,
+            s.rating_id,
+            s.pick_cnt,
+            s.win_cnt,
+            s.ban_cnt,
+            s.field_cnt,
+            CASE WHEN s.field_cnt > 0
+                 THEN ROUND(100.0 * s.pick_cnt / s.field_cnt, 2)
+            END AS pick_rate_pct,
+            CASE WHEN s.pick_cnt > 0
+                 THEN ROUND(100.0 * s.win_cnt / s.pick_cnt, 2)
+            END AS win_rate_pct,
+            CASE WHEN s.field_cnt > 0
+                 THEN ROUND(100.0 * s.ban_cnt / s.field_cnt, 2)
+            END AS ban_rate_pct
+        FROM public.rta_agg_monster_daily_snap s
+        WHERE s.unit_master_id = #{monsterId}
+          AND s.season_id = #{seasonId}
+          AND s.rating_id IN
+          <foreach collection="ratingIds" item="rid" open="(" separator="," close=")">#{rid}</foreach>
+          AND s.snap_date >= CURRENT_DATE - (#{days} - 1)
+        ORDER BY s.snap_date ASC, s.rating_id ASC
     </select>
 
     <!-- ============================================================
@@ -1760,8 +1844,9 @@
             ps.pick_cnt,
             ps.win_cnt,
             ps.field_cnt,
-            CASE WHEN ps.field_cnt > 0
-                 THEN ROUND(100.0 * ps.pick_cnt / ps.field_cnt, 2)
+            CASE WHEN SUM(ps.pick_cnt) OVER (PARTITION BY ps.team_side) > 0
+                 THEN ROUND(100.0 * ps.pick_cnt
+                            / SUM(ps.pick_cnt) OVER (PARTITION BY ps.team_side), 2)
             END AS pick_share_pct,
             CASE WHEN ps.pick_cnt > 0
                  THEN ROUND(100.0 * ps.win_cnt / ps.pick_cnt, 2)
@@ -1769,7 +1854,31 @@
         FROM public.rta_agg_monster_pick_slot_snap ps
         WHERE ps.unit_master_id = #{monsterId}
           AND ps.season_id = #{seasonId}
-          AND ps.rating_id = #{ratingId}
+          <if test="ratingId != null">AND ps.rating_id = #{ratingId}</if>
+        ORDER BY ps.team_side, ps.pick_slot_no
+    </select>
+
+    <select id="getRtaMonsterPickSlotsByIds" resultType="map">
+        /* rta-queries-live.getRtaMonsterPickSlotsByIds */
+        SELECT
+            ps.team_side,
+            ps.pick_slot_no,
+            SUM(ps.pick_cnt)                                           AS pick_cnt,
+            SUM(ps.win_cnt)                                            AS win_cnt,
+            SUM(ps.field_cnt)                                          AS field_cnt,
+            CASE WHEN SUM(SUM(ps.pick_cnt)) OVER (PARTITION BY ps.team_side) > 0
+                 THEN ROUND(100.0 * SUM(ps.pick_cnt)
+                            / SUM(SUM(ps.pick_cnt)) OVER (PARTITION BY ps.team_side), 2)
+            END AS pick_share_pct,
+            CASE WHEN SUM(ps.pick_cnt) > 0
+                 THEN ROUND(100.0 * SUM(ps.win_cnt) / SUM(ps.pick_cnt), 2)
+            END AS win_rate_pct
+        FROM public.rta_agg_monster_pick_slot_snap ps
+        WHERE ps.unit_master_id = #{monsterId}
+          AND ps.season_id = #{seasonId}
+          AND ps.rating_id IN
+          <foreach collection="ratingIds" item="rid" open="(" separator="," close=")">#{rid}</foreach>
+        GROUP BY ps.team_side, ps.pick_slot_no
         ORDER BY ps.team_side, ps.pick_slot_no
     </select>
 

@@ -169,20 +169,39 @@ public class RtaBulkRidLookupService {
 			RtaBulkRidTempTable.loadRids(conn, rids);
 			List<RtaSynergyBanDeltaRow> out = new ArrayList<>();
 			String sql = """
+					WITH pnorm AS (
+					    /* participant 중복 적재가 있어도 replay_id×wizard_id 당 1행만 사용 */
+					    SELECT DISTINCT ON (p.replay_id, p.wizard_id)
+					           p.replay_id,
+					           p.wizard_id,
+					           p.rating_id
+					    FROM public.rta_match_participant p
+					    JOIN tmp_bulk_rids t ON t.rid = p.replay_id
+					    ORDER BY p.replay_id, p.wizard_id, p.played_at DESC NULLS LAST
+					),
+					unorm AS (
+					    /* unit_pick 중복 적재가 있어도 replay_id×wizard_id×unit_master_id 당 1행만 사용 */
+					    SELECT DISTINCT ON (u.replay_id, u.wizard_id, u.unit_master_id)
+					           u.replay_id,
+					           u.wizard_id,
+					           u.unit_master_id
+					    FROM public.rta_match_unit_pick u
+					    JOIN tmp_bulk_rids t ON t.rid = u.replay_id
+					    WHERE COALESCE(u.is_banned, false) = true
+					    ORDER BY u.replay_id, u.wizard_id, u.unit_master_id, u.pick_slot_no ASC
+					)
 					SELECT m.season_id,
 					       p.rating_id,
 					       COALESCE(mcm.original_monster_id, u.unit_master_id::text) AS combo_unit_key,
 					       COUNT(*)::bigint AS delta
-					FROM public.rta_match_unit_pick u
+					FROM unorm u
 					INNER JOIN public.rta_match m ON m.replay_id = u.replay_id
-					INNER JOIN public.rta_match_participant p
+					INNER JOIN pnorm p
 					        ON p.replay_id = u.replay_id
 					       AND p.wizard_id = u.wizard_id
 					LEFT JOIN public.monster_collaboration_mapping mcm
 					       ON mcm.collaboration_monster_id = u.unit_master_id::text
-					JOIN tmp_bulk_rids t ON t.rid = u.replay_id
-					WHERE COALESCE(u.is_banned, false) = true
-					  AND p.rating_id IS NOT NULL
+					WHERE p.rating_id IS NOT NULL
 					  AND p.rating_id > 0
 					GROUP BY m.season_id, p.rating_id,
 					         COALESCE(mcm.original_monster_id, u.unit_master_id::text)
@@ -257,11 +276,13 @@ public class RtaBulkRidLookupService {
 	private static void loadSynergyRatingRows(Connection conn, Map<Long, List<Map<String, Object>>> ratingsByRid)
 			throws SQLException {
 		String sql = """
-				SELECT mp.replay_id AS rid,
+				SELECT DISTINCT ON (mp.replay_id, mp.wizard_id)
+				       mp.replay_id AS rid,
 				       mp.wizard_id AS wizard_id,
 				       CAST(mp.rating_id AS INTEGER) AS rating_id
 				FROM public.rta_match_participant mp
 				JOIN tmp_bulk_rids t ON t.rid = mp.replay_id
+				ORDER BY mp.replay_id, mp.wizard_id, mp.played_at DESC NULLS LAST
 				""";
 		try (Statement st = conn.createStatement(); ResultSet rs = st.executeQuery(sql)) {
 			while (rs.next()) {

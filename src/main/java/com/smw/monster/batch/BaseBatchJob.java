@@ -158,8 +158,8 @@ public abstract class BaseBatchJob implements Job {
                 errorLog += "\n\n상세 오류:\n" + stackTrace;
             }
             
-            updateBatchRunHis("FAILED", errorLog);
-            recordBatchMetrics("FAILED", batchTimerSample);
+            updateBatchRunHis("FAIL", errorLog);
+            recordBatchMetrics("FAIL", batchTimerSample);
 
             if (isInfraFailure(e)) {
                 // 커넥션 풀 종료·앱 재시작 등 인프라 문제 — 배치 비활성화 없이 다음 스케줄에서 재시도

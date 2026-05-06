@@ -28,10 +28,10 @@ public class RtaMonsterDailySnapJob extends BaseBatchJob {
         int inserted = aggregationService.rebuildMonsterDailySnap(rtaMapper);
         addLog("daily snap 완료: insertedDates=%d, elapsed=%dms", inserted, System.currentTimeMillis() - t0);
 
-        addLog("--- rta_agg_monster_pick_slot_snap 재적재 ---");
+        addLog("--- rta_agg_monster_pick_slot_snap incremental drain ---");
         long t1 = System.currentTimeMillis();
-        int slotSeasons = aggregationService.rebuildMonsterPickSlotSnap(rtaMapper);
-        addLog("pick slot snap 완료: seasonCount=%d, elapsed=%dms", slotSeasons, System.currentTimeMillis() - t1);
+        int slotRids = aggregationService.drainPickSlotSnap(rtaMapper, 2000);
+        addLog("pick slot snap 완료: processedRids=%d, elapsed=%dms", slotRids, System.currentTimeMillis() - t1);
 
         rtaCacheEvictor.evictAllRtaCaches();
         addLog("RTA 조회 캐시 무효화 완료");

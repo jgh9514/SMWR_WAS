@@ -337,7 +337,7 @@ public class RtaBatchAggregationService {
 					stopReason = rounds == 0 ? "시너지 pending 없음" : "pending 소진";
 					break;
 				}
-				// 첫 rid 실패 시 예외로 상위 Quartz Job 이 FAILED 처리되도록 전파
+				// 첫 rid 실패 시 예외로 상위 Quartz Job 이 FAIL 처리되도록 전파
 				RtaSynergyAggService.SynergyBatchApplyResult batch = synergyAggService.applySynergyBatch(rids);
 				int ok = batch.ok();
 				totalOk += ok;
@@ -490,6 +490,40 @@ public class RtaBatchAggregationService {
 		}
 		log.info("rebuildMonsterPickSlotSnap: seasonCount={}", seasonIds.size());
 		return seasonIds.size();
+	}
+
+	/**
+	 * pick_slot_snap incremental drain —
+	 * {@code rta_match.pick_slot_snap_applied_at IS NULL} 인 rid 를 청크 단위로 처리.
+	 * @return 처리된 총 rid 수
+	 */
+	public int drainPickSlotSnap(RtaMapper mapper, int chunkSize) {
+		int total = 0;
+		while (true) {
+			List<Long> rids = mapper.selectPendingPickSlotSnapRids(chunkSize);
+			if (rids == null || rids.isEmpty()) break;
+
+			long[] ridArr = rids.stream().mapToLong(Long::longValue).toArray();
+			try {
+				transactionTemplate.executeWithoutResult(tx -> {
+					mapper.insertPickSlotSnapForRids(ridArr);
+					mapper.markPickSlotSnapDoneForRids(ridArr);
+				});
+				total += rids.size();
+				log.info("drainPickSlotSnap: chunk={}, totalSoFar={}", rids.size(), total);
+			} catch (Exception e) {
+				log.error("drainPickSlotSnap: chunk 처리 실패, 실패 마킹 후 중단. rids[0]={}", ridArr[0], e);
+				try {
+					mapper.markPickSlotSnapFailedForRids(ridArr);
+				} catch (Exception me) {
+					log.error("drainPickSlotSnap: 실패 마킹도 실패", me);
+				}
+				break;
+			}
+
+			if (rids.size() < chunkSize) break;
+		}
+		return total;
 	}
 
 	public record MonsterDailySnapRebuildResult(int seasonCount, int days) {

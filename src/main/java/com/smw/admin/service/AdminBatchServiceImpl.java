@@ -21,6 +21,9 @@ public class AdminBatchServiceImpl implements AdminBatchService {
     private static final int DEFAULT_RECENT_RUN_LIMIT = 20;
     private static final int DEFAULT_FAILURE_LIMIT = 10;
     private static final int LOG_PREVIEW_LENGTH = 400;
+    private static final String RESULT_SUCCESS = "SUCCESS";
+    private static final String RESULT_FAIL = "FAIL";
+    private static final String RESULT_RUNNING = "RUNNING";
 
     @Autowired
     private BatchMapper batchMapper;
@@ -65,16 +68,16 @@ public class AdminBatchServiceImpl implements AdminBatchService {
                 return item;
             });
 
-            if ("SUCCESS".equalsIgnoreCase(resultCode)) {
+            if (isSuccess(resultCode)) {
                 totalSuccessRuns++;
                 summary.put("success_count", ((Integer) summary.get("success_count")) + 1);
-            } else if ("FAILED".equalsIgnoreCase(resultCode)) {
+            } else if (isFailure(resultCode)) {
                 totalFailedRuns++;
                 summary.put("failed_count", ((Integer) summary.get("failed_count")) + 1);
                 if (summary.get("last_failure_preview") == null) {
                     summary.put("last_failure_preview", buildPreview(run.get("rslt_txt")));
                 }
-            } else if ("RUNNING".equalsIgnoreCase(resultCode) || run.get("end_dtm") == null) {
+            } else if (isRunning(resultCode) || run.get("end_dtm") == null) {
                 totalRunningRuns++;
                 summary.put("running_count", ((Integer) summary.get("running_count")) + 1);
             }
@@ -82,7 +85,7 @@ public class AdminBatchServiceImpl implements AdminBatchService {
             if (recentRuns.size() < recentLimit) {
                 recentRuns.add(buildRunItem(run, batchName, true));
             }
-            if ("FAILED".equalsIgnoreCase(resultCode) && recentFailures.size() < failureLimit) {
+            if (isFailure(resultCode) && recentFailures.size() < failureLimit) {
                 recentFailures.add(buildRunItem(run, batchName, true));
             }
         }
@@ -178,15 +181,27 @@ public class AdminBatchServiceImpl implements AdminBatchService {
 
     private String resolveStatus(Object resultCode, Object endDtm) {
         String result = toStringOrEmpty(resultCode);
-        if ("RUNNING".equalsIgnoreCase(result) || endDtm == null) {
-            return "RUNNING";
+        if (isRunning(result) || endDtm == null) {
+            return RESULT_RUNNING;
         }
-        if ("SUCCESS".equalsIgnoreCase(result)) {
-            return "SUCCESS";
+        if (isSuccess(result)) {
+            return RESULT_SUCCESS;
         }
-        if ("FAILED".equalsIgnoreCase(result)) {
-            return "FAILED";
+        if (isFailure(result)) {
+            return RESULT_FAIL;
         }
         return result.isEmpty() ? "UNKNOWN" : result;
+    }
+
+    private boolean isSuccess(String resultCode) {
+        return RESULT_SUCCESS.equalsIgnoreCase(resultCode);
+    }
+
+    private boolean isFailure(String resultCode) {
+        return RESULT_FAIL.equalsIgnoreCase(resultCode);
+    }
+
+    private boolean isRunning(String resultCode) {
+        return RESULT_RUNNING.equalsIgnoreCase(resultCode);
     }
 }

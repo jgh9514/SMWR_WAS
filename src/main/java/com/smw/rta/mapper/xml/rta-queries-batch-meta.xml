@@ -512,6 +512,96 @@
         ORDER BY rg.tier_sort NULLS LAST, rg.rating_id
     </select>
 
+    <!-- pick_slot_snap 미처리 replay_id 청크 조회
+         idx_rta_match_pick_slot_pending (replay_id ASC)
+         WHERE pick_slot_snap_applied_at IS NULL 사용 -->
+    <select id="selectPendingPickSlotSnapRids" resultType="long">
+        SELECT replay_id
+        FROM public.rta_match
+        WHERE pick_slot_snap_applied_at IS NULL
+          AND (pick_slot_snap_apply_result IS NULL OR pick_slot_snap_apply_result != 'F')
+        ORDER BY replay_id
+        LIMIT #{batchSize}
+    </select>
+
+    <!-- pick_slot_snap 청크 단위 누적 UPSERT
+         per_rating(티어별) + all_rating(전 티어, rating_id=-1) 한 번에 처리 -->
+    <insert id="insertPickSlotSnapForRids">
+        INSERT INTO public.rta_agg_monster_pick_slot_snap
+            (season_id, rating_id, unit_master_id, team_side, pick_slot_no, pick_cnt, win_cnt, field_cnt)
+        WITH target_matches AS (
+            SELECT mp.replay_id,
+                   mp.wizard_id,
+                   mp.season_id,
+                   mp.rating_id,
+                   mp.is_winner::boolean      AS is_winner,
+                   mp.is_first_pick::boolean  AS is_first_pick
+            FROM public.rta_match_participant mp
+            WHERE mp.replay_id = ANY(#{rids}::bigint[])
+        ),
+        picks AS (
+            SELECT up.unit_master_id,
+                   m.season_id,
+                   m.rating_id,
+                   CASE WHEN m.is_first_pick THEN 1 ELSE 2 END::smallint AS team_side,
+                   up.pick_slot_no::smallint                               AS pick_slot_no,
+                   m.is_winner
+            FROM public.rta_match_unit_pick up
+            INNER JOIN target_matches m ON m.replay_id = up.replay_id
+               AND up.wizard_id = m.wizard_id
+            WHERE up.unit_master_id IS NOT NULL
+              AND NOT up.is_banned
+              AND up.pick_slot_no BETWEEN 1 AND 5
+        ),
+        per_rating AS (
+            SELECT p.season_id,
+                   p.rating_id::smallint,
+                   p.unit_master_id,
+                   p.team_side,
+                   p.pick_slot_no,
+                   COUNT(*)::integer                              AS pick_cnt,
+                   COUNT(*) FILTER (WHERE p.is_winner)::integer  AS win_cnt
+            FROM picks p
+            GROUP BY p.season_id, p.rating_id, p.unit_master_id, p.team_side, p.pick_slot_no
+        ),
+        all_rating AS (
+            SELECT p.season_id,
+                   (-1)::smallint AS rating_id,
+                   p.unit_master_id,
+                   p.team_side,
+                   p.pick_slot_no,
+                   COUNT(*)::integer                              AS pick_cnt,
+                   COUNT(*) FILTER (WHERE p.is_winner)::integer  AS win_cnt
+            FROM picks p
+            GROUP BY p.season_id, p.unit_master_id, p.team_side, p.pick_slot_no
+        )
+        SELECT season_id, rating_id, unit_master_id, team_side, pick_slot_no, pick_cnt, win_cnt, 0 AS field_cnt FROM per_rating
+        UNION ALL
+        SELECT season_id, rating_id, unit_master_id, team_side, pick_slot_no, pick_cnt, win_cnt, 0 AS field_cnt FROM all_rating
+        ON CONFLICT (season_id, rating_id, unit_master_id, team_side, pick_slot_no) DO UPDATE
+            SET pick_cnt = rta_agg_monster_pick_slot_snap.pick_cnt + EXCLUDED.pick_cnt,
+                win_cnt  = rta_agg_monster_pick_slot_snap.win_cnt  + EXCLUDED.win_cnt
+    </insert>
+
+    <!-- pick_slot_snap 처리 성공 마킹 -->
+    <update id="markPickSlotSnapDoneForRids">
+        UPDATE public.rta_match
+        SET pick_slot_snap_applied_at  = CURRENT_TIMESTAMP,
+            pick_slot_snap_apply_result = 'S'
+        WHERE replay_id = ANY(#{rids}::bigint[])
+    </update>
+
+    <!-- pick_slot_snap 처리 실패 마킹 (재시도 대열 제외) -->
+    <update id="markPickSlotSnapFailedForRids">
+        UPDATE public.rta_match
+        SET pick_slot_snap_applied_at  = CURRENT_TIMESTAMP,
+            pick_slot_snap_apply_result = 'F'
+        WHERE replay_id = ANY(#{rids}::bigint[])
+    </update>
+
+    <!-- pick_slot_snap 미처리 조회 — S/F 모두 제외, 미시도만 대상 -->
+    <!-- 참고: selectPendingPickSlotSnapRids 의 WHERE 조건과 동일하게 유지할 것 -->
+
     <!-- 현재 시즌×티어별 총 경기 수 재집계: 픽률·밴률 분모용.
          participant.season_id 직접 사용 — rta_match JOIN 불필요(season_id 중복 보유). -->
     <insert id="rebuildRtaSeasonRatingMatchTotal">
@@ -1310,7 +1400,7 @@
     <!-- ============================================================
          rta_agg_monster_daily_snap  —  일별 몬스터 집계
          snap_date 기준 당일 경기에서 픽/승/밴/리더 집계
-         rating_id=-1 은 전 티어 합산
+         rating_id 는 실제 티어만 저장 (전 티어 합산 행 없음)
     ============================================================ -->
     <delete id="deleteRtaMonsterDailySnapByDate">
         /* rta-queries-batch-meta.deleteRtaMonsterDailySnapByDate */
@@ -1325,7 +1415,9 @@
             (snap_date, season_id, rating_id, unit_master_id,
              pick_cnt, win_cnt, ban_cnt, lead_cnt, field_cnt)
         WITH matches AS (
-            SELECT mp.replay_id,
+            /* participant 중복 적재가 있어도 (replay_id, wizard_id) 1행만 집계 */
+            SELECT DISTINCT ON (mp.replay_id, mp.wizard_id)
+                   mp.replay_id,
                    mp.wizard_id,
                    mp.rating_id,
                    mp.is_winner,
@@ -1335,6 +1427,7 @@
             INNER JOIN public.rta_match rm ON rm.replay_id = mp.replay_id
             WHERE mp.season_id = #{seasonId}
               AND rm.played_at::date = #{snapDate}::date
+            ORDER BY mp.replay_id, mp.wizard_id, mp.played_at DESC NULLS LAST
         ),
         picks AS (
             SELECT up.unit_master_id,
@@ -1363,44 +1456,18 @@
                    COUNT(*) FILTER (WHERE p.is_leader)::integer        AS lead_cnt
             FROM picks p
             GROUP BY p.unit_master_id, p.rating_id
-        ),
-        -- 전 티어 합산 (rating_id = -1)
-        all_tier AS (
-            SELECT p.unit_master_id,
-                   (-1)::smallint                    AS rating_id,
-                   COUNT(*) FILTER (WHERE NOT p.is_banned)::integer   AS pick_cnt,
-                   COUNT(*) FILTER (WHERE p.is_winner AND NOT p.is_banned)::integer AS win_cnt,
-                   COUNT(*) FILTER (WHERE p.is_banned)::integer        AS ban_cnt,
-                   COUNT(*) FILTER (WHERE p.is_leader)::integer        AS lead_cnt
-            FROM picks p
-            GROUP BY p.unit_master_id
-        ),
-        combined AS (
-            SELECT unit_master_id, rating_id, pick_cnt, win_cnt, ban_cnt, lead_cnt FROM per_tier
-            UNION ALL
-            SELECT unit_master_id, rating_id, pick_cnt, win_cnt, ban_cnt, lead_cnt FROM all_tier
-        ),
-        total_field AS (
-            SELECT (-1)::smallint AS rating_id,
-                   SUM(field_cnt)::integer AS field_cnt
-            FROM field
-        ),
-        field_all AS (
-            SELECT rating_id::smallint, field_cnt FROM field
-            UNION ALL
-            SELECT rating_id, field_cnt FROM total_field
         )
         SELECT #{snapDate}::date          AS snap_date,
                #{seasonId}::bigint        AS season_id,
-               c.rating_id,
-               c.unit_master_id,
-               c.pick_cnt,
-               c.win_cnt,
-               c.ban_cnt,
-               c.lead_cnt,
-               COALESCE(fa.field_cnt, 0) AS field_cnt
-        FROM combined c
-        LEFT JOIN field_all fa ON fa.rating_id = c.rating_id
+               pt.rating_id,
+               pt.unit_master_id,
+               pt.pick_cnt,
+               pt.win_cnt,
+               pt.ban_cnt,
+               pt.lead_cnt,
+               COALESCE(f.field_cnt, 0)  AS field_cnt
+        FROM per_tier pt
+        LEFT JOIN field f ON f.rating_id = pt.rating_id
         ON CONFLICT (snap_date, season_id, rating_id, unit_master_id) DO UPDATE
             SET pick_cnt  = EXCLUDED.pick_cnt,
                 win_cnt   = EXCLUDED.win_cnt,
