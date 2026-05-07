@@ -70,6 +70,9 @@ public class RtaBatchAggregationService {
 			rankingMs = msSinceNanos(t0);
 		}
 		// 검색 스냅은 현재 시즌 participant 기준 upsert — 과거 항목은 유지(삭제 없음)
+		if (seasonId == null) {
+			log.warn("rebuildSummonerRankingAgg: 현재 시즌 null — 검색 스냅 upsert 시 season_id=-1 로 실행됨(데이터 없는 행 가능성)");
+		}
 		final long searchSid = seasonId != null ? seasonId.longValue() : -1L;
 		long t1 = System.nanoTime();
 		transactionTemplate.executeWithoutResult(status -> {
@@ -219,6 +222,10 @@ public class RtaBatchAggregationService {
 
 	private ChunkTotals insertSummonerMonsterAndPickTurnSnapForSeasonChunked(RtaMapper rtaMapper, long seasonId,
 			SummonerMonsterSnapPerfAccumulator perf) {
+		if (summonerMonsterSnapReplayChunkSize < 100) {
+			log.warn("summonerMonsterSnapReplayChunkSize={} 가 최솟값(100) 미만 — 100 으로 강제 적용",
+					summonerMonsterSnapReplayChunkSize);
+		}
 		int limit = Math.max(100, summonerMonsterSnapReplayChunkSize);
 		int monTotal = 0;
 		int pickTurnTotal = 0;

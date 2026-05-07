@@ -312,12 +312,12 @@ public class RtaServiceImpl implements RtaService {
 
         CompletableFuture.allOf(fBasic, fStrong, fCombos, fTriple, fRecent, fCounterSolo, fCounterDuo, fCounterTrio).join();
 
-        response.putAll(fBasic.join());
-        response.put("strong_against",     fStrong.join());
-        response.put("good_combos",        fCombos.join());
-        response.put("good_triple_combos", fTriple.join());
-        response.put("recent_matches",     fRecent.join());
-        response.put("counter_matchups",   mergeCounterMatchups(fCounterSolo.join(), fCounterDuo.join(), fCounterTrio.join()));
+        response.putAll(fBasic.getNow(Map.of()));
+        response.put("strong_against",     fStrong.getNow(List.of()));
+        response.put("good_combos",        fCombos.getNow(List.of()));
+        response.put("good_triple_combos", fTriple.getNow(List.of()));
+        response.put("recent_matches",     fRecent.getNow(List.of()));
+        response.put("counter_matchups",   mergeCounterMatchups(fCounterSolo.getNow(List.of()), fCounterDuo.getNow(List.of()), fCounterTrio.getNow(List.of())));
         response.put("seasonId", sid);
         return response;
     }
@@ -502,22 +502,19 @@ public class RtaServiceImpl implements RtaService {
                     () -> rtaServiceSelf.getRtaSummonerRanking(n, 0, seasonId, null),
                     RTA_LINK_PREVIEW_EXECUTOR);
             CompletableFuture.allOf(fSolo, fDuo, fTrio, fRank).join();
-            out.put("solo", fSolo.get());
-            out.put("duo", fDuo.get());
-            out.put("trio", fTrio.get());
-            out.put("summoner_ranking", fRank.get());
-        } catch (Exception e) {
-            Throwable t = e;
-            if (e instanceof java.util.concurrent.ExecutionException && e.getCause() != null) {
-                t = e.getCause();
-            }
-            if (t instanceof InterruptedException) {
+            out.put("solo", fSolo.getNow(null));
+            out.put("duo", fDuo.getNow(null));
+            out.put("trio", fTrio.getNow(null));
+            out.put("summoner_ranking", fRank.getNow(null));
+        } catch (java.util.concurrent.CompletionException e) {
+            Throwable cause = e.getCause() != null ? e.getCause() : e;
+            if (cause instanceof InterruptedException) {
                 Thread.currentThread().interrupt();
             }
-            if (t instanceof RuntimeException re) {
+            if (cause instanceof RuntimeException re) {
                 throw re;
             }
-            throw new RuntimeException(t);
+            throw new RuntimeException(cause);
         }
         if (c != null) {
             c.put(dlpKey, out);

@@ -160,6 +160,10 @@ public class RtaSynergyAggServiceImpl implements RtaSynergyAggService {
 			throw new IllegalStateException(
 					"시너지 집계 행이 비어 있는데 처리된 rid 가 있음(버그·데이터 불일치) — 완료 표시 금지, processed=" + processed.size());
 		}
+		if (!processed.isEmpty() && mergedCnt.isEmpty()) {
+			throw new IllegalStateException(
+					"카운터 집계 행이 비어 있는데 처리된 rid 가 있음(버그·데이터 불일치) — 완료 표시 금지, processed=" + processed.size());
+		}
 		// COPY 전 인덱스 키 순 정렬 → B-tree 순차 프로브 → 버퍼 캐시 히트율 향상
 		mergedSyn.sort(Comparator.comparingLong(RtaSynergyAggUpsertRow::getSeasonId)
 				.thenComparingInt(RtaSynergyAggUpsertRow::getRatingId)
