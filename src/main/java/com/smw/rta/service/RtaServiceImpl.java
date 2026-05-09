@@ -323,6 +323,8 @@ public class RtaServiceImpl implements RtaService {
     }
 
     @Override
+    @Cacheable(cacheNames = "rtaMonster", cacheManager = "rtaMonsterCacheManager",
+            key = "'mov_' + #monsterId + '_' + #seasonId + '_' + (#ratingId != null ? #ratingId : 'x') + '_' + (#ratingIds != null && !#ratingIds.isEmpty() ? #ratingIds.toString() : 'all')")
     public Map<String, Object> getRtaMonsterOverview(int monsterId, Long seasonId, Integer ratingId, List<Integer> ratingIds) {
         Long sid = doResolveSeasonId(seasonId);
         Map<String, Object> response = new HashMap<>();
@@ -358,11 +360,11 @@ public class RtaServiceImpl implements RtaService {
 
         CompletableFuture.allOf(fStats, fTrend, fTrendPer, fSlots, fTop).join();
 
-        response.put("overview_stats",         fStats.join());
-        response.put("daily_trend",            fTrend.join());
-        response.put("daily_trend_per_rating", fTrendPer.join());
-        response.put("pick_slots",             fSlots.join());
-        response.put("top_summoners",          fTop.join());
+        response.put("overview_stats",         fStats.getNow(null));
+        response.put("daily_trend",            fTrend.getNow(List.of()));
+        response.put("daily_trend_per_rating", fTrendPer.getNow(List.of()));
+        response.put("pick_slots",             fSlots.getNow(List.of()));
+        response.put("top_summoners",          fTop.getNow(List.of()));
         return response;
     }
 

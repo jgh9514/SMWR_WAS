@@ -1844,9 +1844,9 @@
             ps.pick_cnt,
             ps.win_cnt,
             ps.field_cnt,
-            CASE WHEN SUM(ps.pick_cnt) OVER (PARTITION BY ps.team_side) > 0
+            CASE WHEN MAX(ps.field_cnt) OVER (PARTITION BY ps.team_side) > 0
                  THEN ROUND(100.0 * ps.pick_cnt
-                            / SUM(ps.pick_cnt) OVER (PARTITION BY ps.team_side), 2)
+                            / MAX(ps.field_cnt) OVER (PARTITION BY ps.team_side), 2)
             END AS pick_share_pct,
             CASE WHEN ps.pick_cnt > 0
                  THEN ROUND(100.0 * ps.win_cnt / ps.pick_cnt, 2)
@@ -1860,25 +1860,41 @@
 
     <select id="getRtaMonsterPickSlotsByIds" resultType="map">
         /* rta-queries-live.getRtaMonsterPickSlotsByIds */
+        WITH field_totals AS (
+            SELECT t.team_side,
+                   SUM(t.field_cnt) AS total_field_cnt
+            FROM (
+                SELECT DISTINCT ON (ps2.team_side, ps2.rating_id)
+                    ps2.team_side,
+                    ps2.field_cnt
+                FROM public.rta_agg_monster_pick_slot_snap ps2
+                WHERE ps2.unit_master_id = #{monsterId}
+                  AND ps2.season_id = #{seasonId}
+                  AND ps2.rating_id IN
+                  <foreach collection="ratingIds" item="rid" open="(" separator="," close=")">#{rid}</foreach>
+                ORDER BY ps2.team_side, ps2.rating_id, ps2.pick_slot_no
+            ) t
+            GROUP BY t.team_side
+        )
         SELECT
             ps.team_side,
             ps.pick_slot_no,
             SUM(ps.pick_cnt)                                           AS pick_cnt,
             SUM(ps.win_cnt)                                            AS win_cnt,
-            SUM(ps.field_cnt)                                          AS field_cnt,
-            CASE WHEN SUM(SUM(ps.pick_cnt)) OVER (PARTITION BY ps.team_side) > 0
-                 THEN ROUND(100.0 * SUM(ps.pick_cnt)
-                            / SUM(SUM(ps.pick_cnt)) OVER (PARTITION BY ps.team_side), 2)
+            COALESCE(ft.total_field_cnt, 0)                            AS field_cnt,
+            CASE WHEN COALESCE(ft.total_field_cnt, 0) > 0
+                 THEN ROUND(100.0 * SUM(ps.pick_cnt) / ft.total_field_cnt, 2)
             END AS pick_share_pct,
             CASE WHEN SUM(ps.pick_cnt) > 0
                  THEN ROUND(100.0 * SUM(ps.win_cnt) / SUM(ps.pick_cnt), 2)
             END AS win_rate_pct
         FROM public.rta_agg_monster_pick_slot_snap ps
+        LEFT JOIN field_totals ft ON ft.team_side = ps.team_side
         WHERE ps.unit_master_id = #{monsterId}
           AND ps.season_id = #{seasonId}
           AND ps.rating_id IN
           <foreach collection="ratingIds" item="rid" open="(" separator="," close=")">#{rid}</foreach>
-        GROUP BY ps.team_side, ps.pick_slot_no
+        GROUP BY ps.team_side, ps.pick_slot_no, ft.total_field_cnt
         ORDER BY ps.team_side, ps.pick_slot_no
     </select>
 
@@ -1889,27 +1905,24 @@
         /* rta-queries-live.getRtaMonsterTopSummoners */
         SELECT
             s.wizard_id,
-            mp.wizard_name,
-            mp.channel_uid,
-            mp.ladder_score,
+            COALESCE(ss.wizard_name, rs.wizard_name)   AS wizard_name,
+            COALESCE(ss.channel_uid, rs.channel_uid)   AS channel_uid,
+            rs.score                                    AS ladder_score,
             s.pick_cnt,
             s.ban_cnt,
             s.win_cnt,
             s.lose_cnt,
-            s.pick_cnt + s.ban_cnt                                            AS actual_pick_cnt,
+            s.pick_cnt + s.ban_cnt                      AS actual_pick_cnt,
             CASE WHEN s.win_cnt + s.lose_cnt > 0
                  THEN ROUND(100.0 * s.win_cnt / (s.win_cnt + s.lose_cnt), 1)
-            END                                                                AS win_rate_pct,
-            CASE WHEN COALESCE(mp.ladder_score, 0) >= 3500 THEN true ELSE false END AS above_threshold
+            END                                         AS win_rate_pct,
+            CASE WHEN COALESCE(rs.score, 0) >= 3500 THEN true ELSE false END AS above_threshold
         FROM public.rta_agg_summoner_monster_snap s
-        LEFT JOIN LATERAL (
-            SELECT mp.wizard_name, mp.channel_uid, mp.ladder_score
-            FROM public.rta_match_participant mp
-            WHERE mp.wizard_id::text = s.wizard_id::text
-              AND mp.season_id = s.season_id
-            ORDER BY mp.replay_id DESC
-            LIMIT 1
-        ) mp ON true
+        LEFT JOIN public.rta_agg_summoner_search_snap ss
+               ON ss.wizard_id = s.wizard_id
+        LEFT JOIN public.rta_agg_summoner_ranking_snap rs
+               ON rs.wizard_id::text = s.wizard_id
+              AND rs.season_id = s.season_id
         WHERE s.unit_master_id = #{monsterId}
           AND s.season_id = #{seasonId}
           AND s.pick_cnt >= 5

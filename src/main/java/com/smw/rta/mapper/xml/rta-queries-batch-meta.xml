@@ -553,6 +553,22 @@
               AND NOT up.is_banned
               AND up.pick_slot_no BETWEEN 1 AND 5
         ),
+        field_per_rating AS (
+            SELECT m.season_id,
+                   m.rating_id::smallint AS rating_id,
+                   CASE WHEN m.is_first_pick THEN 1 ELSE 2 END::smallint AS team_side,
+                   COUNT(DISTINCT m.replay_id)::integer AS field_cnt
+            FROM target_matches m
+            GROUP BY m.season_id, m.rating_id, 3
+        ),
+        field_all_rating AS (
+            SELECT m.season_id,
+                   (-1)::smallint AS rating_id,
+                   CASE WHEN m.is_first_pick THEN 1 ELSE 2 END::smallint AS team_side,
+                   COUNT(DISTINCT m.replay_id)::integer AS field_cnt
+            FROM target_matches m
+            GROUP BY m.season_id, 3
+        ),
         per_rating AS (
             SELECT p.season_id,
                    p.rating_id::smallint,
@@ -575,12 +591,23 @@
             FROM picks p
             GROUP BY p.season_id, p.unit_master_id, p.team_side, p.pick_slot_no
         )
-        SELECT season_id, rating_id, unit_master_id, team_side, pick_slot_no, pick_cnt, win_cnt, 0 AS field_cnt FROM per_rating
+        SELECT pr.season_id, pr.rating_id, pr.unit_master_id, pr.team_side, pr.pick_slot_no,
+               pr.pick_cnt, pr.win_cnt,
+               COALESCE(f.field_cnt, 0) AS field_cnt
+        FROM per_rating pr
+        LEFT JOIN field_per_rating f ON f.season_id = pr.season_id
+          AND f.rating_id = pr.rating_id AND f.team_side = pr.team_side
         UNION ALL
-        SELECT season_id, rating_id, unit_master_id, team_side, pick_slot_no, pick_cnt, win_cnt, 0 AS field_cnt FROM all_rating
+        SELECT ar.season_id, ar.rating_id, ar.unit_master_id, ar.team_side, ar.pick_slot_no,
+               ar.pick_cnt, ar.win_cnt,
+               COALESCE(f.field_cnt, 0) AS field_cnt
+        FROM all_rating ar
+        LEFT JOIN field_all_rating f ON f.season_id = ar.season_id
+          AND f.team_side = ar.team_side
         ON CONFLICT (season_id, rating_id, unit_master_id, team_side, pick_slot_no) DO UPDATE
-            SET pick_cnt = rta_agg_monster_pick_slot_snap.pick_cnt + EXCLUDED.pick_cnt,
-                win_cnt  = rta_agg_monster_pick_slot_snap.win_cnt  + EXCLUDED.win_cnt
+            SET pick_cnt  = rta_agg_monster_pick_slot_snap.pick_cnt  + EXCLUDED.pick_cnt,
+                win_cnt   = rta_agg_monster_pick_slot_snap.win_cnt   + EXCLUDED.win_cnt,
+                field_cnt = rta_agg_monster_pick_slot_snap.field_cnt + EXCLUDED.field_cnt
     </insert>
 
     <!-- pick_slot_snap 처리 성공 마킹 -->
@@ -653,19 +680,25 @@
             FROM latest_scores
         ),
         computed_cuts AS MATERIALIZED (
-            /* 티어별 랭크컷 점수 계산 */
+            /* 티어별 랭크컷 점수 계산.
+               rank_rule 경계(rn)와 바로 다음(rn+1) 점수를 함께 비교해 동점자가
+               경계 밖으로 밀릴 때도 컷이 올바르게 +1 보정되도록 한다. */
             SELECT
                 rg.grade_slot,
                 COALESCE(rg.tier_sort, 0)::smallint AS sort_order,
                 GREATEST(
                     COALESCE(rgs.min_win_points, 0)::bigint,
-                    COALESCE(r.ladder_score, 0)::bigint
+                    COALESCE(r.ladder_score, 0)::bigint,
+                    COALESCE(r_next.ladder_score + 1, 0)::bigint
                 ) AS cutoff_score
             FROM public.rta_rating_grade_season rgs
             INNER JOIN public.rta_rating_grade rg
                 ON rg.rating_id = rgs.rating_id
                AND rg.grade_slot IS NOT NULL
-            LEFT JOIN ranked r ON r.rn = regexp_replace(rgs.rank_rule, '[^0-9]', '', 'g')::bigint
+            LEFT JOIN ranked r
+                ON r.rn = regexp_replace(rgs.rank_rule, '[^0-9]', '', 'g')::bigint
+            LEFT JOIN ranked r_next
+                ON r_next.rn = regexp_replace(rgs.rank_rule, '[^0-9]', '', 'g')::bigint + 1
             WHERE rgs.season_id = #{seasonId}
               AND rgs.min_win_points IS NOT NULL
         ),
