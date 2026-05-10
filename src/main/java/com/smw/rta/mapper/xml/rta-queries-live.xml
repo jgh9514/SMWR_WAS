@@ -1329,6 +1329,7 @@
                 p.channel_uid,
                 p.ladder_score AS score,
                 p.rating_id,
+                p.ladder_rank,
                 p.played_at AS last_match_at
             FROM public.rta_match_participant p
             WHERE p.wizard_id = #{wizardId}
@@ -1350,7 +1351,7 @@
               AND p.season_id = #{seasonId}
         )
         SELECT
-            s.rank_position,
+            COALESCE(s.rank_position, l.ladder_rank) AS rank_position,
             l.wizard_id::text AS wizard_id,
             l.wizard_name,
             l.country,

@@ -759,6 +759,15 @@
         ORDER BY a.sort_order, h.grade_slot, h.snapped_at DESC
     </select>
 
+    <!-- 랭킹 1위 소환사의 현재 점수 (G3 프로그레스바 max 기준) -->
+    <select id="getRtaTop1Score" resultType="java.lang.Integer">
+        SELECT s.score
+        FROM public.rta_agg_summoner_ranking_snap s
+        WHERE s.season_id = #{seasonId}
+          AND s.rank_position = 1
+        LIMIT 1
+    </select>
+
     <!-- 상세 페이지용: 시즌 전체 일별(서울 기준) 최신 스냅 1건씩 반환. -->
     <select id="getRtaRankCutHourlyDaily" resultType="map">
         SELECT DISTINCT ON ((h.snapped_at AT TIME ZONE 'Asia/Seoul')::date, h.grade_slot)

@@ -154,6 +154,8 @@ public interface RtaMapper {
     /** 대시보드용: 현재·3h·6h·12h·3d·7d 시점 랭크 컷 */
     List<Map<String, Object>> getRtaRankCutHourlyForDashboard(@Param("seasonId") Long seasonId);
 
+    int getRtaTop1Score(@Param("seasonId") long seasonId);
+
     /** 상세 페이지용: 시즌 전체 일별 랭크 컷 히스토리 */
     List<Map<String, Object>> getRtaRankCutHourlyDaily(@Param("seasonId") Long seasonId);
 

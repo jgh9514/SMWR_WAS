@@ -29,8 +29,17 @@ public class RtaDashboardRankCutoffCacheService {
 		if (anchors == null) {
 			anchors = Collections.emptyList();
 		}
+		Integer top1Score = null;
+		if (seasonId != null) {
+			try {
+				int raw = rtaMapper.getRtaTop1Score(seasonId);
+				if (raw > 0) top1Score = raw;
+			} catch (Exception ignored) {
+			}
+		}
 		Map<String, Object> m = new HashMap<>();
 		m.put("rank_cutoff_anchors", anchors);
+		m.put("top1Score", top1Score);
 		m.put("seasonId", seasonId);
 		return m;
 	}
