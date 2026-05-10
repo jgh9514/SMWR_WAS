@@ -404,6 +404,21 @@
                   WHERE u.replay_id = m.replay_id
                     AND u.unit_master_id = #{monsterId}
               )
+            <if test="ratingId != null">
+              AND EXISTS (
+                  SELECT 1 FROM public.rta_match_participant p
+                  WHERE p.replay_id = m.replay_id
+                    AND p.rating_id = #{ratingId}
+              )
+            </if>
+            <if test="ratingIds != null and !ratingIds.isEmpty()">
+              AND EXISTS (
+                  SELECT 1 FROM public.rta_match_participant p
+                  WHERE p.replay_id = m.replay_id
+                    AND p.rating_id IN
+                    <foreach collection="ratingIds" item="rid" open="(" separator="," close=")">#{rid}</foreach>
+              )
+            </if>
             ORDER BY m.played_at DESC NULLS LAST
             LIMIT #{limit}
         ),
@@ -1362,8 +1377,8 @@
 
     <select id="getRtaPlayerSeasonFightSnapFromAgg" resultType="map">
         /* rta-queries-live.getRtaPlayerSeasonFightSnapFromAgg
-           집계 정의 = 배치 insertRtaSummonerSeasonFightSnapForSeason 과 동일 CTE( participant + unit_pick 조인 ).
-           한 응답 안에서 경기 수·승·픽/밴 이벤트 수가 서로 맞물린다. computed_at 만 스냅에서 조회(없으면 null). */
+           snap에 non_ban_pick_cnt·ban_event_cnt가 있으면 picks CTE 생략.
+           win_cnt는 항상 live(snap 컬럼 추가 후 snap-first로 전환 예정 — migrate_add_win_cnt_to_fight_snap.sql). */
         WITH part AS (
             SELECT
                 COUNT(DISTINCT mp.replay_id)::bigint AS match_cnt,
@@ -1372,7 +1387,14 @@
             WHERE mp.season_id = #{seasonId}
               AND mp.wizard_id = #{wizardId}
         ),
-        picks AS (
+        snap AS MATERIALIZED (
+            SELECT non_ban_pick_cnt, ban_event_cnt, computed_at
+            FROM public.rta_agg_summoner_season_fight_snap
+            WHERE season_id = #{seasonId}
+              AND wizard_id = #{wizardId}
+            LIMIT 1
+        ),
+        live_picks AS MATERIALIZED (
             SELECT
                 COALESCE(SUM(CASE WHEN NOT up.is_banned THEN 1 ELSE 0 END), 0)::bigint AS non_ban_pick_cnt,
                 COALESCE(SUM(CASE WHEN up.is_banned THEN 1 ELSE 0 END), 0)::bigint     AS ban_event_cnt
@@ -1380,24 +1402,22 @@
             INNER JOIN public.rta_match_participant mp
                 ON mp.replay_id = up.replay_id
                AND mp.wizard_id = up.wizard_id
-            WHERE mp.season_id = #{seasonId}
+            WHERE NOT EXISTS (SELECT 1 FROM snap)
+              AND mp.season_id = #{seasonId}
               AND mp.wizard_id = #{wizardId}
         )
         SELECT
-            pt.match_cnt::bigint                                    AS match_cnt,
-            pk.non_ban_pick_cnt::bigint                             AS non_ban_pick_cnt,
-            pk.ban_event_cnt::bigint                                AS ban_event_cnt,
+            pt.match_cnt::bigint AS match_cnt,
+            COALESCE(s.non_ban_pick_cnt, lpk.non_ban_pick_cnt, 0)::bigint AS non_ban_pick_cnt,
+            COALESCE(s.ban_event_cnt,    lpk.ban_event_cnt,    0)::bigint AS ban_event_cnt,
             CASE
                 WHEN pt.match_cnt &gt; 0
                 THEN ROUND(100.0 * pt.win_cnt::numeric / pt.match_cnt::numeric, 2)
-                ELSE NULL
             END AS season_win_rate_pct,
-            f.computed_at
+            s.computed_at
         FROM part pt
-        CROSS JOIN picks pk
-        LEFT JOIN public.rta_agg_summoner_season_fight_snap f
-            ON f.season_id = #{seasonId}
-           AND f.wizard_id = #{wizardId}
+        CROSS JOIN live_picks lpk
+        LEFT JOIN snap s ON TRUE
         WHERE pt.match_cnt &gt; 0
         LIMIT 1
     </select>
@@ -1903,11 +1923,23 @@
     ============================================================ -->
     <select id="getRtaMonsterTopSummoners" resultType="map">
         /* rta-queries-live.getRtaMonsterTopSummoners */
+        WITH latest_rating AS (
+            /* 소환사별 해당 시즌 가장 최근 경기의 rating_id */
+            SELECT DISTINCT ON (mp.wizard_id)
+                   mp.wizard_id,
+                   mp.rating_id,
+                   mp.ladder_score
+            FROM public.rta_match_participant mp
+            WHERE mp.season_id = #{seasonId}
+              AND mp.ladder_score IS NOT NULL
+            ORDER BY mp.wizard_id, mp.played_at DESC NULLS LAST
+        )
         SELECT
             s.wizard_id,
             COALESCE(ss.wizard_name, rs.wizard_name)   AS wizard_name,
             COALESCE(ss.channel_uid, rs.channel_uid)   AS channel_uid,
-            rs.score                                    AS ladder_score,
+            COALESCE(rs.score, lr.ladder_score)         AS ladder_score,
+            COALESCE(rs.rating_id, lr.rating_id)        AS rating_id,
             s.pick_cnt,
             s.ban_cnt,
             s.win_cnt,
@@ -1923,6 +1955,8 @@
         LEFT JOIN public.rta_agg_summoner_ranking_snap rs
                ON rs.wizard_id::text = s.wizard_id
               AND rs.season_id = s.season_id
+        LEFT JOIN latest_rating lr
+               ON lr.wizard_id::text = s.wizard_id
         WHERE s.unit_master_id = #{monsterId}
           AND s.season_id = #{seasonId}
           AND s.pick_cnt >= 5

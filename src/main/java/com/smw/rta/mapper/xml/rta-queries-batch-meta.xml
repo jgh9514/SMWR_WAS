@@ -659,70 +659,60 @@
       소환사별 최신 점수(played_at DESC)만 사용 — 시즌 초반 낮은 점수가 컷을 끌어내리는 문제 방지.
       ON CONFLICT DO NOTHING — 배치 재실행 시 같은 초 PK 충돌 방지.
     -->
-    <insert id="insertRtaRankCutHourlySnapForSeason">
-        INSERT INTO public.rta_agg_rank_cut_hourly_snap (season_id, snapped_at, grade_slot, sort_order, cutoff_score)
-        WITH latest_scores AS MATERIALIZED (
-            /* 소환사별 가장 최근 경기 기준 점수·등급 */
-            SELECT DISTINCT ON (u.wizard_id)
-                u.wizard_id,
-                u.rating_id,
-                u.ladder_score
-            FROM public.rta_match_participant u
-            WHERE u.season_id = #{seasonId}
-              AND u.ladder_score &gt; 0
-            ORDER BY u.wizard_id, u.played_at DESC, u.replay_id DESC
+    <!-- 누락된 스냅 시간대 목록 조회 (시즌 시작 ~ 현재, 이미 적재된 시간 제외) -->
+    <select id="selectMissingRankCutSnapHours" resultType="java.time.Instant">
+        SELECT generate_series(
+            DATE_TRUNC('hour', (SELECT start_at FROM public.rta_season WHERE season_id = #{seasonId})),
+            DATE_TRUNC('hour', CURRENT_TIMESTAMP),
+            INTERVAL '1 hour'
+        ) AS h
+        EXCEPT
+        SELECT DISTINCT snapped_at
+        FROM public.rta_agg_rank_cut_hourly_snap
+        WHERE season_id = #{seasonId}
+        ORDER BY h
+        LIMIT #{limit}
+    </select>
+
+    <select id="selectRankCutSnapsForHour" resultType="com.smw.rta.model.RtaRankCutSnapRow">
+        WITH tier_max AS (
+            SELECT rating_id, MAX(ladder_score) AS max_score
+            FROM public.rta_match_participant
+            WHERE season_id = #{seasonId}
+              AND ladder_score &gt; 0
+              AND played_at &gt;= #{snapHour}::timestamptz
+              AND played_at &lt;  #{snapHour}::timestamptz + INTERVAL '1 hour'
+            GROUP BY rating_id
         ),
-        ranked AS MATERIALIZED (
-            /* 전체 점수 순위 — rank_rule 위 플레이어 점수 조회용 */
+        tier_grades AS (
             SELECT
-                ladder_score,
-                ROW_NUMBER() OVER (ORDER BY ladder_score DESC) AS rn
-            FROM latest_scores
-        ),
-        computed_cuts AS MATERIALIZED (
-            /* 티어별 랭크컷 점수 계산.
-               rank_rule 경계(rn)와 바로 다음(rn+1) 점수를 함께 비교해 동점자가
-               경계 밖으로 밀릴 때도 컷이 올바르게 +1 보정되도록 한다. */
-            SELECT
-                rg.grade_slot,
-                COALESCE(rg.tier_sort, 0)::smallint AS sort_order,
-                GREATEST(
-                    COALESCE(rgs.min_win_points, 0)::bigint,
-                    COALESCE(r.ladder_score, 0)::bigint,
-                    COALESCE(r_next.ladder_score + 1, 0)::bigint
-                ) AS cutoff_score
-            FROM public.rta_rating_grade_season rgs
-            INNER JOIN public.rta_rating_grade rg
-                ON rg.rating_id = rgs.rating_id
-               AND rg.grade_slot IS NOT NULL
-            LEFT JOIN ranked r
-                ON r.rn = regexp_replace(rgs.rank_rule, '[^0-9]', '', 'g')::bigint
-            LEFT JOIN ranked r_next
-                ON r_next.rn = regexp_replace(rgs.rank_rule, '[^0-9]', '', 'g')::bigint + 1
-            WHERE rgs.season_id = #{seasonId}
-              AND rgs.min_win_points IS NOT NULL
-        ),
-        all_hours AS (
-            /* 시즌 시작 시각부터 현재까지 1시간 단위 전체 시계열 */
-            SELECT generate_series(
-                DATE_TRUNC('hour', (SELECT start_at FROM public.rta_season WHERE season_id = #{seasonId})),
-                DATE_TRUNC('hour', CURRENT_TIMESTAMP),
-                INTERVAL '1 hour'
-            ) AS h
-        ),
-        missing_hours AS (
-            /* 이미 존재하는 (snapped_at, grade_slot) 제외 — 누락 시간대만 추출 */
-            SELECT ah.h
-            FROM all_hours ah
-            WHERE NOT EXISTS (
-                SELECT 1 FROM public.rta_agg_rank_cut_hourly_snap s
-                WHERE s.season_id = #{seasonId}
-                  AND s.snapped_at = ah.h
-            )
+                rating_id,
+                grade_slot,
+                tier_sort,
+                LAG(rating_id) OVER (ORDER BY tier_sort) AS lower_rating_id
+            FROM public.rta_rating_grade
+            WHERE grade_slot IS NOT NULL
         )
-        SELECT #{seasonId}, mh.h, cc.grade_slot, cc.sort_order, cc.cutoff_score
-        FROM missing_hours mh
-        CROSS JOIN computed_cuts cc
+        SELECT
+            tg.grade_slot       AS gradeSlot,
+            COALESCE(tg.tier_sort, 0)::smallint AS sortOrder,
+            GREATEST(
+                COALESCE(rgs.min_win_points, 0)::bigint,
+                COALESCE(tms.max_score + 1, 0)::bigint
+            )                   AS cutoffScore
+        FROM public.rta_rating_grade_season rgs
+        INNER JOIN tier_grades tg  ON tg.rating_id  = rgs.rating_id
+        LEFT  JOIN tier_max    tms ON tms.rating_id = tg.lower_rating_id
+        WHERE rgs.season_id = #{seasonId}
+          AND rgs.min_win_points IS NOT NULL
+    </select>
+
+    <insert id="insertRtaRankCutHourlySnaps">
+        INSERT INTO public.rta_agg_rank_cut_hourly_snap (season_id, snapped_at, grade_slot, sort_order, cutoff_score)
+        VALUES
+        <foreach collection="rows" item="r" separator=",">
+            (#{seasonId}, #{snapHour}::timestamptz, #{r.gradeSlot}, #{r.sortOrder}, #{r.cutoffScore})
+        </foreach>
         ON CONFLICT (season_id, snapped_at, grade_slot) DO NOTHING
     </insert>
 
@@ -736,11 +726,12 @@
     <select id="getRtaRankCutHourlyForDashboard" resultType="map">
         SELECT DISTINCT ON (a.sort_order, h.grade_slot)
             a.sort_order   AS "anchorSort",
-            a.anchor_key   AS "anchor_key",
+            a.anchor_key   AS "anchorKey",
             h.grade_slot   AS "gradeSlot",
             h.sort_order   AS "tierSort",
-            h.cutoff_score AS "cutoff_score",
-            h.snapped_at   AS "snappedAt"
+            h.cutoff_score AS "cutoffScore",
+            h.snapped_at   AS "snappedAt",
+            rg.rating_id   AS "ratingId"
         FROM (VALUES
             (0, 'now', INTERVAL '0'),
             (1, '3h',  INTERVAL '3 hours'),
@@ -752,6 +743,7 @@
         JOIN public.rta_agg_rank_cut_hourly_snap h
             ON h.season_id = #{seasonId}
            AND h.snapped_at &lt;= CURRENT_TIMESTAMP - a.iv
+        LEFT JOIN public.rta_rating_grade rg ON rg.grade_slot = h.grade_slot
         ORDER BY a.sort_order, h.grade_slot, h.snapped_at DESC
     </select>
 
@@ -972,13 +964,14 @@
     <insert id="insertRtaSummonerSeasonFightSnapForSeason">
         /* rta-queries-batch-meta.insertRtaSummonerSeasonFightSnapForSeason — 시즌 전원 분모 집계 UPSERT (rta_match 소환사 스냅 플래그와 무관) */
         INSERT INTO public.rta_agg_summoner_season_fight_snap (
-            season_id, wizard_id, match_cnt, non_ban_pick_cnt, ban_event_cnt, computed_at
+            season_id, wizard_id, match_cnt, win_cnt, non_ban_pick_cnt, ban_event_cnt, computed_at
         )
         WITH part AS (
             SELECT
                 mp.season_id,
                 mp.wizard_id,
-                COUNT(DISTINCT mp.replay_id)::bigint AS match_cnt
+                COUNT(DISTINCT mp.replay_id)::bigint AS match_cnt,
+                COUNT(DISTINCT CASE WHEN mp.is_winner IS TRUE THEN mp.replay_id END)::bigint AS win_cnt
             FROM public.rta_match_participant mp
             WHERE mp.season_id = #{seasonId}
             GROUP BY mp.season_id, mp.wizard_id
@@ -1000,6 +993,7 @@
             p.season_id,
             p.wizard_id,
             p.match_cnt,
+            p.win_cnt,
             COALESCE(pk.non_ban_pick_cnt, 0::bigint),
             COALESCE(pk.ban_event_cnt, 0::bigint),
             CURRENT_TIMESTAMP
@@ -1009,6 +1003,7 @@
            AND pk.wizard_id = p.wizard_id
         ON CONFLICT ON CONSTRAINT rta_agg_summoner_season_fight_snap_pkey DO UPDATE SET
             match_cnt         = EXCLUDED.match_cnt,
+            win_cnt           = EXCLUDED.win_cnt,
             non_ban_pick_cnt  = EXCLUDED.non_ban_pick_cnt,
             ban_event_cnt     = EXCLUDED.ban_event_cnt,
             computed_at       = EXCLUDED.computed_at

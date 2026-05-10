@@ -25,7 +25,8 @@ public interface RtaMapper {
 
     /** 특정 몬스터가 픽·밴된 최근 N경기 */
     List<Map<String, Object>> getMonsterRecentMatches(@Param("monsterId") int monsterId,
-            @Param("seasonId") Long seasonId, @Param("limit") int limit);
+            @Param("seasonId") Long seasonId, @Param("limit") int limit,
+            @Param("ratingId") Long ratingId, @Param("ratingIds") List<Long> ratingIds);
 
     /**
      * 시즌 전체 H2H 읽기 — {@code rta_agg_summoner_opponent_h2h_snap} (배치 적재, 라이브 집계 없음).
@@ -128,8 +129,24 @@ public interface RtaMapper {
     /** {@code rta_agg_season_rating_match_total} 전체 행 수 (배치 적재 후 로깅) */
     Long countRtaSeasonRatingMatchTotalRows();
 
-    /** 시간별 랭크 컷 스냅 1회 적재 ({@code rta_agg_rank_cut_hourly_snap}) */
-    int insertRtaRankCutHourlySnapForSeason(@Param("seasonId") long seasonId);
+    /** 배치 전용: 세션 lock_timeout 해제 (인덱스 락 충돌 방지) */
+    @org.apache.ibatis.annotations.Update("SET lock_timeout = 0")
+    void disableLockTimeout();
+
+    /** 시즌의 누락된 랭크컷 스냅 시간대 목록 조회 (limit: 1회 처리 최대 개수) */
+    List<java.time.Instant> selectMissingRankCutSnapHours(@Param("seasonId") long seasonId,
+                                                          @Param("limit") int limit);
+
+    /** 시간대별 랭크컷 계산 결과 조회 */
+    List<com.smw.rta.model.RtaRankCutSnapRow> selectRankCutSnapsForHour(
+            @Param("seasonId") long seasonId,
+            @Param("snapHour") java.time.Instant snapHour);
+
+    /** 랭크컷 스냅 batch INSERT */
+    int insertRtaRankCutHourlySnaps(
+            @Param("seasonId") long seasonId,
+            @Param("snapHour") java.time.Instant snapHour,
+            @Param("rows") List<com.smw.rta.model.RtaRankCutSnapRow> rows);
 
     /** 92일 초과 시간별 랭크 컷 스냅 정리 */
     int pruneRtaRankCutHourlySnap();

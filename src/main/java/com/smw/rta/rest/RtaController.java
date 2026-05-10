@@ -740,7 +740,11 @@ public class RtaController {
             if (mid == 0) return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
             Object rawLimit = param.get("limit");
             int limit = rawLimit != null ? parseIntOpt(rawLimit, 10) : 10;
-            return ResponseEntity.ok(rtaService.getMonsterRecentMatches(mid, pickSeasonId(param), limit));
+            Integer ratingId = pickRatingId(param);
+            List<Integer> ratingIds = pickRatingIds(param);
+            Long rid = ratingId != null ? ratingId.longValue() : null;
+            List<Long> rids = ratingIds != null ? ratingIds.stream().map(Integer::longValue).toList() : null;
+            return ResponseEntity.ok(rtaService.getMonsterRecentMatches(mid, pickSeasonId(param), limit, rid, rids));
         } catch (Exception e) {
             log.error("RTA monster recent-matches 실패 param={}", param, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();

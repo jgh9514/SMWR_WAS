@@ -136,7 +136,7 @@ public interface RtaService {
     List<Map<String, Object>> listRtaRatingGradeReference(long seasonId);
 
     /** 특정 몬스터가 픽·밴된 최근 N경기 */
-    Map<String, Object> getMonsterRecentMatches(int monsterId, Long seasonId, int limit);
+    Map<String, Object> getMonsterRecentMatches(int monsterId, Long seasonId, int limit, Long ratingId, List<Long> ratingIds);
 
     /**
      * seasonId resolve — null이면 현재 활성 시즌의 season_id. 실패 시 null.

@@ -420,13 +420,15 @@ public class RtaServiceImpl implements RtaService {
     }
 
     @Override
-    public Map<String, Object> getMonsterRecentMatches(int monsterId, Long seasonId, int limit) {
+    public Map<String, Object> getMonsterRecentMatches(int monsterId, Long seasonId, int limit, Long ratingId, List<Long> ratingIds) {
         Long sid = doResolveSeasonId(seasonId);
         Map<String, Object> r = new HashMap<>();
         r.put("seasonId", sid);
         if (sid == null) { r.put("matches", Collections.emptyList()); return r; }
         int safeLimit = Math.min(Math.max(limit, 1), 20);
-        r.put("matches", rtaMapper.getMonsterRecentMatches(monsterId, sid, safeLimit));
+        Long rid = (ratingIds != null && !ratingIds.isEmpty()) ? null : ratingId;
+        List<Long> rids = (ratingIds != null && !ratingIds.isEmpty()) ? ratingIds : null;
+        r.put("matches", rtaMapper.getMonsterRecentMatches(monsterId, sid, safeLimit, rid, rids));
         return r;
     }
 

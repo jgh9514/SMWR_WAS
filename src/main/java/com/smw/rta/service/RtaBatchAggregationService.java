@@ -1,6 +1,8 @@
 package com.smw.rta.service;
 
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -411,7 +413,36 @@ public class RtaBatchAggregationService {
 		long matchTotalMs = msSinceNanos(t0);
 
 		t0 = System.nanoTime();
-		rtaMapper.insertRtaRankCutHourlySnapForSeason(sid);
+		List<Instant> missingHours = rtaMapper.selectMissingRankCutSnapHours(sid, 48);
+		log.info("랭크컷 스냅 누락 시간대 seasonId={} count={}", sid, missingHours.size());
+		for (Instant hour : missingHours) {
+			List<com.smw.rta.model.RtaRankCutSnapRow> rows = rtaMapper.selectRankCutSnapsForHour(sid, hour);
+			if (rows.isEmpty()) {
+				log.info("랭크컷 스냅 스킵 (경기 없음) seasonId={} hour={}", sid, hour);
+				continue;
+			}
+			int attempt = 0;
+			while (true) {
+				try {
+					final int inserted;
+					final List<com.smw.rta.model.RtaRankCutSnapRow> r = rows;
+					int[] result = {0};
+					transactionTemplate.executeWithoutResult(tx -> {
+						rtaMapper.disableLockTimeout();
+						result[0] = rtaMapper.insertRtaRankCutHourlySnaps(sid, hour, r);
+					});
+					log.info("랭크컷 스냅 적재 완료 seasonId={} hour={} inserted={}", sid, hour, result[0]);
+					break;
+				} catch (Exception e) {
+					if (++attempt >= 3) {
+						log.error("랭크컷 스냅 적재 실패 seasonId={} hour={} attempt={}", sid, hour, attempt, e);
+						throw e;
+					}
+					log.warn("랭크컷 스냅 적재 락 충돌 재시도 {}/3 seasonId={} hour={}", attempt, sid, hour);
+					try { Thread.sleep(3_000L * attempt); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); throw e; }
+				}
+			}
+		}
 		rtaMapper.pruneRtaRankCutHourlySnap();
 		long hourlyMs = msSinceNanos(t0);
 
