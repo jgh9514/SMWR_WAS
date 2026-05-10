@@ -499,13 +499,19 @@ public class RtaBatchAggregationService {
 			String fromDate = startDateObj.toString();
 			List<String> missingDates = mapper.selectMissingMonsterDailySnapDates(seasonId, fromDate);
 			if (missingDates == null || missingDates.isEmpty()) continue;
+			int filledDates = 0;
 			for (String snapDate : missingDates) {
-				transactionTemplate.executeWithoutResult(tx ->
-					mapper.insertRtaMonsterDailySnapForDate(seasonId, snapDate)
-				);
+				try {
+					transactionTemplate.executeWithoutResult(tx ->
+						mapper.insertRtaMonsterDailySnapForDate(seasonId, snapDate)
+					);
+					filledDates++;
+				} catch (Exception e) {
+					log.error("rebuildMonsterDailySnap: 날짜 적재 실패 — seasonId={} date={}", seasonId, snapDate, e);
+				}
 			}
-			totalInserted += missingDates.size();
-			log.info("rebuildMonsterDailySnap: seasonId={}, missingFilled={}", seasonId, missingDates.size());
+			totalInserted += filledDates;
+			log.info("rebuildMonsterDailySnap: seasonId={}, missingDates={}, filled={}", seasonId, missingDates.size(), filledDates);
 		}
 		log.info("rebuildMonsterDailySnap done: totalInserted={}", totalInserted);
 		return totalInserted;
