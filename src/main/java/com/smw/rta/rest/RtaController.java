@@ -646,7 +646,11 @@ public class RtaController {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
             }
             Long sid = pickSeasonId(param);
-            Map<String, Object> response = rtaService.getRtaMonsterDetail(monsterId, sid);
+            Integer ratingId = pickRatingId(param);
+            if (ratingId == null || ratingId <= 0) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
+            }
+            Map<String, Object> response = rtaService.getRtaMonsterDetail(monsterId, sid, ratingId);
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             log.error("RTA monster detail 조회 실패 param={}", param, e);

@@ -285,8 +285,8 @@ public class RtaServiceImpl implements RtaService {
 
     @Override
     @Cacheable(cacheNames = "rtaMonster", cacheManager = "rtaMonsterCacheManager",
-            key = "'md_' + #seasonId + '_' + #monsterId")
-    public Map<String, Object> getRtaMonsterDetail(int monsterId, Long seasonId) {
+            key = "'md_' + #seasonId + '_' + #ratingId + '_' + #monsterId")
+    public Map<String, Object> getRtaMonsterDetail(int monsterId, Long seasonId, int ratingId) {
         Long sid = doResolveSeasonId(seasonId);
         Map<String, Object> response = new HashMap<>();
 
@@ -306,9 +306,9 @@ public class RtaServiceImpl implements RtaService {
         CompletableFuture<List<Map<String, Object>>> fCombos  = CompletableFuture.supplyAsync(() -> rtaMapper.getRtaMonsterGoodCombos(monsterId, sidF), RTA_LINK_PREVIEW_EXECUTOR);
         CompletableFuture<List<Map<String, Object>>> fTriple  = CompletableFuture.supplyAsync(() -> rtaMapper.getRtaMonsterGoodTripleCombos(monsterId, sidF), RTA_LINK_PREVIEW_EXECUTOR);
         CompletableFuture<List<Map<String, Object>>> fRecent  = CompletableFuture.supplyAsync(() -> rtaMapper.getRtaMonsterRecentMatches(monsterId, sidF), RTA_LINK_PREVIEW_EXECUTOR);
-        CompletableFuture<List<Map<String, Object>>> fCounterSolo  = CompletableFuture.supplyAsync(() -> rtaMapper.getRtaCounterSoloMatchups(monsterId, sidF),  RTA_LINK_PREVIEW_EXECUTOR);
-        CompletableFuture<List<Map<String, Object>>> fCounterDuo   = CompletableFuture.supplyAsync(() -> rtaMapper.getRtaCounterDuoMatchups(monsterId, sidF),   RTA_LINK_PREVIEW_EXECUTOR);
-        CompletableFuture<List<Map<String, Object>>> fCounterTrio  = CompletableFuture.supplyAsync(() -> rtaMapper.getRtaCounterTrioMatchups(monsterId, sidF),  RTA_LINK_PREVIEW_EXECUTOR);
+        CompletableFuture<List<Map<String, Object>>> fCounterSolo  = CompletableFuture.supplyAsync(() -> rtaMapper.getRtaCounterSoloMatchups(monsterId, sidF, ratingId),  RTA_LINK_PREVIEW_EXECUTOR);
+        CompletableFuture<List<Map<String, Object>>> fCounterDuo   = CompletableFuture.supplyAsync(() -> rtaMapper.getRtaCounterDuoMatchups(monsterId, sidF, ratingId),   RTA_LINK_PREVIEW_EXECUTOR);
+        CompletableFuture<List<Map<String, Object>>> fCounterTrio  = CompletableFuture.supplyAsync(() -> rtaMapper.getRtaCounterTrioMatchups(monsterId, sidF, ratingId),  RTA_LINK_PREVIEW_EXECUTOR);
 
         CompletableFuture.allOf(fBasic, fStrong, fCombos, fTriple, fRecent, fCounterSolo, fCounterDuo, fCounterTrio).join();
 
@@ -778,14 +778,18 @@ public class RtaServiceImpl implements RtaService {
             }
         }
 
-        Map<String, String> nameMap = new HashMap<>();
+        Map<String, String> nameMap  = new HashMap<>();
+        Map<String, String> imageMap = new HashMap<>();
         if (!idSet.isEmpty()) {
             List<Map<String, Object>> monsters = rtaMapper.selectMonsterPortraitMetaByIds(new ArrayList<>(idSet));
             for (Map<String, Object> m : monsters) {
-                Object mid = m.get("monster_id");
-                Object name = m.get("kr_name");
-                if (mid != null && name != null) {
-                    nameMap.put(String.valueOf(mid), String.valueOf(name));
+                Object mid   = m.get("monster_id");
+                Object name  = m.get("kr_name");
+                Object image = m.get("image_url");
+                if (mid != null) {
+                    String key = String.valueOf(mid);
+                    if (name  != null) nameMap.put(key,  String.valueOf(name));
+                    if (image != null) imageMap.put(key, String.valueOf(image));
                 }
             }
         }
@@ -803,13 +807,24 @@ public class RtaServiceImpl implements RtaService {
                     : null);
 
             if (key != null) {
-                String label = Arrays.stream(key.split(","))
-                        .map(String::trim)
+                String[] ids = Arrays.stream(key.split(",")).map(String::trim).filter(s -> !s.isEmpty()).toArray(String[]::new);
+                String label = Arrays.stream(ids)
                         .map(id -> nameMap.getOrDefault(id, id))
                         .collect(Collectors.joining(" + "));
                 row.put("opponentLabel", label);
+
+                List<Map<String, Object>> monsters = new ArrayList<>(ids.length);
+                for (String id : ids) {
+                    Map<String, Object> m = new HashMap<>();
+                    m.put("monsterId", id);
+                    m.put("monsterName",  nameMap.getOrDefault(id, id));
+                    m.put("monsterImage", imageMap.get(id));
+                    monsters.add(m);
+                }
+                row.put("opponentMonsters", monsters);
             } else {
-                row.put("opponentLabel", null);
+                row.put("opponentLabel",   null);
+                row.put("opponentMonsters", Collections.emptyList());
             }
             result.add(row);
         }

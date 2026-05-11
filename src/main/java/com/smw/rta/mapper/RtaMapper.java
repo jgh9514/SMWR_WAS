@@ -2,6 +2,7 @@ package com.smw.rta.mapper;
 
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
 
 import java.util.List;
 import java.util.Map;
@@ -394,6 +395,10 @@ public interface RtaMapper {
     /** 금일(now)이 [start_at, end_at) 에 포함되는 season_id. 없으면 season_no 최대 폴백 */
     Long selectDefaultSeasonIdForNow();
 
+    /** 캐시 워밍용: 시즌 내 daily_snap에 존재하는 (unit_master_id, rating_id) 쌍 전체 */
+    @Select("SELECT DISTINCT unit_master_id, rating_id FROM rta_agg_monster_daily_snap WHERE season_id = #{seasonId}")
+    List<Map<String, Object>> selectDistinctMonsterRatingPairsFromDailySnap(@Param("seasonId") Long seasonId);
+
     /** 시즌 PK로 start_at, end_at, season_code 조회 */
     Map<String, Object> selectRtaSeasonBoundsBySeasonId(@Param("seasonId") long seasonId);
 
@@ -402,15 +407,15 @@ public interface RtaMapper {
 
     /** 카운터 매치업(솔로) — {@code rta_agg_counter_solo}, 전 티어 합산, 상위 100 */
     List<Map<String, Object>> getRtaCounterSoloMatchups(@Param("monsterId") long monsterId,
-            @Param("seasonId") Long seasonId);
+            @Param("seasonId") Long seasonId, @Param("ratingId") int ratingId);
 
-    /** 카운터 매치업(듀오) — {@code rta_agg_counter_duo}, 전 티어 합산, 상위 100 */
+    /** 카운터 매치업(듀오) — {@code rta_agg_counter_duo}, 단일 티어, 상위 100 */
     List<Map<String, Object>> getRtaCounterDuoMatchups(@Param("monsterId") long monsterId,
-            @Param("seasonId") Long seasonId);
+            @Param("seasonId") Long seasonId, @Param("ratingId") int ratingId);
 
-    /** 카운터 매치업(트리오) — {@code rta_agg_counter_trio}, 전 티어 합산, 상위 100 */
+    /** 카운터 매치업(트리오) — {@code rta_agg_counter_trio}, 단일 티어, 상위 100 */
     List<Map<String, Object>> getRtaCounterTrioMatchups(@Param("monsterId") long monsterId,
-            @Param("seasonId") Long seasonId);
+            @Param("seasonId") Long seasonId, @Param("ratingId") int ratingId);
 
     /** 배치·점검용. API에서는 호출하지 않음. */
     List<Map<String, Object>> getRtaTierDistributionDailyLive(@Param("seasonId") Long seasonId);

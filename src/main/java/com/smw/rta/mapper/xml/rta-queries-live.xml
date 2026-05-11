@@ -1134,7 +1134,7 @@
             END as win_rate,
             match_count
         FROM opponent_stats
-        ORDER BY win_rate DESC, match_count DESC
+        ORDER BY match_count DESC, win_rate DESC
         LIMIT 20
     </select>
 
@@ -1176,7 +1176,7 @@
             END as win_rate,
             match_count
         FROM combo_stats
-        ORDER BY win_rate DESC, match_count DESC
+        ORDER BY match_count DESC, win_rate DESC
         LIMIT 20
     </select>
 
@@ -1233,7 +1233,7 @@
             END as win_rate,
             match_count
         FROM triple_combo_stats
-        ORDER BY win_rate DESC, match_count DESC
+        ORDER BY match_count DESC, win_rate DESC
         LIMIT 20
     </select>
 

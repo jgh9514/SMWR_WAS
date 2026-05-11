@@ -4,6 +4,7 @@ import org.quartz.DisallowConcurrentExecution;
 import org.quartz.JobExecutionContext;
 
 import com.smw.rta.cache.RtaCacheEvictor;
+import com.smw.rta.cache.RtaRedisCacheWarmup;
 import com.smw.rta.mapper.RtaMapper;
 import com.smw.rta.service.RtaBatchAggregationService;
 
@@ -35,6 +36,14 @@ public class RtaMonsterDailySnapJob extends BaseBatchJob {
 
         rtaCacheEvictor.evictAllRtaCaches();
         addLog("RTA 조회 캐시 무효화 완료");
+
+        try {
+            RtaRedisCacheWarmup warmup = applicationContext.getBean(RtaRedisCacheWarmup.class);
+            warmup.warmMonsterDetailCaches();
+            addLog("몬스터 daily-trend·pick-slot 캐시 워밍 완료");
+        } catch (Exception e) {
+            addLog("몬스터 캐시 워밍 skip (non-redis mode or error): %s", e.getMessage());
+        }
     }
 
     @Override

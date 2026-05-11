@@ -1,5 +1,8 @@
 package com.smw.rta.cache;
 
+import java.util.List;
+import java.util.Map;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
@@ -44,6 +47,38 @@ public class RtaRedisCacheWarmup {
 			log.debug("[rta-cache] Redis warmup finished for seasonId={}", sid);
 		} catch (Exception e) {
 			log.warn("[rta-cache] Redis warmup after eviction failed (non-fatal): {}", e.getMessage());
+		}
+	}
+
+	/**
+	 * 몬스터 일별 추이·픽 슬롯 캐시 워밍.
+	 * daily_snap 테이블의 (unit_master_id, rating_id) 쌍을 순회하며 캐시를 미리 채운다.
+	 * RtaMonsterDailySnapJob 완료 후 호출.
+	 */
+	public void warmMonsterDetailCaches() {
+		try {
+			Long sid = rtaMapper.selectDefaultSeasonIdForNow();
+			if (sid == null) {
+				log.debug("[rta-cache] monster detail warmup: no default season, skipped");
+				return;
+			}
+			List<Map<String, Object>> pairs = rtaMapper.selectDistinctMonsterRatingPairsFromDailySnap(sid);
+			int ok = 0, fail = 0;
+			for (Map<String, Object> pair : pairs) {
+				int monsterId = ((Number) pair.get("unit_master_id")).intValue();
+				Integer ratingId = ((Number) pair.get("rating_id")).intValue();
+				try {
+					rtaService.getRtaMonsterDailyTrend(monsterId, sid, ratingId);
+					rtaService.getRtaMonsterPickSlots(monsterId, sid, ratingId);
+					ok++;
+				} catch (Exception e) {
+					fail++;
+					log.warn("[rta-cache] monster detail warmup fail: monster={} rating={}: {}", monsterId, ratingId, e.getMessage());
+				}
+			}
+			log.debug("[rta-cache] monster detail warmup done: ok={} fail={} seasonId={}", ok, fail, sid);
+		} catch (Exception e) {
+			log.warn("[rta-cache] monster detail warmup failed (non-fatal): {}", e.getMessage());
 		}
 	}
 

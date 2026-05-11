@@ -24,6 +24,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.concurrent.CompletableFuture;
 
 import javax.sql.DataSource;
 
@@ -2037,24 +2038,64 @@ public class summonerswarServiceImpl implements summonerswarService {
 	}
 	
 	@Override
-	@Cacheable(cacheNames = "monsterInfo", cacheManager = "shortLivedCacheManager", key = "#monsterId")
+	@Cacheable(cacheNames = "monsterInfo", cacheManager = "monsterInfoCacheManager", key = "#monsterId")
 	public Map<String, ?> selectMonsterInfo(String monsterId) {
-		// 몬스터 기본 정보 조회
+		// 몬스터 기본 정보 조회 (family_id, un_name, skill_group_id 추출을 위해 선행 필요)
 		Map<String, ?> monsterInfo = swMapper.selectMonsterInfo(monsterId);
 		if (monsterInfo == null || monsterInfo.isEmpty()) {
 			return new HashMap<>();
 		}
-		
-		// 몬스터 스킬 목록 + 이펙트(아이콘은 skill_effect_master 조인)
-		List<Map<String, ?>> skills = dedupeMonsterSkillsBySkillId(swMapper.selectMonsterSkills(monsterId));
-		List<Map<String, ?>> skillEffectRows = swMapper.selectMonsterSkillEffects(monsterId);
+
+		// 기본 정보에서 패밀리/스킬그룹 키 추출
+		Object fidObj = monsterInfo.get("family_id");
+		Long familyId = null;
+		if (fidObj instanceof Number) {
+			familyId = ((Number) fidObj).longValue();
+		} else if (fidObj != null) {
+			try { familyId = Long.parseLong(fidObj.toString().trim()); } catch (NumberFormatException ignored) {}
+		}
+		Object unObj = monsterInfo.get("un_name");
+		final String unName = (unObj != null && !unObj.toString().trim().isEmpty()) ? unObj.toString().trim() : null;
+		final String evoGroupKey = MonsterIdEvolutionUtil.evolutionGroupKey(monsterId);
+		Object sgObj = monsterInfo.get("skill_group_id");
+		long skillGroupId = 0L;
+		if (sgObj instanceof Number) {
+			skillGroupId = ((Number) sgObj).longValue();
+		} else if (sgObj != null) {
+			try { skillGroupId = Long.parseLong(sgObj.toString().trim()); } catch (NumberFormatException ignored) {}
+		}
+		final Long finalFamilyId = familyId;
+		final long finalSkillGroupId = skillGroupId;
+
+		// 독립적인 6개 쿼리 병렬 실행
+		CompletableFuture<List<Map<String, ?>>> skillsFuture =
+			CompletableFuture.supplyAsync(() -> dedupeMonsterSkillsBySkillId(swMapper.selectMonsterSkills(monsterId)));
+		CompletableFuture<List<Map<String, ?>>> effectsFuture =
+			CompletableFuture.supplyAsync(() -> swMapper.selectMonsterSkillEffects(monsterId));
+		CompletableFuture<List<Map<String, ?>>> familyFuture =
+			CompletableFuture.supplyAsync(() -> (finalFamilyId != null && finalFamilyId > 0)
+				? swMapper.selectMonstersByFamilyId(finalFamilyId) : Collections.emptyList());
+		CompletableFuture<List<Map<String, ?>>> unNameFuture =
+			CompletableFuture.supplyAsync(() -> (unName != null)
+				? swMapper.selectMonstersByUnName(unName) : Collections.emptyList());
+		CompletableFuture<List<Map<String, ?>>> evoFuture =
+			CompletableFuture.supplyAsync(() -> (evoGroupKey != null && !evoGroupKey.isEmpty() && !evoGroupKey.startsWith("solo:"))
+				? swMapper.selectMonstersByEvolutionGroupKey(evoGroupKey) : Collections.emptyList());
+		CompletableFuture<List<Map<String, ?>>> skillGroupFuture =
+			CompletableFuture.supplyAsync(() -> (finalSkillGroupId > 0)
+				? swMapper.selectMonstersBySkillGroupId(finalSkillGroupId) : Collections.emptyList());
+
+		CompletableFuture.allOf(skillsFuture, effectsFuture, familyFuture, unNameFuture, evoFuture, skillGroupFuture).join();
+
+		List<Map<String, ?>> skills = skillsFuture.join();
+		List<Map<String, ?>> skillEffectRows = effectsFuture.join();
+
+		// 스킬 + 이펙트 조립
 		Map<Object, List<Map<String, ?>>> effectsBySkillId = new LinkedHashMap<>();
 		if (skillEffectRows != null) {
 			for (Map<String, ?> row : skillEffectRows) {
 				Object skid = row.get("skill_id");
-				if (skid == null) {
-					continue;
-				}
+				if (skid == null) continue;
 				effectsBySkillId.computeIfAbsent(skid, k -> new ArrayList<>()).add(row);
 			}
 		}
@@ -2071,49 +2112,17 @@ public class summonerswarServiceImpl implements summonerswarService {
 			}
 		}
 
-		// 결과에 스킬 정보 추가
 		Map<String, Object> result = new HashMap<>(monsterInfo);
 		result.put("skills", skillsWithEffects);
 
-		// 상세 전용: 패밀리 + 진화 라인 + 스킬 그룹을 합쳐 detail_context 구성 (중복 monster_id 제거)
+		// 패밀리/진화/스킬그룹 병합 → detail_context 구성
 		List<Map<String, ?>> familyRows = new ArrayList<>();
 		Set<String> seenMonsterIds = new LinkedHashSet<>();
-		Object fidObj = monsterInfo.get("family_id");
-		Long familyId = null;
-		if (fidObj instanceof Number) {
-			familyId = ((Number) fidObj).longValue();
-		} else if (fidObj != null) {
-			try {
-				familyId = Long.parseLong(fidObj.toString().trim());
-			} catch (NumberFormatException ignored) {
-				familyId = null;
-			}
-		}
-		if (familyId != null && familyId > 0) {
-			mergeMonsterRows(familyRows, swMapper.selectMonstersByFamilyId(familyId.longValue()), seenMonsterIds);
-		}
-		Object unObj = monsterInfo.get("un_name");
-		if (unObj != null && !unObj.toString().trim().isEmpty()) {
-			mergeMonsterRows(familyRows, swMapper.selectMonstersByUnName(unObj.toString().trim()), seenMonsterIds);
-		}
-		String evoGroupKey = MonsterIdEvolutionUtil.evolutionGroupKey(monsterId);
-		if (evoGroupKey != null && !evoGroupKey.isEmpty() && !evoGroupKey.startsWith("solo:")) {
-			mergeMonsterRows(familyRows, swMapper.selectMonstersByEvolutionGroupKey(evoGroupKey), seenMonsterIds);
-		}
-		long skillGroupId = 0L;
-		Object sgObj = monsterInfo.get("skill_group_id");
-		if (sgObj instanceof Number) {
-			skillGroupId = ((Number) sgObj).longValue();
-		} else if (sgObj != null) {
-			try {
-				skillGroupId = Long.parseLong(sgObj.toString().trim());
-			} catch (NumberFormatException ignored) {
-				skillGroupId = 0L;
-			}
-		}
-		if (skillGroupId > 0) {
-			mergeMonsterRows(familyRows, swMapper.selectMonstersBySkillGroupId(skillGroupId), seenMonsterIds);
-		}
+		mergeMonsterRows(familyRows, familyFuture.join(), seenMonsterIds);
+		mergeMonsterRows(familyRows, unNameFuture.join(), seenMonsterIds);
+		mergeMonsterRows(familyRows, evoFuture.join(), seenMonsterIds);
+		mergeMonsterRows(familyRows, skillGroupFuture.join(), seenMonsterIds);
+
 		Object elemental = monsterInfo.get("monster_elemental");
 		Map<String, Object> detailContext = MonsterDetailContextBuilder.build(monsterId,
 				elemental != null ? elemental.toString() : null, familyRows);

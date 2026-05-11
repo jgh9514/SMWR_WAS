@@ -786,13 +786,13 @@
         SELECT
             c.opponent_monster_id::text AS "opponentComboKey",
             1::smallint                AS "opponentComboSize",
-            SUM(c.win_cnt)::bigint     AS "winCnt",
-            SUM(c.lose_cnt)::bigint    AS "loseCnt"
+            c.win_cnt::bigint          AS "winCnt",
+            c.lose_cnt::bigint         AS "loseCnt"
         FROM public.rta_agg_counter_solo c
-        WHERE c.season_id         = #{seasonId}
+        WHERE c.season_id          = #{seasonId}
+          AND c.rating_id          = #{ratingId}
           AND c.subject_monster_id = #{monsterId}
-        GROUP BY c.opponent_monster_id
-        ORDER BY (SUM(c.win_cnt) + SUM(c.lose_cnt)) DESC NULLS LAST
+        ORDER BY (c.win_cnt + c.lose_cnt) DESC NULLS LAST
         LIMIT 100
     </select>
 
@@ -800,13 +800,13 @@
         SELECT
             c.opponent_monster_id      AS "opponentComboKey",
             2::smallint                AS "opponentComboSize",
-            SUM(c.win_cnt)::bigint     AS "winCnt",
-            SUM(c.lose_cnt)::bigint    AS "loseCnt"
+            c.win_cnt::bigint          AS "winCnt",
+            c.lose_cnt::bigint         AS "loseCnt"
         FROM public.rta_agg_counter_duo c
-        WHERE c.season_id         = #{seasonId}
+        WHERE c.season_id          = #{seasonId}
+          AND c.rating_id          = #{ratingId}
           AND c.subject_monster_id = #{monsterId}
-        GROUP BY c.opponent_monster_id
-        ORDER BY (SUM(c.win_cnt) + SUM(c.lose_cnt)) DESC NULLS LAST
+        ORDER BY (c.win_cnt + c.lose_cnt) DESC NULLS LAST
         LIMIT 100
     </select>
 
@@ -814,13 +814,13 @@
         SELECT
             c.opponent_monster_id      AS "opponentComboKey",
             3::smallint                AS "opponentComboSize",
-            SUM(c.win_cnt)::bigint     AS "winCnt",
-            SUM(c.lose_cnt)::bigint    AS "loseCnt"
+            c.win_cnt::bigint          AS "winCnt",
+            c.lose_cnt::bigint         AS "loseCnt"
         FROM public.rta_agg_counter_trio c
-        WHERE c.season_id         = #{seasonId}
+        WHERE c.season_id          = #{seasonId}
+          AND c.rating_id          = #{ratingId}
           AND c.subject_monster_id = #{monsterId}
-        GROUP BY c.opponent_monster_id
-        ORDER BY (SUM(c.win_cnt) + SUM(c.lose_cnt)) DESC NULLS LAST
+        ORDER BY (c.win_cnt + c.lose_cnt) DESC NULLS LAST
         LIMIT 100
     </select>
 
