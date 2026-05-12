@@ -413,7 +413,7 @@ public class RtaBatchAggregationService {
 		long matchTotalMs = msSinceNanos(t0);
 
 		t0 = System.nanoTime();
-		List<Instant> missingHours = rtaMapper.selectMissingRankCutSnapHours(sid, 48);
+		List<Instant> missingHours = rtaMapper.selectMissingRankCutSnapHours(sid, 720);
 		log.info("랭크컷 스냅 누락 시간대 seasonId={} count={}", sid, missingHours.size());
 		for (Instant hour : missingHours) {
 			List<com.smw.rta.model.RtaRankCutSnapRow> rows = rtaMapper.selectRankCutSnapsForHour(sid, hour);

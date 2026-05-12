@@ -35,7 +35,7 @@ public class RtaCaffeineCacheManagersConfig {
 	@Value("${smw.cache.rta.monster.expire-after-write-minutes:60}")
 	private long rtaMonsterExpireAfterWriteMinutes;
 
-	@Value("${smw.cache.rta.monster.maximum-size:200}")
+	@Value("${smw.cache.rta.monster.maximum-size:2000}")
 	private long rtaMonsterMaximumSize;
 
 	@Bean("rtaShortLivedCacheManager")

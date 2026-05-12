@@ -145,7 +145,7 @@ public abstract class BaseBatchJob implements Job {
             // 실패 처리
             long elapsedTime = System.currentTimeMillis() - startTime;
             addLog("===== 배치 실행 실패 =====");
-            addLog("오류 메시지: %s", e.getMessage());
+            addLog("오류 메시지: %s", sanitizeErrorMessage(e));
             addLog("소요 시간: %.2f초", elapsedTime / 1000.0);
             
             String errorLog = getLogContent();
@@ -361,6 +361,25 @@ public abstract class BaseBatchJob implements Job {
     }
     
     /**
+     * 예외 메시지에서 연결 문자열·자격증명 패턴을 제거한 안전한 문자열 반환.
+     * addLog 또는 Slack 알림에 e.getMessage()를 직접 쓰는 대신 이 메서드를 사용한다.
+     */
+    protected static String sanitizeErrorMessage(Throwable e) {
+        String type = e.getClass().getSimpleName();
+        String msg = e.getMessage();
+        if (msg == null) {
+            return type;
+        }
+        msg = msg.replaceAll("(?i)(redis|jdbc|mongodb|amqp|http|https)://[^\\s]*", "[REDACTED_URL]");
+        msg = msg.replaceAll("(?i)(password|passwd|pwd)[=:\\s]+\\S+", "password=[REDACTED]");
+        msg = msg.replaceAll("(?i)(token|secret|key)[=:\\s]+\\S+", "token=[REDACTED]");
+        if (msg.length() > 200) {
+            msg = msg.substring(0, 197) + "...";
+        }
+        return type + ": " + msg;
+    }
+
+    /**
      * 예외 스택 트레이스 가져오기
      */
     private String getStackTrace(Exception e) {
@@ -379,7 +398,7 @@ public abstract class BaseBatchJob implements Job {
             String suffix = disabled
                     ? "\n스케줄이 비활성화되었습니다. 확인 후 수동으로 재활성화하세요."
                     : "\n인프라 오류(커넥션 등)로 인한 일시 실패 — 스케줄은 유지됩니다.";
-            String msg = String.format("[배치 실패] *%s*\n오류: %s%s", batchName, e.getMessage(), suffix);
+            String msg = String.format("[배치 실패] *%s*\n오류: %s%s", batchName, sanitizeErrorMessage(e), suffix);
             cachedSlackNotifier.send(cachedSlackToken, cachedSlackChannelId, msg);
         } catch (Exception ex) {
             log.warn("[slack] 배치 실패 알림 전송 중 오류", ex);

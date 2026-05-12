@@ -5,6 +5,7 @@ import org.quartz.JobExecutionContext;
 
 import com.smw.rta.cache.RtaCacheEvictor;
 import com.smw.rta.cache.RtaRedisCacheWarmup;
+import com.smw.rta.config.RtaBatchProperties;
 import com.smw.rta.mapper.RtaMapper;
 import com.smw.rta.service.RtaBatchAggregationService;
 
@@ -23,6 +24,7 @@ public class RtaMonsterDailySnapJob extends BaseBatchJob {
         RtaMapper rtaMapper = applicationContext.getBean(RtaMapper.class);
         RtaBatchAggregationService aggregationService = applicationContext.getBean(RtaBatchAggregationService.class);
         RtaCacheEvictor rtaCacheEvictor = applicationContext.getBean(RtaCacheEvictor.class);
+        int pickSlotDrainBatchSize = applicationContext.getBean(RtaBatchProperties.class).getPickSlotDrainBatchSize();
 
         addLog("--- rta_agg_monster_daily_snap 재적재 (시즌 시작일~오늘 누락분) ---");
         long t0 = System.currentTimeMillis();
@@ -31,7 +33,7 @@ public class RtaMonsterDailySnapJob extends BaseBatchJob {
 
         addLog("--- rta_agg_monster_pick_slot_snap incremental drain ---");
         long t1 = System.currentTimeMillis();
-        int slotRids = aggregationService.drainPickSlotSnap(rtaMapper, 2000);
+        int slotRids = aggregationService.drainPickSlotSnap(rtaMapper, pickSlotDrainBatchSize);
         addLog("pick slot snap 완료: processedRids=%d, elapsed=%dms", slotRids, System.currentTimeMillis() - t1);
 
         rtaCacheEvictor.evictAllRtaCaches();
@@ -42,7 +44,7 @@ public class RtaMonsterDailySnapJob extends BaseBatchJob {
             warmup.warmMonsterDetailCaches();
             addLog("몬스터 daily-trend·pick-slot 캐시 워밍 완료");
         } catch (Exception e) {
-            addLog("몬스터 캐시 워밍 skip (non-redis mode or error): %s", e.getMessage());
+            addLog("몬스터 캐시 워밍 skip (non-redis mode or error): %s", sanitizeErrorMessage(e));
         }
     }
 

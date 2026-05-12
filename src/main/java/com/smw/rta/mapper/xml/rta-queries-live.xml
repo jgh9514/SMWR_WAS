@@ -1865,9 +1865,9 @@
             ps.pick_cnt,
             ps.win_cnt,
             ps.field_cnt,
-            CASE WHEN MAX(ps.field_cnt) OVER (PARTITION BY ps.team_side) > 0
+            CASE WHEN SUM(ps.pick_cnt) OVER (PARTITION BY ps.team_side) > 0
                  THEN ROUND(100.0 * ps.pick_cnt
-                            / MAX(ps.field_cnt) OVER (PARTITION BY ps.team_side), 2)
+                            / SUM(ps.pick_cnt) OVER (PARTITION BY ps.team_side), 2)
             END AS pick_share_pct,
             CASE WHEN ps.pick_cnt > 0
                  THEN ROUND(100.0 * ps.win_cnt / ps.pick_cnt, 2)
@@ -1881,7 +1881,17 @@
 
     <select id="getRtaMonsterPickSlotsByIds" resultType="map">
         /* rta-queries-live.getRtaMonsterPickSlotsByIds */
-        WITH field_totals AS (
+        WITH pick_totals AS (
+            SELECT ps2.team_side,
+                   SUM(ps2.pick_cnt) AS total_pick_cnt
+            FROM public.rta_agg_monster_pick_slot_snap ps2
+            WHERE ps2.unit_master_id = #{monsterId}
+              AND ps2.season_id = #{seasonId}
+              AND ps2.rating_id IN
+              <foreach collection="ratingIds" item="rid" open="(" separator="," close=")">#{rid}</foreach>
+            GROUP BY ps2.team_side
+        ),
+        field_totals AS (
             SELECT t.team_side,
                    SUM(t.field_cnt) AS total_field_cnt
             FROM (
@@ -1903,19 +1913,20 @@
             SUM(ps.pick_cnt)                                           AS pick_cnt,
             SUM(ps.win_cnt)                                            AS win_cnt,
             COALESCE(ft.total_field_cnt, 0)                            AS field_cnt,
-            CASE WHEN COALESCE(ft.total_field_cnt, 0) > 0
-                 THEN ROUND(100.0 * SUM(ps.pick_cnt) / ft.total_field_cnt, 2)
+            CASE WHEN COALESCE(pt.total_pick_cnt, 0) > 0
+                 THEN ROUND(100.0 * SUM(ps.pick_cnt) / pt.total_pick_cnt, 2)
             END AS pick_share_pct,
             CASE WHEN SUM(ps.pick_cnt) > 0
                  THEN ROUND(100.0 * SUM(ps.win_cnt) / SUM(ps.pick_cnt), 2)
             END AS win_rate_pct
         FROM public.rta_agg_monster_pick_slot_snap ps
+        LEFT JOIN pick_totals pt ON pt.team_side = ps.team_side
         LEFT JOIN field_totals ft ON ft.team_side = ps.team_side
         WHERE ps.unit_master_id = #{monsterId}
           AND ps.season_id = #{seasonId}
           AND ps.rating_id IN
           <foreach collection="ratingIds" item="rid" open="(" separator="," close=")">#{rid}</foreach>
-        GROUP BY ps.team_side, ps.pick_slot_no, ft.total_field_cnt
+        GROUP BY ps.team_side, ps.pick_slot_no, pt.total_pick_cnt, ft.total_field_cnt
         ORDER BY ps.team_side, ps.pick_slot_no
     </select>
 
@@ -1924,23 +1935,12 @@
     ============================================================ -->
     <select id="getRtaMonsterTopSummoners" resultType="map">
         /* rta-queries-live.getRtaMonsterTopSummoners */
-        WITH latest_rating AS (
-            /* 소환사별 해당 시즌 가장 최근 경기의 rating_id */
-            SELECT DISTINCT ON (mp.wizard_id)
-                   mp.wizard_id,
-                   mp.rating_id,
-                   mp.ladder_score
-            FROM public.rta_match_participant mp
-            WHERE mp.season_id = #{seasonId}
-              AND mp.ladder_score IS NOT NULL
-            ORDER BY mp.wizard_id, mp.played_at DESC NULLS LAST
-        )
         SELECT
             s.wizard_id,
             COALESCE(ss.wizard_name, rs.wizard_name)   AS wizard_name,
             COALESCE(ss.channel_uid, rs.channel_uid)   AS channel_uid,
-            COALESCE(rs.score, lr.ladder_score)         AS ladder_score,
-            COALESCE(rs.rating_id, lr.rating_id)        AS rating_id,
+            rs.score                                    AS ladder_score,
+            rs.rating_id                                AS rating_id,
             s.pick_cnt,
             s.ban_cnt,
             s.win_cnt,
@@ -1956,8 +1956,6 @@
         LEFT JOIN public.rta_agg_summoner_ranking_snap rs
                ON rs.wizard_id::text = s.wizard_id
               AND rs.season_id = s.season_id
-        LEFT JOIN latest_rating lr
-               ON lr.wizard_id::text = s.wizard_id
         WHERE s.unit_master_id = #{monsterId}
           AND s.season_id = #{seasonId}
           AND s.pick_cnt >= 5

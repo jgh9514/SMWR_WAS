@@ -62,6 +62,12 @@ public class RtaBatchProperties {
 	 */
 	private boolean parallelSynergyCounterStagingFlush = true;
 
+	/**
+	 * {@link com.smw.monster.batch.RtaMonsterDailySnapJob}에서 pick-slot snap drain 시
+	 * 한 번에 가져오는 rid 건수. {@code smw.rta.batch.pick-slot-drain-batch-size}
+	 */
+	private int pickSlotDrainBatchSize = 2000;
+
 	/** 배치 실패 시 Slack 알림용 Bot Token (xoxb-...). 비어 있으면 알림 생략. */
 	private String slackToken = "";
 
