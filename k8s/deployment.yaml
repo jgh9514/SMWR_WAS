@@ -116,6 +116,31 @@ spec:
               name: smw-app-secret
               key: jwt-encryption-key
               optional: true
+        # Grafana OpenTelemetry
+        - name: OTEL_SERVICE_NAME
+          valueFrom:
+            secretKeyRef:
+              name: smw-otel-secret
+              key: otel-service-name
+              optional: true
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          valueFrom:
+            secretKeyRef:
+              name: smw-otel-secret
+              key: otlp-endpoint
+              optional: true
+        - name: OTEL_EXPORTER_OTLP_PROTOCOL
+          valueFrom:
+            secretKeyRef:
+              name: smw-otel-secret
+              key: otlp-protocol
+              optional: true
+        - name: OTEL_EXPORTER_OTLP_HEADERS
+          valueFrom:
+            secretKeyRef:
+              name: smw-otel-secret
+              key: otlp-headers
+              optional: true
         # API Pod: Quartz 크론은 배치 Pod(smw-batch)에서만 등록. docker 만 — quartz-jdbc( JobStoreTX ) 미로드
         - name: SMW_BATCH_QUARTZ_ENABLED
           value: "false"

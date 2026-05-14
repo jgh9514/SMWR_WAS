@@ -38,7 +38,7 @@ services:
       OTEL_SERVICE_NAME: smwr
       OTEL_EXPORTER_OTLP_ENDPOINT: https://otlp-gateway-prod-ap-northeast-0.grafana.net/otlp
       OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
-      OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS}
+      # OTEL_EXPORTER_OTLP_HEADERS: K8s 환경에서는 smw-otel-secret 으로 주입. 로컬 테스트 시만 .env 사용
     depends_on:
       postgres:
         condition: service_healthy
