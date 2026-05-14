@@ -1,10 +1,10 @@
 package com.smw.monster.schedule;
 
+import java.sql.Connection;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import org.springframework.boot.actuate.health.Health;
-import org.springframework.boot.actuate.health.Status;
-import org.springframework.boot.actuate.jdbc.DataSourceHealthIndicator;
+import javax.sql.DataSource;
+
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -23,7 +23,7 @@ import lombok.extern.slf4j.Slf4j;
 @RequiredArgsConstructor
 public class DbHealthMonitorScheduler {
 
-    private final DataSourceHealthIndicator dataSourceHealthIndicator;
+    private final DataSource dataSource;
     private final SlackNotifier slackNotifier;
     private final RtaBatchProperties rtaBatchProperties;
 
@@ -31,21 +31,16 @@ public class DbHealthMonitorScheduler {
 
     @Scheduled(fixedDelayString = "${smw.db-monitor.check-interval-ms:30000}")
     public void checkDbHealth() {
-        Health health;
-        try {
-            health = dataSourceHealthIndicator.health();
-        } catch (Exception e) {
-            log.warn("[db-monitor] health 체크 중 예외 발생: {}", e.getMessage());
-            notifyIfFirst("DB health 체크 중 예외: " + e.getMessage());
-            return;
-        }
-
-        if (Status.DOWN.equals(health.getStatus())) {
-            notifyIfFirst("DB 연결 단절 감지: " + health.getDetails());
-        } else {
+        try (Connection conn = dataSource.getConnection()) {
+            if (!conn.isValid(3)) {
+                notifyIfFirst("DB 연결 유효성 검사 실패 (isValid=false)");
+                return;
+            }
             if (downNotified.compareAndSet(true, false)) {
                 log.info("[db-monitor] DB 연결 복구됨. 알림 플래그 초기화.");
             }
+        } catch (Exception e) {
+            notifyIfFirst("DB 연결 단절 감지: " + e.getMessage());
         }
     }
 
