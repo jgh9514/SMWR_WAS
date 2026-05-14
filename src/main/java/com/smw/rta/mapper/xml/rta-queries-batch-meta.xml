@@ -140,54 +140,48 @@
     <!-- 카운터: 솔로(1) — subject 필드 유닛 vs 상대 단일 유닛. opponent_monster_id 는 int8. -->
     <insert id="upsertRtaCounterSoloAgg">
         INSERT INTO public.rta_agg_counter_solo (
-            season_id, rating_id, subject_monster_id, opponent_monster_id, win_cnt, lose_cnt, match_cnt, updated_at
+            season_id, rating_id, subject_monster_id, opponent_monster_id, win_cnt, lose_cnt, updated_at
         )
         VALUES
         <foreach collection="rows" item="r" separator=",">
             (#{r.seasonId}, #{r.ratingId}, #{r.subjectUnitId}, #{r.opponentComboKey}::bigint,
-             #{r.winDelta}::bigint, #{r.loseDelta}::bigint,
-             (#{r.winDelta}::bigint + #{r.loseDelta}::bigint), CURRENT_TIMESTAMP)
+             #{r.winDelta}::bigint, #{r.loseDelta}::bigint, CURRENT_TIMESTAMP)
         </foreach>
         ON CONFLICT (season_id, rating_id, subject_monster_id, opponent_monster_id) DO UPDATE SET
             win_cnt    = public.rta_agg_counter_solo.win_cnt   + EXCLUDED.win_cnt,
             lose_cnt   = public.rta_agg_counter_solo.lose_cnt  + EXCLUDED.lose_cnt,
-            match_cnt  = public.rta_agg_counter_solo.match_cnt + EXCLUDED.match_cnt,
             updated_at = EXCLUDED.updated_at
     </insert>
 
     <!-- 카운터: 듀오(2) — subject 필드 유닛 vs 상대 2인 조합 키(text). -->
     <insert id="upsertRtaCounterDuoAgg">
         INSERT INTO public.rta_agg_counter_duo (
-            season_id, rating_id, subject_monster_id, opponent_monster_id, win_cnt, lose_cnt, match_cnt, updated_at
+            season_id, rating_id, subject_monster_id, opponent_monster_id, win_cnt, lose_cnt, updated_at
         )
         VALUES
         <foreach collection="rows" item="r" separator=",">
             (#{r.seasonId}, #{r.ratingId}, #{r.subjectUnitId}, #{r.opponentComboKey},
-             #{r.winDelta}::bigint, #{r.loseDelta}::bigint,
-             (#{r.winDelta}::bigint + #{r.loseDelta}::bigint), CURRENT_TIMESTAMP)
+             #{r.winDelta}::bigint, #{r.loseDelta}::bigint, CURRENT_TIMESTAMP)
         </foreach>
         ON CONFLICT (season_id, rating_id, subject_monster_id, opponent_monster_id) DO UPDATE SET
             win_cnt    = public.rta_agg_counter_duo.win_cnt   + EXCLUDED.win_cnt,
             lose_cnt   = public.rta_agg_counter_duo.lose_cnt  + EXCLUDED.lose_cnt,
-            match_cnt  = public.rta_agg_counter_duo.match_cnt + EXCLUDED.match_cnt,
             updated_at = EXCLUDED.updated_at
     </insert>
 
     <!-- 카운터: 트리오(3) — subject 필드 유닛 vs 상대 3인 조합 키(text). -->
     <insert id="upsertRtaCounterTrioAgg">
         INSERT INTO public.rta_agg_counter_trio (
-            season_id, rating_id, subject_monster_id, opponent_monster_id, win_cnt, lose_cnt, match_cnt, updated_at
+            season_id, rating_id, subject_monster_id, opponent_monster_id, win_cnt, lose_cnt, updated_at
         )
         VALUES
         <foreach collection="rows" item="r" separator=",">
             (#{r.seasonId}, #{r.ratingId}, #{r.subjectUnitId}, #{r.opponentComboKey},
-             #{r.winDelta}::bigint, #{r.loseDelta}::bigint,
-             (#{r.winDelta}::bigint + #{r.loseDelta}::bigint), CURRENT_TIMESTAMP)
+             #{r.winDelta}::bigint, #{r.loseDelta}::bigint, CURRENT_TIMESTAMP)
         </foreach>
         ON CONFLICT (season_id, rating_id, subject_monster_id, opponent_monster_id) DO UPDATE SET
             win_cnt    = public.rta_agg_counter_trio.win_cnt   + EXCLUDED.win_cnt,
             lose_cnt   = public.rta_agg_counter_trio.lose_cnt  + EXCLUDED.lose_cnt,
-            match_cnt  = public.rta_agg_counter_trio.match_cnt + EXCLUDED.match_cnt,
             updated_at = EXCLUDED.updated_at
     </insert>
 

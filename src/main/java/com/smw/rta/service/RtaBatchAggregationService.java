@@ -65,6 +65,7 @@ public class RtaBatchAggregationService {
 			long t0 = System.nanoTime();
 			// 독립 TX: advisory lock + 해당 시즌 랭킹 스냅만 전량 DELETE 후 INSERT
 			transactionTemplate.executeWithoutResult(status -> {
+				rtaMapper.disableLocalLockTimeout();
 				rtaMapper.acquireRtaSummonerSnapSeasonXactLock(sid);
 				rtaMapper.deleteRtaSummonerRankingSnapBySeason(sid);
 				rtaMapper.insertRtaSummonerRankingSnapForSeason(sid);
@@ -78,6 +79,7 @@ public class RtaBatchAggregationService {
 		final long searchSid = seasonId != null ? seasonId.longValue() : -1L;
 		long t1 = System.nanoTime();
 		transactionTemplate.executeWithoutResult(status -> {
+			rtaMapper.disableLocalLockTimeout();
 			rtaMapper.acquireRtaSummonerSearchSnapGlobalXactLock();
 			rtaMapper.upsertRtaSummonerSearchSnap(searchSid);
 		});

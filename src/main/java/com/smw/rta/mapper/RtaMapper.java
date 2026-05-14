@@ -134,6 +134,10 @@ public interface RtaMapper {
     @org.apache.ibatis.annotations.Update("SET lock_timeout = 0")
     void disableLockTimeout();
 
+    /** 배치 전용: 현재 TX 범위에서만 lock_timeout 해제 — TX 종료(commit/rollback) 시 자동 복원 */
+    @org.apache.ibatis.annotations.Update("SET LOCAL lock_timeout = 0")
+    void disableLocalLockTimeout();
+
     /** 시즌의 누락된 랭크컷 스냅 시간대 목록 조회 (limit: 1회 처리 최대 개수) */
     List<java.time.Instant> selectMissingRankCutSnapHours(@Param("seasonId") long seasonId,
                                                           @Param("limit") int limit);

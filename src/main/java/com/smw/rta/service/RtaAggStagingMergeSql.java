@@ -86,7 +86,7 @@ final class RtaAggStagingMergeSql {
 	 */
 	static final String MERGE_MATCHUP_STAGING_INTO_COUNTER_SOLO = """
 			INSERT INTO public.rta_agg_counter_solo (
-			    season_id, rating_id, subject_monster_id, opponent_monster_id, win_cnt, lose_cnt, match_cnt, updated_at
+			    season_id, rating_id, subject_monster_id, opponent_monster_id, win_cnt, lose_cnt, updated_at
 			)
 			SELECT
 			    s.season_id,
@@ -95,7 +95,6 @@ final class RtaAggStagingMergeSql {
 			    s.opponent_combo_key::bigint,
 			    s.win_cnt::bigint,
 			    s.lose_cnt::bigint,
-			    (s.win_cnt + s.lose_cnt)::bigint,
 			    CURRENT_TIMESTAMP
 		FROM public.staging_matchup_agg s
 		WHERE s.opponent_combo_size = 1
@@ -103,7 +102,6 @@ final class RtaAggStagingMergeSql {
 		ON CONFLICT (season_id, rating_id, subject_monster_id, opponent_monster_id) DO UPDATE SET
 			    win_cnt    = public.rta_agg_counter_solo.win_cnt   + EXCLUDED.win_cnt,
 			    lose_cnt   = public.rta_agg_counter_solo.lose_cnt  + EXCLUDED.lose_cnt,
-			    match_cnt  = public.rta_agg_counter_solo.match_cnt + EXCLUDED.match_cnt,
 			    updated_at = EXCLUDED.updated_at
 			""";
 
@@ -113,7 +111,7 @@ final class RtaAggStagingMergeSql {
 	 */
 	static final String MERGE_MATCHUP_STAGING_INTO_COUNTER_DUO = """
 			INSERT INTO public.rta_agg_counter_duo (
-			    season_id, rating_id, subject_monster_id, opponent_monster_id, win_cnt, lose_cnt, match_cnt, updated_at
+			    season_id, rating_id, subject_monster_id, opponent_monster_id, win_cnt, lose_cnt, updated_at
 			)
 			SELECT
 			    s.season_id,
@@ -122,7 +120,6 @@ final class RtaAggStagingMergeSql {
 			    s.opponent_combo_key,
 			    s.win_cnt::bigint,
 			    s.lose_cnt::bigint,
-			    (s.win_cnt + s.lose_cnt)::bigint,
 			    CURRENT_TIMESTAMP
 			FROM public.staging_matchup_agg s
 			WHERE s.opponent_combo_size = 2
@@ -130,7 +127,6 @@ final class RtaAggStagingMergeSql {
 			ON CONFLICT (season_id, rating_id, subject_monster_id, opponent_monster_id) DO UPDATE SET
 			    win_cnt    = public.rta_agg_counter_duo.win_cnt   + EXCLUDED.win_cnt,
 			    lose_cnt   = public.rta_agg_counter_duo.lose_cnt  + EXCLUDED.lose_cnt,
-			    match_cnt  = public.rta_agg_counter_duo.match_cnt + EXCLUDED.match_cnt,
 			    updated_at = EXCLUDED.updated_at
 			""";
 
@@ -140,7 +136,7 @@ final class RtaAggStagingMergeSql {
 	 */
 	static final String MERGE_MATCHUP_STAGING_INTO_COUNTER_TRIO = """
 			INSERT INTO public.rta_agg_counter_trio (
-			    season_id, rating_id, subject_monster_id, opponent_monster_id, win_cnt, lose_cnt, match_cnt, updated_at
+			    season_id, rating_id, subject_monster_id, opponent_monster_id, win_cnt, lose_cnt, updated_at
 			)
 			SELECT
 			    s.season_id,
@@ -149,7 +145,6 @@ final class RtaAggStagingMergeSql {
 			    s.opponent_combo_key,
 			    s.win_cnt::bigint,
 			    s.lose_cnt::bigint,
-			    (s.win_cnt + s.lose_cnt)::bigint,
 			    CURRENT_TIMESTAMP
 			FROM public.staging_matchup_agg s
 			WHERE s.opponent_combo_size = 3
@@ -157,7 +152,6 @@ final class RtaAggStagingMergeSql {
 			ON CONFLICT (season_id, rating_id, subject_monster_id, opponent_monster_id) DO UPDATE SET
 			    win_cnt    = public.rta_agg_counter_trio.win_cnt   + EXCLUDED.win_cnt,
 			    lose_cnt   = public.rta_agg_counter_trio.lose_cnt  + EXCLUDED.lose_cnt,
-			    match_cnt  = public.rta_agg_counter_trio.match_cnt + EXCLUDED.match_cnt,
 			    updated_at = EXCLUDED.updated_at
 			""";
 }
