@@ -669,6 +669,15 @@
          상한: rta_match_participant 최신 played_at 시간대까지만 — 매치가 없는 미래 시간대 스냅 생성 방지.
          하한: 시즌 시작일 — 7일 제한 제거(limit으로 과부하 방지, 시즌 중간 공백도 소급 가능).
          ORDER BY h DESC — 최신 시간부터 채워 대시보드에 즉시 반영. -->
+    <!-- 특정 시간대에 rta_match 경기가 존재하는지 확인. JSON이 아직 적재 전이면 0 반환 → 스킵. -->
+    <select id="countRtaMatchForHour" resultType="long">
+        SELECT COUNT(*)::bigint
+        FROM public.rta_match
+        WHERE season_id = #{seasonId}
+          AND played_at &gt;= #{snapHour}::timestamptz
+          AND played_at &lt;  #{snapHour}::timestamptz + INTERVAL '1 hour'
+    </select>
+
     <select id="selectMissingRankCutSnapHours" resultType="java.time.Instant">
         SELECT generate_series(
             DATE_TRUNC('hour', (SELECT start_at FROM public.rta_season WHERE season_id = #{seasonId})),

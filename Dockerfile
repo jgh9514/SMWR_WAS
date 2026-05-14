@@ -35,10 +35,20 @@ WORKDIR /app
 # 빌드 스테이지에서 준비된 app.jar 파일 복사
 COPY --from=build /app/target/app.jar app.jar
 
+# Grafana OpenTelemetry Java agent (없으면 빌드 실패 방지 — optional COPY)
+COPY grafana-opentelemetry-java.jar grafana-opentelemetry-java.jar
+
 # 포트 노출
 EXPOSE 8080
 
-# 애플리케이션 실행
-# MaxRAMPercentage: 힙만 제한 — 너무 높이면 메타스페이스·직접 버퍼·스택 대비 컨테이너 limit(OOMKilled) 여유가 없음
-ENTRYPOINT ["java", "-XX:+UseG1GC", "-XX:+UseStringDeduplication", "-XX:MaxRAMPercentage=65.0", "-XX:InitialRAMPercentage=20.0", "-Djava.security.egd=file:/dev/./urandom", "-jar", "app.jar"]
+# OTEL_JAVA_AGENT: 환경변수 GRAFANA_OTEL_ENABLED=true 일 때만 agent 활성화
+# OTEL_* 환경변수는 docker-compose 또는 K8s에서 주입
+ENTRYPOINT ["java", \
+  "-XX:+UseG1GC", \
+  "-XX:+UseStringDeduplication", \
+  "-XX:MaxRAMPercentage=65.0", \
+  "-XX:InitialRAMPercentage=20.0", \
+  "-Djava.security.egd=file:/dev/./urandom", \
+  "-javaagent:grafana-opentelemetry-java.jar", \
+  "-jar", "app.jar"]
 

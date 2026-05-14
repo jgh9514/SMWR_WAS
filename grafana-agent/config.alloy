@@ -1,0 +1,28 @@
+// Grafana Alloy 설정 — SMWR WAS → Grafana Cloud Prometheus (Remote Write)
+// 토큰은 환경변수 GRAFANA_CLOUD_TOKEN 으로 주입 (파일에 직접 넣지 말 것)
+
+prometheus.scrape "smwr_was" {
+  targets = [
+    { "__address__" = "localhost:8080", "job" = "smwr-was" },
+  ]
+  metrics_path    = "/actuator/prometheus"
+  scrape_interval = "15s"
+  scrape_timeout  = "10s"
+  forward_to      = [prometheus.remote_write.grafana_cloud.receiver]
+}
+
+prometheus.remote_write "grafana_cloud" {
+  endpoint {
+    url = "https://prometheus-prod-ap-northeast-0-prod-ap-northeast-0.grafana.net/api/prom/push"
+
+    basic_auth {
+      username = "2489437"                          // Grafana Cloud stack 의 Prometheus username
+      password = env("GRAFANA_CLOUD_TOKEN")         // glc_... 토큰 — 환경변수로만 주입
+    }
+  }
+
+  external_labels = {
+    app  = "smwr-was",
+    env  = "prod",
+  }
+}

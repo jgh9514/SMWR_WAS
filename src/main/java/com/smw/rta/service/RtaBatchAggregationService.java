@@ -416,6 +416,11 @@ public class RtaBatchAggregationService {
 		List<Instant> missingHours = rtaMapper.selectMissingRankCutSnapHours(sid, 720);
 		log.info("랭크컷 스냅 누락 시간대 seasonId={} count={}", sid, missingHours.size());
 		for (Instant hour : missingHours) {
+			long matchCount = rtaMapper.countRtaMatchForHour(sid, hour);
+			if (matchCount == 0) {
+				log.info("랭크컷 스냅 스킵 (rta_match 경기 없음) seasonId={} hour={}", sid, hour);
+				continue;
+			}
 			List<com.smw.rta.model.RtaRankCutSnapRow> rows = rtaMapper.selectRankCutSnapsForHour(sid, hour);
 			if (rows.isEmpty()) {
 				log.info("랭크컷 스냅 스킵 (경기 없음) seasonId={} hour={}", sid, hour);

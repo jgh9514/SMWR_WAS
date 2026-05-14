@@ -34,6 +34,11 @@ services:
       SPRING_DATASOURCE_PASSWORD: smw_password
       SPRING_DATASOURCE_HIKARI_USERNAME: smw_user
       SPRING_DATASOURCE_HIKARI_PASSWORD: smw_password
+      # Grafana OpenTelemetry — 토큰은 .env 파일로 주입 (절대 커밋 금지)
+      OTEL_SERVICE_NAME: smwr
+      OTEL_EXPORTER_OTLP_ENDPOINT: https://otlp-gateway-prod-ap-northeast-0.grafana.net/otlp
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS}
     depends_on:
       postgres:
         condition: service_healthy

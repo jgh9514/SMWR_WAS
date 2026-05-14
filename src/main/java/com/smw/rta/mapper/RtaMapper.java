@@ -138,6 +138,11 @@ public interface RtaMapper {
     List<java.time.Instant> selectMissingRankCutSnapHours(@Param("seasonId") long seasonId,
                                                           @Param("limit") int limit);
 
+    /** 특정 시간대에 rta_match 경기가 존재하는지 확인 (0이면 스킵) */
+    long countRtaMatchForHour(@Param("seasonId") long seasonId,
+                              @Param("snapHour") java.time.Instant snapHour);
+
+
     /** 시간대별 랭크컷 계산 결과 조회 */
     List<com.smw.rta.model.RtaRankCutSnapRow> selectRankCutSnapsForHour(
             @Param("seasonId") long seasonId,
