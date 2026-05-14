@@ -161,6 +161,9 @@ management:
         smw.swarfarm.sync.duration: true
 
 smw:
+  # DB 연결 단절 감지 주기 (ms). 0 이하로 설정하면 @Scheduled 오류 — 비활성화 시 SMW_DB_MONITOR_ENABLED=false
+  db-monitor:
+    check-interval-ms: ${SMW_DB_MONITOR_CHECK_INTERVAL_MS:30000}
   # Quartz 크론만 제어: false 면 DB sys_batch_config 크론 미등록. 수동 실행(/api/v1/batch/run)은 Scheduler 있으면 동작.
   # true: 로컬(application-local)·docker(application-docker) 등에서 켬. 운영 prod 는 보통 false + 수동/별도 워커.
   batch:
