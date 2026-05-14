@@ -133,6 +133,16 @@ spec:
                   name: smw-otel-secret
                   key: otlp-headers
                   optional: true
+            - name: OTEL_TRACES_EXPORTER
+              value: "otlp"
+            - name: OTEL_METRICS_EXPORTER
+              value: "otlp"
+            - name: OTEL_LOGS_EXPORTER
+              value: "otlp"
+            - name: OTEL_LOG_LEVEL
+              value: "warn"
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "deployment.environment=production,service.namespace=smwr"
             - name: SMW_BATCH_QUARTZ_ENABLED
               value: "true"
             - name: SPRING_QUARTZ_AUTO_STARTUP

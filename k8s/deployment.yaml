@@ -141,6 +141,16 @@ spec:
               name: smw-otel-secret
               key: otlp-headers
               optional: true
+        - name: OTEL_TRACES_EXPORTER
+          value: "otlp"
+        - name: OTEL_METRICS_EXPORTER
+          value: "otlp"
+        - name: OTEL_LOGS_EXPORTER
+          value: "otlp"
+        - name: OTEL_LOG_LEVEL
+          value: "warn"
+        - name: OTEL_RESOURCE_ATTRIBUTES
+          value: "deployment.environment=production,service.namespace=smwr"
         # API Pod: Quartz 크론은 배치 Pod(smw-batch)에서만 등록. docker 만 — quartz-jdbc( JobStoreTX ) 미로드
         - name: SMW_BATCH_QUARTZ_ENABLED
           value: "false"
