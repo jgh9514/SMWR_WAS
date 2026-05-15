@@ -367,7 +367,15 @@ public class RtaServiceImpl implements RtaService {
         CompletableFuture<List<Map<String, Object>>> fSlots = useIds
                 ? CompletableFuture.supplyAsync(() -> rtaMapper.getRtaMonsterPickSlotsByIds(monsterId, sidF, ratingIds), RTA_LINK_PREVIEW_EXECUTOR)
                 : CompletableFuture.supplyAsync(() -> rtaMapper.getRtaMonsterPickSlots(monsterId, sidF, rid), RTA_LINK_PREVIEW_EXECUTOR);
-        CompletableFuture<List<Map<String, Object>>> fTop = CompletableFuture.supplyAsync(() -> rtaMapper.getRtaMonsterTopSummoners(monsterId, sidF, 10), RTA_LINK_PREVIEW_EXECUTOR);
+        CompletableFuture<List<Map<String, Object>>> fTop = CompletableFuture.supplyAsync(() -> {
+            try {
+                List<Map<String, Object>> snap = rtaMapper.listRtaMonsterTopSummonerSnap(monsterId, sidF);
+                return (snap != null && !snap.isEmpty()) ? snap : rtaMapper.getRtaMonsterTopSummoners(monsterId, sidF, 10);
+            } catch (Exception e) {
+                log.warn("listRtaMonsterTopSummonerSnap 조회 실패(테이블 미생성?), fallback: {}", e.getMessage());
+                return rtaMapper.getRtaMonsterTopSummoners(monsterId, sidF, 10);
+            }
+        }, RTA_LINK_PREVIEW_EXECUTOR);
 
         CompletableFuture.allOf(fStats, fTrend, fTrendPer, fSlots, fTop).join();
 

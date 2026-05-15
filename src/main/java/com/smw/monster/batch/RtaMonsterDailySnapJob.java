@@ -36,6 +36,11 @@ public class RtaMonsterDailySnapJob extends BaseBatchJob {
         int slotRids = aggregationService.drainPickSlotSnap(rtaMapper, pickSlotDrainBatchSize);
         addLog("pick slot snap 완료: processedRids=%d, elapsed=%dms", slotRids, System.currentTimeMillis() - t1);
 
+        addLog("--- rta_agg_monster_top_summoner_snap 재적재 ---");
+        long t2 = System.currentTimeMillis();
+        int topSummonerSeasons = aggregationService.rebuildMonsterTopSummonerSnap(rtaMapper, 5, 10);
+        addLog("top summoner snap 완료: seasonCount=%d, elapsed=%dms", topSummonerSeasons, System.currentTimeMillis() - t2);
+
         rtaCacheEvictor.evictAllRtaCaches();
         addLog("RTA 조회 캐시 무효화 완료");
 

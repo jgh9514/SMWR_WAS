@@ -391,34 +391,34 @@
     <!-- 특정 몬스터가 픽·밴된 최근 N경기 -->
     <select id="getMonsterRecentMatches" resultType="map">
         WITH rms AS MATERIALIZED (
-            SELECT m.replay_id AS rid,
+            SELECT DISTINCT ON (m.replay_id)
+                   m.replay_id AS rid,
                    m.played_at AS date_add,
                    m.battle_type,
                    m.winner_wizard_id
-            FROM public.rta_match m
-            WHERE m.season_id = #{seasonId}
-              AND EXISTS (
-                  SELECT 1 FROM public.rta_match_unit_pick u
-                  WHERE u.replay_id = m.replay_id
-                    AND u.unit_master_id = #{monsterId}
-              )
+            FROM public.rta_match_unit_pick u
+            INNER JOIN public.rta_match m ON m.replay_id = u.replay_id
+                                          AND m.season_id = #{seasonId}
+            WHERE u.unit_master_id = #{monsterId}
             <if test="ratingId != null">
               AND EXISTS (
                   SELECT 1 FROM public.rta_match_participant p
-                  WHERE p.replay_id = m.replay_id
+                  WHERE p.replay_id = u.replay_id
                     AND p.rating_id = #{ratingId}
               )
             </if>
             <if test="ratingIds != null and !ratingIds.isEmpty()">
               AND EXISTS (
                   SELECT 1 FROM public.rta_match_participant p
-                  WHERE p.replay_id = m.replay_id
+                  WHERE p.replay_id = u.replay_id
                     AND p.rating_id IN
                     <foreach collection="ratingIds" item="rid" open="(" separator="," close=")">#{rid}</foreach>
               )
             </if>
-            ORDER BY m.played_at DESC NULLS LAST
-            LIMIT #{limit}
+            ORDER BY m.replay_id, m.played_at DESC NULLS LAST
+        ),
+        rms_paged AS MATERIALIZED (
+            SELECT * FROM rms ORDER BY date_add DESC NULLS LAST LIMIT #{limit}
         ),
         banned_pick AS (
             SELECT
@@ -426,7 +426,7 @@
                 ub.wizard_id,
                 MIN(ub.unit_master_id::text) AS banned_unit
             FROM public.rta_match_unit_pick ub
-            INNER JOIN rms ON rms.rid = ub.replay_id
+            INNER JOIN rms_paged ON rms_paged.rid = ub.replay_id
             WHERE ub.is_banned = true
             GROUP BY ub.replay_id, ub.wizard_id
         ),
@@ -445,7 +445,7 @@
                 p.leader_pick_slot,
                 bp.banned_unit
             FROM public.rta_match_participant p
-            INNER JOIN rms ON rms.rid = p.replay_id
+            INNER JOIN rms_paged ON rms_paged.rid = p.replay_id
             LEFT JOIN banned_pick bp ON bp.replay_id = p.replay_id AND bp.wizard_id = p.wizard_id
         ),
         unit_info AS (
@@ -460,20 +460,20 @@
                 string_agg(u.unit_master_id::text, ',' ORDER BY u.pick_slot_no) AS picked_units_str
             FROM public.rta_match_unit_pick u
             LEFT JOIN public.monster mo ON mo.monster_id = u.unit_master_id::text
-            INNER JOIN rms ON rms.rid = u.replay_id
+            INNER JOIN rms_paged ON rms_paged.rid = u.replay_id
             GROUP BY u.replay_id, u.wizard_id
         ),
         pair AS (
-            SELECT rms.rid, MIN(ui.wizard_id) AS p1w, MAX(ui.wizard_id) AS p2w
-            FROM rms
-            JOIN user_info ui ON ui.replay_id = rms.rid
-            GROUP BY rms.rid
+            SELECT rms_paged.rid, MIN(ui.wizard_id) AS p1w, MAX(ui.wizard_id) AS p2w
+            FROM rms_paged
+            JOIN user_info ui ON ui.replay_id = rms_paged.rid
+            GROUP BY rms_paged.rid
         )
         SELECT
-            rms.rid,
-            rms.battle_type,
-            rms.date_add,
-            CASE WHEN rms.winner_wizard_id = pr.p1w THEN '1' ELSE '2' END AS winner_position,
+            rms_paged.rid,
+            rms_paged.battle_type,
+            rms_paged.date_add,
+            CASE WHEN rms_paged.winner_wizard_id = pr.p1w THEN '1' ELSE '2' END AS winner_position,
             u1.wizard_id AS p1_wizard_id, u1.channel_uid AS p1_channel_uid, u1.wizard_name AS p1_name,
             u1.country AS p1_country, u1.score AS p1_score, u1.rating AS p1_rating,
             u1.result AS p1_result, u1.first_pick AS p1_first_pick, u1.alive_count AS p1_alive_count,
@@ -494,13 +494,13 @@
             COALESCE(un2.unit_banned_flags, ARRAY[]::boolean[]) AS p2_unit_banned,
             COALESCE(un2.unit_pick_slot_nos, ARRAY[]::int[]) AS p2_unit_pick_slot_no,
             COALESCE(un2.picked_units_str, '') AS p2_units_str
-        FROM rms
-        JOIN pair pr ON pr.rid = rms.rid
-        JOIN user_info u1 ON u1.replay_id = rms.rid AND u1.wizard_id = pr.p1w
-        JOIN user_info u2 ON u2.replay_id = rms.rid AND u2.wizard_id = pr.p2w
-        LEFT JOIN unit_info un1 ON un1.replay_id = rms.rid AND un1.wizard_id = u1.wizard_id
-        LEFT JOIN unit_info un2 ON un2.replay_id = rms.rid AND un2.wizard_id = u2.wizard_id
-        ORDER BY rms.date_add DESC NULLS LAST
+        FROM rms_paged
+        JOIN pair pr ON pr.rid = rms_paged.rid
+        JOIN user_info u1 ON u1.replay_id = rms_paged.rid AND u1.wizard_id = pr.p1w
+        JOIN user_info u2 ON u2.replay_id = rms_paged.rid AND u2.wizard_id = pr.p2w
+        LEFT JOIN unit_info un1 ON un1.replay_id = rms_paged.rid AND un1.wizard_id = u1.wizard_id
+        LEFT JOIN unit_info un2 ON un2.replay_id = rms_paged.rid AND un2.wizard_id = u2.wizard_id
+        ORDER BY rms_paged.date_add DESC NULLS LAST
     </select>
 
     <select id="getTodayRtaMatches" resultType="int">
@@ -1931,6 +1931,27 @@
     <!-- ============================================================
          getRtaMonsterTopSummoners  — 장인 랭킹 (픽 횟수 + 승률 기준)
     ============================================================ -->
+    <select id="listRtaMonsterTopSummonerSnap" resultType="map">
+        /* rta-queries-live.listRtaMonsterTopSummonerSnap */
+        SELECT
+            wizard_id,
+            wizard_name,
+            channel_uid,
+            ladder_score,
+            rating_id,
+            pick_cnt,
+            ban_cnt,
+            win_cnt,
+            lose_cnt,
+            pick_cnt + ban_cnt  AS actual_pick_cnt,
+            win_rate_pct,
+            CASE WHEN COALESCE(ladder_score, 0) >= 3500 THEN true ELSE false END AS above_threshold
+        FROM public.rta_agg_monster_top_summoner_snap
+        WHERE unit_master_id = #{monsterId}
+          AND season_id      = #{seasonId}
+        ORDER BY rank_no
+    </select>
+
     <select id="getRtaMonsterTopSummoners" resultType="map">
         /* rta-queries-live.getRtaMonsterTopSummoners */
         SELECT

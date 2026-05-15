@@ -577,6 +577,32 @@ public class RtaBatchAggregationService {
 		return total;
 	}
 
+	/**
+	 * 몬스터별 장인 랭킹 스냅({@code rta_agg_monster_top_summoner_snap}) 재적재.
+	 * 시즌별 DELETE 후 INSERT — rta_agg_summoner_monster_snap 집계 기반.
+	 */
+	public int rebuildMonsterTopSummonerSnap(RtaMapper mapper, int minPickCnt, int topN) {
+		List<Long> seasonIds = mapper.selectDistinctParticipantSeasonIds();
+		if (seasonIds == null || seasonIds.isEmpty()) {
+			return 0;
+		}
+		int total = 0;
+		for (Long seasonId : seasonIds) {
+			final long sid = seasonId;
+			try {
+				transactionTemplate.executeWithoutResult(tx -> {
+					mapper.deleteRtaMonsterTopSummonerSnapBySeason(sid);
+					mapper.insertRtaMonsterTopSummonerSnapForSeason(sid, minPickCnt, topN);
+				});
+				total++;
+			} catch (Exception e) {
+				log.error("rebuildMonsterTopSummonerSnap: 실패 — seasonId={}", sid, e);
+			}
+		}
+		log.info("rebuildMonsterTopSummonerSnap done: seasonCount={}", total);
+		return total;
+	}
+
 	public record MonsterDailySnapRebuildResult(int seasonCount, int days) {
 	}
 

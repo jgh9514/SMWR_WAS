@@ -484,4 +484,12 @@ public interface RtaMapper {
     List<Map<String, Object>> getRtaMonsterTopSummoners(@Param("monsterId") int monsterId,
             @Param("seasonId") long seasonId, @Param("limit") int limit);
 
+    List<Map<String, Object>> listRtaMonsterTopSummonerSnap(@Param("monsterId") int monsterId,
+            @Param("seasonId") long seasonId);
+
+    int deleteRtaMonsterTopSummonerSnapBySeason(@Param("seasonId") long seasonId);
+
+    int insertRtaMonsterTopSummonerSnapForSeason(@Param("seasonId") long seasonId,
+            @Param("minPickCnt") int minPickCnt, @Param("topN") int topN);
+
 }

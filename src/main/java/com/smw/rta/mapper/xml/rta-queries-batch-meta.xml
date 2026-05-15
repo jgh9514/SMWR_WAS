@@ -1538,6 +1538,75 @@
          rta_agg_monster_pick_slot_snap  —  슬롯별 집계 (전 경기)
          시즌 단위로 DELETE+INSERT 방식으로 재적재
     ============================================================ -->
+    <!-- ============================================================
+         rta_agg_monster_top_summoner_snap  — 몬스터별 장인 랭킹 스냅
+    ============================================================ -->
+    <delete id="deleteRtaMonsterTopSummonerSnapBySeason">
+        /* rta-queries-batch-meta.deleteRtaMonsterTopSummonerSnapBySeason */
+        DELETE FROM public.rta_agg_monster_top_summoner_snap
+        WHERE season_id = #{seasonId}
+    </delete>
+
+    <insert id="insertRtaMonsterTopSummonerSnapForSeason">
+        /* rta-queries-batch-meta.insertRtaMonsterTopSummonerSnapForSeason */
+        INSERT INTO public.rta_agg_monster_top_summoner_snap
+            (season_id, unit_master_id, rank_no,
+             wizard_id, wizard_name, channel_uid,
+             ladder_score, rating_id,
+             pick_cnt, ban_cnt, win_cnt, lose_cnt, win_rate_pct)
+        WITH ranked AS (
+            SELECT
+                s.season_id,
+                s.unit_master_id,
+                s.wizard_id,
+                COALESCE(ss.wizard_name, rs.wizard_name)    AS wizard_name,
+                COALESCE(ss.channel_uid, rs.channel_uid)    AS channel_uid,
+                rs.score                                     AS ladder_score,
+                rs.rating_id                                 AS rating_id,
+                s.pick_cnt,
+                s.ban_cnt,
+                s.win_cnt,
+                s.lose_cnt,
+                CASE WHEN s.win_cnt + s.lose_cnt > 0
+                     THEN ROUND(100.0 * s.win_cnt / (s.win_cnt + s.lose_cnt), 1)
+                END                                          AS win_rate_pct,
+                ROW_NUMBER() OVER (
+                    PARTITION BY s.unit_master_id
+                    ORDER BY
+                        (CASE WHEN COALESCE(rs.score, 0) >= 3500 THEN 1 ELSE 0 END) DESC,
+                        CASE WHEN s.win_cnt + s.lose_cnt > 0
+                             THEN ROUND(100.0 * s.win_cnt / (s.win_cnt + s.lose_cnt), 1)
+                        END DESC NULLS LAST,
+                        s.pick_cnt DESC
+                ) AS rank_no
+            FROM public.rta_agg_summoner_monster_snap s
+            LEFT JOIN public.rta_agg_summoner_search_snap ss ON ss.wizard_id = s.wizard_id
+            LEFT JOIN public.rta_agg_summoner_ranking_snap rs
+                   ON rs.wizard_id::text = s.wizard_id
+                  AND rs.season_id = s.season_id
+            WHERE s.season_id = #{seasonId}
+              AND s.pick_cnt >= #{minPickCnt}
+        )
+        SELECT
+            season_id, unit_master_id, rank_no::smallint,
+            wizard_id, wizard_name, channel_uid,
+            ladder_score, rating_id,
+            pick_cnt, ban_cnt, win_cnt, lose_cnt, win_rate_pct
+        FROM ranked
+        WHERE rank_no &lt;= #{topN}
+        ON CONFLICT (season_id, unit_master_id, rank_no) DO UPDATE
+            SET wizard_id    = EXCLUDED.wizard_id,
+                wizard_name  = EXCLUDED.wizard_name,
+                channel_uid  = EXCLUDED.channel_uid,
+                ladder_score = EXCLUDED.ladder_score,
+                rating_id    = EXCLUDED.rating_id,
+                pick_cnt     = EXCLUDED.pick_cnt,
+                ban_cnt      = EXCLUDED.ban_cnt,
+                win_cnt      = EXCLUDED.win_cnt,
+                lose_cnt     = EXCLUDED.lose_cnt,
+                win_rate_pct = EXCLUDED.win_rate_pct
+    </insert>
+
     <delete id="deleteRtaMonsterPickSlotSnapBySeason">
         /* rta-queries-batch-meta.deleteRtaMonsterPickSlotSnapBySeason */
         DELETE FROM public.rta_agg_monster_pick_slot_snap
