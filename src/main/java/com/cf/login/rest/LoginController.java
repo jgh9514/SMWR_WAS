@@ -115,7 +115,7 @@ public class LoginController {
 		}
 
 		userService.enrichUserRolesAndAdminFlag(userInfo);
-		cookieUtil.extendToken(request, response, Constant.LOGIN_TOKEN_NAME);
+		cookieUtil.refreshtoken(request, response, userInfo, Constant.LOGIN_TOKEN_NAME);
 
 		result.put("result", "SUCCESS");
 		result.put("userInfo", userInfo);

@@ -45,7 +45,7 @@ public class CookieUtil {
 		
 		ResponseCookie.ResponseCookieBuilder cookieBuilder = ResponseCookie.from(tokenName, token)
 												.path("/")
-												.maxAge("true".equals(autoLogin) ? cookieLiveTime : -1)
+												.maxAge("true".equals(autoLogin) ? cookieLiveTime : 86400)
 												.httpOnly(true) // XSS 방지를 위한 HttpOnly 설정
 												.secure(isSecure) // HTTPS 환경에서는 true
 												.sameSite("Lax"); // CSRF 방지를 위한 SameSite 설정
