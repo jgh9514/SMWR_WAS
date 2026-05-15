@@ -391,35 +391,36 @@
     <!-- 특정 몬스터가 픽·밴된 최근 N경기 -->
     <select id="getMonsterRecentMatches" resultType="map">
         WITH rms AS MATERIALIZED (
-            SELECT DISTINCT ON (m.replay_id)
-                   m.replay_id AS rid,
+            SELECT m.replay_id AS rid,
                    m.played_at AS date_add,
                    m.battle_type,
                    m.winner_wizard_id
-            FROM public.rta_match_unit_pick u
-            INNER JOIN public.rta_match m ON m.replay_id = u.replay_id
-                                          AND m.season_id = #{seasonId}
-            WHERE u.unit_master_id = #{monsterId}
+            FROM public.rta_match m
+            WHERE m.season_id = #{seasonId}
+              AND EXISTS (
+                  SELECT 1 FROM public.rta_match_unit_pick u
+                  WHERE u.replay_id = m.replay_id
+                    AND u.unit_master_id = #{monsterId}
+              )
             <if test="ratingId != null">
               AND EXISTS (
                   SELECT 1 FROM public.rta_match_participant p
-                  WHERE p.replay_id = u.replay_id
+                  WHERE p.replay_id = m.replay_id
                     AND p.rating_id = #{ratingId}
               )
             </if>
             <if test="ratingIds != null and !ratingIds.isEmpty()">
               AND EXISTS (
                   SELECT 1 FROM public.rta_match_participant p
-                  WHERE p.replay_id = u.replay_id
+                  WHERE p.replay_id = m.replay_id
                     AND p.rating_id IN
                     <foreach collection="ratingIds" item="rid" open="(" separator="," close=")">#{rid}</foreach>
               )
             </if>
-            ORDER BY m.replay_id, m.played_at DESC NULLS LAST
+            ORDER BY m.played_at DESC NULLS LAST
+            LIMIT #{limit}
         ),
-        rms_paged AS MATERIALIZED (
-            SELECT * FROM rms ORDER BY date_add DESC NULLS LAST LIMIT #{limit}
-        ),
+        rms_paged AS (SELECT * FROM rms),
         banned_pick AS (
             SELECT
                 ub.replay_id,

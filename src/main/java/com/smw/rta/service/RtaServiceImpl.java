@@ -372,7 +372,6 @@ public class RtaServiceImpl implements RtaService {
                 List<Map<String, Object>> snap = rtaMapper.listRtaMonsterTopSummonerSnap(monsterId, sidF);
                 return (snap != null && !snap.isEmpty()) ? snap : rtaMapper.getRtaMonsterTopSummoners(monsterId, sidF, 10);
             } catch (Exception e) {
-                log.warn("listRtaMonsterTopSummonerSnap 조회 실패(테이블 미생성?), fallback: {}", e.getMessage());
                 return rtaMapper.getRtaMonsterTopSummoners(monsterId, sidF, 10);
             }
         }, RTA_LINK_PREVIEW_EXECUTOR);
