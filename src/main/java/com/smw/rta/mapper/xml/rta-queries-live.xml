@@ -88,12 +88,13 @@
                 u.replay_id,
                 u.wizard_id,
                 array_agg(u.unit_master_id::text ORDER BY u.pick_slot_no) AS picked_units,
-                array_agg(u.unit_image ORDER BY u.pick_slot_no) AS unit_images,
-                array_agg(u.unit_name ORDER BY u.pick_slot_no) AS unit_names,
+                array_agg(<include refid="monsterPortraitUrl"><property name="alias" value="mo"/></include> ORDER BY u.pick_slot_no) AS unit_images,
+                array_agg(mo.kr_name ORDER BY u.pick_slot_no) AS unit_names,
                 array_agg(u.is_banned ORDER BY u.pick_slot_no) AS unit_banned_flags,
                 array_agg(u.pick_slot_no::int ORDER BY u.pick_slot_no) AS unit_pick_slot_nos,
                 string_agg(u.unit_master_id::text, ',' ORDER BY u.pick_slot_no) AS picked_units_str
             FROM public.rta_match_unit_pick u
+            LEFT JOIN public.monster mo ON mo.monster_id = u.unit_master_id::text
             INNER JOIN rms ON rms.rid = u.replay_id
             GROUP BY u.replay_id, u.wizard_id
         ),
@@ -200,12 +201,13 @@
                 u.replay_id,
                 u.wizard_id,
                 array_agg(u.unit_master_id::text ORDER BY u.pick_slot_no) AS picked_units,
-                array_agg(u.unit_image ORDER BY u.pick_slot_no) AS unit_images,
-                array_agg(u.unit_name ORDER BY u.pick_slot_no) AS unit_names,
+                array_agg(<include refid="monsterPortraitUrl"><property name="alias" value="mo"/></include> ORDER BY u.pick_slot_no) AS unit_images,
+                array_agg(mo.kr_name ORDER BY u.pick_slot_no) AS unit_names,
                 array_agg(u.is_banned ORDER BY u.pick_slot_no) AS unit_banned_flags,
                 array_agg(u.pick_slot_no::int ORDER BY u.pick_slot_no) AS unit_pick_slot_nos,
                 string_agg(u.unit_master_id::text, ',' ORDER BY u.pick_slot_no) AS picked_units_str
             FROM public.rta_match_unit_pick u
+            LEFT JOIN public.monster mo ON mo.monster_id = u.unit_master_id::text
             INNER JOIN rms ON rms.rid = u.replay_id
             GROUP BY u.replay_id, u.wizard_id
         ),
@@ -322,12 +324,13 @@
                 u.replay_id,
                 u.wizard_id,
                 array_agg(u.unit_master_id::text ORDER BY u.pick_slot_no) AS picked_units,
-                array_agg(u.unit_image ORDER BY u.pick_slot_no) AS unit_images,
-                array_agg(u.unit_name ORDER BY u.pick_slot_no) AS unit_names,
+                array_agg(<include refid="monsterPortraitUrl"><property name="alias" value="mo"/></include> ORDER BY u.pick_slot_no) AS unit_images,
+                array_agg(mo.kr_name ORDER BY u.pick_slot_no) AS unit_names,
                 array_agg(u.is_banned ORDER BY u.pick_slot_no) AS unit_banned_flags,
                 array_agg(u.pick_slot_no::int ORDER BY u.pick_slot_no) AS unit_pick_slot_nos,
                 string_agg(u.unit_master_id::text, ',' ORDER BY u.pick_slot_no) AS picked_units_str
             FROM public.rta_match_unit_pick u
+            LEFT JOIN public.monster mo ON mo.monster_id = u.unit_master_id::text
             INNER JOIN rms ON rms.rid = u.replay_id
             GROUP BY u.replay_id, u.wizard_id
         ),
@@ -450,12 +453,13 @@
                 u.replay_id,
                 u.wizard_id,
                 array_agg(u.unit_master_id::text ORDER BY u.pick_slot_no) AS picked_units,
-                array_agg(u.unit_image ORDER BY u.pick_slot_no) AS unit_images,
-                array_agg(u.unit_name ORDER BY u.pick_slot_no) AS unit_names,
+                array_agg(<include refid="monsterPortraitUrl"><property name="alias" value="mo"/></include> ORDER BY u.pick_slot_no) AS unit_images,
+                array_agg(mo.kr_name ORDER BY u.pick_slot_no) AS unit_names,
                 array_agg(u.is_banned ORDER BY u.pick_slot_no) AS unit_banned_flags,
                 array_agg(u.pick_slot_no::int ORDER BY u.pick_slot_no) AS unit_pick_slot_nos,
                 string_agg(u.unit_master_id::text, ',' ORDER BY u.pick_slot_no) AS picked_units_str
             FROM public.rta_match_unit_pick u
+            LEFT JOIN public.monster mo ON mo.monster_id = u.unit_master_id::text
             INNER JOIN rms ON rms.rid = u.replay_id
             GROUP BY u.replay_id, u.wizard_id
         ),
@@ -1639,12 +1643,13 @@
                 u.replay_id,
                 u.wizard_id,
                 array_agg(u.unit_master_id::text ORDER BY u.pick_slot_no) AS picked_units,
-                array_agg(u.unit_image ORDER BY u.pick_slot_no) AS unit_images,
-                array_agg(u.unit_name ORDER BY u.pick_slot_no) AS unit_names,
+                array_agg(<include refid="monsterPortraitUrl"><property name="alias" value="mo"/></include> ORDER BY u.pick_slot_no) AS unit_images,
+                array_agg(mo.kr_name ORDER BY u.pick_slot_no) AS unit_names,
                 array_agg(u.is_banned ORDER BY u.pick_slot_no) AS unit_banned_flags,
                 array_agg(u.pick_slot_no::int ORDER BY u.pick_slot_no) AS unit_pick_slot_nos,
                 string_agg(u.unit_master_id::text, ',' ORDER BY u.pick_slot_no) AS picked_units_str
             FROM public.rta_match_unit_pick u
+            LEFT JOIN public.monster mo ON mo.monster_id = u.unit_master_id::text
             INNER JOIN rms ON rms.rid = u.replay_id
             GROUP BY u.replay_id, u.wizard_id
         ),

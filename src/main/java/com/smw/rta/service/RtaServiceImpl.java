@@ -82,6 +82,10 @@ public class RtaServiceImpl implements RtaService {
     @Qualifier("rtaMonsterCacheManager")
     private CacheManager rtaMonsterCacheManager;
 
+    private volatile Long cachedDefaultSeasonId = null;
+    private volatile long cachedDefaultSeasonIdAt = 0L;
+    private static final long DEFAULT_SEASON_ID_TTL_MS = 60_000L;
+
     /**
      * seasonId가 null이면 현재 활성 시즌 ID를 조회. 여전히 null이면 null 반환.
      */
@@ -89,7 +93,14 @@ public class RtaServiceImpl implements RtaService {
         if (seasonId != null) {
             return seasonId;
         }
-        return rtaMapper.selectDefaultSeasonIdForNow();
+        long now = System.currentTimeMillis();
+        if (cachedDefaultSeasonId != null && now - cachedDefaultSeasonIdAt < DEFAULT_SEASON_ID_TTL_MS) {
+            return cachedDefaultSeasonId;
+        }
+        Long sid = rtaMapper.selectDefaultSeasonIdForNow();
+        cachedDefaultSeasonId = sid;
+        cachedDefaultSeasonIdAt = now;
+        return sid;
     }
 
     private static boolean canUseMonsterStatsTierTopSnap(
@@ -613,8 +624,12 @@ public class RtaServiceImpl implements RtaService {
             out.put("fight", null);
             return out;
         }
-        Map<String, Object> fight = rtaMapper.getRtaPlayerSeasonFightSnapFromAgg(wid, sid.longValue());
-        List<Map<String, Object>> rows = rtaMapper.listRtaPlayerMonsterSnapFromAgg(wid, sid.longValue());
+        CompletableFuture<Map<String, Object>> fightFuture = CompletableFuture.supplyAsync(
+                () -> rtaMapper.getRtaPlayerSeasonFightSnapFromAgg(wid, sid.longValue()), RTA_LINK_PREVIEW_EXECUTOR);
+        CompletableFuture<List<Map<String, Object>>> rowsFuture = CompletableFuture.supplyAsync(
+                () -> rtaMapper.listRtaPlayerMonsterSnapFromAgg(wid, sid.longValue()), RTA_LINK_PREVIEW_EXECUTOR);
+        Map<String, Object> fight = fightFuture.join();
+        List<Map<String, Object>> rows = rowsFuture.join();
         out.put("seasonId", sid);
         out.put("wizardId", wid);
         out.put("fight", fight);
