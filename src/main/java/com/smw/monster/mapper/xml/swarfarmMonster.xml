@@ -176,6 +176,13 @@
         WHERE swarfarm_id IS NOT NULL
     </select>
 
+    <!-- 몬스터 캐시 전체 조회 -->
+    <select id="selectAllForCache" resultType="map">
+        SELECT monster_id, kr_name, image_url, monster_elemental
+        FROM public.monster
+        WHERE usg_yn = 'Y'
+    </select>
+
     <!-- 몬스터 스킬 삭제 (monster_id로) -->
     <delete id="deleteMonsterSkillsByMonsterId" parameterType="String">
         DELETE FROM public.monster_skill_link

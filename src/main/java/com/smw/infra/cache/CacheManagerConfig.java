@@ -45,8 +45,7 @@ public class CacheManagerConfig {
                 "noticeDetail",
                 "popupNoticeList",
                 "guildSiegeHistory",
-                "guildSiegeHistoryCount",
-                "monsterList"
+                "guildSiegeHistoryCount"
         ));
         cacheManager.setCaffeine(Caffeine.newBuilder()
                 .maximumSize(shortLivedMaximumSize)
@@ -62,6 +61,18 @@ public class CacheManagerConfig {
         cacheManager.setCaffeine(Caffeine.newBuilder()
                 .maximumSize(monsterInfoMaximumSize)
                 .expireAfterWrite(java.time.Duration.ofHours(monsterInfoExpireAfterWriteHours))
+                .recordStats());
+        return cacheManager;
+    }
+
+    /** 몬스터 목록 — 신규 몬스터가 몇 달에 한 번 추가되므로 24시간 캐시. 신규 sync 시 evict. */
+    @Bean("monsterListCacheManager")
+    public CacheManager monsterListCacheManager() {
+        CaffeineCacheManager cacheManager = new CaffeineCacheManager();
+        cacheManager.setCacheNames(List.of("monsterList"));
+        cacheManager.setCaffeine(Caffeine.newBuilder()
+                .maximumSize(10)
+                .expireAfterWrite(java.time.Duration.ofHours(24))
                 .recordStats());
         return cacheManager;
     }

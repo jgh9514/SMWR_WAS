@@ -192,22 +192,31 @@ GROUP BY bucket_date, grade_slot
 	-->
 	<sql id="rtaSummonerRankingTopWizardsPairCte">
 		top_wizards AS (
-			/* wizard_id 별 최고 ladder_score 행만 추출 — 단순 DISTINCT ON */
+			/* wizard_id 별 가장 최근 경기 행 — 현재 점수 기준 */
 			SELECT DISTINCT ON (wizard_id)
 				wizard_id,
 				wizard_name,
 				country_code AS country,
 				channel_uid,
-				ladder_score AS max_score,
+				ladder_score AS cur_score,
 				rating_id
 			FROM public.rta_match_participant
 			WHERE season_id = #{seasonId}
 			  AND ladder_score &gt; 0
 			  AND wizard_id &lt;&gt; ''
-			ORDER BY wizard_id, ladder_score DESC, replay_id DESC
+			ORDER BY wizard_id, played_at DESC, replay_id DESC
+		),
+		max_score_agg AS (
+			/* 시즌 최고 점수 — max_season_score 필드용 */
+			SELECT wizard_id, MAX(ladder_score)::int AS max_score
+			FROM public.rta_match_participant
+			WHERE season_id = #{seasonId}
+			  AND ladder_score &gt; 0
+			  AND wizard_id &lt;&gt; ''
+			GROUP BY wizard_id
 		),
 		win_agg AS (
-			/* 경기수·승수는 GROUP BY 집계 — 윈도 함수보다 훨씬 가볍고 플래너가 Hash Aggregate 사용 */
+			/* 경기수·승수는 GROUP BY 집계 */
 			SELECT
 				wizard_id,
 				COUNT(*)::bigint                                                AS match_count,
@@ -231,20 +240,20 @@ GROUP BY bucket_date, grade_slot
 		  (PK season_id, rank_position). 1인 1슬롯으로 눌러 상위 500 + 고유 rank 만 보장.
 		-->
 		pool_500 AS MATERIALIZED (
-			/* top_wizards 는 DISTINCT ON 으로 이미 wizard_id 고유 → ROW_NUMBER 중복 제거 불필요.
-			   win_agg 와 LEFT JOIN 해서 match_count·win_count 합산. */
 			SELECT
 				t.wizard_id,
 				t.wizard_name,
 				t.country,
 				t.channel_uid,
-				t.max_score,
+				t.cur_score,
+				COALESCE(ms.max_score, t.cur_score) AS max_score,
 				t.rating_id,
 				COALESCE(a.match_count, 0) AS match_count,
 				COALESCE(a.win_count,   0) AS win_count
 			FROM top_wizards t
+			LEFT JOIN max_score_agg ms ON ms.wizard_id = t.wizard_id
 			LEFT JOIN win_agg a ON a.wizard_id = t.wizard_id
-			ORDER BY t.max_score DESC, t.wizard_id ASC
+			ORDER BY t.cur_score DESC, t.wizard_id ASC
 			LIMIT 500
 		),
 		pool_ranked AS (
@@ -253,11 +262,12 @@ GROUP BY bucket_date, grade_slot
 				wizard_name,
 				country,
 				channel_uid,
+				cur_score,
 				max_score,
 				rating_id,
 				match_count,
 				win_count,
-				ROW_NUMBER() OVER (ORDER BY max_score DESC, wizard_id ASC) AS rank_position
+				ROW_NUMBER() OVER (ORDER BY cur_score DESC, wizard_id ASC) AS rank_position
 			FROM pool_500
 		)
 	</sql>

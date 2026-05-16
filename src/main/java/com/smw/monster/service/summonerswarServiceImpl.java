@@ -113,9 +113,8 @@ public class summonerswarServiceImpl implements summonerswarService {
 	@Override
 	@Cacheable(
 		cacheNames = "monsterList",
-		cacheManager = "shortLivedCacheManager",
-		key = "'all'",
-		condition = "#root.args[0] == null || #root.args[0].isEmpty()"
+		cacheManager = "monsterListCacheManager",
+		key = "(#param == null || #param.isEmpty()) ? 'all' : #param.toString()"
 	)
 	public List<Map<String, ?>> selectMonsterList(Map<String, Object> param) {
 		return swMapper.selectMonsterList(param);

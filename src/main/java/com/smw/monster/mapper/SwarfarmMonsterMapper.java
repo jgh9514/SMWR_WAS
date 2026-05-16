@@ -28,6 +28,11 @@ public interface SwarfarmMonsterMapper {
      * 모든 Swarfarm ID 목록 조회 (성능 최적화용)
      */
     List<Integer> selectAllSwarfarmIds();
+
+    /**
+     * 몬스터 캐시용 전체 조회 (monster_id, kr_name, image_url, monster_elemental)
+     */
+    List<Map<String, Object>> selectAllForCache();
     
     /**
      * 몬스터 스킬 삭제 (monster_id로)
