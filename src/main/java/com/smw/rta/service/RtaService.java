@@ -17,6 +17,8 @@ public interface RtaService {
     /** 플레이어별 RTA 매치 목록 */
     List<Map<String, Object>> getPlayerRtaMatches(String wizardId, int limit, int offset, Long seasonId);
 
+    List<Map<String, Object>> getPlayerRtaMatchesCached(String wizardId, int limit, int offset, Long sid);
+
     /** 두 소환사 간 맞대결 경기 목록 */
     List<Map<String, Object>> getPlayerVsOpponentMatches(String wizardId, String opponentWizardId, int limit, int offset, Long seasonId);
 

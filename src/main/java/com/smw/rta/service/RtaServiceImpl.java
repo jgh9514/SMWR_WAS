@@ -179,10 +179,14 @@ public class RtaServiceImpl implements RtaService {
     }
 
     @Override
-    @Cacheable(cacheNames = "rtaMatchList", cacheManager = "rtaListReadCacheManager",
-            key = "'p_' + #seasonId + '_' + #wizardId + '_' + #limit + '_' + #offset")
     public List<Map<String, Object>> getPlayerRtaMatches(String wizardId, int limit, int offset, Long seasonId) {
         Long sid = doResolveSeasonId(seasonId);
+        return rtaServiceSelf.getPlayerRtaMatchesCached(wizardId, limit, offset, sid);
+    }
+
+    @Cacheable(cacheNames = "rtaMatchList", cacheManager = "rtaListReadCacheManager",
+            key = "'p_' + #sid + '_' + #wizardId + '_' + #limit + '_' + #offset")
+    public List<Map<String, Object>> getPlayerRtaMatchesCached(String wizardId, int limit, int offset, Long sid) {
         return rtaMapper.getPlayerRtaMatches(wizardId, limit, offset, sid);
     }
 
