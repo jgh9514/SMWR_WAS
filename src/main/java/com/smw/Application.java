@@ -37,6 +37,7 @@ import com.sysconf.config.SessionListener;
 		"com.admin.log.mapper",
 		"com.admin.user.mapper",
 		"com.admin.batch.mapper",
+		"com.smw.monster.batch.queue",
 		"com.cf.community.mapper",
 		"com.cf.notification.mapper"
 })
