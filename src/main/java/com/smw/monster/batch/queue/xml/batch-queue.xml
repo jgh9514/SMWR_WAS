@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smw.monster.batch.queue.BatchQueueMapper">
+
+    <!-- Redis 큐 기반 활성 배치 목록 조회 -->
+    <select id="selectQueueEnabledBatches"
+            resultType="com.smw.monster.batch.queue.BatchQueueMapper$BatchQueueConfig">
+        /* selectQueueEnabledBatches */
+        SELECT
+            bat_id              AS batId,
+            bat_nm              AS batNm,
+            job_class           AS jobClass,
+            interval_minutes    AS intervalMinutes,
+            last_scheduled_at   AS lastScheduledAt
+        FROM sys_batch_config
+        WHERE queue_yn = 'Y'
+          AND use_yn   = 'Y'
+        ORDER BY sort_sn ASC, bat_id ASC
+    </select>
+
+    <!-- Producer: 마지막 발행 시각 갱신 -->
+    <update id="updateLastScheduledAt">
+        /* updateLastScheduledAt */
+        UPDATE sys_batch_config
+           SET last_scheduled_at = #{lastScheduledAt}
+             , upt_date          = CURRENT_TIMESTAMP
+         WHERE bat_id = #{batId}
+    </update>
+
+    <!-- Worker: 마지막 실행 완료 시각 갱신 -->
+    <update id="updateLastExecutedAt">
+        /* updateLastExecutedAt */
+        UPDATE sys_batch_config
+           SET last_executed_at = #{lastExecutedAt}
+             , upt_date         = CURRENT_TIMESTAMP
+         WHERE bat_id = #{batId}
+    </update>
+
+</mapper>

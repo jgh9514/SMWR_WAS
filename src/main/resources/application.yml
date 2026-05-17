@@ -85,7 +85,7 @@ spring:
 mybatis:
   type-aliases-package: com.summonerswar
   config-location: classpath:mybatis/mybatis-config.xml
-  mapper-locations: classpath*:com/**/mapper/xml/*.xml
+  mapper-locations: classpath*:com/**/mapper/xml/*.xml,classpath*:com/**/batch/queue/xml/*.xml
 
 server:
   port: 8080

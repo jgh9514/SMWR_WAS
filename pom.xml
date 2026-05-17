@@ -134,6 +134,18 @@
 	        <artifactId>spring-boot-starter-tomcat</artifactId>
 	        <scope>provided</scope>
 	    </dependency>
+		<!-- ShedLock: Redis 기반 분산 락 — BatchQueueProducerService 에서 Producer 단일 실행 보장 -->
+		<dependency>
+			<groupId>net.javacrumbs.shedlock</groupId>
+			<artifactId>shedlock-spring</artifactId>
+			<version>6.9.1</version>
+		</dependency>
+		<dependency>
+			<groupId>net.javacrumbs.shedlock</groupId>
+			<artifactId>shedlock-provider-redis-spring</artifactId>
+			<version>6.9.1</version>
+		</dependency>
+
 		<!-- Spring Batch: RTA 원시 적재(Step1) + 시너지 집계(Step2) 분리 Job -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
