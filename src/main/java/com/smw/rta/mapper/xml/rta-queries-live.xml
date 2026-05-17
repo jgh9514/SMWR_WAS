@@ -1714,30 +1714,65 @@
     ============================================================ -->
     <select id="getRtaMonsterOverviewStats" resultType="map">
         /* rta-queries-live.getRtaMonsterOverviewStats */
+        <!--
+          전체 티어 합산(ratingId=null) 분모 주의:
+          snap 은 픽/밴이 있는 (unit_master_id, rating_id) 행만 존재. 픽이 없는 티어는
+          행이 없어 SUM(field_cnt)로 구하면 해당 티어 경기 수가 누락 → 픽률·밴률 과대.
+          ratingId=null 일 때는 rta_agg_season_rating_match_total 에서 실제 시즌 전체 경기 수를 사용.
+        -->
+        <if test="ratingId == null">
+        WITH season_total AS (
+            SELECT SUM(total_matches)::bigint AS field_cnt
+            FROM public.rta_agg_season_rating_match_total
+            WHERE season_id = #{seasonId}
+              AND rating_id > 0
+        )
+        </if>
         SELECT
             s.unit_master_id,
             SUM(s.pick_cnt)::bigint                                    AS pick_cnt,
             SUM(s.win_cnt)::bigint                                     AS win_cnt,
             SUM(s.ban_cnt)::bigint                                     AS ban_cnt,
             SUM(s.lead_cnt)::bigint                                    AS lead_cnt,
-            SUM(s.field_cnt)::bigint                                   AS field_cnt,
-            CASE WHEN SUM(s.field_cnt) > 0
-                 THEN ROUND(100.0 * SUM(s.pick_cnt) / SUM(s.field_cnt), 2)
-            END                                                        AS pick_rate_pct,
-            CASE WHEN SUM(s.pick_cnt) > 0
-                 THEN ROUND(100.0 * SUM(s.win_cnt) / SUM(s.pick_cnt), 2)
-            END                                                        AS win_rate_pct,
-            CASE WHEN SUM(s.field_cnt) > 0
-                 THEN ROUND(100.0 * SUM(s.ban_cnt) / SUM(s.field_cnt), 2)
-            END                                                        AS ban_rate_pct,
-            CASE WHEN SUM(s.pick_cnt) > 0
-                 THEN ROUND(100.0 * SUM(s.lead_cnt) / SUM(s.pick_cnt), 2)
-            END                                                        AS lead_rate_pct
+            <choose>
+                <when test="ratingId == null">
+                st.field_cnt                                           AS field_cnt,
+                CASE WHEN st.field_cnt > 0
+                     THEN ROUND(100.0 * SUM(s.pick_cnt) / st.field_cnt, 2)
+                END                                                    AS pick_rate_pct,
+                CASE WHEN SUM(s.pick_cnt) > 0
+                     THEN ROUND(100.0 * SUM(s.win_cnt) / SUM(s.pick_cnt), 2)
+                END                                                    AS win_rate_pct,
+                CASE WHEN st.field_cnt > 0
+                     THEN ROUND(100.0 * SUM(s.ban_cnt) / st.field_cnt, 2)
+                END                                                    AS ban_rate_pct,
+                CASE WHEN SUM(s.pick_cnt) > 0
+                     THEN ROUND(100.0 * SUM(s.lead_cnt) / SUM(s.pick_cnt), 2)
+                END                                                    AS lead_rate_pct
+                </when>
+                <otherwise>
+                SUM(s.field_cnt)::bigint                               AS field_cnt,
+                CASE WHEN SUM(s.field_cnt) > 0
+                     THEN ROUND(100.0 * SUM(s.pick_cnt) / SUM(s.field_cnt), 2)
+                END                                                    AS pick_rate_pct,
+                CASE WHEN SUM(s.pick_cnt) > 0
+                     THEN ROUND(100.0 * SUM(s.win_cnt) / SUM(s.pick_cnt), 2)
+                END                                                    AS win_rate_pct,
+                CASE WHEN SUM(s.field_cnt) > 0
+                     THEN ROUND(100.0 * SUM(s.ban_cnt) / SUM(s.field_cnt), 2)
+                END                                                    AS ban_rate_pct,
+                CASE WHEN SUM(s.pick_cnt) > 0
+                     THEN ROUND(100.0 * SUM(s.lead_cnt) / SUM(s.pick_cnt), 2)
+                END                                                    AS lead_rate_pct
+                </otherwise>
+            </choose>
         FROM public.rta_agg_monster_daily_snap s
+        <if test="ratingId == null">CROSS JOIN season_total st</if>
         WHERE s.unit_master_id = #{monsterId}
           AND s.season_id = #{seasonId}
           <if test="ratingId != null">AND s.rating_id = #{ratingId}</if>
         GROUP BY s.unit_master_id
+        <if test="ratingId == null">, st.field_cnt</if>
     </select>
 
     <select id="getRtaMonsterOverviewStatsByIds" resultType="map">
@@ -1774,27 +1809,69 @@
     ============================================================ -->
     <select id="getRtaMonsterDailyTrend" resultType="map">
         /* rta-queries-live.getRtaMonsterDailyTrend */
+        <!--
+          전체 티어 합산(ratingId=null) 시:
+          · GROUP BY snap_date 로 일별 1행 반환 (미적용 시 티어별 다중 행이 반환돼 차트가 깨짐)
+          · 분모는 일별 모든 티어 경기 합산 — snap 내 (snap_date, rating_id)별 field_cnt 는
+            해당 티어 당일 총 경기 수로 동일하므로 MIN()으로 대표값을 뽑아 SUM하면 정확.
+        -->
+        <if test="ratingId == null">
+        WITH day_field AS (
+            SELECT snap_date, SUM(tier_field) AS total_field
+            FROM (
+                SELECT snap_date, rating_id, MIN(field_cnt) AS tier_field
+                FROM public.rta_agg_monster_daily_snap
+                WHERE season_id = #{seasonId}
+                  AND snap_date >= CURRENT_DATE - (#{days} - 1)
+                  AND rating_id > 0
+                GROUP BY snap_date, rating_id
+            ) t
+            GROUP BY snap_date
+        )
+        </if>
         SELECT
             s.snap_date,
-            s.pick_cnt,
-            s.win_cnt,
-            s.ban_cnt,
-            s.lead_cnt,
-            s.field_cnt,
-            CASE WHEN s.field_cnt > 0
-                 THEN ROUND(100.0 * s.pick_cnt / s.field_cnt, 2)
-            END AS pick_rate_pct,
-            CASE WHEN s.pick_cnt > 0
-                 THEN ROUND(100.0 * s.win_cnt / s.pick_cnt, 2)
-            END AS win_rate_pct,
-            CASE WHEN s.field_cnt > 0
-                 THEN ROUND(100.0 * s.ban_cnt / s.field_cnt, 2)
-            END AS ban_rate_pct
+            <choose>
+                <when test="ratingId == null">
+                SUM(s.pick_cnt)::bigint AS pick_cnt,
+                SUM(s.win_cnt)::bigint  AS win_cnt,
+                SUM(s.ban_cnt)::bigint  AS ban_cnt,
+                SUM(s.lead_cnt)::bigint AS lead_cnt,
+                df.total_field          AS field_cnt,
+                CASE WHEN df.total_field > 0
+                     THEN ROUND(100.0 * SUM(s.pick_cnt) / df.total_field, 2)
+                END AS pick_rate_pct,
+                CASE WHEN SUM(s.pick_cnt) > 0
+                     THEN ROUND(100.0 * SUM(s.win_cnt) / SUM(s.pick_cnt), 2)
+                END AS win_rate_pct,
+                CASE WHEN df.total_field > 0
+                     THEN ROUND(100.0 * SUM(s.ban_cnt) / df.total_field, 2)
+                END AS ban_rate_pct
+                </when>
+                <otherwise>
+                s.pick_cnt,
+                s.win_cnt,
+                s.ban_cnt,
+                s.lead_cnt,
+                s.field_cnt,
+                CASE WHEN s.field_cnt > 0
+                     THEN ROUND(100.0 * s.pick_cnt / s.field_cnt, 2)
+                END AS pick_rate_pct,
+                CASE WHEN s.pick_cnt > 0
+                     THEN ROUND(100.0 * s.win_cnt / s.pick_cnt, 2)
+                END AS win_rate_pct,
+                CASE WHEN s.field_cnt > 0
+                     THEN ROUND(100.0 * s.ban_cnt / s.field_cnt, 2)
+                END AS ban_rate_pct
+                </otherwise>
+            </choose>
         FROM public.rta_agg_monster_daily_snap s
+        <if test="ratingId == null">JOIN day_field df ON df.snap_date = s.snap_date</if>
         WHERE s.unit_master_id = #{monsterId}
           AND s.season_id = #{seasonId}
           <if test="ratingId != null">AND s.rating_id = #{ratingId}</if>
           AND s.snap_date >= CURRENT_DATE - (#{days} - 1)
+        <if test="ratingId == null">GROUP BY s.snap_date, df.total_field</if>
         ORDER BY s.snap_date ASC
     </select>
 

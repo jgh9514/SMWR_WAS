@@ -125,7 +125,7 @@ public class RtaBatchAggregationService {
 		int opponentH2hInserts = 0;
 		for (long sid : targetSeasons) {
 			long tf = System.nanoTime();
-			fightRows += rtaMapper.insertRtaSummonerSeasonFightSnapForSeason(sid);
+			fightRows += insertFightSnapWithRetry(rtaMapper, sid);
 			perf.addFightSnapUpsertMs(msSinceNanos(tf));
 
 			ChunkTotals ct = insertSummonerMonsterAndPickTurnSnapForSeasonChunked(rtaMapper, sid, perf);
@@ -139,6 +139,35 @@ public class RtaBatchAggregationService {
 		}
 		return new SummonerMonsterSnapRebuildResult(fightRows, monRows, pickTurnRows, ownedBoxUpserts,
 				opponentH2hInserts, List.copyOf(targetSeasons), perf.toSummaryBlock());
+	}
+
+	/**
+	 * 시즌 전원 분모 UPSERT — 풀스캔 쿼리라 커넥션이 끊길 수 있으므로 최대 3회 재시도.
+	 * UPSERT(ON CONFLICT DO UPDATE)라 재시도는 멱등하다.
+	 */
+	private static int insertFightSnapWithRetry(RtaMapper rtaMapper, long seasonId) {
+		int maxAttempts = 3;
+		Exception last = null;
+		for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+			try {
+				return rtaMapper.insertRtaSummonerSeasonFightSnapForSeason(seasonId);
+			} catch (Exception e) {
+				last = e;
+				if (attempt < maxAttempts) {
+					try {
+						Thread.sleep(5_000L * attempt);
+					} catch (InterruptedException ie) {
+						Thread.currentThread().interrupt();
+						throw new RuntimeException("fight snap 재시도 중 인터럽트", ie);
+					}
+					log.warn("[fight-snap] 재시도 {}/{} (seasonId={}, error={})",
+							attempt, maxAttempts, seasonId, e.getMessage());
+				}
+			}
+		}
+		throw new RuntimeException(
+				"insertRtaSummonerSeasonFightSnapForSeason 재시도 " + maxAttempts + "회 모두 실패 (seasonId=" + seasonId + ")",
+				last);
 	}
 
 	/**
