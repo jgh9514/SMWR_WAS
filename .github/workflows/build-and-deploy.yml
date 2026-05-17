@@ -92,6 +92,25 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v6
 
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_REGION }}
+
+    - name: Open EC2 port 22 for this runner
+      id: open-sg
+      run: |
+        RUNNER_IP=$(curl -sf https://checkip.amazonaws.com)
+        echo "runner_ip=${RUNNER_IP}" >> "$GITHUB_OUTPUT"
+        aws ec2 authorize-security-group-ingress \
+          --group-id ${{ secrets.EC2_SECURITY_GROUP_ID }} \
+          --protocol tcp --port 22 \
+          --cidr "${RUNNER_IP}/32" \
+          --tag-specifications "ResourceType=security-group-rule,Tags=[{Key=Purpose,Value=github-actions-temp}]"
+        echo "Port 22 opened for ${RUNNER_IP}"
+
     - name: Configure SSH
       run: |
         mkdir -p ~/.ssh
@@ -178,5 +197,14 @@ jobs:
           -o TCPKeepAlive=yes \
           -o BatchMode=yes \
           ubuntu@${{ secrets.EC2_HOST }} 'bash -s'
+
+    - name: Close EC2 port 22 (cleanup)
+      if: always() && steps.open-sg.outputs.runner_ip != ''
+      run: |
+        aws ec2 revoke-security-group-ingress \
+          --group-id ${{ secrets.EC2_SECURITY_GROUP_ID }} \
+          --protocol tcp --port 22 \
+          --cidr "${{ steps.open-sg.outputs.runner_ip }}/32" || true
+        echo "Port 22 closed for ${{ steps.open-sg.outputs.runner_ip }}"
 
 
