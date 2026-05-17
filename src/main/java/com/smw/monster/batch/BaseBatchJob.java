@@ -161,13 +161,14 @@ public abstract class BaseBatchJob implements Job {
             updateBatchRunHis("FAIL", errorLog);
             recordBatchMetrics("FAIL", batchTimerSample);
 
-            if (isInfraFailure(e)) {
+            String infraReason = classifyInfraFailure(e);
+            if (infraReason != null) {
                 // 커넥션 풀 종료·앱 재시작 등 인프라 문제 — 배치 비활성화 없이 다음 스케줄에서 재시도
-                log.warn("[batch] 인프라 오류로 실패 — 스케줄 유지 (batchName={}, error={})",
-                        getBatchName(), e.getMessage());
-                sendSlackFailureAlert(getBatchName(), e, false);
+                log.warn("[batch] 인프라 오류로 실패 — 스케줄 유지 (batchName={}, reason={}, error={})",
+                        getBatchName(), infraReason, e.getMessage());
+                sendSlackFailureAlert(getBatchName(), e, false, infraReason);
             } else {
-                sendSlackFailureAlert(getBatchName(), e, true);
+                sendSlackFailureAlert(getBatchName(), e, true, null);
                 disableJobOnFailure();
             }
 
@@ -389,15 +390,15 @@ public abstract class BaseBatchJob implements Job {
         return sw.toString();
     }
 
-    private void sendSlackFailureAlert(String batchName, Exception e, boolean disabled) {
+    private void sendSlackFailureAlert(String batchName, Exception e, boolean disabled, String infraReason) {
         if (cachedSlackNotifier == null) {
             log.warn("[slack] 슬랙 노티파이어 미캡처 — 배치 실패 알림 생략 (batchName={})", batchName);
             return;
         }
         try {
             String suffix = disabled
-                    ? "\n스케줄이 비활성화되었습니다. 확인 후 수동으로 재활성화하세요."
-                    : "\n인프라 오류(커넥션 등)로 인한 일시 실패 — 스케줄은 유지됩니다.";
+                    ? "\n분류: 로직 오류 — 스케줄 비활성화됨, 확인 후 수동으로 재활성화하세요."
+                    : String.format("\n분류: 인프라 오류 (%s) — 스케줄 유지, 다음 실행에 재처리", infraReason);
             String msg = String.format("[배치 실패] *%s*\n오류: %s%s", batchName, sanitizeErrorMessage(e), suffix);
             cachedSlackNotifier.send(cachedSlackToken, cachedSlackChannelId, msg);
         } catch (Exception ex) {
@@ -406,35 +407,48 @@ public abstract class BaseBatchJob implements Job {
     }
 
     /**
-     * 커넥션 풀 종료·앱 재시작 등 인프라 문제로 인한 예외 여부.
-     * 이 경우 배치 자체 로직 오류가 아니므로 스케줄을 비활성화하지 않는다.
+     * 커넥션 풀 종료·앱 재시작·백엔드 전송 실패 등 인프라 문제로 인한 예외 분류.
+     * Spring DAO 타입을 우선 체크하고, 그 외 JDBC·메시지 패턴으로 보완한다.
+     * null 반환 시 인프라 오류 아님(로직 오류로 처리).
      */
-    private static boolean isInfraFailure(Throwable e) {
+    private static String classifyInfraFailure(Throwable e) {
         for (Throwable t = e; t != null; t = t.getCause()) {
+            // Spring DAO 타입 직접 체크 — 문자열 패턴보다 명확하고 견고
+            if (t instanceof org.springframework.dao.DataAccessResourceFailureException) {
+                return "DataAccessResourceFailure";
+            }
+            if (t instanceof org.springframework.dao.TransientDataAccessException) {
+                return "TransientDataAccess";
+            }
+
             String msg = t.getMessage();
             if (msg != null) {
                 String lc = msg.toLowerCase();
-                if (lc.contains("has been closed")
-                        || lc.contains("hikaripool")
-                        || lc.contains("connection is closed")
-                        || lc.contains("connection closed")
-                        || lc.contains("datasource")
-                        || lc.contains("i/o error")
-                        || lc.contains("socket closed")
-                        || lc.contains("broken pipe")
-                        || lc.contains("sending to the backend")) {
-                    return true;
+                if (lc.contains("has been closed") || lc.contains("connection is closed") || lc.contains("connection closed")) {
+                    return "ConnectionClosed";
+                }
+                if (lc.contains("hikaripool")) {
+                    return "HikariPool";
+                }
+                if (lc.contains("i/o error") || lc.contains("socket closed") || lc.contains("broken pipe")) {
+                    return "IOError";
+                }
+                if (lc.contains("sending to the backend")) {
+                    return "BackendSendError";
+                }
+                if (lc.contains("datasource")) {
+                    return "DataSource";
                 }
             }
-            if (t instanceof java.sql.SQLException
-                    || t.getClass().getName().contains("HikariPool")) {
+
+            if (t instanceof java.sql.SQLException) {
                 String cn = t.getClass().getName();
                 if (cn.contains("Connection") || cn.contains("Hikari")) {
-                    return true;
+                    return "SQLConnectionError";
                 }
             }
         }
-        return false;
+        return null;
     }
 
     private void disableJobOnFailure() {
