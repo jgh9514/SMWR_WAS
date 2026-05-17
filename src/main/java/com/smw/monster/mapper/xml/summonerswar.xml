@@ -8,19 +8,20 @@
 		     , m.kr_name
 		     , m.un_name
 		     , m.monster_elemental
-		     , CAST(m.star AS INTEGER) AS star
+		     , m.star
 		     , m.image_url AS image_url
 		     , m2.kr_name AS modified_kr_name
 		     , m.arousal_type
 		     , m.archetype
 		     , m.awaken_bonus
-		     , CAST(m.skill_ups_to_max AS INTEGER) AS skill_ups_to_max
-		     , CAST(m.com2us_id AS INTEGER) AS com2us_id
-		     , CAST(m.awakens_from_id AS INTEGER) AS awakens_from_id
-		     , CAST(m.awakens_to_id AS INTEGER) AS awakens_to_id
-		     , CAST(m.family_id AS INTEGER) AS family_id
+		     , m.skill_ups_to_max
+		     , m.com2us_id
+		     , m.awakens_from_id
+		     , m.awakens_to_id
+		     , m.family_id
 		     , m.obtainable
 		     , m.usg_yn
+		     , COALESCE(m.awaken_level, 0) AS awaken_level
 		     /* RTA 집계·통계 테이블 키(콜라보 스킨은 원본 몬스터 id) */
 		     , COALESCE(mcm.original_monster_id, m.monster_id) AS rta_stats_monster_id
 		  FROM monster m
@@ -30,7 +31,6 @@
 		 WHERE m.usg_yn = 'Y'
 		   AND m.obtainable IS TRUE
 		   -- 변신 전용 행 제외: transforms_to_id만 있고 깨우침 연결(awakens_*)이 없는 레코드(예: 유니콘 변신체).
-		   -- monster_id/family_id 숫자로 거르지 않음.
 		   AND NOT (
 		     m.transforms_to_id IS NOT NULL
 		     AND m.awakens_from_id IS NULL
@@ -39,7 +39,7 @@
 		   <!-- 점령전 등: 같은 패밀리·속성에 2각(awaken_level>=2)이 있으면 1각 행 제외. family_id 불일치 시 awakens_to_id→com2us 로 연결 -->
 		   <if test="siegeDedupeSecondAwakening != null and (siegeDedupeSecondAwakening == true or siegeDedupeSecondAwakening == 'true')">
 		   AND NOT (
-		     COALESCE(CAST(m.awaken_level AS INTEGER), 0) = 1
+		     COALESCE(m.awaken_level, 0) = 1
 		     AND (
 		       EXISTS (
 		         SELECT 1 FROM monster m2
@@ -50,10 +50,10 @@
 		              AND m2.awakens_from_id IS NULL
 		              AND m2.awakens_to_id IS NULL
 		            )
-		            AND COALESCE(CAST(m2.awaken_level AS INTEGER), 0) &gt;= 2
+		            AND m2.awaken_level &gt;= 2
 		            AND m.family_id IS NOT NULL
 		            AND m2.family_id = m.family_id
-		            AND m2.monster_elemental IS NOT DISTINCT FROM m.monster_elemental
+		            AND m2.monster_elemental = m.monster_elemental
 		       )
 		       OR EXISTS (
 		         SELECT 1 FROM monster m2
@@ -64,7 +64,7 @@
 		              AND m2.awakens_from_id IS NULL
 		              AND m2.awakens_to_id IS NULL
 		            )
-		            AND COALESCE(CAST(m2.awaken_level AS INTEGER), 0) &gt;= 2
+		            AND m2.awaken_level &gt;= 2
 		            AND m.awakens_to_id IS NOT NULL
 		            AND m2.com2us_id = m.awakens_to_id
 		       )
@@ -80,22 +80,18 @@
 		 ORDER BY
 		   -- Normal 먼저, Awakened 다음 (NULL·빈값은 Normal 취급)
 		   CASE WHEN LOWER(COALESCE(m.arousal_type, '')) = 'awakened' THEN 1 ELSE 0 END ASC,
-		   COALESCE(CAST(m.awaken_level AS INTEGER), 0) ASC,
-		   CAST(m.star AS INTEGER) ASC,
+		   COALESCE(m.awaken_level, 0) ASC,
+		   m.star ASC,
 		   m.monster_id ASC
 		   </otherwise>
 		 </choose>
 	</select>
 	
 	<select id="selectEnemyTeamList" parameterType="sqlMap" resultType="sqlMap">
-		/* selectEnemyTeamList - siege_defense_deck_stats 단일 테이블 (JOIN 0) */
+		/* selectEnemyTeamList — battle_log_list(live). 집계 테이블 경로는 백필·업로드 refresh 후 재활성화 가능 */
 		<choose>
-			<!-- guild_ids, match_id, deck_star_filter 사용 시: 기존 방식 (fallback) -->
-			<when test='(guild_ids != null and guild_ids.size() > 0) or (match_id != null and match_id != "" and match_id != "null") or (deck_star_filter != null and deck_star_filter != "" and deck_star_filter != "ALL")'>
-				<include refid="selectEnemyTeamListLegacy"/>
-			</when>
-			<!-- siege_defense_deck_stats + 수동 등록 방덱(siege_defense_deck_manual) -->
-			<otherwise>
+			<when test='use_siege_defense_deck_stats != null and (use_siege_defense_deck_stats == "Y" or use_siege_defense_deck_stats == "true")'>
+				<!-- siege_defense_deck_stats + 수동 등록 방덱(siege_defense_deck_manual) -->
 				SELECT * FROM (
 				SELECT DISTINCT ON (monster_id_1, monster_id_2, monster_id_3)
 				       key, monster_id_1, monster_id_2, monster_id_3
@@ -131,14 +127,17 @@
 					       AND guild_id = #{sess_guild_id}::text
 					     </otherwise>
 					   </choose>
-					   <!-- 시즌: A=전체(생략), C=현재 시즌만. current_season_yyyymm 주입 시 서브쿼리 생략 -->
+					   <!-- 시즌: A=전체(생략), C=현재 시즌만 (legacy 와 동일: 진행 중 시즌 없으면 제한 없음) -->
 					   <choose>
 					     <when test='siege_view_scope != null and siege_view_scope == "A"'></when>
 					     <otherwise>
-					       AND season_yyyymm >= COALESCE(
-					         #{current_season_yyyymm},
-					         (SELECT TO_CHAR(DATE_TRUNC('month', gss.start_date), 'YYYYMM') FROM guild_siege_season gss WHERE gss.end_date IS NULL ORDER BY gss.season_no DESC LIMIT 1),
-					         '000000'
+					       AND (
+					         (SELECT COUNT(*) FROM guild_siege_season WHERE end_date IS NULL) = 0
+					         OR season_yyyymm >= COALESCE(
+					           #{current_season_yyyymm},
+					           (SELECT TO_CHAR(DATE_TRUNC('month', gss.start_date), 'YYYYMM') FROM guild_siege_season gss WHERE gss.end_date IS NULL ORDER BY gss.season_no DESC LIMIT 1),
+					           '000000'
+					         )
 					       )
 					     </otherwise>
 					   </choose>
@@ -193,10 +192,13 @@
 				   <choose>
 				     <when test='siege_view_scope != null and siege_view_scope == "A"'></when>
 				     <otherwise>
-				       AND d.season_yyyymm >= COALESCE(
-				         #{current_season_yyyymm},
-				         (SELECT TO_CHAR(DATE_TRUNC('month', gss.start_date), 'YYYYMM') FROM guild_siege_season gss WHERE gss.end_date IS NULL ORDER BY gss.season_no DESC LIMIT 1),
-				         '000000'
+				       AND (
+				         (SELECT COUNT(*) FROM guild_siege_season WHERE end_date IS NULL) = 0
+				         OR d.season_yyyymm >= COALESCE(
+				           #{current_season_yyyymm},
+				           (SELECT TO_CHAR(DATE_TRUNC('month', gss.start_date), 'YYYYMM') FROM guild_siege_season gss WHERE gss.end_date IS NULL ORDER BY gss.season_no DESC LIMIT 1),
+				           '000000'
+				         )
 				       )
 				     </otherwise>
 				   </choose>
@@ -230,10 +232,13 @@
 				       <choose>
 				         <when test='siege_view_scope != null and siege_view_scope == "A"'></when>
 				         <otherwise>
-				           AND s.season_yyyymm >= COALESCE(
-				             #{current_season_yyyymm},
-				             (SELECT TO_CHAR(DATE_TRUNC('month', gss.start_date), 'YYYYMM') FROM guild_siege_season gss WHERE gss.end_date IS NULL ORDER BY gss.season_no DESC LIMIT 1),
-				             '000000'
+				           AND (
+				             (SELECT COUNT(*) FROM guild_siege_season WHERE end_date IS NULL) = 0
+				             OR s.season_yyyymm >= COALESCE(
+				               #{current_season_yyyymm},
+				               (SELECT TO_CHAR(DATE_TRUNC('month', gss.start_date), 'YYYYMM') FROM guild_siege_season gss WHERE gss.end_date IS NULL ORDER BY gss.season_no DESC LIMIT 1),
+				               '000000'
+				             )
 				           )
 				         </otherwise>
 				       </choose>
@@ -243,6 +248,9 @@
 				) combined
 				ORDER BY total_count DESC
 				LIMIT CAST(#{paging} AS bigint) OFFSET (CAST(#{paging} AS bigint) * (CAST(#{offset} AS bigint) - 1))
+			</when>
+			<otherwise>
+				<include refid="selectEnemyTeamListLegacy"/>
 			</otherwise>
 		</choose>
 	</select>
@@ -343,12 +351,9 @@
 	</sql>
 	
 	<select id="selectTotalPageCount" parameterType="sqlMap" resultType="Int">
-		/* selectTotalPageCount - siege_defense_deck_stats 단일 테이블 (JOIN 0) 또는 Legacy */
+		/* selectTotalPageCount — selectEnemyTeamList 와 동일 분기 */
 		<choose>
-			<when test='(guild_ids != null and guild_ids.size() > 0) or (match_id != null and match_id != "" and match_id != "null") or (deck_star_filter != null and deck_star_filter != "" and deck_star_filter != "ALL")'>
-				<include refid="selectTotalPageCountLegacy"/>
-			</when>
-			<otherwise>
+			<when test='use_siege_defense_deck_stats != null and (use_siege_defense_deck_stats == "Y" or use_siege_defense_deck_stats == "true")'>
 				SELECT COUNT(*)::int AS rowCount FROM (
 					SELECT DISTINCT monster_id_1, monster_id_2, monster_id_3
 					  FROM (
@@ -363,10 +368,13 @@
 					   <choose>
 					     <when test='siege_view_scope != null and siege_view_scope == "A"'></when>
 					     <otherwise>
-					       AND season_yyyymm >= COALESCE(
-					         #{current_season_yyyymm},
-					         (SELECT TO_CHAR(DATE_TRUNC('month', gss.start_date), 'YYYYMM') FROM guild_siege_season gss WHERE gss.end_date IS NULL ORDER BY gss.season_no DESC LIMIT 1),
-					         '000000'
+					       AND (
+					         (SELECT COUNT(*) FROM guild_siege_season WHERE end_date IS NULL) = 0
+					         OR season_yyyymm >= COALESCE(
+					           #{current_season_yyyymm},
+					           (SELECT TO_CHAR(DATE_TRUNC('month', gss.start_date), 'YYYYMM') FROM guild_siege_season gss WHERE gss.end_date IS NULL ORDER BY gss.season_no DESC LIMIT 1),
+					           '000000'
+					         )
 					       )
 					     </otherwise>
 					   </choose>
@@ -403,10 +411,13 @@
 					   <choose>
 					     <when test='siege_view_scope != null and siege_view_scope == "A"'></when>
 					     <otherwise>
-					       AND d.season_yyyymm >= COALESCE(
-					         #{current_season_yyyymm},
-					         (SELECT TO_CHAR(DATE_TRUNC('month', gss.start_date), 'YYYYMM') FROM guild_siege_season gss WHERE gss.end_date IS NULL ORDER BY gss.season_no DESC LIMIT 1),
-					         '000000'
+					       AND (
+					         (SELECT COUNT(*) FROM guild_siege_season WHERE end_date IS NULL) = 0
+					         OR d.season_yyyymm >= COALESCE(
+					           #{current_season_yyyymm},
+					           (SELECT TO_CHAR(DATE_TRUNC('month', gss.start_date), 'YYYYMM') FROM guild_siege_season gss WHERE gss.end_date IS NULL ORDER BY gss.season_no DESC LIMIT 1),
+					           '000000'
+					         )
 					       )
 					     </otherwise>
 					   </choose>
@@ -440,16 +451,22 @@
 					       <choose>
 					         <when test='siege_view_scope != null and siege_view_scope == "A"'></when>
 					         <otherwise>
-					           AND s.season_yyyymm >= COALESCE(
-					             #{current_season_yyyymm},
-					             (SELECT TO_CHAR(DATE_TRUNC('month', gss.start_date), 'YYYYMM') FROM guild_siege_season gss WHERE gss.end_date IS NULL ORDER BY gss.season_no DESC LIMIT 1),
-					             '000000'
+					           AND (
+					             (SELECT COUNT(*) FROM guild_siege_season WHERE end_date IS NULL) = 0
+					             OR s.season_yyyymm >= COALESCE(
+					               #{current_season_yyyymm},
+					               (SELECT TO_CHAR(DATE_TRUNC('month', gss.start_date), 'YYYYMM') FROM guild_siege_season gss WHERE gss.end_date IS NULL ORDER BY gss.season_no DESC LIMIT 1),
+					               '000000'
+					             )
 					           )
 					         </otherwise>
 					       </choose>
 					   )
 				) u
 				) t
+			</when>
+			<otherwise>
+				<include refid="selectTotalPageCountLegacy"/>
 			</otherwise>
 		</choose>
 	</select>
@@ -1131,6 +1148,101 @@
 			 , #{monster_id_2}
 			 , #{monster_id_3}
 		)
+	</insert>
+
+	<delete id="deleteSiegeDefenseDeckStatsByGuildSeason" parameterType="sqlMap">
+		/* deleteSiegeDefenseDeckStatsByGuildSeason */
+		DELETE FROM siege_defense_deck_stats
+		 WHERE guild_id = #{guild_id}::text
+		   AND season_yyyymm = #{season_yyyymm}::text
+	</delete>
+
+	<insert id="insertSiegeDefenseDeckStatsFromBattleLogs" parameterType="sqlMap">
+		/* insertSiegeDefenseDeckStatsFromBattleLogs */
+		INSERT INTO siege_defense_deck_stats (
+		       season_yyyymm, guild_id, deck_key, monster_id_1, monster_id_2, monster_id_3,
+		       attack_deck_key, attack_monster_id_1, attack_monster_id_2, attack_monster_id_3,
+		       total_count, win_count, lose_count,
+		       image_url_1, image_url_2, image_url_3,
+		       leader_id, leader_type, leader_stat, leader_increase_by, leader_icon, leader_skill_desc
+		)
+		SELECT
+		       #{season_yyyymm}::text,
+		       #{guild_id}::text,
+		       agg.m1 || '-' || agg.m2 || '-' || agg.m3,
+		       agg.m1, agg.m2, agg.m3,
+		       agg.a1 || '-' || agg.a2 || '-' || agg.a3,
+		       agg.a1, agg.a2, agg.a3,
+		       agg.total_count,
+		       agg.win_count,
+		       agg.lose_count,
+		       m1.image_url,
+		       m2.image_url,
+		       m3.image_url,
+		       m1.leader_id,
+		       ml.type,
+		       ml.stat,
+		       ml.increase_by,
+		       ml.icon_path,
+		       get_leader_skill_desc(ml.type, ml.stat, ml.increase_by)
+		  FROM (
+		        SELECT
+		               COALESCE(mcm1.original_monster_id, def.monster_id_1) AS m1,
+		               LEAST(
+		                 COALESCE(mcm2.original_monster_id, def.monster_id_2),
+		                 COALESCE(mcm3.original_monster_id, def.monster_id_3)
+		               ) AS m2,
+		               GREATEST(
+		                 COALESCE(mcm2.original_monster_id, def.monster_id_2),
+		                 COALESCE(mcm3.original_monster_id, def.monster_id_3)
+		               ) AS m3,
+		               COALESCE(acm1.original_monster_id, atk.monster_id_1) AS a1,
+		               LEAST(
+		                 COALESCE(acm2.original_monster_id, atk.monster_id_2),
+		                 COALESCE(acm3.original_monster_id, atk.monster_id_3)
+		               ) AS a2,
+		               GREATEST(
+		                 COALESCE(acm2.original_monster_id, atk.monster_id_2),
+		                 COALESCE(acm3.original_monster_id, atk.monster_id_3)
+		               ) AS a3,
+		               COUNT(*)::int AS total_count,
+		               SUM(CASE WHEN bll.win_lose = '1' THEN 1 ELSE 0 END)::int AS win_count,
+		               SUM(CASE WHEN bll.win_lose = '2' THEN 1 ELSE 0 END)::int AS lose_count
+		          FROM battle_log_list bll
+		         INNER JOIN view_battle_deck_info def
+		            ON def.match_id = bll.match_id
+		           AND def.log_timestamp = bll.log_timestamp
+		           AND def.type = 'defense'
+		         INNER JOIN view_battle_deck_info atk
+		            ON atk.match_id = bll.match_id
+		           AND atk.log_timestamp = bll.log_timestamp
+		           AND atk.type = 'attack'
+		          LEFT JOIN monster_collaboration_mapping mcm1
+		            ON def.monster_id_1 = mcm1.collaboration_monster_id
+		          LEFT JOIN monster_collaboration_mapping mcm2
+		            ON def.monster_id_2 = mcm2.collaboration_monster_id
+		          LEFT JOIN monster_collaboration_mapping mcm3
+		            ON def.monster_id_3 = mcm3.collaboration_monster_id
+		          LEFT JOIN monster_collaboration_mapping acm1
+		            ON atk.monster_id_1 = acm1.collaboration_monster_id
+		          LEFT JOIN monster_collaboration_mapping acm2
+		            ON atk.monster_id_2 = acm2.collaboration_monster_id
+		          LEFT JOIN monster_collaboration_mapping acm3
+		            ON atk.monster_id_3 = acm3.collaboration_monster_id
+		         WHERE bll.guild_id = #{guild_id}::text
+		           AND SUBSTRING(bll.match_id, 1, 6) = #{season_yyyymm}::text
+		           AND EXISTS (
+		                 SELECT 1
+		                   FROM guild_siege_battle_log gsbl
+		                  WHERE gsbl.guild_id = bll.guild_id
+		                    AND gsbl.match_id = bll.match_id
+		               )
+		         GROUP BY 1, 2, 3, 4, 5, 6
+		       ) agg
+		  LEFT JOIN monster m1 ON agg.m1 = m1.monster_id
+		  LEFT JOIN monster m2 ON agg.m2 = m2.monster_id
+		  LEFT JOIN monster m3 ON agg.m3 = m3.monster_id
+		  LEFT JOIN monster_leaders ml ON m1.leader_id = ml.leader_id
 	</insert>
 
 	<insert id="insertGuildSiegeBattleLogBatch">
