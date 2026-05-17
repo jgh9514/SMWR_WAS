@@ -27,6 +27,17 @@
          WHERE bat_id = #{batId}
     </update>
 
+    <!-- 시너지 파티션 Producer용: pending rid 범위 조회 -->
+    <select id="selectSynergyPendingRidRange"
+            resultType="com.smw.monster.batch.queue.BatchQueueMapper$SynergyPendingRange">
+        /* selectSynergyPendingRidRange */
+        SELECT
+            MIN(replay_id) AS minRid,
+            MAX(replay_id) AS maxRid
+        FROM public.rta_match
+        WHERE synergy_applied_at IS NULL
+    </select>
+
     <!-- Worker: 마지막 실행 완료 시각 갱신 -->
     <update id="updateLastExecutedAt">
         /* updateLastExecutedAt */

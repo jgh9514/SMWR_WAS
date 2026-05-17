@@ -5,7 +5,9 @@ import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 
+import org.springframework.beans.BeansException;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.ApplicationContext;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -18,13 +20,16 @@ import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 
 /**
  * Redis 큐 기반 배치 Producer.
- * <p>
- * 1분마다 실행하되 ShedLock 으로 클러스터 전체에서 <strong>1대</strong>만 수행한다.
- * 각 배치의 {@code last_scheduled_at} ~ 현재 시각 사이 누락된 주기를 모두 계산해
- * {@code BATCH_WORK_QUEUE}(Redis LIST)에 LPUSH 한다 — Catch-up 로직.
- * <p>
- * dedup: {@code BATCH_ENQUEUED_SET}(Redis SET)으로 동일 batId+실행시각 중복 발행을 차단한다.
- * Worker가 RPOP 시 SET 에서 즉시 제거하므로, Worker 실패 후 재기동하면 다음 Producer 주기에 재발행된다.
+ *
+ * <p>1분마다 실행하되 ShedLock 으로 클러스터 전체에서 <strong>1대</strong>만 수행한다.
+ *
+ * <p><b>단순 배치</b>: {@link QueuedBatchJob} 구현 Bean → executionTime 단일 메시지 발행.
+ *
+ * <p><b>파티션 배치</b>: {@link PartitionedQueuedBatchJob} 구현 Bean → {@code createPartitions()}
+ * 를 호출해 파티션 키 목록을 얻고, 각 키를 별도 메시지로 발행.
+ * 여러 Worker(K8s + 로컬)가 병렬로 각 파티션을 처리한다.
+ *
+ * <p>dedup: {@code BATCH_ENQUEUED_SET}(Redis SET) 으로 동일 batId+시각(+파티션키) 중복 발행 차단.
  */
 @Slf4j
 @Service
@@ -32,23 +37,14 @@ import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 @ConditionalOnProperty(name = "smw.batch.queue.enabled", havingValue = "true")
 public class BatchQueueProducerService {
 
-    /** Redis LIST 키 — Worker 가 RPOP 으로 소비. */
     public static final String WORK_QUEUE   = "BATCH_WORK_QUEUE";
-    /** Redis SET 키 — 중복 발행 방지. TTL 로 자동 정리. */
     public static final String ENQUEUED_SET = "BATCH_ENQUEUED_SET";
-    /** dedup SET TTL: 가장 긴 interval * 3 정도면 안전. 2시간으로 고정. */
     private static final Duration DEDUP_TTL = Duration.ofHours(2);
 
-    private final StringRedisTemplate  redis;
-    private final BatchQueueMapper     queueMapper;
+    private final StringRedisTemplate redis;
+    private final BatchQueueMapper    queueMapper;
+    private final ApplicationContext  applicationContext;
 
-    /**
-     * 1분 주기 Producer.
-     * <ul>
-     *   <li>lockAtMostFor: 비정상 종료 시 55초 후 락 자동 해제 → 다음 주기에 다른 서버가 획득 가능</li>
-     *   <li>lockAtLeastFor: 빠른 완료 후에도 10초는 다른 서버가 획득 못 함 → 동시 발행 방지</li>
-     * </ul>
-     */
     @Scheduled(fixedRate = 60_000)
     @SchedulerLock(name = "BatchQueueProducer", lockAtMostFor = "55s", lockAtLeastFor = "10s")
     public void produce() {
@@ -66,35 +62,32 @@ public class BatchQueueProducerService {
         }
     }
 
-    // ──────────────────────────────────────────────────────────
+    // ──────────────────────────────────────────────────────────────────────────
     // private
-    // ──────────────────────────────────────────────────────────
+    // ──────────────────────────────────────────────────────────────────────────
 
     private void enqueueMissed(BatchQueueConfig cfg, LocalDateTime now) {
-        // last_scheduled_at 이 없으면 현재 주기 1개만 발행 (최초 기동)
         LocalDateTime base = cfg.lastScheduledAt() != null
                 ? cfg.lastScheduledAt()
                 : now.minusMinutes(cfg.intervalMinutes());
 
         LocalDateTime cursor    = base.plusMinutes(cfg.intervalMinutes());
         LocalDateTime lastAdded = null;
-        int           pushed    = 0;
+        int           total     = 0;
 
         while (!cursor.isAfter(now)) {
-            BatchWorkMessage msg = new BatchWorkMessage(cfg.batId(), cfg.jobClass(), cursor);
-            if (enqueueIfAbsent(msg)) {
-                pushed++;
+            int pushed = enqueueForTime(cfg, cursor);
+            if (pushed > 0) {
                 lastAdded = cursor;
+                total += pushed;
             }
             cursor = cursor.plusMinutes(cfg.intervalMinutes());
         }
 
         if (lastAdded != null) {
             queueMapper.updateLastScheduledAt(cfg.batId(), lastAdded);
-            if (pushed > 1) {
-                // catch-up: 누락 주기가 있었다는 의미
-                log.warn("[queue-producer] batId={} '{}' catch-up 발행 {}건 ({}~{})",
-                        cfg.batId(), cfg.batNm(), pushed, base.plusMinutes(cfg.intervalMinutes()), lastAdded);
+            if (total > 1) {
+                log.info("[queue-producer] batId={} '{}' 발행 {}건 (catch-up 포함)", cfg.batId(), cfg.batNm(), total);
             } else {
                 log.debug("[queue-producer] batId={} '{}' 발행 time={}", cfg.batId(), cfg.batNm(), lastAdded);
             }
@@ -102,10 +95,56 @@ public class BatchQueueProducerService {
     }
 
     /**
-     * dedup SET에 키가 없을 때만 LIST에 LPUSH.
+     * 하나의 executionTime에 대해 메시지를 발행한다.
+     * 파티션 배치이면 파티션 수만큼, 단순 배치이면 1건 발행.
      *
-     * @return true: 새로 발행 / false: 이미 발행됨(skip)
+     * @return 실제로 큐에 추가된 메시지 수
      */
+    private int enqueueForTime(BatchQueueConfig cfg, LocalDateTime executionTime) {
+        // 파티션 배치 여부 확인
+        PartitionedQueuedBatchJob partitioned = resolvePartitioned(cfg.jobClass());
+
+        if (partitioned != null) {
+            return enqueuePartitioned(cfg, executionTime, partitioned);
+        } else {
+            BatchWorkMessage msg = BatchWorkMessage.of(cfg.batId(), cfg.jobClass(), executionTime);
+            return enqueueIfAbsent(msg) ? 1 : 0;
+        }
+    }
+
+    /**
+     * 파티션 배치: createPartitions() 호출 → 각 파티션을 별도 메시지로 발행.
+     */
+    private int enqueuePartitioned(BatchQueueConfig cfg, LocalDateTime executionTime,
+                                   PartitionedQueuedBatchJob job) {
+        List<String> partitions;
+        try {
+            partitions = job.createPartitions(executionTime);
+        } catch (Exception e) {
+            log.error("[queue-producer] batId={} createPartitions 실패: {}", cfg.batId(), e.getMessage(), e);
+            return 0;
+        }
+
+        if (partitions == null || partitions.isEmpty()) {
+            log.debug("[queue-producer] batId={} '{}' 파티션 없음 (처리할 데이터 없음, time={})",
+                    cfg.batId(), cfg.batNm(), executionTime);
+            return 0;
+        }
+
+        int pushed = 0;
+        for (String partitionKey : partitions) {
+            BatchWorkMessage msg = BatchWorkMessage.ofPartition(
+                    cfg.batId(), cfg.jobClass(), executionTime, partitionKey);
+            if (enqueueIfAbsent(msg)) {
+                pushed++;
+                log.debug("[queue-producer] batId={} 파티션 발행 partition={}", cfg.batId(), partitionKey);
+            }
+        }
+        log.info("[queue-producer] batId={} '{}' 파티션 {}건 발행 (time={})",
+                cfg.batId(), cfg.batNm(), pushed, executionTime);
+        return pushed;
+    }
+
     private boolean enqueueIfAbsent(BatchWorkMessage msg) {
         Long added = redis.opsForSet().add(ENQUEUED_SET, msg.dedupeKey());
         if (added != null && added > 0) {
@@ -114,5 +153,15 @@ public class BatchQueueProducerService {
             return true;
         }
         return false;
+    }
+
+    /** Bean이 PartitionedQueuedBatchJob 인지 확인. 아니거나 못 찾으면 null. */
+    private PartitionedQueuedBatchJob resolvePartitioned(String beanName) {
+        try {
+            QueuedBatchJob bean = applicationContext.getBean(beanName, QueuedBatchJob.class);
+            return bean instanceof PartitionedQueuedBatchJob p ? p : null;
+        } catch (BeansException e) {
+            return null;
+        }
     }
 }

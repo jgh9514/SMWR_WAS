@@ -15,6 +15,16 @@
         LIMIT #{batchSize}
     </select>
 
+    <!-- 파티션 배치용: 특정 rid 구간 내 미집계 rid 조회 -->
+    <select id="selectPendingSynergyAggRidsBetween" resultType="long">
+        SELECT m.replay_id
+        FROM public.rta_match m
+        WHERE m.synergy_applied_at IS NULL
+          AND m.replay_id BETWEEN #{minRid} AND #{maxRid}
+        ORDER BY m.replay_id
+        LIMIT #{batchSize}
+    </select>
+
     <!-- 배치 drain 시작 직전: idx_rta_match_synergy_pending 강제 사용 -->
     <update id="hintBatchDisableSeqScan">
         SET enable_seqscan = OFF

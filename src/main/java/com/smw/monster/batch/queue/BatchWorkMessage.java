@@ -5,42 +5,65 @@ import java.time.format.DateTimeFormatter;
 
 /**
  * Redis BATCH_WORK_QUEUE에 저장되는 배치 일감 메시지.
- * <p>
- * 직렬화 형식: {@code "batId:jobClass:yyyyMMddHHmm"}
+ *
+ * <p>직렬화 형식:
  * <ul>
- *   <li>batId       — sys_batch_config.bat_id</li>
- *   <li>jobClass    — sys_batch_config.job_class (Spring Bean 이름)</li>
- *   <li>executionTime — 발행 기준 실행 시각(분 단위 절삭)</li>
+ *   <li>단순 배치: {@code "batId:jobClass:yyyyMMddHHmm"}</li>
+ *   <li>파티션 배치: {@code "batId:jobClass:yyyyMMddHHmm:partitionKey"}</li>
  * </ul>
+ * {@code partitionKey}는 Job이 자유롭게 정의. 예: {@code "100000-200000"} (minRid-maxRid)
  */
-public record BatchWorkMessage(long batId, String jobClass, LocalDateTime executionTime) {
-
+public record BatchWorkMessage(
+        long          batId,
+        String        jobClass,
+        LocalDateTime executionTime,
+        String        partitionKey       // null = 단순 배치
+) {
     private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("yyyyMMddHHmm");
+
+    /** 단순 배치 생성 */
+    public static BatchWorkMessage of(long batId, String jobClass, LocalDateTime executionTime) {
+        return new BatchWorkMessage(batId, jobClass, executionTime, null);
+    }
+
+    /** 파티션 배치 생성 */
+    public static BatchWorkMessage ofPartition(long batId, String jobClass,
+                                               LocalDateTime executionTime, String partitionKey) {
+        return new BatchWorkMessage(batId, jobClass, executionTime, partitionKey);
+    }
+
+    public boolean isPartitioned() {
+        return partitionKey != null;
+    }
 
     /** Redis LIST 저장 형식으로 직렬화. */
     public String serialize() {
-        return batId + ":" + jobClass + ":" + executionTime.format(FMT);
-    }
-
-    /** Redis에서 꺼낸 문자열을 파싱. */
-    public static BatchWorkMessage deserialize(String raw) {
-        // jobClass에 ':' 포함 가능 → 최대 3분할
-        int first = raw.indexOf(':');
-        int last  = raw.lastIndexOf(':');
-        if (first < 0 || first == last) {
-            throw new IllegalArgumentException("배치 메시지 형식 오류: " + raw);
-        }
-        long   batId         = Long.parseLong(raw.substring(0, first));
-        String jobClass      = raw.substring(first + 1, last);
-        LocalDateTime execTime = LocalDateTime.parse(raw.substring(last + 1), FMT);
-        return new BatchWorkMessage(batId, jobClass, execTime);
+        String base = batId + ":" + jobClass + ":" + executionTime.format(FMT);
+        return partitionKey != null ? base + ":" + partitionKey : base;
     }
 
     /**
-     * Redis SET(dedup) 저장 키.
-     * jobClass 제외 — 같은 batId·시각이면 동일 일감.
+     * Redis에서 꺼낸 문자열을 파싱.
+     * split limit=4 — jobClass(콜론 없음), time(12자리 숫자), 이후 전체가 partitionKey.
+     */
+    public static BatchWorkMessage deserialize(String raw) {
+        String[] parts = raw.split(":", 4);
+        if (parts.length < 3) {
+            throw new IllegalArgumentException("배치 메시지 형식 오류(최소 3세그먼트): " + raw);
+        }
+        long          batId         = Long.parseLong(parts[0]);
+        String        jobClass      = parts[1];
+        LocalDateTime executionTime = LocalDateTime.parse(parts[2], FMT);
+        String        partitionKey  = parts.length == 4 ? parts[3] : null;
+        return new BatchWorkMessage(batId, jobClass, executionTime, partitionKey);
+    }
+
+    /**
+     * dedup용 Redis SET 키.
+     * 파티션 배치는 파티션키까지 포함해야 같은 구간 중복 발행을 막는다.
      */
     public String dedupeKey() {
-        return batId + ":" + executionTime.format(FMT);
+        String base = batId + ":" + executionTime.format(FMT);
+        return partitionKey != null ? base + ":" + partitionKey : base;
     }
 }

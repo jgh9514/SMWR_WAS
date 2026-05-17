@@ -328,6 +328,11 @@ public interface RtaMapper {
     /** 시너지 미집계 rid ({@code rta_match.synergy_applied_at IS NULL}, rid 오름차순). 성공/실패는 {@code synergy_apply_result}. */
     List<Long> selectPendingSynergyAggRids(@Param("batchSize") int batchSize);
 
+    /** 파티션 배치용: 특정 rid 구간([minRid, maxRid]) 내 미집계 rid만 조회. */
+    List<Long> selectPendingSynergyAggRidsBetween(@Param("minRid") long minRid,
+                                                  @Param("maxRid") long maxRid,
+                                                  @Param("batchSize") int batchSize);
+
     /**
      * 세션 수준 {@code enable_seqscan = OFF} — {@code idx_rta_match_synergy_pending} 강제 사용.
      * drain 루프 진입 직전에 호출하고, 완료 후 {@link #hintBatchEnableSeqScan()} 으로 복원한다.

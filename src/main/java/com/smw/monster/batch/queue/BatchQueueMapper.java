@@ -32,6 +32,15 @@ public interface BatchQueueMapper {
     void updateLastExecutedAt(@Param("batId") long batId,
                               @Param("lastExecutedAt") LocalDateTime lastExecutedAt);
 
+    /**
+     * 시너지 파티션용: synergy_applied_at IS NULL 인 replay_id 의 MIN/MAX 조회.
+     * 처리할 데이터가 없으면 null 반환.
+     */
+    SynergyPendingRange selectSynergyPendingRidRange();
+
+    /** 시너지 pending rid 범위. */
+    record SynergyPendingRange(long minRid, long maxRid) {}
+
     /** 배치 설정 Row 매핑용 내부 레코드. */
     record BatchQueueConfig(
             long   batId,
