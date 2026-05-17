@@ -1,6 +1,7 @@
 package com.smw.monster.batch.queue;
 
 import org.springframework.beans.BeansException;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.ApplicationContext;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -30,6 +31,7 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 @Service
 @RequiredArgsConstructor
+@ConditionalOnProperty(name = "smw.batch.queue.enabled", havingValue = "true")
 public class BatchQueueWorkerService {
 
     private final StringRedisTemplate redis;
