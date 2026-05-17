@@ -156,32 +156,15 @@ public class ArenaRtaUploadCopyBulkService {
 
 	private static final String MERGE_UNIT = """
 			INSERT INTO public.rta_match_unit_pick (
-				replay_id, wizard_id, pick_slot_no, unit_master_id, is_banned, unit_name, unit_image
+				replay_id, wizard_id, pick_slot_no, unit_master_id, is_banned
 			)
 			SELECT
-				  base.replay_id
-				, base.wid
-				, base.pick_slot_no
-				, base.canonical_um
-				, base.is_banned
-				, mo.kr_name
-				, COALESCE(
-					NULLIF(mo.image_url, ''),
-					CASE WHEN mo.kr_name IS NOT NULL AND mo.monster_elemental IS NOT NULL THEN
-						'/images/' || mo.monster_elemental || '/'
-							|| replace(mo.kr_name, ' ', '_') || '_' || mo.monster_elemental || '_Icon.png'
-					ELSE NULL END
-				  )
-			FROM (
-				SELECT
-					  u.replay_id
-					, convert_from(decode(u.wz_hex, 'hex'), 'UTF8')::varchar AS wid
-					, u.pick_slot_no
-					, public.rta_canonical_unit_master_id(trim(convert_from(decode(u.um_hex, 'hex'), 'UTF8'))::bigint) AS canonical_um
-					, COALESCE(u.is_banned, false) AS is_banned
-				FROM tmp_arena_copy_unit u
-			) base
-			LEFT JOIN public.monster mo ON mo.monster_id = base.canonical_um::text
+				  u.replay_id
+				, convert_from(decode(u.wz_hex, 'hex'), 'UTF8')::varchar
+				, u.pick_slot_no
+				, public.rta_canonical_unit_master_id(trim(convert_from(decode(u.um_hex, 'hex'), 'UTF8'))::bigint)
+				, COALESCE(u.is_banned, false)
+			FROM tmp_arena_copy_unit u
 			ON CONFLICT (replay_id, wizard_id, pick_slot_no) DO NOTHING
 			""";
 

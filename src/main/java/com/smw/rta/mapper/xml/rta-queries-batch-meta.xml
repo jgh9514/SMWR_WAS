@@ -348,7 +348,8 @@
     </insert>
 
     <!--
-      검색 스냅: 시즌 비저장, wizard_id PK. 현재 시즌 participant 에서 대표 1행(래더 최고, 동률이면 replay_id 큰 쪽) upsert.
+      검색 스냅: 시즌 비저장, wizard_id PK. 현재 시즌 participant 에서 대표 1행(최신 replay 기준) upsert.
+      래더 점수가 아닌 replay_id DESC로 정렬해 닉네임 변경 후 최신 경기의 wizard_name을 반영한다.
       과거 시즌 항목은 삭제되지 않고 유지(upsert 방식). 닉/국가/channel_uid가 동일하면 DO UPDATE 스킵.
     -->
     <insert id="upsertRtaSummonerSearchSnap">
@@ -361,7 +362,7 @@
             FROM public.rta_match_participant mp
             WHERE mp.season_id = #{seasonId}
               AND mp.wizard_id &lt;&gt; ''
-            ORDER BY mp.wizard_id, mp.ladder_score DESC NULLS LAST, mp.replay_id DESC
+            ORDER BY mp.wizard_id, mp.replay_id DESC
         )
         INSERT INTO public.rta_agg_summoner_search_snap (wizard_id, wizard_name, country, channel_uid)
         SELECT p.wizard_id, p.wizard_name, p.country, p.channel_uid

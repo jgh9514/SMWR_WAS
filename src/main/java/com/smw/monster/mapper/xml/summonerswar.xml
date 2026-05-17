@@ -1296,30 +1296,21 @@
 
 	<insert id="insertArenaUnitInfoBulk">
 		INSERT INTO public.rta_match_unit_pick (
-			replay_id, wizard_id, pick_slot_no, unit_master_id, is_banned, unit_name, unit_image
-		)
-		SELECT
-			v.rid, v.wid, v.slot, v.umid, v.banned,
-			mo.kr_name,
-			COALESCE(
-				NULLIF(mo.image_url, ''),
-				CASE WHEN mo.kr_name IS NOT NULL AND mo.monster_elemental IS NOT NULL THEN
-					'/images/' || mo.monster_elemental || '/'
-						|| replace(mo.kr_name, ' ', '_') || '_' || mo.monster_elemental || '_Icon.png'
-				ELSE NULL END
-			)
-		FROM (VALUES
+			replay_id,
+			wizard_id,
+			pick_slot_no,
+			unit_master_id,
+			is_banned
+		) VALUES
 		<foreach collection="rows" item="m" separator=",">
 		(
-			#{m.rid}::bigint
-			, #{m.wizard_id}::varchar
+			#{m.rid}
+			, #{m.wizard_id}
 			, #{m.pick_slot_id}::smallint
 			, public.rta_canonical_unit_master_id(#{m.unit_master_id}::bigint)
 			, COALESCE(#{m.is_banned}::boolean, false)
 		)
 		</foreach>
-		) AS v(rid, wid, slot, umid, banned)
-		LEFT JOIN public.monster mo ON mo.monster_id = v.umid::text
 		ON CONFLICT (replay_id, wizard_id, pick_slot_no) DO NOTHING
 	</insert>
 
