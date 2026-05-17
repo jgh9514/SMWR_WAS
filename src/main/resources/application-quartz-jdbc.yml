@@ -20,4 +20,5 @@ spring:
       org.quartz.jobStore.useProperties: false
       org.quartz.jobStore.tablePrefix: QRTZ_
       org.quartz.jobStore.misfireThreshold: 120000
-      org.quartz.threadPool.threadCount: 12
+      # 배치 동시 실행 수 제한 — 커넥션 풀(28) 고갈 방지. 무거운 Job(COPY/MERGE)이 커넥션을 오래 점유하므로 보수적으로 설정
+      org.quartz.threadPool.threadCount: ${SMW_QUARTZ_THREAD_COUNT:4}

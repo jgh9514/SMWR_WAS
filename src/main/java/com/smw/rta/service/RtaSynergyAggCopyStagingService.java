@@ -27,8 +27,8 @@ import lombok.extern.slf4j.Slf4j;
  * TRUNCATE·COPY·MERGE·TRUNCATE 는 <strong>동일 {@link Connection}</strong>에서만 수행한다.
  * (COPY 로 적재한 스테이징을 MyBatis 가 다른 커넥션에서 읽으면 세션 불일치로 merge 가 0행이 될 수 있음 — log4jdbc 등.)
  * <p>
- * {@code staging_synergy_agg} 는 DB 전역 1개이므로, 동일 시점에 시너지 집계 Job 을 병렬로 돌리면 TRUNCATE/COPY 가 서로 간섭한다.
- * 통합 배치는 {@link org.quartz.DisallowConcurrentExecution} 으로 겹침을 막는 것이 안전하다.
+ * {@code staging_synergy_agg} 는 DB 전역 1개이므로, 동시에 여러 Job 이 진입하면 TRUNCATE/COPY 가 충돌한다.
+ * {@code pg_advisory_xact_lock(8674, 1)} 로 트랜잭션 범위 직렬화: 락은 TRUNCATE 직전에 획득하고 커밋·롤백 시 자동 해제.
  */
 @Service
 @RequiredArgsConstructor
@@ -60,6 +60,9 @@ public class RtaSynergyAggCopyStagingService {
 				// 집계 통계는 재계산 가능 → WAL fsync 대기 생략으로 커밋 속도 향상
 				st.execute("SET LOCAL synchronous_commit = off");
 				RtaAggStagingMergeTune.applyLockTimeoutForMerge(st, stagingMergeProperties);
+				// staging_synergy_agg 는 DB 전역 공유 — 동시 Job 진입 시 TRUNCATE 충돌 방지
+				// pg_advisory_xact_lock: 트랜잭션 종료(커밋/롤백) 시 자동 해제
+				st.execute("SELECT pg_advisory_xact_lock(8674, 1)");
 				st.execute(TRUNCATE_STAGING);
 			}
 			CopyManager copyManager = RtaPgCopySupport.unwrapPg(conn).getCopyAPI();

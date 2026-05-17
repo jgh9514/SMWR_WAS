@@ -28,7 +28,8 @@ import lombok.extern.slf4j.Slf4j;
  * <p>
  * TRUNCATE·COPY·MERGE·TRUNCATE 는 <strong>동일 {@link Connection}</strong>에서만 수행한다 (시너지 스테이징과 동일 이유).
  * <p>
- * 호출부는 동일 {@code rtaJdbcTransactionManager} 트랜잭션에 참여해야 하며, 스테이징 TRUNCATE·MERGE·후처리 TRUNCATE 가 한 커밋에 묶인다.
+ * {@code staging_matchup_agg} 는 DB 전역 공유 — 동시 Job 진입 시 TRUNCATE 충돌 방지를 위해
+ * {@code pg_advisory_xact_lock(8674, 2)} 로 트랜잭션 범위 직렬화한다.
  */
 @Service
 @RequiredArgsConstructor
@@ -76,6 +77,9 @@ public class RtaCounterMatchupCopyStagingService {
 				// 집계 통계는 재계산 가능 → WAL fsync 대기 생략으로 커밋 속도 향상
 				st.execute("SET LOCAL synchronous_commit = off");
 				RtaAggStagingMergeTune.applyLockTimeoutForMerge(st, stagingMergeProperties);
+				// staging_matchup_agg 는 DB 전역 공유 — 동시 Job 진입 시 TRUNCATE 충돌 방지
+				// pg_advisory_xact_lock: 트랜잭션 종료(커밋/롤백) 시 자동 해제
+				st.execute("SELECT pg_advisory_xact_lock(8674, 2)");
 				st.execute(TRUNCATE_STAGING);
 			}
 			CopyManager copyManager = RtaPgCopySupport.unwrapPg(conn).getCopyAPI();
