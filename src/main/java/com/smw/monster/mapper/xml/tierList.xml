@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.smw.monster.mapper.TierListMapper">
+
+    <select id="selectTierListByUser" parameterType="map" resultType="map">
+        SELECT
+            id,
+            user_id,
+            title,
+            tier_data,
+            created_at,
+            updated_at
+        FROM tier_list_history
+        WHERE user_id = #{user_id}
+        ORDER BY updated_at DESC
+        LIMIT 50
+    </select>
+
+    <select id="selectTierListById" parameterType="map" resultType="map">
+        SELECT
+            id,
+            user_id,
+            title,
+            tier_data,
+            created_at,
+            updated_at
+        FROM tier_list_history
+        WHERE id = #{id}
+          AND user_id = #{user_id}
+    </select>
+
+    <insert id="insertTierList" parameterType="map" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO tier_list_history (user_id, title, tier_data, created_at, updated_at)
+        VALUES (#{user_id}, #{title}, #{tier_data}, NOW(), NOW())
+    </insert>
+
+    <update id="updateTierList" parameterType="map">
+        UPDATE tier_list_history
+        SET
+            title      = #{title},
+            tier_data  = #{tier_data},
+            updated_at = NOW()
+        WHERE id      = #{id}
+          AND user_id = #{user_id}
+    </update>
+
+    <delete id="deleteTierList" parameterType="map">
+        DELETE FROM tier_list_history
+        WHERE id      = #{id}
+          AND user_id = #{user_id}
+    </delete>
+
+</mapper>
