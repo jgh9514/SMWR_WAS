@@ -105,8 +105,8 @@ public class BatchQueueProducerService {
      * @return true: 새로 발행 / false: 이미 발행됨(skip)
      */
     private boolean enqueueIfAbsent(BatchWorkMessage msg) {
-        Boolean isNew = redis.opsForSet().add(ENQUEUED_SET, msg.dedupeKey());
-        if (Boolean.TRUE.equals(isNew)) {
+        Long added = redis.opsForSet().add(ENQUEUED_SET, msg.dedupeKey());
+        if (added != null && added > 0) {
             redis.expire(ENQUEUED_SET, DEDUP_TTL);
             redis.opsForList().leftPush(WORK_QUEUE, msg.serialize());
             return true;
