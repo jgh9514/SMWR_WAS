@@ -1375,6 +1375,25 @@
         LIMIT 1
     </select>
 
+    <select id="listRtaPlayerWizardNameHistory" resultType="map">
+        /* rta-queries-live.listRtaPlayerWizardNameHistory */
+        SELECT
+            p.wizard_name,
+            MIN(p.played_at) AS first_seen_at,
+            MAX(p.played_at) AS last_seen_at,
+            COUNT(DISTINCT p.replay_id)::bigint AS match_count
+        FROM public.rta_match_participant p
+        WHERE p.wizard_id = #{wizardId}
+          AND p.wizard_name IS NOT NULL
+          AND p.wizard_name &lt;&gt; ''
+        <if test="seasonId != null">
+          AND p.season_id = #{seasonId}
+        </if>
+        GROUP BY p.wizard_name
+        ORDER BY MAX(p.played_at) DESC NULLS LAST, p.wizard_name
+        LIMIT #{limit}
+    </select>
+
     <select id="getRtaPlayerSeasonFightSnapFromAgg" resultType="map">
         /* rta-queries-live.getRtaPlayerSeasonFightSnapFromAgg
            snap에 non_ban_pick_cnt·ban_event_cnt가 있으면 picks CTE 생략.
@@ -1543,6 +1562,23 @@
         JOIN tot_by_side ts ON ts.team_side = j.team_side
         ORDER BY j.team_side ASC, j.pick_slot_no ASC
         LIMIT 10
+    </select>
+
+    <!-- 소환사 일별 점수 추이 — rta_agg_summoner_score_daily_snap only (no live fallback) -->
+    <select id="listRtaPlayerScoreDailySnap" resultType="map">
+        /* rta-queries-live.listRtaPlayerScoreDailySnap */
+        SELECT
+            d.snap_date,
+            d.end_of_day_score AS score,
+            d.match_cnt,
+            d.win_cnt,
+            d.lose_cnt,
+            (d.end_of_day_score - LAG(d.end_of_day_score) OVER (ORDER BY d.snap_date))::int AS score_delta
+        FROM public.rta_agg_summoner_score_daily_snap d
+        WHERE d.season_id = #{seasonId}
+          AND d.wizard_id = #{wizardId}
+        ORDER BY d.snap_date ASC
+        LIMIT #{limit}
     </select>
 
     <!-- 시즌 전체 상대 H2H — 배치 rta_agg_summoner_opponent_h2h_snap (라이브 집계 없음) -->
@@ -1932,6 +1968,8 @@
 
     <!-- ============================================================
          getRtaMonsterPickSlots  — 슬롯별 픽 집계
+         ratingId=null(전체 티어): 배치가 적재한 rating_id=-1 행만 조회 (티어별 다중 행·UI 덮어쓰기 방지).
+         복수 티어 선택은 getRtaMonsterPickSlotsByIds.
     ============================================================ -->
     <select id="getRtaMonsterPickSlots" resultType="map">
         /* rta-queries-live.getRtaMonsterPickSlots */
@@ -1951,7 +1989,10 @@
         FROM public.rta_agg_monster_pick_slot_snap ps
         WHERE ps.unit_master_id = #{monsterId}
           AND ps.season_id = #{seasonId}
-          <if test="ratingId != null">AND ps.rating_id = #{ratingId}</if>
+          <choose>
+              <when test="ratingId == null">AND ps.rating_id = -1</when>
+              <otherwise>AND ps.rating_id = #{ratingId}</otherwise>
+          </choose>
         ORDER BY ps.team_side, ps.pick_slot_no
     </select>
 

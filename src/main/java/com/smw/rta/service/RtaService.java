@@ -108,6 +108,16 @@ public interface RtaService {
     Map<String, Object> getRtaPlayerSummary(String wizardId, Long seasonId);
 
     /**
+     * 수집 리플레이 기준 과거 닉네임 목록 — {@code rta_match_participant} DISTINCT wizard_name.
+     */
+    Map<String, Object> getRtaPlayerNameHistory(String wizardId, Long seasonId);
+
+    /**
+     * 소환사 시즌 일별 점수·승패 — {@code rta_agg_summoner_score_daily_snap} only.
+     */
+    Map<String, Object> getRtaPlayerScoreDaily(String wizardId, Long seasonId);
+
+    /**
      * RTA 소환사별 몬스터 사용(픽/밴/승/선첫비밴/보유) — 배치
      * {@code rta_agg_summoner_monster_snap}, 분모 {@code rta_agg_summoner_season_fight_snap}.
      */

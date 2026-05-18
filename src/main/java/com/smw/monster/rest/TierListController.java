@@ -93,8 +93,8 @@ public class TierListController {
         insertParam.put("title", title);
         insertParam.put("tier_data", tierData);
 
-        int result = tierListMapper.insertTierList(insertParam);
-        if (result < 1) return fail("저장에 실패했습니다.");
+        tierListMapper.insertTierList(insertParam);
+        if (insertParam.get("id") == null) return fail("저장에 실패했습니다.");
 
         return ok(insertParam.get("id"));
     }
@@ -120,9 +120,12 @@ public class TierListController {
         updateParam.put("title", title);
         updateParam.put("tier_data", tierData);
 
-        int result = tierListMapper.updateTierList(updateParam);
-        if (result < 1) return fail("수정 권한이 없거나 존재하지 않습니다.");
+        Map<String, Object> checkParam = new HashMap<>();
+        checkParam.put("id", Long.parseLong(idObj.toString()));
+        checkParam.put("user_id", userId);
+        if (tierListMapper.selectTierListById(checkParam) == null) return fail("수정 권한이 없거나 존재하지 않습니다.");
 
+        tierListMapper.updateTierList(updateParam);
         return ok(null);
     }
 
@@ -140,9 +143,9 @@ public class TierListController {
         deleteParam.put("id", Long.parseLong(idObj.toString()));
         deleteParam.put("user_id", userId);
 
-        int result = tierListMapper.deleteTierList(deleteParam);
-        if (result < 1) return fail("삭제 권한이 없거나 존재하지 않습니다.");
+        if (tierListMapper.selectTierListById(deleteParam) == null) return fail("삭제 권한이 없거나 존재하지 않습니다.");
 
+        tierListMapper.deleteTierList(deleteParam);
         return ok(null);
     }
 }

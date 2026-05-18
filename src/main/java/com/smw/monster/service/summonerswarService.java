@@ -55,6 +55,12 @@ public interface summonerswarService {
 
 	/** view_battle_deck_info 다건 INSERT */
 	int insertGuildSiegeBattleDeckBatch(List<Map<String, String>> rows);
+
+	/**
+	 * siege_defense_deck_stats 를 길드·시즌(YYYYMM) 단위로 battle_log_list 에서 재집계합니다.
+	 * 점령전 업로드 직후 호출해 /siege 목록(집계 테이블 경로)과 라이브 로그를 맞춥니다.
+	 */
+	void refreshSiegeDefenseDeckStatsForGuildSeason(String guildId, String seasonYyyymm);
 	
 	/** DB에 이미 존하는 rid 집합 (IN 절 분할 조회) */
 	Set<Long> selectArenaRidsExisting(Collection<Long> rids);

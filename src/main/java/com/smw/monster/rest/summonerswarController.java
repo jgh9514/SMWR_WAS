@@ -472,6 +472,30 @@ public class summonerswarController {
     			log.info("[siege-upload] insertGuildSiegeBattleDeckBatch rows={} (단건 insertGuildSiegeBattleDeck 아님)", pendingDecks.size());
     			swService.insertGuildSiegeBattleDeckBatch(pendingDecks);
     		}
+    		if (!pendingBattles.isEmpty()) {
+    			java.util.Set<String> guildSeasonKeys = new java.util.LinkedHashSet<>();
+    			for (Map<String, ?> battle : pendingBattles) {
+    				Object matchIdObj = battle.get("match_id");
+    				Object guildIdObj = battle.get("guild_id");
+    				if (matchIdObj == null || guildIdObj == null) {
+    					continue;
+    				}
+    				String matchId = matchIdObj.toString().trim();
+    				if (matchId.length() < 6) {
+    					continue;
+    				}
+    				guildSeasonKeys.add(guildIdObj.toString().trim() + "|" + matchId.substring(0, 6));
+    			}
+    			for (String guildSeasonKey : guildSeasonKeys) {
+    				int sep = guildSeasonKey.indexOf('|');
+    				if (sep <= 0 || sep >= guildSeasonKey.length() - 1) {
+    					continue;
+    				}
+    				swService.refreshSiegeDefenseDeckStatsForGuildSeason(
+    						guildSeasonKey.substring(0, sep),
+    						guildSeasonKey.substring(sep + 1));
+    			}
+    		}
     	}
     	
     	Map<String, Object> result = new HashMap<>();

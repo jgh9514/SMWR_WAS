@@ -615,6 +615,49 @@ public class RtaServiceImpl implements RtaService {
         return response;
     }
 
+    private static final int RTA_PLAYER_NAME_HISTORY_MAX_ROWS = 30;
+
+    @Override
+    @Cacheable(cacheNames = "rtaRanking", cacheManager = "rtaShortLivedCacheManager",
+            key = "'pnh_' + (#seasonId != null ? #seasonId : 'all') + '_' + #wizardId")
+    public Map<String, Object> getRtaPlayerNameHistory(String wizardId, Long seasonId) {
+        Map<String, Object> out = new HashMap<>();
+        Long sid = seasonId != null ? doResolveSeasonId(seasonId) : null;
+        out.put("seasonId", sid);
+        if (wizardId == null || wizardId.trim().isEmpty()) {
+            out.put("wizardId", "");
+            out.put("rows", Collections.emptyList());
+            return out;
+        }
+        String wid = wizardId.trim();
+        out.put("wizardId", wid);
+        List<Map<String, Object>> raw = rtaMapper.listRtaPlayerWizardNameHistory(wid, sid, RTA_PLAYER_NAME_HISTORY_MAX_ROWS);
+        out.put("rows", raw != null ? raw : Collections.emptyList());
+        return out;
+    }
+
+    /** 시즌 일수 상한(약 120일) + 여유 */
+    private static final int RTA_PLAYER_SCORE_DAILY_MAX_ROWS = 400;
+
+    @Override
+    @Cacheable(cacheNames = "rtaRanking", cacheManager = "rtaShortLivedCacheManager",
+            key = "'psd_' + #seasonId + '_' + #wizardId")
+    public Map<String, Object> getRtaPlayerScoreDaily(String wizardId, Long seasonId) {
+        Map<String, Object> out = new HashMap<>();
+        Long sid = doResolveSeasonId(seasonId);
+        out.put("seasonId", sid);
+        if (wizardId == null || wizardId.trim().isEmpty() || sid == null) {
+            out.put("wizardId", wizardId == null ? "" : wizardId.trim());
+            out.put("rows", Collections.emptyList());
+            return out;
+        }
+        String wid = wizardId.trim();
+        out.put("wizardId", wid);
+        List<Map<String, Object>> raw = rtaMapper.listRtaPlayerScoreDailySnap(wid, sid.longValue(), RTA_PLAYER_SCORE_DAILY_MAX_ROWS);
+        out.put("rows", raw != null ? raw : Collections.emptyList());
+        return out;
+    }
+
     @Override
     @Cacheable(cacheNames = "rtaRanking", cacheManager = "rtaShortLivedCacheManager",
             key = "'pmon_' + (#seasonId != null ? #seasonId : 'd') + '_' + #wizardId")

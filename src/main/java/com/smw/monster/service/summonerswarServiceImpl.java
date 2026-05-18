@@ -30,6 +30,7 @@ import javax.sql.DataSource;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.context.annotation.Primary;
 import org.springframework.jdbc.datasource.DataSourceUtils;
@@ -109,7 +110,16 @@ public class summonerswarServiceImpl implements summonerswarService {
 	private volatile long rtaSeasonMappingCacheLoadedAtMs;
 	private static final long RTA_SEASON_CACHE_TTL_MS = 60_000L;
 
-	
+	@Value("${smw.siege.use-defense-deck-stats:false}")
+	private boolean useSiegeDefenseDeckStats;
+
+	private void applySiegeDeckStatsQueryFlag(Map<String, Object> param) {
+		if (param == null) {
+			return;
+		}
+		param.put("use_siege_defense_deck_stats", useSiegeDefenseDeckStats ? "Y" : "N");
+	}
+
 	@Override
 	@Cacheable(
 		cacheNames = "monsterList",
@@ -124,6 +134,7 @@ public class summonerswarServiceImpl implements summonerswarService {
 	public List<Map<String, ?>> selectEnemyTeamList(Map<String, Object> param) {
 		expandMonsterIdsToIncludeCollaborations(param);
 		ensurePagingOffset(param);
+		applySiegeDeckStatsQueryFlag(param);
 		return swMapper.selectEnemyTeamList(param);
 	}
 
@@ -221,6 +232,7 @@ public class summonerswarServiceImpl implements summonerswarService {
 	@Override
 	public int selectTotalPageCount(Map<String, Object> param) {
 		expandMonsterIdsToIncludeCollaborations(param);
+		applySiegeDeckStatsQueryFlag(param);
 		return swMapper.selectTotalPageCount(param);
 	}
 	
@@ -232,6 +244,19 @@ public class summonerswarServiceImpl implements summonerswarService {
 	@Override
 	public int upsertSiegeDefenseDeckManual(Map<String, Object> param) {
 		return swMapper.upsertSiegeDefenseDeckManual(param);
+	}
+
+	@Override
+	@Transactional
+	public void refreshSiegeDefenseDeckStatsForGuildSeason(String guildId, String seasonYyyymm) {
+		if (guildId == null || guildId.isBlank() || seasonYyyymm == null || seasonYyyymm.length() != 6) {
+			return;
+		}
+		Map<String, Object> param = new HashMap<>();
+		param.put("guild_id", guildId.trim());
+		param.put("season_yyyymm", seasonYyyymm.trim());
+		swMapper.deleteSiegeDefenseDeckStatsByGuildSeason(param);
+		swMapper.insertSiegeDefenseDeckStatsFromBattleLogs(param);
 	}
 	
 	@Override

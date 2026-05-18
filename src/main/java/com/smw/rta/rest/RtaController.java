@@ -260,6 +260,36 @@ public class RtaController {
         }
     }
 
+    @Operation(summary = "RTA 소환사 과거 닉네임",
+            description = "수집 리플레이 participant 기준 DISTINCT wizard_name (최근 사용 순)")
+    @PostMapping("/player/{wizardId}/name-history")
+    public ResponseEntity<Map<String, Object>> getRtaPlayerNameHistory(
+            @PathVariable String wizardId,
+            @RequestBody(required = false) Map<String, Object> param) {
+        try {
+            Long sid = pickSeasonId(param);
+            return ResponseEntity.ok(rtaService.getRtaPlayerNameHistory(wizardId, sid));
+        } catch (Exception e) {
+            log.error("RTA player name-history 조회 실패 wizardId={}", wizardId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    @Operation(summary = "RTA 소환사 일별 점수 추이(스냅)",
+            description = "시즌×일(KST) end_of_day_score·승패·전일 대비. rta_agg_summoner_score_daily_snap only")
+    @PostMapping("/player/{wizardId}/score-daily")
+    public ResponseEntity<Map<String, Object>> getRtaPlayerScoreDaily(
+            @PathVariable String wizardId,
+            @RequestBody(required = false) Map<String, Object> param) {
+        try {
+            Long sid = pickSeasonId(param);
+            return ResponseEntity.ok(rtaService.getRtaPlayerScoreDaily(wizardId, sid));
+        } catch (Exception e) {
+            log.error("RTA player score-daily 조회 실패 wizardId={}", wizardId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
     @Operation(summary = "RTA 소환사 몬스터 사용(스냅)", description = "시즌별 픽/밴/승/선첫비밴/보유 — rta_agg_summoner_monster_snap")
     @PostMapping("/player/{wizardId}/monster-usage")
     public ResponseEntity<Map<String, Object>> getRtaPlayerMonsterUsage(

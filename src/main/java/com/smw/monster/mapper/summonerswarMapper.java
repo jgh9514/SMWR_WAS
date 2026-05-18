@@ -62,6 +62,11 @@ public interface summonerswarMapper {
 
 	/** view_battle_deck_info 다건 INSERT */
 	int insertGuildSiegeBattleDeckBatch(@Param("rows") List<Map<String, String>> rows);
+
+	/** 길드·시즌(YYYYMM) 단위 방덱 집계 삭제 후 battle_log_list 기준 재적재 */
+	int deleteSiegeDefenseDeckStatsByGuildSeason(Map<String, Object> param);
+
+	int insertSiegeDefenseDeckStatsFromBattleLogs(Map<String, Object> param);
 	
 	/** RTA 시즌 구간 매핑용 전체 행 (행마다 INSERT 서브쿼리 대비) */
 	List<Map<String, ?>> selectRtaSeasonsForRtaMatchMapping();
