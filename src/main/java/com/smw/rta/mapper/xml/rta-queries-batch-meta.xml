@@ -1051,6 +1051,71 @@
             computed_at       = EXCLUDED.computed_at
     </insert>
 
+    <select id="selectFightSnapMaxComputedAtForSeason" resultType="java.lang.Long">
+        /* rta-queries-batch-meta.selectFightSnapMaxComputedAtForSeason — 쓰로틀: 최근 집계 시각(epoch ms) */
+        SELECT CAST(EXTRACT(EPOCH FROM MAX(computed_at)) * 1000 AS BIGINT)
+          FROM public.rta_agg_summoner_season_fight_snap
+         WHERE season_id = #{seasonId}
+    </select>
+
+    <insert id="insertRtaSummonerFightSnapForStagingReplays">
+        /* rta-queries-batch-meta.insertRtaSummonerFightSnapForStagingReplays
+           staging_rta_summoner_snap_rid 의 replay_id 만 집계해 ADD-UPSERT (누적).
+           청크 트랜잭션 내에서 호출 — staging 은 현재 청크 rids 로 채워진 상태여야 함.
+           ON CONFLICT: 기존 행에 이번 청크 분을 누적(overwrite 아님). */
+        INSERT INTO public.rta_agg_summoner_season_fight_snap (
+            season_id, wizard_id, match_cnt, win_cnt, non_ban_pick_cnt, ban_event_cnt, computed_at
+        )
+        WITH staged AS (
+            SELECT s.replay_id
+              FROM public.staging_rta_summoner_snap_rid s
+             WHERE s.season_id = #{seasonId}
+        ),
+        part AS (
+            SELECT
+                mp.season_id,
+                mp.wizard_id,
+                COUNT(DISTINCT mp.replay_id)::bigint                                          AS match_cnt,
+                COUNT(DISTINCT CASE WHEN mp.is_winner IS TRUE THEN mp.replay_id END)::bigint  AS win_cnt
+              FROM public.rta_match_participant mp
+             INNER JOIN staged ON staged.replay_id = mp.replay_id
+             WHERE mp.season_id = #{seasonId}
+             GROUP BY mp.season_id, mp.wizard_id
+        ),
+        picks AS (
+            SELECT
+                mp.season_id,
+                mp.wizard_id,
+                SUM(CASE WHEN NOT up.is_banned THEN 1 ELSE 0 END)::bigint AS non_ban_pick_cnt,
+                SUM(CASE WHEN     up.is_banned THEN 1 ELSE 0 END)::bigint AS ban_event_cnt
+              FROM public.rta_match_unit_pick up
+             INNER JOIN public.rta_match_participant mp
+                     ON mp.replay_id = up.replay_id
+                    AND mp.wizard_id = up.wizard_id
+             INNER JOIN staged ON staged.replay_id = mp.replay_id
+             WHERE mp.season_id = #{seasonId}
+             GROUP BY mp.season_id, mp.wizard_id
+        )
+        SELECT
+            p.season_id,
+            p.wizard_id,
+            p.match_cnt,
+            p.win_cnt,
+            COALESCE(pk.non_ban_pick_cnt, 0::bigint),
+            COALESCE(pk.ban_event_cnt,    0::bigint),
+            CURRENT_TIMESTAMP
+          FROM part p
+          LEFT JOIN picks pk
+                 ON pk.season_id = p.season_id
+                AND pk.wizard_id = p.wizard_id
+        ON CONFLICT ON CONSTRAINT rta_agg_summoner_season_fight_snap_pkey DO UPDATE SET
+            match_cnt        = rta_agg_summoner_season_fight_snap.match_cnt        + EXCLUDED.match_cnt,
+            win_cnt          = rta_agg_summoner_season_fight_snap.win_cnt          + EXCLUDED.win_cnt,
+            non_ban_pick_cnt = rta_agg_summoner_season_fight_snap.non_ban_pick_cnt + EXCLUDED.non_ban_pick_cnt,
+            ban_event_cnt    = rta_agg_summoner_season_fight_snap.ban_event_cnt    + EXCLUDED.ban_event_cnt,
+            computed_at      = EXCLUDED.computed_at
+    </insert>
+
     <!--
       소환사×몬스터 스냅: 시즌 전량을 한 문에 집계하면 I/O·work_mem·JDBC "sending" 오류가 날 수 있어
       스테이징 rid 청크로 집계 — INSERT 전 {@code truncateStagingRtaSummonerSnapRid} + {@code insertStagingRtaSummonerSnapRidBatch} 필수.
@@ -1544,6 +1609,92 @@
                 ban_cnt   = EXCLUDED.ban_cnt,
                 lead_cnt  = EXCLUDED.lead_cnt,
                 field_cnt = EXCLUDED.field_cnt
+    </insert>
+
+    <!-- ============================================================
+         rta_agg_summoner_score_daily_snap — 소환사 일별 점수·승패
+         KST 일자. 시즌 중반 배포 시 participant 있는 누락 일자 소급 적재.
+    ============================================================ -->
+    <select id="selectMissingSummonerScoreDailySnapDates" resultType="string">
+        /* rta-queries-batch-meta.selectMissingSummonerScoreDailySnapDates */
+        SELECT gs::date::text AS snap_date
+        FROM generate_series(
+            #{fromDate}::date,
+            (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')::date,
+            INTERVAL '1 day'
+        ) AS gs
+        WHERE EXISTS (
+            SELECT 1
+            FROM public.rta_match_participant p
+            WHERE p.season_id = #{seasonId}
+              AND (p.played_at AT TIME ZONE 'Asia/Seoul')::date = gs::date
+        )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM public.rta_agg_summoner_score_daily_snap s
+            WHERE s.season_id = #{seasonId}
+              AND s.snap_date = gs::date
+        )
+        ORDER BY gs
+    </select>
+
+    <insert id="insertRtaSummonerScoreDailySnapForDate">
+        /* rta-queries-batch-meta.insertRtaSummonerScoreDailySnapForDate */
+        INSERT INTO public.rta_agg_summoner_score_daily_snap (
+            season_id,
+            wizard_id,
+            snap_date,
+            end_of_day_score,
+            match_cnt,
+            win_cnt,
+            lose_cnt,
+            computed_at
+        )
+        WITH day_matches AS (
+            SELECT DISTINCT ON (p.replay_id, p.wizard_id)
+                p.wizard_id,
+                p.replay_id,
+                COALESCE(p.ladder_score, 0)::int AS ladder_score,
+                p.is_winner,
+                p.played_at
+            FROM public.rta_match_participant p
+            WHERE p.season_id = #{seasonId}
+              AND (p.played_at AT TIME ZONE 'Asia/Seoul')::date = #{snapDate}::date
+            ORDER BY p.replay_id, p.wizard_id, p.played_at DESC NULLS LAST, p.replay_id DESC
+        ),
+        per_wizard AS (
+            SELECT
+                dm.wizard_id,
+                COUNT(DISTINCT dm.replay_id)::bigint AS match_cnt,
+                COUNT(DISTINCT dm.replay_id) FILTER (WHERE dm.is_winner IS TRUE)::bigint AS win_cnt,
+                COUNT(DISTINCT dm.replay_id) FILTER (WHERE dm.is_winner IS NOT TRUE)::bigint AS lose_cnt
+            FROM day_matches dm
+            GROUP BY dm.wizard_id
+        ),
+        last_score AS (
+            SELECT DISTINCT ON (dm.wizard_id)
+                dm.wizard_id,
+                dm.ladder_score AS end_of_day_score
+            FROM day_matches dm
+            ORDER BY dm.wizard_id, dm.played_at DESC NULLS LAST, dm.replay_id DESC
+        )
+        SELECT
+            #{seasonId}::bigint AS season_id,
+            pw.wizard_id,
+            #{snapDate}::date AS snap_date,
+            ls.end_of_day_score,
+            pw.match_cnt,
+            pw.win_cnt,
+            pw.lose_cnt,
+            now() AS computed_at
+        FROM per_wizard pw
+        INNER JOIN last_score ls ON ls.wizard_id = pw.wizard_id
+        ON CONFLICT (season_id, wizard_id, snap_date) DO UPDATE SET
+            end_of_day_score = EXCLUDED.end_of_day_score,
+            match_cnt = EXCLUDED.match_cnt,
+            win_cnt = EXCLUDED.win_cnt,
+            lose_cnt = EXCLUDED.lose_cnt,
+            computed_at = EXCLUDED.computed_at
     </insert>
 
     <!-- ============================================================

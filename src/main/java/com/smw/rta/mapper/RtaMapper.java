@@ -4,6 +4,7 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
@@ -239,8 +240,14 @@ public interface RtaMapper {
 
     Long countRtaSummonerOpponentH2hSnapRows();
 
-    /** 시즌 단위: {@code rta_agg_summoner_season_fight_snap} 적재 */
+    /** 시즌 단위: {@code rta_agg_summoner_season_fight_snap} 적재 (전체 재집계 — 레거시; 청크 방식으로 대체됨) */
     int insertRtaSummonerSeasonFightSnapForSeason(@Param("seasonId") long seasonId);
+
+    /** 쓰로틀용: 해당 시즌 fight snap 의 MAX(computed_at) epoch ms. 행 없으면 null. */
+    Long selectFightSnapMaxComputedAtForSeason(@Param("seasonId") long seasonId);
+
+    /** 청크 증분: staging_rta_summoner_snap_rid 의 replay_id 기준 ADD-UPSERT (청크 트랜잭션 내 호출) */
+    int insertRtaSummonerFightSnapForStagingReplays(@Param("seasonId") long seasonId);
 
     /**
      * 키셋: 시즌 내 {@code summoner_ranking_apply_result IS NULL} 인 {@code rta_match.replay_id} 중

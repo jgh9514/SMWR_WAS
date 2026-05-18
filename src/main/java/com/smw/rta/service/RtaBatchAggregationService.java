@@ -124,14 +124,29 @@ public class RtaBatchAggregationService {
 		int ownedBoxUpserts = 0;
 		int opponentH2hInserts = 0;
 		for (long sid : targetSeasons) {
+			// A — 쓰로틀: fight snap 행이 이미 있으면 전체 재집계(7.5M 풀스캔) 생략.
+			//   행이 없을 때만 초기 seeding 시도 → 실패해도 warn 에 그침(청크가 점진적으로 채움).
+			// B — 증분: 청크 트랜잭션 내에서 staging replay 기준 ADD-UPSERT 로 누적.
 			long tf = System.nanoTime();
-			fightRows += insertFightSnapWithRetry(rtaMapper, sid);
+			Long lastFightMs = rtaMapper.selectFightSnapMaxComputedAtForSeason(sid);
+			if (lastFightMs != null) {
+				log.info("[fight-snap] seasonId={} 기존 스냅 존재(lastComputed={}ms) — 전체 재집계 생략, 청크 증분으로 갱신", sid, lastFightMs);
+			} else {
+				// 행이 전혀 없는 경우에만 전체 재집계로 초기 seeding.
+				// 실패하면 warn 처리 — 청크 증분이 점진적으로 채워줌.
+				try {
+					fightRows += insertFightSnapWithRetry(rtaMapper, sid);
+				} catch (Exception e) {
+					log.warn("[fight-snap] seasonId={} 초기 seeding 실패 — 청크 증분으로 점진적 복구 진행: {}", sid, e.getMessage());
+				}
+			}
 			perf.addFightSnapUpsertMs(msSinceNanos(tf));
 
 			ChunkTotals ct = insertSummonerMonsterAndPickTurnSnapForSeasonChunked(rtaMapper, sid, perf);
 			monRows += ct.monsterInserted;
 			pickTurnRows += ct.pickTurnInserted;
 			ownedBoxUpserts += ct.ownedBoxUpserted;
+			fightRows += ct.fightSnapUpserted;
 
 			long th = System.nanoTime();
 			opponentH2hInserts += replaceOpponentH2hSnapForSeasons(rtaMapper, List.of(sid));
@@ -160,8 +175,10 @@ public class RtaBatchAggregationService {
 						Thread.currentThread().interrupt();
 						throw new RuntimeException("fight snap 재시도 중 인터럽트", ie);
 					}
-					log.warn("[fight-snap] 재시도 {}/{} (seasonId={}, error={})",
-							attempt, maxAttempts, seasonId, e.getMessage());
+					Throwable cause = e.getCause() != null ? e.getCause() : e;
+					log.warn("[fight-snap] 재시도 {}/{} (seasonId={}) error={} cause={} sqlState={}",
+							attempt, maxAttempts, seasonId, e.getMessage(), cause.getMessage(),
+							cause instanceof java.sql.SQLException ? ((java.sql.SQLException) cause).getSQLState() : "N/A");
 				}
 			}
 		}
@@ -245,11 +262,13 @@ public class RtaBatchAggregationService {
 		final int monsterInserted;
 		final int pickTurnInserted;
 		final int ownedBoxUpserted;
+		final int fightSnapUpserted;
 
-		ChunkTotals(int monsterInserted, int pickTurnInserted, int ownedBoxUpserted) {
+		ChunkTotals(int monsterInserted, int pickTurnInserted, int ownedBoxUpserted, int fightSnapUpserted) {
 			this.monsterInserted = monsterInserted;
 			this.pickTurnInserted = pickTurnInserted;
 			this.ownedBoxUpserted = ownedBoxUpserted;
+			this.fightSnapUpserted = fightSnapUpserted;
 		}
 	}
 
@@ -263,6 +282,7 @@ public class RtaBatchAggregationService {
 		int monTotal = 0;
 		int pickTurnTotal = 0;
 		int ownedBoxTotal = 0;
+		int fightTotal = 0;
 		long afterExclusive = -1L;
 		while (true) {
 			long tk = System.nanoTime();
@@ -275,6 +295,7 @@ public class RtaBatchAggregationService {
 			int[] mon = { 0 };
 			int[] pick = { 0 };
 			int[] box = { 0 };
+			int[] fight = { 0 };
 			transactionTemplate.executeWithoutResult(status -> {
 				long t1 = System.nanoTime();
 				rtaMapper.truncateStagingRtaSummonerSnapRid();
@@ -293,6 +314,11 @@ public class RtaBatchAggregationService {
 				box[0] = rtaMapper.mergeRtaSummonerOwnedBoxSnapFromStagingReplayChunk(seasonId);
 				perf.addChunkOwnedBoxMergeMs(msSinceNanos(t1));
 
+				// B — staging replay 기준 fight snap ADD-UPSERT (기존 행에 누적)
+				t1 = System.nanoTime();
+				fight[0] = rtaMapper.insertRtaSummonerFightSnapForStagingReplays(seasonId);
+				perf.addChunkFightSnapMs(msSinceNanos(t1));
+
 				t1 = System.nanoTime();
 				rtaMapper.markSummonerRankingAggDoneForStagingSeason(seasonId);
 				perf.addChunkMarkDoneMs(msSinceNanos(t1));
@@ -301,12 +327,13 @@ public class RtaBatchAggregationService {
 			monTotal += mon[0];
 			pickTurnTotal += pick[0];
 			ownedBoxTotal += box[0];
+			fightTotal += fight[0];
 			if (rids.size() < limit) {
 				break;
 			}
 			afterExclusive = rids.get(rids.size() - 1);
 		}
-		return new ChunkTotals(monTotal, pickTurnTotal, ownedBoxTotal);
+		return new ChunkTotals(monTotal, pickTurnTotal, ownedBoxTotal, fightTotal);
 	}
 
 	/**
@@ -769,6 +796,7 @@ public class RtaBatchAggregationService {
 		private long chunkMonsterSnapSumMs;
 		private long chunkPickTurnSumMs;
 		private long chunkOwnedBoxMergeSumMs;
+		private long chunkFightSnapSumMs;
 		private long chunkMarkDoneSumMs;
 		private long h2hDeleteInsertSumMs;
 
@@ -811,6 +839,10 @@ public class RtaBatchAggregationService {
 			chunkOwnedBoxMergeSumMs += ms;
 		}
 
+		void addChunkFightSnapMs(long ms) {
+			chunkFightSnapSumMs += ms;
+		}
+
 		void addChunkMarkDoneMs(long ms) {
 			chunkMarkDoneSumMs += ms;
 		}
@@ -838,6 +870,7 @@ public class RtaBatchAggregationService {
 			sb.append("chunk_monster_snap_insert_sum_ms=").append(chunkMonsterSnapSumMs).append(nl);
 			sb.append("chunk_pick_turn_snap_insert_sum_ms=").append(chunkPickTurnSumMs).append(nl);
 			sb.append("chunk_owned_box_merge_sum_ms=").append(chunkOwnedBoxMergeSumMs).append(nl);
+			sb.append("chunk_fight_snap_sum_ms=").append(chunkFightSnapSumMs).append(nl);
 			sb.append("chunk_mark_done_sum_ms=").append(chunkMarkDoneSumMs).append(nl);
 			if (chunkIterations > 0) {
 				sb.append("chunk_avg_keyset_ms=").append(chunkKeysetSumMs / chunkIterations).append(nl);
@@ -845,6 +878,7 @@ public class RtaBatchAggregationService {
 				sb.append("chunk_avg_pick_turn_ms=").append(chunkPickTurnSumMs / chunkIterations).append(nl);
 				sb.append("chunk_avg_owned_box_merge_ms=").append(chunkOwnedBoxMergeSumMs / chunkIterations)
 						.append(nl);
+				sb.append("chunk_avg_fight_snap_ms=").append(chunkFightSnapSumMs / chunkIterations).append(nl);
 				sb.append("chunk_avg_mark_done_ms=").append(chunkMarkDoneSumMs / chunkIterations).append(nl);
 			}
 			sb.append("hint: PG log_min_duration_statement 또는 chunk_* 항목별 EXPLAIN ANALYZE").append(nl);
