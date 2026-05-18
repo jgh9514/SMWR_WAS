@@ -193,6 +193,18 @@ public interface RtaMapper {
     /** {@code rta_agg_monster_stats_tier_top_snap} 시즌 전체 삭제 후 솔/듀/트 상위 100 재적재 */
     int deleteRtaMonsterStatsTierTopSnapBySeason(@Param("seasonId") long seasonId);
 
+    /** 락 충돌 진단: rta_agg_monster_stats_tier_top_snap 에 락을 보유한 세션 목록 */
+    @Select("""
+            SELECT l.pid, l.mode, l.granted, a.state, a.wait_event_type, a.wait_event,
+                   now() - a.xact_start AS xact_duration,
+                   left(a.query, 200) AS query
+              FROM pg_locks l
+              JOIN pg_stat_activity a ON a.pid = l.pid
+             WHERE l.relation = 'rta_agg_monster_stats_tier_top_snap'::regclass
+             ORDER BY l.granted DESC, a.xact_start
+            """)
+    List<Map<String, Object>> selectTierTopSnapLockDiagnostics();
+
     int insertRtaMonsterStatsTierTopSoloSnapForSeason(
             @Param("seasonId") long seasonId, @Param("minPickCount") int minPickCount);
 
@@ -294,9 +306,19 @@ public interface RtaMapper {
     /** 닉네임 부분 일치 또는 위자드 ID 정확 일치 — {@code rta_agg_summoner_search_snap}(시즌 무관) */
     List<Map<String, Object>> searchRtaSummonersInAgg(@Param("query") String query, @Param("limit") int limit);
 
-    /** 소환사 요약 — 수집 리플레이 기준 최신 점수·글로벌 순위 */
+    /** 소환사 일별 점수 스냅 — {@code rta_agg_summoner_score_daily_snap} */
+    List<Map<String, Object>> listRtaPlayerScoreDailySnap(@Param("wizardId") String wizardId,
+            @Param("seasonId") long seasonId, @Param("limit") int limit);
+
     Map<String, Object> getRtaPlayerSummaryFromAgg(@Param("wizardId") String wizardId,
             @Param("seasonId") Long seasonId);
+
+    /**
+     * 수집 리플레이 participant 기준 과거 닉네임( DISTINCT wizard_name ).
+     * {@code seasonId} null 이면 전 시즌.
+     */
+    List<Map<String, Object>> listRtaPlayerWizardNameHistory(@Param("wizardId") String wizardId,
+            @Param("seasonId") Long seasonId, @Param("limit") int limit);
 
     /** 시즌×소환사 전투 분모 스냅 1행 — 없으면 null */
     Map<String, Object> getRtaPlayerSeasonFightSnapFromAgg(@Param("wizardId") String wizardId,
@@ -446,6 +468,12 @@ public interface RtaMapper {
     void deleteRtaMonsterDailySnapByDate(@Param("seasonId") long seasonId, @Param("snapDate") String snapDate);
 
     void insertRtaMonsterDailySnapForDate(@Param("seasonId") long seasonId, @Param("snapDate") String snapDate);
+
+    /** participant 경기 있는데 스냅 행이 없는 KST 일자 (시즌 시작~오늘) */
+    List<String> selectMissingSummonerScoreDailySnapDates(@Param("seasonId") long seasonId,
+            @Param("fromDate") String fromDate);
+
+    void insertRtaSummonerScoreDailySnapForDate(@Param("seasonId") long seasonId, @Param("snapDate") String snapDate);
 
     /** pick_slot_snap 미처리 replay_id 청크 */
     List<Long> selectPendingPickSlotSnapRids(@Param("batchSize") int batchSize);

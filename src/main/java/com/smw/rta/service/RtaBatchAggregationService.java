@@ -321,9 +321,12 @@ public class RtaBatchAggregationService {
 			return new MonsterStatsTierTopSnapRebuildResult(0);
 		}
 		long sid = seasonId.longValue();
+		// DELETE 를 별도 짧은 트랜잭션으로 분리 — BATCH executor 에서 커밋 직전 flush 시 락 경합을 최소화.
+		// snap 테이블이라 DELETE~INSERT 사이 빈 구간은 허용 가능.
+		transactionTemplate.executeWithoutResult(status ->
+				rtaMapper.deleteRtaMonsterStatsTierTopSnapBySeason(sid));
 		AtomicInteger total = new AtomicInteger(0);
 		transactionTemplate.executeWithoutResult(status -> {
-			rtaMapper.deleteRtaMonsterStatsTierTopSnapBySeason(sid);
 			int n = 0;
 			n += rtaMapper.insertRtaMonsterStatsTierTopSoloSnapForSeason(sid, monsterStatsMinPickCount);
 			n += rtaMapper.insertRtaMonsterStatsTierTopDuoSnapForSeason(sid, monsterStatsMinPickCount);
@@ -551,6 +554,54 @@ public class RtaBatchAggregationService {
 		}
 		log.info("rebuildMonsterDailySnap done: totalInserted={}", totalInserted);
 		return totalInserted;
+	}
+
+	private static final java.time.ZoneId KST = java.time.ZoneId.of("Asia/Seoul");
+
+	/**
+	 * {@code rta_agg_summoner_score_daily_snap} — 시즌 시작~오늘(KST) 중 participant 경기가 있는데
+	 * 스냅이 없는 일자를 소급 적재하고, 오늘·어제(KST)는 매 실행마다 UPSERT(당일 점수 갱신).
+	 *
+	 * @return 새로/재적재한 (시즌, 일자) 처리 횟수
+	 */
+	public int rebuildSummonerScoreDailySnap(RtaMapper mapper) {
+		List<Map<String, Object>> seasons = mapper.selectParticipantSeasonsWithStart();
+		if (seasons == null || seasons.isEmpty()) {
+			return 0;
+		}
+		String todayKst = java.time.LocalDate.now(KST).format(DATE_FMT);
+		String yesterdayKst = java.time.LocalDate.now(KST).minusDays(1).format(DATE_FMT);
+		int totalRuns = 0;
+		for (Map<String, Object> row : seasons) {
+			long seasonId = ((Number) row.get("season_id")).longValue();
+			Object startDateObj = row.get("start_date");
+			if (startDateObj == null) {
+				continue;
+			}
+			String fromDate = startDateObj.toString();
+			List<String> missingDates = mapper.selectMissingSummonerScoreDailySnapDates(seasonId, fromDate);
+			java.util.LinkedHashSet<String> datesToFill = new java.util.LinkedHashSet<>();
+			if (missingDates != null) {
+				datesToFill.addAll(missingDates);
+			}
+			datesToFill.add(todayKst);
+			datesToFill.add(yesterdayKst);
+			int filled = 0;
+			for (String snapDate : datesToFill) {
+				try {
+					transactionTemplate.executeWithoutResult(tx ->
+							mapper.insertRtaSummonerScoreDailySnapForDate(seasonId, snapDate));
+					filled++;
+				} catch (Exception e) {
+					log.error("rebuildSummonerScoreDailySnap: 적재 실패 seasonId={} date={}", seasonId, snapDate, e);
+				}
+			}
+			totalRuns += filled;
+			log.info("rebuildSummonerScoreDailySnap: seasonId={}, datesProcessed={} (missing={})",
+					seasonId, filled, missingDates != null ? missingDates.size() : 0);
+		}
+		log.info("rebuildSummonerScoreDailySnap done: totalDateRuns={}", totalRuns);
+		return totalRuns;
 	}
 
 	/**
