@@ -1617,19 +1617,14 @@
     ============================================================ -->
     <select id="selectMissingSummonerScoreDailySnapDates" resultType="string">
         /* rta-queries-batch-meta.selectMissingSummonerScoreDailySnapDates */
+        /* 경기 유무와 무관하게 스냅이 없는 모든 날짜 반환 */
         SELECT gs::date::text AS snap_date
         FROM generate_series(
             #{fromDate}::date,
             (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')::date,
             INTERVAL '1 day'
         ) AS gs
-        WHERE EXISTS (
-            SELECT 1
-            FROM public.rta_match_participant p
-            WHERE p.season_id = #{seasonId}
-              AND (p.played_at AT TIME ZONE 'Asia/Seoul')::date = gs::date
-        )
-          AND NOT EXISTS (
+        WHERE NOT EXISTS (
             SELECT 1
             FROM public.rta_agg_summoner_score_daily_snap s
             WHERE s.season_id = #{seasonId}
@@ -1640,6 +1635,7 @@
 
     <insert id="insertRtaSummonerScoreDailySnapForDate">
         /* rta-queries-batch-meta.insertRtaSummonerScoreDailySnapForDate */
+        /* 해당 날짜까지 시즌 내 경기한 모든 소환사 적재. 당일 경기 없으면 match_cnt=0, 점수 carry-forward */
         INSERT INTO public.rta_agg_summoner_score_daily_snap (
             season_id,
             wizard_id,
@@ -1650,7 +1646,13 @@
             lose_cnt,
             computed_at
         )
-        WITH day_matches AS (
+        WITH all_wizards AS (
+            SELECT DISTINCT wizard_id
+            FROM public.rta_match_participant
+            WHERE season_id = #{seasonId}
+              AND (played_at AT TIME ZONE 'Asia/Seoul')::date &lt;= #{snapDate}::date
+        ),
+        day_matches AS (
             SELECT DISTINCT ON (p.replay_id, p.wizard_id)
                 p.wizard_id,
                 p.replay_id,
@@ -1664,31 +1666,52 @@
         ),
         per_wizard AS (
             SELECT
-                dm.wizard_id,
+                w.wizard_id,
                 COUNT(DISTINCT dm.replay_id)::bigint AS match_cnt,
                 COUNT(DISTINCT dm.replay_id) FILTER (WHERE dm.is_winner IS TRUE)::bigint AS win_cnt,
                 COUNT(DISTINCT dm.replay_id) FILTER (WHERE dm.is_winner IS NOT TRUE)::bigint AS lose_cnt
-            FROM day_matches dm
-            GROUP BY dm.wizard_id
+            FROM all_wizards w
+            LEFT JOIN day_matches dm ON dm.wizard_id = w.wizard_id
+            GROUP BY w.wizard_id
         ),
-        last_score AS (
+        today_score AS (
             SELECT DISTINCT ON (dm.wizard_id)
                 dm.wizard_id,
                 dm.ladder_score AS end_of_day_score
             FROM day_matches dm
             ORDER BY dm.wizard_id, dm.played_at DESC NULLS LAST, dm.replay_id DESC
+        ),
+        prev_snap_score AS (
+            SELECT DISTINCT ON (s.wizard_id)
+                s.wizard_id,
+                s.end_of_day_score
+            FROM public.rta_agg_summoner_score_daily_snap s
+            WHERE s.season_id = #{seasonId}
+              AND s.snap_date &lt; #{snapDate}::date
+            ORDER BY s.wizard_id, s.snap_date DESC
+        ),
+        prev_match_score AS (
+            SELECT DISTINCT ON (p.wizard_id)
+                p.wizard_id,
+                COALESCE(p.ladder_score, 0) AS end_of_day_score
+            FROM public.rta_match_participant p
+            WHERE p.season_id = #{seasonId}
+              AND (p.played_at AT TIME ZONE 'Asia/Seoul')::date &lt; #{snapDate}::date
+            ORDER BY p.wizard_id, p.played_at DESC NULLS LAST
         )
         SELECT
             #{seasonId}::bigint AS season_id,
             pw.wizard_id,
             #{snapDate}::date AS snap_date,
-            ls.end_of_day_score,
+            COALESCE(ts.end_of_day_score, pss.end_of_day_score, pms.end_of_day_score, 0) AS end_of_day_score,
             pw.match_cnt,
             pw.win_cnt,
             pw.lose_cnt,
             now() AS computed_at
         FROM per_wizard pw
-        INNER JOIN last_score ls ON ls.wizard_id = pw.wizard_id
+        LEFT JOIN today_score ts ON ts.wizard_id = pw.wizard_id
+        LEFT JOIN prev_snap_score pss ON pss.wizard_id = pw.wizard_id
+        LEFT JOIN prev_match_score pms ON pms.wizard_id = pw.wizard_id
         ON CONFLICT (season_id, wizard_id, snap_date) DO UPDATE SET
             end_of_day_score = EXCLUDED.end_of_day_score,
             match_cnt = EXCLUDED.match_cnt,

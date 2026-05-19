@@ -586,8 +586,9 @@ public class RtaBatchAggregationService {
 	private static final java.time.ZoneId KST = java.time.ZoneId.of("Asia/Seoul");
 
 	/**
-	 * {@code rta_agg_summoner_score_daily_snap} — 시즌 시작~오늘(KST) 중 participant 경기가 있는데
-	 * 스냅이 없는 일자를 소급 적재하고, 오늘·어제(KST)는 매 실행마다 UPSERT(당일 점수 갱신).
+	 * {@code rta_agg_summoner_score_daily_snap} — 시즌 시작~오늘(KST) 중 스냅이 없는 모든 일자를
+	 * 소급 적재하고(경기 없는 날 포함), 오늘·어제(KST)는 매 실행마다 UPSERT(당일 점수 갱신).
+	 * 당일 경기 없는 소환사는 match_cnt=0, end_of_day_score=직전 점수로 carry-forward.
 	 *
 	 * @return 새로/재적재한 (시즌, 일자) 처리 횟수
 	 */
