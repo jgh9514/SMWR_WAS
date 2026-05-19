@@ -431,6 +431,7 @@ public class summonerswarServiceImpl implements summonerswarService {
 			map.put("historyTotalCount", 0);
 			return map;
 		}
+		applySiegeDeckStatsQueryFlag(param);
 		List<Map<String, ?>> historyList = swMapper.selectMonsterDetailTeamList(param);
 		int historyTotalCount = swMapper.selectMonsterDetailTeamListCount(param);
 		Map<String, Object> map = new HashMap<>();
