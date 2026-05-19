@@ -597,8 +597,13 @@ public class RtaBatchAggregationService {
 		if (seasons == null || seasons.isEmpty()) {
 			return 0;
 		}
-		String todayKst = java.time.LocalDate.now(KST).format(DATE_FMT);
-		String yesterdayKst = java.time.LocalDate.now(KST).minusDays(1).format(DATE_FMT);
+		java.time.LocalDate todayDate = java.time.LocalDate.now(KST);
+		// 데이터 파이프라인 지연 대비: 최근 3일 매 실행마다 UPSERT
+		java.util.List<String> recentDates = java.util.List.of(
+				todayDate.format(DATE_FMT),
+				todayDate.minusDays(1).format(DATE_FMT),
+				todayDate.minusDays(2).format(DATE_FMT)
+		);
 		int totalRuns = 0;
 		for (Map<String, Object> row : seasons) {
 			long seasonId = ((Number) row.get("season_id")).longValue();
@@ -612,8 +617,7 @@ public class RtaBatchAggregationService {
 			if (missingDates != null) {
 				datesToFill.addAll(missingDates);
 			}
-			datesToFill.add(todayKst);
-			datesToFill.add(yesterdayKst);
+			datesToFill.addAll(recentDates);
 			int filled = 0;
 			for (String snapDate : datesToFill) {
 				try {
