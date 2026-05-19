@@ -1,5 +1,6 @@
 package com.smw.monster.service;
 
+import java.util.HashMap;
 import java.util.Map;
 
 import org.slf4j.Logger;
@@ -25,7 +26,9 @@ class MonsterListCacheWarmup {
         Thread.ofVirtual().name("monster-list-cache-warmup").start(() -> {
             try {
                 long t = System.currentTimeMillis();
-                swService.selectMonsterList(Map.of("siegeDedupeSecondAwakening", true));
+                Map<String, Object> param = new HashMap<>(2);
+                param.put("siegeDedupeSecondAwakening", true);
+                swService.selectMonsterList(param);
                 log.info("[MonsterListCacheWarmup] monsterList cache warmed in {}ms", System.currentTimeMillis() - t);
             } catch (Exception e) {
                 log.warn("[MonsterListCacheWarmup] cache warmup failed — will be populated on first request", e);

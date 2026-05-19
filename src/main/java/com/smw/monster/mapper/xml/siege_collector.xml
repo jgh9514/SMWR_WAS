@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smw.monster.mapper.SiegeCollectorMapper">
+
+	<sql id="matchBattleLogGuildFilter">
+		<choose>
+			<when test='view_all_guilds != null and (view_all_guilds == true or view_all_guilds == "true" or view_all_guilds == "Y")'>
+			</when>
+			<when test="view_guild_id != null and view_guild_id != ''">
+				AND EXISTS (
+				      SELECT 1
+				        FROM guild_siege_battle_log gsbl
+				       WHERE gsbl.match_id = b.match_id
+				         AND gsbl.guild_id = #{view_guild_id}::text
+				)
+			</when>
+			<otherwise>
+				AND EXISTS (
+				      SELECT 1
+				        FROM guild_siege_battle_log gsbl
+				       WHERE gsbl.match_id = b.match_id
+				         AND gsbl.guild_id = #{sess_guild_id}::text
+				)
+			</otherwise>
+		</choose>
+	</sql>
+
+	<select id="selectMatchBattleLogList" parameterType="map" resultType="map">
+		/* siege_collector.selectMatchBattleLogList */
+		SELECT b.log_id,
+		       b.log_timestamp,
+		       b.match_id,
+		       b.base_number,
+		       b.guild_id,
+		       b.wizard_id,
+		       b.wizard_name,
+		       b.opp_guild_id,
+		       b.opp_wizard_id,
+		       b.opp_wizard_name,
+		       b.win_lose,
+		       b.request_type,
+		       b.replay_rid_ref,
+		       b.battle_desc,
+		       b.siege_id,
+		       b.match_score_var,
+		       b.wizard_level,
+		       b.opp_wizard_level,
+		       b.log_type_api,
+		       b.guild_name,
+		       b.opp_guild_name,
+		       CASE WHEN b.api_payload IS NOT NULL THEN true ELSE false END AS from_collector
+		  FROM battle_log_list b
+		 WHERE b.match_id = #{match_id}
+		<include refid="matchBattleLogGuildFilter"/>
+		<if test="collector_only != null and (collector_only == true or collector_only == 'true')">
+		   AND b.api_payload IS NOT NULL
+		</if>
+		<if test="base_number != null">
+		   AND b.base_number = #{base_number}::text
+		</if>
+		 ORDER BY b.log_timestamp DESC
+		 LIMIT #{limit}
+		OFFSET #{offset}
+	</select>
+
+	<select id="selectMatchBattleLogCount" parameterType="map" resultType="int">
+		/* siege_collector.selectMatchBattleLogCount */
+		SELECT COUNT(*)::int
+		  FROM battle_log_list b
+		 WHERE b.match_id = #{match_id}
+		<include refid="matchBattleLogGuildFilter"/>
+		<if test="collector_only != null and (collector_only == true or collector_only == 'true')">
+		   AND b.api_payload IS NOT NULL
+		</if>
+		<if test="base_number != null">
+		   AND b.base_number = #{base_number}::text
+		</if>
+	</select>
+
+	<select id="countGuildAccessToMatch" resultType="int">
+		/* siege_collector.countGuildAccessToMatch */
+		SELECT COUNT(*)::int
+		  FROM guild_siege_battle_log
+		 WHERE match_id = #{match_id}
+		   AND guild_id = #{guild_id}::text
+		 LIMIT 1
+	</select>
+
+	<select id="selectBattleReplayRaw" resultType="map">
+		/* siege_collector.selectBattleReplayRaw */
+		SELECT rid,
+		       match_id,
+		       log_id,
+		       target_wizard_id,
+		       battle_desc,
+		       source,
+		       inserted_at
+		  FROM siege_battle_replay_raw
+		 WHERE rid = #{rid}
+		 LIMIT 1
+	</select>
+
+	<select id="selectBattleReplayPayload" resultType="map">
+		/* siege_collector.selectBattleReplayPayload */
+		SELECT rid,
+		       payload::text AS payload_json
+		  FROM siege_battle_replay_payload
+		 WHERE rid = #{rid}
+		 LIMIT 1
+	</select>
+
+	<select id="selectLatestApiArchive" parameterType="map" resultType="map">
+		/* siege_collector.selectLatestApiArchive */
+		SELECT id,
+		       command,
+		       siege_id,
+		       match_id,
+		       captured_at,
+		       log_type,
+		       base_number,
+		       replay_rid,
+		       source,
+		       payload::text AS payload_json
+		  FROM siege_collector_api_archive
+		 WHERE command = #{command}
+		<if test="match_id != null and match_id != ''">
+		   AND match_id = #{match_id}
+		</if>
+		<if test="siege_id != null">
+		   AND siege_id = #{siege_id}
+		</if>
+		 ORDER BY captured_at DESC
+		 LIMIT 1
+	</select>
+
+</mapper>

@@ -20,6 +20,12 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.smw.monster.dto.response.SiegeApiArchiveResponse;
+import com.smw.monster.dto.response.SiegeBattleLogListResponse;
+import com.smw.monster.dto.response.SiegeBattleReplayResponse;
+import com.smw.monster.dto.response.SiegeMapBaseDefenseResponse;
+import com.smw.monster.service.SiegeCollectorService;
+import com.smw.monster.service.SiegeMapService;
 import com.smw.monster.service.summonerswarService;
 import com.sysconf.security.AdminPrivilegeResolver;
 import io.swagger.v3.oas.annotations.Operation;
@@ -34,6 +40,12 @@ public class summonerswarController {
 
 	@Autowired
 	summonerswarService swService;
+
+	@Autowired
+	private SiegeMapService siegeMapService;
+
+	@Autowired
+	private SiegeCollectorService siegeCollectorService;
 
 	@Autowired
 	private AdminPrivilegeResolver adminPrivilegeResolver;
@@ -558,6 +570,145 @@ public class summonerswarController {
     	
     	return new ResponseEntity<>(resp, HttpStatus.OK);
     }
+
+	@Operation(summary = "점령전 지도 거점 방덱", description = "GetGuildSiegeBaseDefenseUnitList 스냅샷 + Matchup 거점 상태.")
+	@PostMapping("/siege-map-base-defense")
+	public ResponseEntity<?> siegeMapBaseDefense(@RequestBody Map<String, Object> param, HttpServletRequest request) {
+		Map<String, Object> p = param != null ? param : new HashMap<>();
+		ResponseEntity<?> guard = requireLoginAndGuild(request, p);
+		if (guard != null) {
+			return guard;
+		}
+		String matchId = p.get("match_id") != null ? String.valueOf(p.get("match_id")) : null;
+		if (matchId == null || matchId.isBlank()) {
+			Map<String, Object> body = new HashMap<>();
+			body.put("result", "FAIL");
+			body.put("message", "match_id가 필요합니다.");
+			return new ResponseEntity<>(body, HttpStatus.BAD_REQUEST);
+		}
+		int baseNumber;
+		try {
+			baseNumber = Integer.parseInt(String.valueOf(p.get("base_number")));
+		} catch (NumberFormatException e) {
+			Map<String, Object> body = new HashMap<>();
+			body.put("result", "FAIL");
+			body.put("message", "base_number 형식이 올바르지 않습니다.");
+			return new ResponseEntity<>(body, HttpStatus.BAD_REQUEST);
+		}
+		Long snapshotId = null;
+		if (p.get("snapshot_id") != null) {
+			try {
+				snapshotId = Long.parseLong(String.valueOf(p.get("snapshot_id")));
+			} catch (NumberFormatException e) {
+				Map<String, Object> body = new HashMap<>();
+				body.put("result", "FAIL");
+				body.put("message", "snapshot_id 형식이 올바르지 않습니다.");
+				return new ResponseEntity<>(body, HttpStatus.BAD_REQUEST);
+			}
+		}
+		try {
+			SiegeMapBaseDefenseResponse body = siegeMapService.getBaseDefense(matchId, baseNumber, snapshotId);
+			return ResponseEntity.ok(body);
+		} catch (IllegalArgumentException e) {
+			Map<String, Object> body = new HashMap<>();
+			body.put("result", "FAIL");
+			body.put("message", e.getMessage());
+			return new ResponseEntity<>(body, HttpStatus.BAD_REQUEST);
+		}
+	}
+
+	private void applyCollectorGuildScope(HttpServletRequest request, Map<String, Object> param) {
+		boolean viewAll = false;
+		Object viewAllObj = param.get("view_all_guilds");
+		if (viewAllObj instanceof Boolean b) {
+			viewAll = b;
+		} else if (viewAllObj != null) {
+			viewAll = "true".equalsIgnoreCase(String.valueOf(viewAllObj)) || "Y".equalsIgnoreCase(String.valueOf(viewAllObj));
+		}
+		if (viewAll && isAdminUser(request)) {
+			param.put("view_all_guilds", true);
+		}
+	}
+
+	@Operation(summary = "매치 전투 로그(수집기)", description = "battle_log_list — battle_desc·replay_rid_ref.")
+	@PostMapping("/siege-collector-battle-log-list")
+	public ResponseEntity<?> siegeCollectorBattleLogList(@RequestBody Map<String, Object> param, HttpServletRequest request) {
+		Map<String, Object> p = param != null ? param : new HashMap<>();
+		ResponseEntity<?> guard = requireLoginAndGuild(request, p);
+		if (guard != null) {
+			return guard;
+		}
+		applyCollectorGuildScope(request, p);
+		try {
+			return ResponseEntity.ok(siegeCollectorService.getMatchBattleLogs(p));
+		} catch (IllegalArgumentException e) {
+			Map<String, Object> body = new HashMap<>();
+			body.put("result", "FAIL");
+			body.put("message", e.getMessage());
+			return new ResponseEntity<>(body, HttpStatus.BAD_REQUEST);
+		}
+	}
+
+	@Operation(summary = "전투 리플레이(수집기)", description = "siege_battle_replay_payload 조회.")
+	@PostMapping("/siege-collector-battle-replay")
+	public ResponseEntity<?> siegeCollectorBattleReplay(@RequestBody Map<String, Object> param, HttpServletRequest request) {
+		Map<String, Object> p = param != null ? param : new HashMap<>();
+		ResponseEntity<?> guard = requireLoginAndGuild(request, p);
+		if (guard != null) {
+			return guard;
+		}
+		applyCollectorGuildScope(request, p);
+		long rid;
+		try {
+			rid = Long.parseLong(String.valueOf(p.get("rid")));
+		} catch (NumberFormatException e) {
+			Map<String, Object> body = new HashMap<>();
+			body.put("result", "FAIL");
+			body.put("message", "rid 형식이 올바르지 않습니다.");
+			return new ResponseEntity<>(body, HttpStatus.BAD_REQUEST);
+		}
+		try {
+			SiegeBattleReplayResponse body = siegeCollectorService.getBattleReplay(rid, p);
+			if (body == null) {
+				Map<String, Object> fail = new HashMap<>();
+				fail.put("result", "FAIL");
+				fail.put("message", "리플레이를 찾을 수 없습니다.");
+				return new ResponseEntity<>(fail, HttpStatus.NOT_FOUND);
+			}
+			return ResponseEntity.ok(body);
+		} catch (IllegalArgumentException e) {
+			Map<String, Object> body = new HashMap<>();
+			body.put("result", "FAIL");
+			body.put("message", e.getMessage());
+			return new ResponseEntity<>(body, HttpStatus.BAD_REQUEST);
+		}
+	}
+
+	@Operation(summary = "API 아카이브 최신(수집기)", description = "siege_collector_api_archive command별 최신 1건.")
+	@PostMapping("/siege-collector-api-archive-latest")
+	public ResponseEntity<?> siegeCollectorApiArchiveLatest(@RequestBody Map<String, Object> param, HttpServletRequest request) {
+		Map<String, Object> p = param != null ? param : new HashMap<>();
+		ResponseEntity<?> guard = requireLoginAndGuild(request, p);
+		if (guard != null) {
+			return guard;
+		}
+		applyCollectorGuildScope(request, p);
+		try {
+			SiegeApiArchiveResponse body = siegeCollectorService.getLatestApiArchive(p);
+			if (body == null) {
+				Map<String, Object> fail = new HashMap<>();
+				fail.put("result", "FAIL");
+				fail.put("message", "아카이브 데이터가 없습니다.");
+				return new ResponseEntity<>(fail, HttpStatus.NOT_FOUND);
+			}
+			return ResponseEntity.ok(body);
+		} catch (IllegalArgumentException e) {
+			Map<String, Object> body = new HashMap<>();
+			body.put("result", "FAIL");
+			body.put("message", e.getMessage());
+			return new ResponseEntity<>(body, HttpStatus.BAD_REQUEST);
+		}
+	}
 	
     @Operation(summary = "아레나 JSON 저장", description = "아레나 대전 로그 데이터를 저장합니다.")
     @SuppressWarnings("unchecked")

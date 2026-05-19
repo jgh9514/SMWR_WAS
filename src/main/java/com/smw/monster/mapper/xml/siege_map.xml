@@ -1,0 +1,325 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smw.monster.mapper.SiegeMapMapper">
+
+	<insert id="upsertSiegeMapMatch" parameterType="map">
+		/* siege_map.upsertSiegeMapMatch */
+		INSERT INTO siege_map_match (
+		       match_id, siege_id, season_yyyymm, rating_id, match_type,
+		       match_start_time, match_finish_time, snapshot_count,
+		       first_snapshot_at, last_snapshot_at, crt_date, upt_date
+		) VALUES (
+		       #{match_id}, #{siege_id}, #{season_yyyymm}, #{rating_id}, #{match_type},
+		       #{match_start_time}, #{match_finish_time}, 0,
+		       to_timestamp(#{captured_at}), to_timestamp(#{captured_at}), NOW(), NOW()
+		)
+		ON CONFLICT (match_id) DO UPDATE SET
+		       siege_id = EXCLUDED.siege_id,
+		       rating_id = EXCLUDED.rating_id,
+		       match_type = EXCLUDED.match_type,
+		       match_start_time = EXCLUDED.match_start_time,
+		       match_finish_time = EXCLUDED.match_finish_time,
+		       upt_date = NOW()
+	</insert>
+
+	<insert id="insertSiegeMapSnapshot" parameterType="map" useGeneratedKeys="true" keyProperty="id" keyColumn="id">
+		/* siege_map.insertSiegeMapSnapshot */
+		INSERT INTO siege_map_snapshot (
+		       match_id, captured_at, war_rest_start_time, war_rest_finish_time,
+		       max_match_score, max_deck_count_per_member, max_attack_unit_count, source
+		) VALUES (
+		       #{match_id}, #{captured_at}, #{war_rest_start_time}, #{war_rest_finish_time},
+		       #{max_match_score}, #{max_deck_count_per_member}, #{max_attack_unit_count}, #{source}
+		)
+		ON CONFLICT (match_id, captured_at) DO NOTHING
+	</insert>
+
+	<update id="incrementSnapshotCount">
+		/* siege_map.incrementSnapshotCount */
+		UPDATE siege_map_match
+		   SET snapshot_count = snapshot_count + 1,
+		       last_snapshot_at = to_timestamp(#{captured_at}),
+		       first_snapshot_at = COALESCE(first_snapshot_at, to_timestamp(#{captured_at})),
+		       upt_date = NOW()
+		 WHERE match_id = #{match_id}
+	</update>
+
+	<insert id="insertSiegeMapSnapshotGuildBatch">
+		/* siege_map.insertSiegeMapSnapshotGuildBatch */
+		INSERT INTO siege_map_snapshot_guild (
+		       snapshot_id, guild_id, pos_id, guild_name, match_score, match_score_increment,
+		       match_rank, play_member_count, attack_count, attack_unit_count, disqualified
+		) VALUES
+		<foreach collection="rows" item="r" separator=",">
+		(
+		       #{r.snapshot_id}, #{r.guild_id}, #{r.pos_id}, #{r.guild_name}, #{r.match_score},
+		       #{r.match_score_increment}, #{r.match_rank}, #{r.play_member_count},
+		       #{r.attack_count}, #{r.attack_unit_count}, #{r.disqualified}
+		)
+		</foreach>
+	</insert>
+
+	<insert id="insertSiegeMapSnapshotBaseBatch">
+		/* siege_map.insertSiegeMapSnapshotBaseBatch */
+		INSERT INTO siege_map_snapshot_base (
+		       snapshot_id, base_number, base_type, guild_id, base_status,
+		       battle_start_time, construct_time
+		) VALUES
+		<foreach collection="rows" item="r" separator=",">
+		(
+		       #{r.snapshot_id}, #{r.base_number}, #{r.base_type}, #{r.guild_id}, #{r.base_status},
+		       #{r.battle_start_time}, #{r.construct_time}
+		)
+		</foreach>
+	</insert>
+
+	<select id="selectSiegeMapMatchHistory" parameterType="map" resultType="map">
+		/* siege_map.selectSiegeMapMatchHistory */
+		SELECT m.match_id,
+		       m.siege_id,
+		       m.season_yyyymm,
+		       m.match_start_time,
+		       m.match_finish_time,
+		       m.snapshot_count,
+		       m.first_snapshot_at,
+		       m.last_snapshot_at,
+		       g1.guild_name AS guild_name_1,
+		       g2.guild_name AS guild_name_2,
+		       g3.guild_name AS guild_name_3,
+		       g1.guild_id AS guild_id_1,
+		       g2.guild_id AS guild_id_2,
+		       g3.guild_id AS guild_id_3,
+		       g1.match_score AS match_score_1,
+		       g2.match_score AS match_score_2,
+		       g3.match_score AS match_score_3
+		  FROM siege_map_match m
+		  LEFT JOIN LATERAL (
+		        SELECT sg.guild_id, sg.guild_name, sg.match_score
+		          FROM siege_map_snapshot s
+		          JOIN siege_map_snapshot_guild sg ON sg.snapshot_id = s.id AND sg.pos_id = 1
+		         WHERE s.match_id = m.match_id
+		         ORDER BY s.captured_at DESC
+		         LIMIT 1
+		       ) g1 ON TRUE
+		  LEFT JOIN LATERAL (
+		        SELECT sg.guild_id, sg.guild_name, sg.match_score
+		          FROM siege_map_snapshot s
+		          JOIN siege_map_snapshot_guild sg ON sg.snapshot_id = s.id AND sg.pos_id = 2
+		         WHERE s.match_id = m.match_id
+		         ORDER BY s.captured_at DESC
+		         LIMIT 1
+		       ) g2 ON TRUE
+		  LEFT JOIN LATERAL (
+		        SELECT sg.guild_id, sg.guild_name, sg.match_score
+		          FROM siege_map_snapshot s
+		          JOIN siege_map_snapshot_guild sg ON sg.snapshot_id = s.id AND sg.pos_id = 3
+		         WHERE s.match_id = m.match_id
+		         ORDER BY s.captured_at DESC
+		         LIMIT 1
+		       ) g3 ON TRUE
+		 WHERE EXISTS (
+		       SELECT 1
+		         FROM siege_map_snapshot s2
+		         JOIN siege_map_snapshot_guild sg2 ON sg2.snapshot_id = s2.id
+		        WHERE s2.match_id = m.match_id
+		        <if test="sess_guild_id != null and sess_guild_id != ''">
+		          AND sg2.guild_id = #{sess_guild_id}::text
+		        </if>
+		       )
+		 ORDER BY m.last_snapshot_at DESC NULLS LAST, m.match_id DESC
+		 LIMIT #{limit}
+		OFFSET #{offset}
+	</select>
+
+	<select id="selectSiegeMapMatchHistoryCount" parameterType="map" resultType="int">
+		/* siege_map.selectSiegeMapMatchHistoryCount */
+		SELECT COUNT(*)::int
+		  FROM siege_map_match m
+		 WHERE EXISTS (
+		       SELECT 1
+		         FROM siege_map_snapshot s2
+		         JOIN siege_map_snapshot_guild sg2 ON sg2.snapshot_id = s2.id
+		        WHERE s2.match_id = m.match_id
+		        <if test="sess_guild_id != null and sess_guild_id != ''">
+		          AND sg2.guild_id = #{sess_guild_id}::text
+		        </if>
+		       )
+	</select>
+
+	<select id="selectSiegeMapMatchById" resultType="map">
+		/* siege_map.selectSiegeMapMatchById */
+		SELECT match_id, siege_id, season_yyyymm, rating_id, match_type,
+		       match_start_time, match_finish_time, snapshot_count,
+		       first_snapshot_at, last_snapshot_at
+		  FROM siege_map_match
+		 WHERE match_id = #{match_id}
+	</select>
+
+	<select id="selectLatestSnapshotHeader" resultType="map">
+		/* siege_map.selectLatestSnapshotHeader */
+		SELECT id, match_id, captured_at, war_rest_start_time, war_rest_finish_time,
+		       max_match_score, max_deck_count_per_member, max_attack_unit_count, source
+		  FROM siege_map_snapshot
+		 WHERE match_id = #{match_id}
+		 ORDER BY captured_at DESC
+		 LIMIT 1
+	</select>
+
+	<select id="selectSnapshotHeaderById" resultType="map">
+		/* siege_map.selectSnapshotHeaderById */
+		SELECT id, match_id, captured_at, war_rest_start_time, war_rest_finish_time,
+		       max_match_score, max_deck_count_per_member, max_attack_unit_count, source
+		  FROM siege_map_snapshot
+		 WHERE id = #{snapshot_id}
+	</select>
+
+	<select id="selectSnapshotGuilds" resultType="map">
+		/* siege_map.selectSnapshotGuilds */
+		SELECT guild_id, pos_id, guild_name, match_score, match_score_increment,
+		       match_rank, play_member_count, attack_count, attack_unit_count, disqualified
+		  FROM siege_map_snapshot_guild
+		 WHERE snapshot_id = #{snapshot_id}
+		 ORDER BY pos_id
+	</select>
+
+	<select id="selectSnapshotBases" resultType="map">
+		/* siege_map.selectSnapshotBases */
+		SELECT base_number, base_type, guild_id, base_status,
+		       battle_start_time, construct_time
+		  FROM siege_map_snapshot_base
+		 WHERE snapshot_id = #{snapshot_id}
+		 ORDER BY base_number
+	</select>
+
+	<select id="selectSnapshotIdByMatchAndCaptured" resultType="long">
+		/* siege_map.selectSnapshotIdByMatchAndCaptured */
+		SELECT id
+		  FROM siege_map_snapshot
+		 WHERE match_id = #{match_id}
+		   AND captured_at = #{captured_at}
+		 LIMIT 1
+	</select>
+
+	<select id="selectSnapshotTimeline" resultType="map">
+		/* siege_map.selectSnapshotTimeline */
+		SELECT id, captured_at
+		  FROM siege_map_snapshot
+		 WHERE match_id = #{match_id}
+		 ORDER BY captured_at ASC
+		 LIMIT 2000
+	</select>
+
+	<select id="selectSnapshotBase" resultType="map">
+		/* siege_map.selectSnapshotBase */
+		SELECT base_number,
+		       base_type,
+		       guild_id,
+		       base_status,
+		       battle_start_time,
+		       construct_time
+		  FROM siege_map_snapshot_base
+		 WHERE snapshot_id = #{snapshot_id}
+		   AND base_number = #{base_number}
+		 LIMIT 1
+	</select>
+
+	<select id="selectLatestBaseDefenseCapture" parameterType="map" resultType="map">
+		/* siege_map.selectLatestBaseDefenseCapture */
+		SELECT id,
+		       match_id,
+		       base_number,
+		       captured_at,
+		       matchup_snapshot_id
+		  FROM siege_map_base_defense_capture
+		 WHERE match_id = #{match_id}
+		   AND base_number = #{base_number}
+		   <if test="captured_at_max != null">
+		   AND captured_at &lt;= #{captured_at_max}
+		   </if>
+		 ORDER BY captured_at DESC
+		 LIMIT 1
+	</select>
+
+	<select id="selectBaseDefenseDecks" resultType="map">
+		/* siege_map.selectBaseDefenseDecks */
+		SELECT d.deck_id,
+		       d.wizard_id,
+		       w.wizard_name,
+		       w.wizard_level,
+		       w.guild_id,
+		       d.win_count,
+		       d.lose_count,
+		       d.draw_count,
+		       d.total_count,
+		       d.winning_rate,
+		       d.total_win_count,
+		       d.total_lose_count,
+		       COALESCE(ds.status, da.status) AS deck_status,
+		       ds.defense_guild_id,
+		       ds.attack_guild_id,
+		       ds.attack_wizard_id,
+		       ds.battle_start_time
+		  FROM siege_map_base_defense_deck d
+		  LEFT JOIN siege_map_base_defense_wizard w
+		         ON w.capture_id = d.capture_id
+		        AND w.wizard_id = d.wizard_id
+		  LEFT JOIN siege_map_base_defense_deck_status ds
+		         ON ds.capture_id = d.capture_id
+		        AND ds.deck_id = d.deck_id
+		        AND ds.base_number = #{base_number}
+		  LEFT JOIN siege_map_base_defense_deck_assign da
+		         ON da.capture_id = d.capture_id
+		        AND da.deck_id = d.deck_id
+		        AND da.base_number = #{base_number}
+		 WHERE d.capture_id = #{capture_id}
+		   AND (
+		         da.deck_id IS NOT NULL
+		         OR ds.deck_id IS NOT NULL
+		       )
+		 ORDER BY d.deck_id
+		 LIMIT 500
+	</select>
+
+	<select id="selectBaseDefenseUnits" resultType="map">
+		/* siege_map.selectBaseDefenseUnits */
+		SELECT u.deck_id,
+		       u.pos_id,
+		       u.unit_master_id,
+		       u.unit_level,
+		       m.kr_name,
+		       m.image_url
+		  FROM siege_map_base_defense_unit u
+		  LEFT JOIN monster m
+		         ON m.monster_id = u.unit_master_id::text
+		 WHERE u.capture_id = #{capture_id}
+		 ORDER BY u.deck_id, u.pos_id
+		 LIMIT 1500
+	</select>
+
+	<select id="selectSiegeMapBaseLayoutMaster" resultType="map">
+		/* siege_map.selectSiegeMapBaseLayoutMaster */
+		SELECT l.game_base_number,
+		       l.castle_zone,
+		       l.slot_no,
+		       l.pos_x_pct,
+		       l.pos_y_pct,
+		       l.ring_kind,
+		       l.display_width_px,
+		       l.display_height_px
+		  FROM siege_map_base_layout l
+		 ORDER BY l.game_base_number
+		 LIMIT 50
+	</select>
+
+	<select id="selectSiegeMapBaseImageMaster" resultType="map">
+		/* siege_map.selectSiegeMapBaseImageMaster */
+		SELECT i.castle_zone,
+		       i.ring_kind,
+		       i.base_status,
+		       i.image_path
+		  FROM siege_map_base_image i
+		 ORDER BY i.castle_zone, i.ring_kind, i.base_status
+		 LIMIT 25
+	</select>
+
+</mapper>
