@@ -1617,11 +1617,11 @@
     ============================================================ -->
     <select id="selectMissingSummonerScoreDailySnapDates" resultType="string">
         /* rta-queries-batch-meta.selectMissingSummonerScoreDailySnapDates */
-        /* 경기 유무와 무관하게 스냅이 없는 모든 날짜 반환 */
+        /* 시즌 시작~어제(KST) 중 스냅이 없는 날짜 반환. 오늘은 경기 진행 중이므로 제외. */
         SELECT gs::date::text AS snap_date
         FROM generate_series(
             #{fromDate}::date,
-            (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')::date,
+            (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')::date - INTERVAL '1 day',
             INTERVAL '1 day'
         ) AS gs
         WHERE NOT EXISTS (

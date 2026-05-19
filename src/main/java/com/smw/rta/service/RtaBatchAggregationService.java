@@ -597,13 +597,6 @@ public class RtaBatchAggregationService {
 		if (seasons == null || seasons.isEmpty()) {
 			return 0;
 		}
-		java.time.LocalDate todayDate = java.time.LocalDate.now(KST);
-		// 데이터 파이프라인 지연 대비: 최근 3일 매 실행마다 UPSERT (오래된 날짜 먼저)
-		java.util.List<String> recentDates = java.util.List.of(
-				todayDate.minusDays(2).format(DATE_FMT),
-				todayDate.minusDays(1).format(DATE_FMT),
-				todayDate.format(DATE_FMT)
-		);
 		int totalRuns = 0;
 		for (Map<String, Object> row : seasons) {
 			long seasonId = ((Number) row.get("season_id")).longValue();
@@ -612,12 +605,12 @@ public class RtaBatchAggregationService {
 				continue;
 			}
 			String fromDate = startDateObj.toString();
+			// 시즌 시작~어제(KST) 중 스냅 없는 날짜만 순서대로 처리
 			List<String> missingDates = mapper.selectMissingSummonerScoreDailySnapDates(seasonId, fromDate);
 			java.util.LinkedHashSet<String> datesToFill = new java.util.LinkedHashSet<>();
 			if (missingDates != null) {
 				datesToFill.addAll(missingDates);
 			}
-			datesToFill.addAll(recentDates);
 			int filled = 0;
 			for (String snapDate : datesToFill) {
 				try {
