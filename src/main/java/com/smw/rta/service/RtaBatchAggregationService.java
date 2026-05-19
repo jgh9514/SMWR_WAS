@@ -598,11 +598,11 @@ public class RtaBatchAggregationService {
 			return 0;
 		}
 		java.time.LocalDate todayDate = java.time.LocalDate.now(KST);
-		// 데이터 파이프라인 지연 대비: 최근 3일 매 실행마다 UPSERT
+		// 데이터 파이프라인 지연 대비: 최근 3일 매 실행마다 UPSERT (오래된 날짜 먼저)
 		java.util.List<String> recentDates = java.util.List.of(
-				todayDate.format(DATE_FMT),
+				todayDate.minusDays(2).format(DATE_FMT),
 				todayDate.minusDays(1).format(DATE_FMT),
-				todayDate.minusDays(2).format(DATE_FMT)
+				todayDate.format(DATE_FMT)
 		);
 		int totalRuns = 0;
 		for (Map<String, Object> row : seasons) {
