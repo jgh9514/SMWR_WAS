@@ -397,6 +397,7 @@ public class summonerswarServiceImpl implements summonerswarService {
 	}
 
 	@Override
+	@Cacheable(cacheNames = "monsterDetailBasic", cacheManager = "monsterDetailCacheManager", keyGenerator = "stableMapKeyGenerator")
 	public Map<String, ?> selectMonsterDetailBasic(Map<String, Object> param) {
 		expandMonsterIdsToIncludeCollaborations(param);
 		if (missingDmIdLists(param)) {
@@ -412,10 +413,15 @@ public class summonerswarServiceImpl implements summonerswarService {
 	}
 
 	@Override
+	@Cacheable(cacheNames = "monsterDetailRecommended", cacheManager = "monsterDetailCacheManager", keyGenerator = "stableMapKeyGenerator")
 	public Map<String, ?> selectMonsterDetailRecommended(Map<String, Object> param) {
 		expandMonsterIdsToIncludeCollaborations(param);
-		List<Map<String, ?>> recommendedList = swMapper.selectRecommendedAttackDeckList(param);
-		int recommendedTotalCount = swMapper.selectRecommendedAttackDeckListCount(param);
+		CompletableFuture<List<Map<String, ?>>> listFuture = CompletableFuture.supplyAsync(
+				() -> swMapper.selectRecommendedAttackDeckList(param));
+		CompletableFuture<Integer> countFuture = CompletableFuture.supplyAsync(
+				() -> swMapper.selectRecommendedAttackDeckListCount(param));
+		List<Map<String, ?>> recommendedList = listFuture.join();
+		int recommendedTotalCount = countFuture.join();
 		Map<String, Object> map = new HashMap<>();
 		map.put("recommendedList", recommendedList);
 		map.put("recommendedTotalCount", recommendedTotalCount);
@@ -423,6 +429,7 @@ public class summonerswarServiceImpl implements summonerswarService {
 	}
 
 	@Override
+	@Cacheable(cacheNames = "monsterDetailHistory", cacheManager = "monsterDetailCacheManager", keyGenerator = "stableMapKeyGenerator")
 	public Map<String, ?> selectMonsterDetailHistory(Map<String, Object> param) {
 		expandMonsterIdsToIncludeCollaborations(param);
 		if (missingDmIdLists(param)) {
@@ -432,8 +439,12 @@ public class summonerswarServiceImpl implements summonerswarService {
 			return map;
 		}
 		applySiegeDeckStatsQueryFlag(param);
-		List<Map<String, ?>> historyList = swMapper.selectMonsterDetailTeamList(param);
-		int historyTotalCount = swMapper.selectMonsterDetailTeamListCount(param);
+		CompletableFuture<List<Map<String, ?>>> listFuture = CompletableFuture.supplyAsync(
+				() -> swMapper.selectMonsterDetailTeamList(param));
+		CompletableFuture<Integer> countFuture = CompletableFuture.supplyAsync(
+				() -> swMapper.selectMonsterDetailTeamListCount(param));
+		List<Map<String, ?>> historyList = listFuture.join();
+		int historyTotalCount = countFuture.join();
 		Map<String, Object> map = new HashMap<>();
 		map.put("historyList", historyList);
 		map.put("historyTotalCount", historyTotalCount);

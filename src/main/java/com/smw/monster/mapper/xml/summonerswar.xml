@@ -1687,64 +1687,90 @@
 		
 	<select id="selectRecommendedAttackDeckList" parameterType="sqlMap" resultType="sqlMap">
 		/* selectRecommendedAttackDeckList */
-		select srad.id as id
-		     , srad.id as deck_id
+		WITH deck_ids AS (
+		    SELECT id
+		      FROM siege_recommended_attack_deck
+		     WHERE def_monster_1 = #{dm1}
+		       AND def_monster_2 = #{dm2}
+		       AND def_monster_3 = #{dm3}
+		)
+		, vote_agg AS (
+		    -- deck_id 기반 투표 집계 (deck_id != 0인 경우)
+		    SELECT v.deck_id AS ref_id
+		         , v.vote_type
+		         , COUNT(*)::int AS cnt
+		      FROM siege_deck_user_vote v
+		      JOIN deck_ids d ON d.id = v.deck_id
+		     WHERE v.def_monster_1 = #{dm1}
+		       AND v.def_monster_2 = #{dm2}
+		       AND v.def_monster_3 = #{dm3}
+		       AND COALESCE(v.deck_id, 0) != 0
+		     GROUP BY v.deck_id, v.vote_type
+		)
+		, legacy_vote_normalized AS (
+		    -- deck_id 없는 레거시 투표: 공격 몬스터 조합(콜라보 정규화)별 집계
+		    SELECT array_agg(u ORDER BY u)::text AS norm_key
+		         , v.vote_type
+		         , COUNT(*)::int AS cnt
+		      FROM siege_deck_user_vote v
+		         , LATERAL (
+		             SELECT array_agg(u ORDER BY u) AS u
+		               FROM unnest(ARRAY[
+		                 COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = v.atk_monster_1::text LIMIT 1), v.atk_monster_1::text),
+		                 COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = v.atk_monster_2::text LIMIT 1), v.atk_monster_2::text),
+		                 COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = v.atk_monster_3::text LIMIT 1), v.atk_monster_3::text)
+		               ]::text[]) AS t(u)
+		           ) norm
+		     WHERE COALESCE(v.deck_id, 0) = 0
+		       AND v.def_monster_1 = #{dm1}
+		       AND v.def_monster_2 = #{dm2}
+		       AND v.def_monster_3 = #{dm3}
+		     GROUP BY norm_key, v.vote_type
+		)
+		SELECT srad.id AS id
+		     , srad.id AS deck_id
 		     , srad.atk_monster_1
 		     , srad.atk_monster_2
 		     , srad.atk_monster_3
 		     , m1.image_url AS image_url1
 		     , m2.image_url AS image_url2
 		     , m3.image_url AS image_url3
-		     , (
-		         (SELECT COUNT(*)::int FROM siege_deck_user_vote v WHERE v.deck_id = srad.id AND v.def_monster_1 = srad.def_monster_1 AND v.def_monster_2 = srad.def_monster_2 AND v.def_monster_3 = srad.def_monster_3 AND v.vote_type = 'UP')
-		       + (SELECT COUNT(*)::int FROM siege_deck_user_vote v
-		           WHERE (COALESCE(v.deck_id, 0) = 0)
-		             AND v.def_monster_1 = srad.def_monster_1 AND v.def_monster_2 = srad.def_monster_2 AND v.def_monster_3 = srad.def_monster_3
-		             AND v.vote_type = 'UP'
-		             AND (
-		               SELECT array_agg(u ORDER BY u) FROM unnest(ARRAY[
-		                 COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = v.atk_monster_1::text LIMIT 1), v.atk_monster_1::text),
-		                 COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = v.atk_monster_2::text LIMIT 1), v.atk_monster_2::text),
-		                 COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = v.atk_monster_3::text LIMIT 1), v.atk_monster_3::text)
-		               ]::text[]) AS t(u)
-		             ) = (
-		               SELECT array_agg(u ORDER BY u) FROM unnest(ARRAY[
-		                 COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = srad.atk_monster_1::text LIMIT 1), srad.atk_monster_1::text),
-		                 COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = srad.atk_monster_2::text LIMIT 1), srad.atk_monster_2::text),
-		                 COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = srad.atk_monster_3::text LIMIT 1), srad.atk_monster_3::text)
-		               ]::text[]) AS t(u)
-		             )
-		         )
-		       ) AS recommend_count
-		     , (
-		         (SELECT COUNT(*)::int FROM siege_deck_user_vote v WHERE v.deck_id = srad.id AND v.def_monster_1 = srad.def_monster_1 AND v.def_monster_2 = srad.def_monster_2 AND v.def_monster_3 = srad.def_monster_3 AND v.vote_type = 'DOWN')
-		       + (SELECT COUNT(*)::int FROM siege_deck_user_vote v
-		           WHERE (COALESCE(v.deck_id, 0) = 0)
-		             AND v.def_monster_1 = srad.def_monster_1 AND v.def_monster_2 = srad.def_monster_2 AND v.def_monster_3 = srad.def_monster_3
-		             AND v.vote_type = 'DOWN'
-		             AND (
-		               SELECT array_agg(u ORDER BY u) FROM unnest(ARRAY[
-		                 COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = v.atk_monster_1::text LIMIT 1), v.atk_monster_1::text),
-		                 COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = v.atk_monster_2::text LIMIT 1), v.atk_monster_2::text),
-		                 COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = v.atk_monster_3::text LIMIT 1), v.atk_monster_3::text)
-		               ]::text[]) AS t(u)
-		             ) = (
-		               SELECT array_agg(u ORDER BY u) FROM unnest(ARRAY[
-		                 COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = srad.atk_monster_1::text LIMIT 1), srad.atk_monster_1::text),
-		                 COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = srad.atk_monster_2::text LIMIT 1), srad.atk_monster_2::text),
-		                 COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = srad.atk_monster_3::text LIMIT 1), srad.atk_monster_3::text)
-		               ]::text[]) AS t(u)
-		             )
-		         )
-		       ) AS not_recommend_count
-		  from siege_recommended_attack_deck srad
-	 LEFT JOIN monster m1 ON srad.atk_monster_1 = m1.monster_id
-	 LEFT JOIN monster m2 ON srad.atk_monster_2 = m2.monster_id
-	 LEFT JOIN monster m3 ON srad.atk_monster_3 = m3.monster_id
-		 where srad.def_monster_1 = #{dm1}
-		   and srad.def_monster_2 = #{dm2}
-		   and srad.def_monster_3 = #{dm3}
-		 order by srad.id desc
+		     , COALESCE(va_up.cnt, 0)
+		       + COALESCE(lv_up.cnt, 0) AS recommend_count
+		     , COALESCE(va_dn.cnt, 0)
+		       + COALESCE(lv_dn.cnt, 0) AS not_recommend_count
+		  FROM siege_recommended_attack_deck srad
+		  LEFT JOIN monster m1 ON srad.atk_monster_1 = m1.monster_id
+		  LEFT JOIN monster m2 ON srad.atk_monster_2 = m2.monster_id
+		  LEFT JOIN monster m3 ON srad.atk_monster_3 = m3.monster_id
+		  -- deck_id 기반 투표
+		  LEFT JOIN vote_agg va_up ON va_up.ref_id = srad.id AND va_up.vote_type = 'UP'
+		  LEFT JOIN vote_agg va_dn ON va_dn.ref_id = srad.id AND va_dn.vote_type = 'DOWN'
+		  -- 레거시 투표 (공격 몬스터 조합 정규화 키로 매칭)
+		  LEFT JOIN legacy_vote_normalized lv_up
+		         ON lv_up.norm_key = (
+		              SELECT array_agg(u ORDER BY u)::text
+		                FROM unnest(ARRAY[
+		                  COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = srad.atk_monster_1::text LIMIT 1), srad.atk_monster_1::text),
+		                  COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = srad.atk_monster_2::text LIMIT 1), srad.atk_monster_2::text),
+		                  COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = srad.atk_monster_3::text LIMIT 1), srad.atk_monster_3::text)
+		                ]::text[]) AS t(u)
+		            )
+		         AND lv_up.vote_type = 'UP'
+		  LEFT JOIN legacy_vote_normalized lv_dn
+		         ON lv_dn.norm_key = (
+		              SELECT array_agg(u ORDER BY u)::text
+		                FROM unnest(ARRAY[
+		                  COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = srad.atk_monster_1::text LIMIT 1), srad.atk_monster_1::text),
+		                  COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = srad.atk_monster_2::text LIMIT 1), srad.atk_monster_2::text),
+		                  COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = srad.atk_monster_3::text LIMIT 1), srad.atk_monster_3::text)
+		                ]::text[]) AS t(u)
+		            )
+		         AND lv_dn.vote_type = 'DOWN'
+		 WHERE srad.def_monster_1 = #{dm1}
+		   AND srad.def_monster_2 = #{dm2}
+		   AND srad.def_monster_3 = #{dm3}
+		 ORDER BY srad.id DESC
 		 <if test="recommendedLimit != null and recommendedLimit != ''">
 			LIMIT #{recommendedLimit}::bigint
 		 </if>

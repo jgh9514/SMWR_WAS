@@ -76,4 +76,20 @@ public class CacheManagerConfig {
                 .recordStats());
         return cacheManager;
     }
+
+    /** 몬스터 상세(상성·추천·히스토리) — view_battle_deck_info 풀스캔 비용이 크므로 10분 캐시. */
+    @Bean("monsterDetailCacheManager")
+    public CacheManager monsterDetailCacheManager() {
+        CaffeineCacheManager cacheManager = new CaffeineCacheManager();
+        cacheManager.setCacheNames(List.of(
+                "monsterDetailBasic",
+                "monsterDetailRecommended",
+                "monsterDetailHistory"
+        ));
+        cacheManager.setCaffeine(Caffeine.newBuilder()
+                .maximumSize(300)
+                .expireAfterWrite(java.time.Duration.ofMinutes(10))
+                .recordStats());
+        return cacheManager;
+    }
 }
