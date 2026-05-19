@@ -54,8 +54,17 @@ public class TokenUtil {
 		}
 		
 		try {
-			// JWT에서 user_id 추출 (JWT 파싱 실패 시 예외 발생)
-			String userId = jwtTokenProvider.getUserIdByToken(token);
+			// JWT에서 user_id 추출 (만료된 자동 로그인 토큰은 grace 허용 후 재발급 대상)
+			String userId;
+			try {
+				userId = jwtTokenProvider.getUserIdByToken(token);
+			} catch (io.jsonwebtoken.ExpiredJwtException expired) {
+				if (!jwtTokenProvider.isAutoLoginToken(token)) {
+					log.debug("JWT 만료(자동 로그인 아님): {}", expired.getMessage());
+					return null;
+				}
+				userId = jwtTokenProvider.getUserIdAllowExpired(token);
+			}
 			
 			// DB에서 사용자 정보 조회
 			Map<String, Object> param = new HashMap<>();
@@ -98,8 +107,13 @@ public class TokenUtil {
 	 * @param userInfo 사용자 정보
 	 * @return JWT 토큰
 	 */
+	public boolean isAutoLoginToken(String token) {
+		return jwtTokenProvider.isAutoLoginToken(token);
+	}
+
 	public String setToken(Map<String, Object> userInfo) throws Exception {
-		String token = jwtTokenProvider.createToken(userInfo.get("user_id").toString());
+		boolean autoLogin = "true".equalsIgnoreCase(String.valueOf(userInfo.get("auto_login")));
+		String token = jwtTokenProvider.createToken(userInfo.get("user_id").toString(), autoLogin);
 		
 		log.debug("JWT 토큰 생성 완료 - user_id: {}, 토큰 길이: {}", 
 			userInfo.get("user_id"), token.length());

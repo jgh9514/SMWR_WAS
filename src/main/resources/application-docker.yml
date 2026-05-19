@@ -160,7 +160,8 @@ smw:
   globalDblinkNm: SMW_DBLINK
   front-url: http://localhost:3000
   server-url: http://localhost:8080
-  cookie-live-time: 600
+  # 로컬 docker: 자동 로그인 쿠키·JWT 유효(초). 600(10분)이면 체감상 자주 풀림 → 기본 프로필과 동일 30일
+  cookie-live-time: ${SMW_COOKIE_LIVE_TIME:2592000}
   cookie-domain: jgh9514.com
   rate-limit:
     max-requests: 1000  # Rate Limit 완화 (1분당 최대 1000회)

@@ -26,8 +26,22 @@ public class CookieUtil {
 	private TokenUtil tokenUtil;
 
     public void refreshtoken(HttpServletRequest request, HttpServletResponse response, Map<String, Object> userInfo, String tokenName) throws Exception {
+    	mergeAutoLoginFromCookie(request, userInfo, tokenName);
     	deleteToken(request, response, tokenName);
     	createToken(request, response, userInfo, tokenName);
+    }
+
+    /** login-check·활동 갱신 시 DB userInfo 에 auto_login 이 없을 때 기존 JWT 클레임으로 복원 */
+    private void mergeAutoLoginFromCookie(HttpServletRequest request, Map<String, Object> userInfo, String tokenName) {
+    	if (userInfo.get("auto_login") != null) {
+    		return;
+    	}
+    	String existing = getCookieValue(request, tokenName);
+    	if (existing != null && tokenUtil != null && tokenUtil.isAutoLoginToken(existing)) {
+    		userInfo.put("auto_login", "true");
+    	} else {
+    		userInfo.put("auto_login", "false");
+    	}
     }
 
     public void createToken(HttpServletRequest request, HttpServletResponse response, Map<String, Object> userInfo, String tokenName) throws Exception {

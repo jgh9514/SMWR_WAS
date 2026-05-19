@@ -11,9 +11,7 @@ import org.springframework.web.servlet.HandlerInterceptor;
 import org.springframework.web.servlet.ModelAndView;
 
 import com.sysconf.annotation.RequireAdmin;
-import com.sysconf.constants.Constant;
 import com.sysconf.security.AdminPrivilegeResolver;
-import com.sysconf.util.CookieUtil;
 
 import org.springframework.beans.factory.annotation.Autowired;
 
@@ -28,9 +26,6 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 @Component
 public class AdminAuthInterceptor implements HandlerInterceptor {
-
-	@Autowired
-	private CookieUtil cookieUtil;
 
 	@Autowired
 	private AdminPrivilegeResolver adminPrivilegeResolver;
@@ -75,7 +70,6 @@ public class AdminAuthInterceptor implements HandlerInterceptor {
 			return false;
 		}
 
-		cookieUtil.extendToken(request, response, Constant.LOGIN_TOKEN_NAME);
 		return true;
 	}
 

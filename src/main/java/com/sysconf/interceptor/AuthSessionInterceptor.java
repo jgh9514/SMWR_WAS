@@ -46,6 +46,9 @@ public class AuthSessionInterceptor implements HandlerInterceptor {
 			request.setAttribute("userInfo", userMap);
 
 			log.debug("AuthSessionInterceptor - sess_user_id={}, uri={}", userMap.get("sess_user_id"), request.getRequestURI());
+
+			// JWT·쿠키 슬라이딩 갱신 (기존 extendToken 은 쿠키 maxAge 만 늘리고 JWT 만료는 유지됨)
+			cookieUtil.refreshtoken(request, response, userInfo, Constant.LOGIN_TOKEN_NAME);
 		}
 
 		// 2. @RequireLogin 분기: 어노테이션이 있고 사용자 없으면 401
@@ -59,7 +62,6 @@ public class AuthSessionInterceptor implements HandlerInterceptor {
 				response.getWriter().flush();
 				return false;
 			}
-			cookieUtil.extendToken(request, response, Constant.LOGIN_TOKEN_NAME);
 		}
 
 		return true;

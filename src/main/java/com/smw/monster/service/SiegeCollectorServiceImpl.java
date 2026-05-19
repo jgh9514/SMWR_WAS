@@ -144,7 +144,7 @@ public class SiegeCollectorServiceImpl implements SiegeCollectorService {
 				.logId(stringVal(row.get("log_id")))
 				.logTimestamp(stringVal(row.get("log_timestamp")))
 				.matchId(stringVal(row.get("match_id")))
-				.baseNumber(intVal(row.get("base_number")) > 0 ? intVal(row.get("base_number")) : null)
+				.baseNumber(positiveIntOrNull(row.get("base_number")))
 				.guildId(stringVal(row.get("guild_id")))
 				.wizardId(stringVal(row.get("wizard_id")))
 				.wizardName(stringVal(row.get("wizard_name")))
@@ -154,9 +154,9 @@ public class SiegeCollectorServiceImpl implements SiegeCollectorService {
 				.winLose(stringVal(row.get("win_lose")))
 				.replayRidRef(longVal(row.get("replay_rid_ref")) > 0 ? longVal(row.get("replay_rid_ref")) : null)
 				.battleDesc(stringVal(row.get("battle_desc")))
-				.matchScoreVar(intVal(row.get("match_score_var")) != 0 ? intVal(row.get("match_score_var")) : null)
-				.wizardLevel(intVal(row.get("wizard_level")) > 0 ? intVal(row.get("wizard_level")) : null)
-				.oppWizardLevel(intVal(row.get("opp_wizard_level")) > 0 ? intVal(row.get("opp_wizard_level")) : null)
+				.matchScoreVar(nonZeroIntOrNull(row.get("match_score_var")))
+				.wizardLevel(positiveIntOrNull(row.get("wizard_level")))
+				.oppWizardLevel(positiveIntOrNull(row.get("opp_wizard_level")))
 				.logTypeApi(shortVal(row.get("log_type_api")) != 0 ? shortVal(row.get("log_type_api")) : null)
 				.guildName(stringVal(row.get("guild_name")))
 				.oppGuildName(stringVal(row.get("opp_guild_name")))
@@ -218,6 +218,16 @@ public class SiegeCollectorServiceImpl implements SiegeCollectorService {
 		} catch (NumberFormatException e) {
 			return defaultVal;
 		}
+	}
+
+	private static Integer positiveIntOrNull(Object o) {
+		int v = intVal(o, 0);
+		return v > 0 ? v : null;
+	}
+
+	private static Integer nonZeroIntOrNull(Object o) {
+		int v = intVal(o, 0);
+		return v != 0 ? v : null;
 	}
 
 	private static long longVal(Object o) {
