@@ -368,9 +368,10 @@ public class summonerswarServiceImpl implements summonerswarService {
 		if (missingDmIdLists(param)) {
 			return emptyMonsterDetailFullResponse();
 		}
+		applySiegeDeckStatsQueryFlag(param);
 
 		Map<String, Object> map = new HashMap<String, Object>();
-		
+
 		// enemyData 조회 (리스트 반환)
 		List<Map<String, ?>> enemyDataList = swMapper.selectMonsterDetailList(param);
 		
@@ -403,6 +404,7 @@ public class summonerswarServiceImpl implements summonerswarService {
 			map.put("enemyData", Collections.emptyList());
 			return map;
 		}
+		applySiegeDeckStatsQueryFlag(param);
 		List<Map<String, ?>> enemyDataList = swMapper.selectMonsterDetailList(param);
 		Map<String, Object> map = new HashMap<>();
 		map.put("enemyData", enemyDataList);

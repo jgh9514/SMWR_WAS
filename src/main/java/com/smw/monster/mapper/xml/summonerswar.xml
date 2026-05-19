@@ -644,98 +644,139 @@
 	</insert>
 	
 	<select id="selectMonsterDetailList" parameterType="sqlMap" resultType="sqlMap">
-		/* selectMonsterDetailList - Optimized with JOIN */
-        SELECT max(m1.kr_name) as m1_kr_name
-             , m1.image_url AS image_url1
-             , max(m2.kr_name) as m2_kr_name
-             , m2.image_url AS image_url2
-             , max(m3.kr_name) as m3_kr_name
-             , m3.image_url AS image_url3
-             , count(1) AS total_count
-             , ROUND(100.0 * SUM(CASE WHEN bll.win_lose = '1' THEN 1 ELSE 0 END) / COUNT(*), 1) AS total_rate
-             , SUM(CASE WHEN bll.win_lose = '1' THEN 1 end) AS win_count
-             , SUM(CASE WHEN bll.win_lose = '2' THEN 1 end) AS lose_count
-                           , max(m1.leader_id) as leader_id
-              , max(ml1.type) as leader_type
-              , max(ml1.stat) as leader_stat
-              , max(ml1.increase_by) as leader_increase_by
-              , max(ml1.icon_path) as leader_icon
-              , get_leader_skill_desc(max(ml1.type), max(ml1.stat), max(ml1.increase_by)) as leader_skill_description
-           FROM (
-                                        SELECT vbdi.match_id,
-                           vbdi.log_timestamp,
-                           vbdi.type,
-                           coalesce(mcm1.original_monster_id, vbdi.monster_id_1) AS monster_id_1,
-                           least(coalesce(mcm2.original_monster_id, vbdi.monster_id_2), 
-                                 coalesce(mcm3.original_monster_id, vbdi.monster_id_3)) AS monster_id_2,
-                           greatest(coalesce(mcm2.original_monster_id, vbdi.monster_id_2), 
-                                    coalesce(mcm3.original_monster_id, vbdi.monster_id_3)) AS monster_id_3
-                      FROM view_battle_deck_info vbdi
-                      left join monster_collaboration_mapping mcm1
-                             on vbdi.monster_id_1 = mcm1.collaboration_monster_id
-                      left join monster_collaboration_mapping mcm2
-                             on vbdi.monster_id_2 = mcm2.collaboration_monster_id
-                      left join monster_collaboration_mapping mcm3
-                             on vbdi.monster_id_3 = mcm3.collaboration_monster_id
-                                            WHERE vbdi.type = 'defense'
-                         AND vbdi.monster_id_1 IN (${dm1_list})
-                         AND LEAST(vbdi.monster_id_2, vbdi.monster_id_3) IN (${dm2_list})
-                         AND GREATEST(vbdi.monster_id_2, vbdi.monster_id_3) IN (${dm3_list})
-                       <if test='match_id != null and match_id != "" and match_id != "null"'>
-                       AND vbdi.match_id = #{match_id}
-                       </if>
-                  ) vbdi
-       LEFT JOIN battle_log_list bll
-              ON vbdi.match_id = bll.match_id
-             AND vbdi.log_timestamp = bll.log_timestamp
-       LEFT JOIN monster m1
-              ON vbdi.monster_id_1 = m1.monster_id
-       LEFT JOIN monster m2
-              ON vbdi.monster_id_2 = m2.monster_id
-       LEFT JOIN monster m3
-              ON vbdi.monster_id_3 = m3.monster_id
-       LEFT JOIN monster_leaders ml1 ON m1.leader_id = ml1.leader_id
-       WHERE 1=1
-       	<!-- 보안: 내 길드가 참가한 매치만 조회 (관리자: 전체/특정 길드 허용) -->
-       	<choose>
-       		<when test='view_all_guilds != null and (view_all_guilds == true or view_all_guilds == "true" or view_all_guilds == "Y")'>
-       			<!-- 전체 길드 조회: 제한 없음 -->
-       		</when>
-       		<when test="view_guild_id != null and view_guild_id != ''">
-       			AND EXISTS (
-       			  SELECT 1
-       			    FROM guild_siege_battle_log gsbl
-       			   WHERE gsbl.match_id = bll.match_id
-       			     AND gsbl.guild_id = #{view_guild_id}::text
-       			)
-       		</when>
-       		<otherwise>
-       			AND EXISTS (
-       			  SELECT 1
-       			    FROM guild_siege_battle_log gsbl
-       			   WHERE gsbl.match_id = bll.match_id
-       			     AND gsbl.guild_id = #{sess_guild_id}::text
-       			)
-       		</otherwise>
-       	</choose>
-       	<!-- 시즌: A=전체(생략), C=현재 시즌만 -->
-       	<if test='siege_view_scope != "A"'>
-       	AND (
-       	  (SELECT COUNT(*) FROM guild_siege_season WHERE end_date IS NULL) = 0
-       	  OR SUBSTRING(bll.match_id, 1, 6) >= (SELECT TO_CHAR(DATE_TRUNC('month', gss.start_date), 'YYYYMM') FROM guild_siege_season gss WHERE gss.end_date IS NULL ORDER BY gss.season_no DESC LIMIT 1)
-       	)
-       	</if>
-       	<if test="guild_ids != null and guild_ids.size() > 0">
-       	   AND bll.opp_guild_id IN 
-       	   <foreach collection="guild_ids" item="guild_id" open="(" separator="," close=")">
-       	   		#{guild_id}
-       	   </foreach>
-       	</if>
-        GROUP BY m1.image_url,
-                 m2.image_url,
-                 m3.image_url
-       ORDER BY total_count DESC,
-                total_rate DESC
+		/* selectMonsterDetailList */
+		<choose>
+			<when test='use_siege_defense_deck_stats != null and (use_siege_defense_deck_stats == "Y" or use_siege_defense_deck_stats == "true") and (match_id == null or match_id == "" or match_id == "null") and (guild_ids == null or guild_ids.size() == 0)'>
+			<!-- siege_defense_deck_stats 집계 경로: view_battle_deck_info 풀스캔 없음 -->
+			SELECT MAX(m1.kr_name) AS m1_kr_name
+			     , MAX(stats.image_url_1) AS image_url1
+			     , MAX(m2.kr_name) AS m2_kr_name
+			     , MAX(stats.image_url_2) AS image_url2
+			     , MAX(m3.kr_name) AS m3_kr_name
+			     , MAX(stats.image_url_3) AS image_url3
+			     , SUM(stats.total_count) AS total_count
+			     , ROUND(100.0 * SUM(stats.win_count) / NULLIF(SUM(stats.total_count), 0), 1) AS total_rate
+			     , SUM(stats.win_count) AS win_count
+			     , SUM(stats.lose_count) AS lose_count
+			     , MAX(stats.leader_id) AS leader_id
+			     , MAX(stats.leader_type) AS leader_type
+			     , MAX(stats.leader_stat) AS leader_stat
+			     , MAX(stats.leader_increase_by) AS leader_increase_by
+			     , MAX(stats.leader_icon) AS leader_icon
+			     , MAX(stats.leader_skill_desc) AS leader_skill_description
+			  FROM siege_defense_deck_stats stats
+			  LEFT JOIN monster m1 ON stats.monster_id_1 = m1.monster_id
+			  LEFT JOIN monster m2 ON stats.monster_id_2 = m2.monster_id
+			  LEFT JOIN monster m3 ON stats.monster_id_3 = m3.monster_id
+			 WHERE stats.monster_id_1 IN (${dm1_list})
+			   AND stats.monster_id_2 IN (${dm2_list})
+			   AND stats.monster_id_3 IN (${dm3_list})
+			   <choose>
+			     <when test='view_all_guilds != null and (view_all_guilds == true or view_all_guilds == "true" or view_all_guilds == "Y")'>
+			     </when>
+			     <when test="view_guild_id != null and view_guild_id != ''">
+			       AND stats.guild_id = #{view_guild_id}::text
+			     </when>
+			     <otherwise>
+			       AND stats.guild_id = #{sess_guild_id}::text
+			     </otherwise>
+			   </choose>
+			   <choose>
+			     <when test='siege_view_scope != null and siege_view_scope == "A"'></when>
+			     <otherwise>
+			       AND (
+			         (SELECT COUNT(*) FROM guild_siege_season WHERE end_date IS NULL) = 0
+			         OR season_yyyymm >= COALESCE(
+			           #{current_season_yyyymm},
+			           (SELECT TO_CHAR(DATE_TRUNC('month', gss.start_date), 'YYYYMM') FROM guild_siege_season gss WHERE gss.end_date IS NULL ORDER BY gss.season_no DESC LIMIT 1),
+			           '000000'
+			         )
+			       )
+			     </otherwise>
+			   </choose>
+			 GROUP BY stats.monster_id_1, stats.monster_id_2, stats.monster_id_3
+			 ORDER BY total_count DESC, total_rate DESC
+			</when>
+			<otherwise>
+			<!-- 레거시 경로: view_battle_deck_info 직접 조회 (match_id 지정 또는 상대 길드 필터 시) -->
+	        SELECT max(m1.kr_name) as m1_kr_name
+	             , m1.image_url AS image_url1
+	             , max(m2.kr_name) as m2_kr_name
+	             , m2.image_url AS image_url2
+	             , max(m3.kr_name) as m3_kr_name
+	             , m3.image_url AS image_url3
+	             , count(1) AS total_count
+	             , ROUND(100.0 * SUM(CASE WHEN bll.win_lose = '1' THEN 1 ELSE 0 END) / COUNT(*), 1) AS total_rate
+	             , SUM(CASE WHEN bll.win_lose = '1' THEN 1 end) AS win_count
+	             , SUM(CASE WHEN bll.win_lose = '2' THEN 1 end) AS lose_count
+	             , max(m1.leader_id) as leader_id
+	             , max(ml1.type) as leader_type
+	             , max(ml1.stat) as leader_stat
+	             , max(ml1.increase_by) as leader_increase_by
+	             , max(ml1.icon_path) as leader_icon
+	             , get_leader_skill_desc(max(ml1.type), max(ml1.stat), max(ml1.increase_by)) as leader_skill_description
+	           FROM (
+	                    SELECT vbdi.match_id,
+	                           vbdi.log_timestamp,
+	                           vbdi.type,
+	                           coalesce(mcm1.original_monster_id, vbdi.monster_id_1) AS monster_id_1,
+	                           least(coalesce(mcm2.original_monster_id, vbdi.monster_id_2),
+	                                 coalesce(mcm3.original_monster_id, vbdi.monster_id_3)) AS monster_id_2,
+	                           greatest(coalesce(mcm2.original_monster_id, vbdi.monster_id_2),
+	                                    coalesce(mcm3.original_monster_id, vbdi.monster_id_3)) AS monster_id_3
+	                      FROM view_battle_deck_info vbdi
+	                      left join monster_collaboration_mapping mcm1
+	                             on vbdi.monster_id_1 = mcm1.collaboration_monster_id
+	                      left join monster_collaboration_mapping mcm2
+	                             on vbdi.monster_id_2 = mcm2.collaboration_monster_id
+	                      left join monster_collaboration_mapping mcm3
+	                             on vbdi.monster_id_3 = mcm3.collaboration_monster_id
+	                     WHERE vbdi.type = 'defense'
+	                       AND vbdi.monster_id_1 IN (${dm1_list})
+	                       AND LEAST(vbdi.monster_id_2, vbdi.monster_id_3) IN (${dm2_list})
+	                       AND GREATEST(vbdi.monster_id_2, vbdi.monster_id_3) IN (${dm3_list})
+	                       <if test='match_id != null and match_id != "" and match_id != "null"'>
+	                       AND vbdi.match_id = #{match_id}
+	                       </if>
+	                  ) vbdi
+	       LEFT JOIN battle_log_list bll
+	              ON vbdi.match_id = bll.match_id
+	             AND vbdi.log_timestamp = bll.log_timestamp
+	       LEFT JOIN monster m1 ON vbdi.monster_id_1 = m1.monster_id
+	       LEFT JOIN monster m2 ON vbdi.monster_id_2 = m2.monster_id
+	       LEFT JOIN monster m3 ON vbdi.monster_id_3 = m3.monster_id
+	       LEFT JOIN monster_leaders ml1 ON m1.leader_id = ml1.leader_id
+	       WHERE 1=1
+	       	<choose>
+	       		<when test='view_all_guilds != null and (view_all_guilds == true or view_all_guilds == "true" or view_all_guilds == "Y")'>
+	       		</when>
+	       		<when test="view_guild_id != null and view_guild_id != ''">
+	       			AND EXISTS (
+	       			  SELECT 1 FROM guild_siege_battle_log gsbl
+	       			   WHERE gsbl.match_id = bll.match_id AND gsbl.guild_id = #{view_guild_id}::text
+	       			)
+	       		</when>
+	       		<otherwise>
+	       			AND EXISTS (
+	       			  SELECT 1 FROM guild_siege_battle_log gsbl
+	       			   WHERE gsbl.match_id = bll.match_id AND gsbl.guild_id = #{sess_guild_id}::text
+	       			)
+	       		</otherwise>
+	       	</choose>
+	       	<if test='siege_view_scope != "A"'>
+	       	AND (
+	       	  (SELECT COUNT(*) FROM guild_siege_season WHERE end_date IS NULL) = 0
+	       	  OR SUBSTRING(bll.match_id, 1, 6) >= (SELECT TO_CHAR(DATE_TRUNC('month', gss.start_date), 'YYYYMM') FROM guild_siege_season gss WHERE gss.end_date IS NULL ORDER BY gss.season_no DESC LIMIT 1)
+	       	)
+	       	</if>
+	       	<if test="guild_ids != null and guild_ids.size() > 0">
+	       	   AND bll.opp_guild_id IN
+	       	   <foreach collection="guild_ids" item="guild_id" open="(" separator="," close=")">#{guild_id}</foreach>
+	       	</if>
+	        GROUP BY m1.image_url, m2.image_url, m3.image_url
+	       ORDER BY total_count DESC, total_rate DESC
+			</otherwise>
+		</choose>
 	</select>
 	
 	<select id="selectMonsterDetailTeamList" parameterType="sqlMap" resultType="sqlMap">
