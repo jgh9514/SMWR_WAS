@@ -110,14 +110,11 @@ public class summonerswarServiceImpl implements summonerswarService {
 	private volatile long rtaSeasonMappingCacheLoadedAtMs;
 	private static final long RTA_SEASON_CACHE_TTL_MS = 60_000L;
 
-	@Value("${smw.siege.use-defense-deck-stats:false}")
-	private boolean useSiegeDefenseDeckStats;
-
 	private void applySiegeDeckStatsQueryFlag(Map<String, Object> param) {
 		if (param == null) {
 			return;
 		}
-		param.put("use_siege_defense_deck_stats", useSiegeDefenseDeckStats ? "Y" : "N");
+		param.put("use_siege_defense_deck_stats", "Y");
 	}
 
 	@Override
