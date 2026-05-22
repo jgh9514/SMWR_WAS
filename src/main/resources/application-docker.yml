@@ -156,7 +156,7 @@ smw:
   batch:
     quartz:
       enabled: ${SMW_BATCH_QUARTZ_ENABLED:false}
-  service-domain: localhost, localhost:3000, 13.236.20.39:32282, jgh9514.com, www.jgh9514.com
+  service-domain: localhost, localhost:3000, 52.78.184.67:32282, jgh9514.com, www.jgh9514.com
   globalDblinkNm: SMW_DBLINK
   front-url: http://localhost:3000
   server-url: http://localhost:8080
