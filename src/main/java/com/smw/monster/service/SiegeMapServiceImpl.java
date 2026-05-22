@@ -117,7 +117,7 @@ public class SiegeMapServiceImpl implements SiegeMapService {
 
 	@Override
 	@Transactional(readOnly = true)
-	public Map<String, Object> getMapView(String matchId, Long snapshotId) {
+	public Map<String, Object> getMapView(String matchId, Long snapshotId, String myGuildId) {
 		if (matchId == null || matchId.isBlank()) {
 			throw new IllegalArgumentException("match_id가 필요합니다.");
 		}
@@ -143,8 +143,29 @@ public class SiegeMapServiceImpl implements SiegeMapService {
 		Map<String, Object> result = new HashMap<>();
 		result.put("match", match);
 		result.put("snapshot", header);
-		result.put("guilds", siegeMapMapper.selectSnapshotGuilds(sid));
+		result.put("guilds", enrichGuilds(siegeMapMapper.selectSnapshotGuilds(sid), myGuildId));
 		result.put("bases", enrichBases(siegeMapMapper.selectSnapshotBases(sid), longVal(header.get("captured_at"))));
+		return result;
+	}
+
+	private List<Map<String, Object>> enrichGuilds(List<Map<String, ?>> guilds, String myGuildId) {
+		if (guilds == null || guilds.isEmpty()) return List.of();
+		// 내 길드 → pos_id=1, 나머지는 기존 pos_id 오름차순으로 2/3 재배정
+		List<Map<String, ?>> others = guilds.stream()
+				.filter(g -> !String.valueOf(g.get("guild_id")).equals(myGuildId))
+				.sorted(java.util.Comparator.comparingInt(g -> intVal(g.get("pos_id"))))
+				.toList();
+		List<Map<String, Object>> result = new ArrayList<>();
+		for (Map<String, ?> g : guilds) {
+			Map<String, Object> row = new HashMap<>(g);
+			if (myGuildId != null && String.valueOf(g.get("guild_id")).equals(myGuildId)) {
+				row.put("pos_id", 1);
+			} else {
+				int idx = others.indexOf(g);
+				row.put("pos_id", idx + 2);
+			}
+			result.add(row);
+		}
 		return result;
 	}
 

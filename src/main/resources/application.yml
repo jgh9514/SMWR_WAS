@@ -205,7 +205,7 @@ smw:
       retry-backoff-ms: ${SMW_SWARFARM_HTTP_RETRY_BACKOFF_MS:400}
   cache:
     short-lived:
-      maximum-size: ${SMW_SHORT_CACHE_MAXIMUM_SIZE:500}
+      maximum-size: ${SMW_SHORT_CACHE_MAXIMUM_SIZE:2000}
       expire-after-write-minutes: ${SMW_SHORT_CACHE_EXPIRE_AFTER_WRITE_MINUTES:5}
     rta-list-read:
       maximum-size: ${SMW_RTA_LIST_READ_CACHE_MAXIMUM_SIZE:3000}

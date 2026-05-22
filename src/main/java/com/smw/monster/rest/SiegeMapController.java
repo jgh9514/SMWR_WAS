@@ -111,7 +111,9 @@ public class SiegeMapController {
 				return fail("snapshot_id 형식이 올바르지 않습니다.", HttpStatus.BAD_REQUEST);
 			}
 		}
-		Map<String, Object> view = siegeMapService.getMapView(matchId, snapshotId);
+		var sessGuildId = param.get("sess_guild_id");
+		var myGuildId = sessGuildId != null ? String.valueOf(sessGuildId) : null;
+		Map<String, Object> view = siegeMapService.getMapView(matchId, snapshotId, myGuildId);
 		if (view == null) {
 			return fail("매치를 찾을 수 없습니다.", HttpStatus.NOT_FOUND);
 		}

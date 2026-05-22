@@ -9,7 +9,7 @@ public interface SiegeMapService {
 
 	Map<String, Object> ingestMatchupSnapshot(SiegeMapSnapshotUploadRequest request);
 
-	Map<String, Object> getMapView(String matchId, Long snapshotId);
+	Map<String, Object> getMapView(String matchId, Long snapshotId, String myGuildId);
 
 	List<Map<String, ?>> getMatchHistory(Map<String, Object> param);
 
