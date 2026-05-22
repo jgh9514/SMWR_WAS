@@ -214,7 +214,7 @@
         SELECT
             rms.rid,
             rms.date_add,
-            u1.result AS winner_position,
+            CASE WHEN u1.result = '1' THEN '1' ELSE '2' END AS winner_position,
             u1.wizard_id_str AS p1_wizard_id,
             u1.channel_uid AS p1_channel_uid,
             u1.wizard_name AS p1_name,
