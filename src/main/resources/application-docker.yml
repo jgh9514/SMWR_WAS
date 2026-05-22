@@ -167,7 +167,6 @@ smw:
     max-requests: 1000  # Rate Limit 완화 (1분당 최대 1000회)
     window-seconds: 60
   cache:
-    provider: caffeine
     short-lived:
       maximum-size: ${SMW_SHORT_CACHE_MAXIMUM_SIZE:500}
       expire-after-write-minutes: ${SMW_SHORT_CACHE_EXPIRE_AFTER_WRITE_MINUTES:5}

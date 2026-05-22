@@ -170,9 +170,6 @@ smw:
     quartz:
       enabled: ${SMW_BATCH_QUARTZ_ENABLED:false}
   globalDblinkNm: SMW_DBLINK
-  # true: /siege enemyTeam-list 가 siege_defense_deck_stats 단일 테이블 조회(백필·업로드 refresh 선행)
-  siege:
-    use-defense-deck-stats: ${SMW_SIEGE_USE_DEFENSE_DECK_STATS:false}
   cookie-live-time: 2592000
   # SYS_ROLE/SYS_USER_ROLE 제거 시: 관리자 user_id 목록(콤마 구분). RequireAdmin·알림 수신·댓글 삭제 등
   admin-user-ids: ${SMW_ADMIN_USER_IDS:}
@@ -207,7 +204,6 @@ smw:
       max-attempts: ${SMW_SWARFARM_HTTP_MAX_ATTEMPTS:3}
       retry-backoff-ms: ${SMW_SWARFARM_HTTP_RETRY_BACKOFF_MS:400}
   cache:
-    provider: caffeine
     short-lived:
       maximum-size: ${SMW_SHORT_CACHE_MAXIMUM_SIZE:500}
       expire-after-write-minutes: ${SMW_SHORT_CACHE_EXPIRE_AFTER_WRITE_MINUTES:5}

@@ -10,4 +10,6 @@ public class SiegeMapBaseImageItemResponse {
 	private final String ringKind;
 	private final Integer baseStatus;
 	private final String imagePath;
+	private final int displayWidthPx;
+	private final int displayHeightPx;
 }

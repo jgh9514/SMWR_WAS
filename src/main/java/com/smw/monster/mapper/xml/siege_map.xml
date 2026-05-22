@@ -303,9 +303,7 @@
 		       l.slot_no,
 		       l.pos_x_pct,
 		       l.pos_y_pct,
-		       l.ring_kind,
-		       l.display_width_px,
-		       l.display_height_px
+		       l.ring_kind
 		  FROM siege_map_base_layout l
 		 ORDER BY l.game_base_number
 		 LIMIT 50
@@ -316,7 +314,9 @@
 		SELECT i.castle_zone,
 		       i.ring_kind,
 		       i.base_status,
-		       i.image_path
+		       i.image_path,
+		       i.display_width_px,
+		       i.display_height_px
 		  FROM siege_map_base_image i
 		 ORDER BY i.castle_zone, i.ring_kind, i.base_status
 		 LIMIT 25

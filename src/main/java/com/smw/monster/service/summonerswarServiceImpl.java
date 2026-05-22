@@ -110,12 +110,7 @@ public class summonerswarServiceImpl implements summonerswarService {
 	private volatile long rtaSeasonMappingCacheLoadedAtMs;
 	private static final long RTA_SEASON_CACHE_TTL_MS = 60_000L;
 
-	private void applySiegeDeckStatsQueryFlag(Map<String, Object> param) {
-		if (param == null) {
-			return;
-		}
-		param.put("use_siege_defense_deck_stats", "Y");
-	}
+
 
 	@Override
 	@Cacheable(
@@ -131,7 +126,6 @@ public class summonerswarServiceImpl implements summonerswarService {
 	public List<Map<String, ?>> selectEnemyTeamList(Map<String, Object> param) {
 		expandMonsterIdsToIncludeCollaborations(param);
 		ensurePagingOffset(param);
-		applySiegeDeckStatsQueryFlag(param);
 		return swMapper.selectEnemyTeamList(param);
 	}
 
@@ -204,16 +198,12 @@ public class summonerswarServiceImpl implements summonerswarService {
 	}
 
 	/**
-	 * 점령 상세 SQL은 {@code IN (${dm1_list})} 형태 문자열 치환이라 dm1~dm3 중 하나라도 빠지면 {@code IN ()} 로 깨져 500이 난다.
+	 * 점령 상세 SQL은 {@code IN (${dm1_list})} 형태 문자열 치환이라 dm1_list 없으면 {@code IN ()} 로 깨져 500이 난다.
+	 * dm2_list/dm3_list 는 XML에서 {@code <if>} 로 선택적 처리하므로 여기서는 dm1_list 만 체크.
 	 */
 	private static boolean missingDmIdLists(Map<String, Object> param) {
-		for (String k : new String[] { "dm1_list", "dm2_list", "dm3_list" }) {
-			Object v = param.get(k);
-			if (!(v instanceof String) || ((String) v).trim().isEmpty()) {
-				return true;
-			}
-		}
-		return false;
+		Object v = param.get("dm1_list");
+		return !(v instanceof String) || ((String) v).trim().isEmpty();
 	}
 
 	private static Map<String, Object> emptyMonsterDetailFullResponse() {
@@ -229,7 +219,6 @@ public class summonerswarServiceImpl implements summonerswarService {
 	@Override
 	public int selectTotalPageCount(Map<String, Object> param) {
 		expandMonsterIdsToIncludeCollaborations(param);
-		applySiegeDeckStatsQueryFlag(param);
 		return swMapper.selectTotalPageCount(param);
 	}
 	
@@ -365,7 +354,7 @@ public class summonerswarServiceImpl implements summonerswarService {
 		if (missingDmIdLists(param)) {
 			return emptyMonsterDetailFullResponse();
 		}
-		applySiegeDeckStatsQueryFlag(param);
+
 
 		Map<String, Object> map = new HashMap<String, Object>();
 
@@ -402,7 +391,7 @@ public class summonerswarServiceImpl implements summonerswarService {
 			map.put("enemyData", Collections.emptyList());
 			return map;
 		}
-		applySiegeDeckStatsQueryFlag(param);
+
 		List<Map<String, ?>> enemyDataList = swMapper.selectMonsterDetailList(param);
 		Map<String, Object> map = new HashMap<>();
 		map.put("enemyData", enemyDataList);
@@ -435,7 +424,7 @@ public class summonerswarServiceImpl implements summonerswarService {
 			map.put("historyTotalCount", 0);
 			return map;
 		}
-		applySiegeDeckStatsQueryFlag(param);
+
 		CompletableFuture<List<Map<String, ?>>> listFuture = CompletableFuture.supplyAsync(
 				() -> swMapper.selectMonsterDetailTeamList(param));
 		CompletableFuture<Integer> countFuture = CompletableFuture.supplyAsync(

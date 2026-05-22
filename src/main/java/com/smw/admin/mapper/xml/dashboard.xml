@@ -17,9 +17,10 @@
 			 WHERE del_yn = 'N') AS totalUsers,
 			
 			-- 오늘 로그인 사용자 수 (중복 제거)
-			(SELECT COUNT(DISTINCT user_id) 
-			 FROM sys_user_login_log 
-			 WHERE TO_DATE(SUBSTRING(login_date, 1, 8), 'YYYYMMDD') = CURRENT_DATE) AS todayLogins,
+			(SELECT COUNT(DISTINCT user_id)
+			 FROM sys_user_login_log
+			 WHERE login_date >= TO_CHAR(CURRENT_DATE, 'YYYYMMDD')
+			   AND login_date &lt;  TO_CHAR(CURRENT_DATE + INTERVAL '1 day', 'YYYYMMDD')) AS todayLogins,
 			
 			-- 오늘 게시글 수 (공지사항 + 문의)
 			(SELECT COUNT(*) 
@@ -64,12 +65,12 @@
 			GROUP BY crt_date::date
 		) user_stats ON date_range.date = user_stats.date
 		LEFT JOIN (
-			SELECT 
-				TO_DATE(SUBSTRING(login_date, 1, 8), 'YYYYMMDD') AS date,
+			SELECT
+				SUBSTRING(login_date, 1, 8)::date AS date,
 				COUNT(DISTINCT user_id) AS logins
 			FROM sys_user_login_log
-			WHERE TO_DATE(SUBSTRING(login_date, 1, 8), 'YYYYMMDD') >= CURRENT_DATE - INTERVAL '7 days'
-			GROUP BY TO_DATE(SUBSTRING(login_date, 1, 8), 'YYYYMMDD')
+			WHERE login_date >= TO_CHAR(CURRENT_DATE - INTERVAL '7 days', 'YYYYMMDD')
+			GROUP BY SUBSTRING(login_date, 1, 8)::date
 		) login_stats ON date_range.date = login_stats.date
 		LEFT JOIN (
 			SELECT 

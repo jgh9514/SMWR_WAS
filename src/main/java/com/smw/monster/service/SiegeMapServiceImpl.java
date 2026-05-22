@@ -399,8 +399,6 @@ public class SiegeMapServiceImpl implements SiegeMapService {
 					.posXPct(decimalVal(row.get("pos_x_pct")))
 					.posYPct(decimalVal(row.get("pos_y_pct")))
 					.ringKind(stringVal(row.get("ring_kind")))
-					.displayWidthPx(intVal(row.get("display_width_px")))
-					.displayHeightPx(intVal(row.get("display_height_px")))
 					.build());
 		}
 		List<SiegeMapBaseImageItemResponse> images = new ArrayList<>();
@@ -411,6 +409,8 @@ public class SiegeMapServiceImpl implements SiegeMapService {
 					.ringKind(ringKind)
 					.baseStatus("base".equals(ringKind) ? null : intVal(row.get("base_status")))
 					.imagePath(stringVal(row.get("image_path")))
+					.displayWidthPx(intVal(row.get("display_width_px")))
+					.displayHeightPx(intVal(row.get("display_height_px")))
 					.build());
 		}
 		return SiegeMapLayoutMasterResponse.builder()

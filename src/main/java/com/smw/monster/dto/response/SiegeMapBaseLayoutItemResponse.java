@@ -14,6 +14,4 @@ public class SiegeMapBaseLayoutItemResponse {
 	private final BigDecimal posXPct;
 	private final BigDecimal posYPct;
 	private final String ringKind;
-	private final int displayWidthPx;
-	private final int displayHeightPx;
 }
