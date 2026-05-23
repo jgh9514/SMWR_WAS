@@ -327,9 +327,14 @@
 		SELECT
 			r.rune_id
 			,r.set_id
+			,r.slot
 			,r.occupied_type
 			,r.occupied_id
 			,r.unit_id
+			,r.main_stat_type
+			,r.main_stat_value
+			,r.innate_stat_type
+			,r.innate_stat_value
 			,r.substats_json
 			,r.prefix_eff_json
 		FROM swex_rune r

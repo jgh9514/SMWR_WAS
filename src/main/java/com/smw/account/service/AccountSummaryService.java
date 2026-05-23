@@ -43,7 +43,7 @@ public interface AccountSummaryService {
 	Map<String, Object> selectRuneList(Map<String, Object> param);
 
 	/**
-	 * 룬 점수 요약 (Top10 평균 + General 평균)
+	 * 룬 속도 요약 (신속+잡룬 / 신속+의지 최고 속도)
 	 */
 	Map<String, Object> selectRuneScoreSummary(Map<String, Object> param);
 }

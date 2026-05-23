@@ -168,9 +168,9 @@ public class AccountSummaryController {
 	}
 
 	/**
-	 * 룬 점수 요약 (Top10 평균 + General 평균)
+	 * 룬 속도 요약 (신속+잡룬 / 신속+의지 최고 속도)
 	 */
-	@Operation(summary = "룬 점수 요약", description = "임포트(import_id) 기준으로 룬 점수 요약(Top10 average + General rune score)을 반환합니다.")
+	@Operation(summary = "룬 속도 요약", description = "임포트(import_id) 기준 신속 4 + 잡룬 2 / 신속 4 + 의지 2 조합의 최고 공격속도를 계산합니다.")
 	@PostMapping("/rune-score-summary")
 	public ResponseEntity<?> runeScoreSummary(@RequestBody(required = false) Map<String, Object> param, HttpSession session, HttpServletRequest request) {
 		Map<String, Object> safeParam = param != null ? param : new HashMap<>();

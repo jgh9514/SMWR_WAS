@@ -2,9 +2,12 @@ package com.smw.account.service;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.CacheEvict;
@@ -27,6 +30,16 @@ import lombok.extern.slf4j.Slf4j;
 public class AccountSummaryServiceImpl implements AccountSummaryService {
 
 	private static final int BULK_INSERT_CHUNK_SIZE = 500;
+
+	/** SWEX effect ID: 공격속도(+) */
+	private static final int EFF_SPD = 11;
+	/** SWEX set ID: 신속 (4세트 +25% 속도) */
+	private static final int SET_SWIFT = 3;
+	/** SWEX set ID: 의지 (2세트) */
+	private static final int SET_WILL = 16;
+	private static final int SWIFT_SET_PIECES = 4;
+	private static final int FILLER_SET_PIECES = 2;
+	private static final double SWIFT_SET_SPEED_MULTIPLIER = 1.25;
 
 	@Autowired
 	private AccountSummaryMapper mapper;
@@ -213,99 +226,187 @@ public class AccountSummaryServiceImpl implements AccountSummaryService {
 			return result;
 		}
 
-		// Set ID
-		final int SET_SWIFT = 3;   // 신속
-		final int SET_DESPAIR = 10; // 절망
-		final int SET_VIOLENT = 13; // 폭주
-		final int SET_REVENGE = 18; // 반격
-		final int SET_WILL = 16;   // 의지
-
-		// 점수 계산 후 카테고리별 분류
-		java.util.Map<String, java.util.List<Double>> byCategory = new java.util.HashMap<>();
-		java.util.Map<Integer, java.util.List<Double>> bySet = new java.util.HashMap<>();
-
+		List<RuneSpeedEntry> entries = new ArrayList<>();
 		for (Map<String, ?> r : runes) {
-			Integer setId = toInt(r.get("set_id"));
-			// SWRT 방식: Efficiency% * 1.8
-			Double score = computeGeneralRuneScore(r.get("substats_json"), r.get("prefix_eff_json"));
-			if (score == null) score = 0.0;
-
-			// set별
-			if (setId != null) {
-				bySet.computeIfAbsent(setId, k -> new java.util.ArrayList<>()).add(score);
+			Long runeId = toLong(r.get("rune_id"));
+			if (runeId == null) {
+				continue;
 			}
-
-			// general 카테고리별
-			String cat = toGeneralCategory(setId, SET_SWIFT, SET_VIOLENT, SET_DESPAIR, SET_WILL, SET_REVENGE);
-			byCategory.computeIfAbsent(cat, k -> new java.util.ArrayList<>()).add(score);
+			Integer setId = toInt(r.get("set_id"));
+			int flatSpeed = extractFlatSpeedFromRune(r);
+			entries.add(new RuneSpeedEntry(runeId, setId != null ? setId : 0, flatSpeed));
 		}
 
-		// Top 10 Average (룬 기준): 신속/폭주/절망 각각 상위 10개 룬 평균
-		Map<String, Object> top10 = new HashMap<>();
-		top10.put("swift", buildTopNAvg(bySet.get(SET_SWIFT), 10));
-		top10.put("violent", buildTopNAvg(bySet.get(SET_VIOLENT), 10));
-		top10.put("despair", buildTopNAvg(bySet.get(SET_DESPAIR), 10));
+		if (entries.isEmpty()) {
+			result.put("hasData", false);
+			return result;
+		}
 
-		// General avg: 신속/폭주/절망/의지/반격/기타
-		Map<String, Object> general = new HashMap<>();
-		general.put("swift", buildAvg(byCategory.get("swift")));
-		general.put("violent", buildAvg(byCategory.get("violent")));
-		general.put("despair", buildAvg(byCategory.get("despair")));
-		general.put("will", buildAvg(byCategory.get("will")));
-		general.put("revenge", buildAvg(byCategory.get("revenge")));
-		general.put("others", buildAvg(byCategory.get("others")));
+		Map<String, Object> speed = new HashMap<>();
+		speed.put("swiftPlusJunk", buildSwiftPlusJunkSpeed(entries));
+		speed.put("swiftPlusWill", buildSwiftPlusWillSpeed(entries));
 
 		result.put("hasData", true);
-		result.put("top10", top10);
-		result.put("general", general);
-		result.put("scoreFormula", "Efficiency(%)=(1+Σ(sub/prefix)/max)/2.8*100, RuneScore=Efficiency*1.8");
+		result.put("speed", speed);
+		result.put(
+				"speedFormula",
+				"6피스 합산 속도(주/부/태생) × 1.25(신속 4세트). 신속+잡룬=신속 상위4+기타 상위2, 신속+의지=신속 상위4+의지 상위2");
 		return result;
 	}
 
-	private Map<String, Object> buildTopNAvg(java.util.List<Double> scores, int n) {
-		Map<String, Object> out = new HashMap<>();
-		if (scores == null || scores.isEmpty()) {
-			out.put("count", 0);
-			out.put("considered", 0);
-			out.put("sum", 0.0);
-			out.put("avg", 0.0);
-			return out;
+	private static final class RuneSpeedEntry {
+		private final long runeId;
+		private final int setId;
+		private final int flatSpeed;
+
+		private RuneSpeedEntry(long runeId, int setId, int flatSpeed) {
+			this.runeId = runeId;
+			this.setId = setId;
+			this.flatSpeed = flatSpeed;
 		}
-		scores.sort(java.util.Comparator.reverseOrder());
-		int considered = Math.min(n, scores.size());
-		double sum = 0.0;
-		for (int i = 0; i < considered; i++) sum += scores.get(i);
-		out.put("count", scores.size());
-		out.put("considered", considered);
-		out.put("sum", round2(sum));
-		out.put("avg", round2(sum / considered));
+	}
+
+	private Map<String, Object> buildSwiftPlusJunkSpeed(List<RuneSpeedEntry> entries) {
+		List<RuneSpeedEntry> swiftPool = entries.stream()
+				.filter(e -> e.setId == SET_SWIFT)
+				.sorted(speedDesc())
+				.collect(Collectors.toList());
+		List<RuneSpeedEntry> swiftPicked = pickTop(swiftPool, SWIFT_SET_PIECES);
+		Set<Long> used = swiftPicked.stream().map(e -> e.runeId).collect(Collectors.toSet());
+
+		List<RuneSpeedEntry> junkPool = entries.stream()
+				.filter(e -> !used.contains(e.runeId))
+				.sorted(speedDesc())
+				.collect(Collectors.toList());
+		List<RuneSpeedEntry> junkPicked = pickTop(junkPool, FILLER_SET_PIECES);
+
+		return buildSpeedBuildResult("신속 + 잡룬", swiftPicked, junkPicked, "junk");
+	}
+
+	private Map<String, Object> buildSwiftPlusWillSpeed(List<RuneSpeedEntry> entries) {
+		List<RuneSpeedEntry> swiftPool = entries.stream()
+				.filter(e -> e.setId == SET_SWIFT)
+				.sorted(speedDesc())
+				.collect(Collectors.toList());
+		List<RuneSpeedEntry> swiftPicked = pickTop(swiftPool, SWIFT_SET_PIECES);
+		Set<Long> used = swiftPicked.stream().map(e -> e.runeId).collect(Collectors.toSet());
+
+		List<RuneSpeedEntry> willPool = entries.stream()
+				.filter(e -> e.setId == SET_WILL && !used.contains(e.runeId))
+				.sorted(speedDesc())
+				.collect(Collectors.toList());
+		List<RuneSpeedEntry> willPicked = pickTop(willPool, FILLER_SET_PIECES);
+
+		return buildSpeedBuildResult("신속 + 의지", swiftPicked, willPicked, "will");
+	}
+
+	private List<RuneSpeedEntry> pickTop(List<RuneSpeedEntry> sortedDesc, int n) {
+		if (sortedDesc == null || sortedDesc.isEmpty()) {
+			return List.of();
+		}
+		int limit = Math.min(n, sortedDesc.size());
+		return new ArrayList<>(sortedDesc.subList(0, limit));
+	}
+
+	private Comparator<RuneSpeedEntry> speedDesc() {
+		return Comparator.comparingInt((RuneSpeedEntry e) -> e.flatSpeed).reversed()
+				.thenComparingLong(e -> e.runeId);
+	}
+
+	private Map<String, Object> buildSpeedBuildResult(
+			String label,
+			List<RuneSpeedEntry> swiftPicked,
+			List<RuneSpeedEntry> fillerPicked,
+			String fillerType) {
+		int flatSum = sumFlatSpeed(swiftPicked) + sumFlatSpeed(fillerPicked);
+		boolean setBonusApplied = swiftPicked.size() >= SWIFT_SET_PIECES;
+		int totalSpeed = setBonusApplied
+				? (int) Math.round(flatSum * SWIFT_SET_SPEED_MULTIPLIER)
+				: flatSum;
+
+		Map<String, Object> out = new HashMap<>();
+		out.put("label", label);
+		out.put("fillerType", fillerType);
+		out.put("swiftPieceCount", swiftPicked.size());
+		out.put("fillerPieceCount", fillerPicked.size());
+		out.put("swiftSpeedSum", sumFlatSpeed(swiftPicked));
+		out.put("fillerSpeedSum", sumFlatSpeed(fillerPicked));
+		out.put("flatSum", flatSum);
+		out.put("setBonusApplied", setBonusApplied);
+		out.put("setBonusPercent", setBonusApplied ? 25 : 0);
+		out.put("totalSpeed", totalSpeed);
 		return out;
 	}
 
-	private Map<String, Object> buildAvg(java.util.List<Double> scores) {
-		Map<String, Object> out = new HashMap<>();
-		if (scores == null || scores.isEmpty()) {
-			out.put("count", 0);
-			out.put("sum", 0.0);
-			out.put("avg", 0.0);
-			return out;
+	private int sumFlatSpeed(List<RuneSpeedEntry> picked) {
+		int sum = 0;
+		for (RuneSpeedEntry e : picked) {
+			sum += e.flatSpeed;
 		}
-		double sum = 0.0;
-		for (Double s : scores) sum += (s != null ? s : 0.0);
-		out.put("count", scores.size());
-		out.put("sum", round2(sum));
-		out.put("avg", round2(sum / scores.size()));
-		return out;
+		return sum;
 	}
 
-	private String toGeneralCategory(Integer setId, int swift, int violent, int despair, int will, int revenge) {
-		if (setId == null) return "others";
-		if (setId == swift) return "swift";
-		if (setId == violent) return "violent";
-		if (setId == despair) return "despair";
-		if (setId == will) return "will";
-		if (setId == revenge) return "revenge";
-		return "others";
+	/**
+	 * 룬 1개의 flat 공격속도(주옵션 + 태생 + 부옵션 SPD 합)
+	 */
+	private int extractFlatSpeedFromRune(Map<String, ?> r) {
+		int spd = 0;
+		Integer mainType = toInt(r.get("main_stat_type"));
+		Integer mainValue = toInt(r.get("main_stat_value"));
+		if (mainType != null && mainType == EFF_SPD && mainValue != null) {
+			spd += mainValue;
+		}
+		Integer innateType = toInt(r.get("innate_stat_type"));
+		Integer innateValue = toInt(r.get("innate_stat_value"));
+		if (innateType != null && innateType == EFF_SPD && innateValue != null) {
+			spd += innateValue;
+		}
+		spd += extractSpeedFromEffectJson(r.get("substats_json"));
+		return spd;
+	}
+
+	private int extractSpeedFromEffectJson(Object effectsObj) {
+		if (effectsObj == null) {
+			return 0;
+		}
+		try {
+			JsonNode node = toJsonNode(effectsObj);
+			if (node == null || !node.isArray()) {
+				return 0;
+			}
+			int sum = 0;
+			for (JsonNode eff : node) {
+				if (eff == null || !eff.isArray() || eff.size() < 2) {
+					continue;
+				}
+				int effId = eff.get(0).asInt();
+				if (effId != EFF_SPD) {
+					continue;
+				}
+				sum += eff.get(1).asInt();
+			}
+			return sum;
+		} catch (Exception e) {
+			return 0;
+		}
+	}
+
+	private Long toLong(Object obj) {
+		if (obj == null) {
+			return null;
+		}
+		if (obj instanceof Number) {
+			return ((Number) obj).longValue();
+		}
+		try {
+			String s = obj.toString();
+			if (s == null || s.isEmpty()) {
+				return null;
+			}
+			return Long.valueOf(s);
+		} catch (Exception e) {
+			return null;
+		}
 	}
 
 	/**
