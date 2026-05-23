@@ -89,5 +89,21 @@ public class NotificationController {
 		Map<String, Object> result = notificationService.markAllNotificationsRead(p, session);
 		return ResponseEntity.ok(result);
 	}
+
+	/**
+	 * 알림 숨김(목록에서 제거)
+	 */
+	@Operation(summary = "알림 숨김", description = "알림을 목록에서 숨깁니다(soft delete).")
+	@PostMapping("/dismiss")
+	public ResponseEntity<?> dismissNotification(@RequestBody Map<String, Object> param, HttpSession session, HttpServletRequest request) {
+		String userId = getSessUserId(request);
+		if (userId == null || userId.isEmpty()) {
+			return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("result", "FAIL", "message", "로그인이 필요합니다."));
+		}
+		Map<String, Object> p = ensureParam(param);
+		p.put("user_id", userId);
+		Map<String, Object> result = notificationService.dismissNotification(p, session);
+		return ResponseEntity.ok(result);
+	}
 }
 

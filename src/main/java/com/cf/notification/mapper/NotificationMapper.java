@@ -27,5 +27,10 @@ public interface NotificationMapper {
 	 * 알림 생성
 	 */
 	int insertNotification(Map<String, Object> param);
+
+	/**
+	 * 알림 숨김(soft delete)
+	 */
+	int updateNotificationDismiss(Map<String, Object> param);
 }
 

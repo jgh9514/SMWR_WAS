@@ -73,6 +73,21 @@ public class NotificationServiceImpl implements NotificationService {
 	}
 
 	@Override
+	public Map<String, Object> dismissNotification(Map<String, Object> param, HttpSession session) {
+		Map<String, Object> result = new HashMap<>();
+
+		int updated = notificationMapper.updateNotificationDismiss(param);
+		if (updated > 0) {
+			result.put("result", "SUCCESS");
+		} else {
+			result.put("result", "FAIL");
+			result.put("message", "알림을 찾을 수 없습니다.");
+		}
+
+		return result;
+	}
+
+	@Override
 	public void createNotification(String userId, String type, String title, String content, String relatedId, String relatedUrl, String crtUserId) {
 		Map<String, Object> param = new HashMap<>();
 		param.put("user_id", userId);

@@ -819,28 +819,22 @@ public class RtaServiceImpl implements RtaService {
         return rtaServiceSelf.getRtaMonsterStats(n, 0, "trio", seasonId, null, null);
     }
 
+    /** 솔로·듀오·트리오 각각 상위 N건 — 전역 합산 top-N 시 한 탭만 채워지는 문제 방지 */
+    private static final int COUNTER_MATCHUP_LIMIT_PER_SIZE = 30;
+
     private List<Map<String, Object>> mergeCounterMatchups(
             List<Map<String, Object>> solo,
             List<Map<String, Object>> duo,
             List<Map<String, Object>> trio) {
 
-        List<Map<String, Object>> merged = Stream.of(
-                solo  != null ? solo  : Collections.<Map<String, Object>>emptyList(),
-                duo   != null ? duo   : Collections.<Map<String, Object>>emptyList(),
-                trio  != null ? trio  : Collections.<Map<String, Object>>emptyList()
-        ).flatMap(List::stream).collect(Collectors.toList());
-
-        merged.sort(Comparator.comparingLong((Map<String, Object> r) -> {
-            long w = toLong(r.get("winCnt"));
-            long l = toLong(r.get("loseCnt"));
-            return w + l;
-        }).reversed());
-
-        List<Map<String, Object>> top40 = merged.size() > 40 ? merged.subList(0, 40) : merged;
+        List<Map<String, Object>> merged = new ArrayList<>();
+        appendCounterMatchupSlice(merged, solo);
+        appendCounterMatchupSlice(merged, duo);
+        appendCounterMatchupSlice(merged, trio);
 
         // monster ID 일괄 조회 → opponentLabel 구성
         Set<String> idSet = new HashSet<>();
-        for (Map<String, Object> r : top40) {
+        for (Map<String, Object> r : merged) {
             String key = (String) r.get("opponentComboKey");
             if (key != null) {
                 Arrays.stream(key.split(",")).map(String::trim).filter(s -> !s.isEmpty()).forEach(idSet::add);
@@ -863,8 +857,8 @@ public class RtaServiceImpl implements RtaService {
             }
         }
 
-        List<Map<String, Object>> result = new ArrayList<>(top40.size());
-        for (Map<String, Object> r : top40) {
+        List<Map<String, Object>> result = new ArrayList<>(merged.size());
+        for (Map<String, Object> r : merged) {
             Map<String, Object> row = new HashMap<>(r);
             String key = (String) row.get("opponentComboKey");
             long winCnt  = toLong(row.get("winCnt"));
@@ -898,6 +892,16 @@ public class RtaServiceImpl implements RtaService {
             result.add(row);
         }
         return result;
+    }
+
+    private static void appendCounterMatchupSlice(List<Map<String, Object>> out, List<Map<String, Object>> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return;
+        }
+        int n = Math.min(rows.size(), COUNTER_MATCHUP_LIMIT_PER_SIZE);
+        for (int i = 0; i < n; i++) {
+            out.add(rows.get(i));
+        }
     }
 
     private static long toLong(Object v) {

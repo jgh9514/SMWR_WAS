@@ -4,6 +4,7 @@
 
 	<!-- 알림 목록 조회 -->
 	<select id="selectNotificationList" parameterType="sqlMap" resultType="java.util.HashMap">
+		/* notification.xml.selectNotificationList */
 		SELECT 
 			n.notification_id,
 			n.user_id,
@@ -22,8 +23,20 @@
 		LIMIT 50
 	</select>
 
+	<!-- 알림 숨김 처리 -->
+	<update id="updateNotificationDismiss" parameterType="sqlMap">
+		/* notification.xml.updateNotificationDismiss */
+		UPDATE NOTIFICATION
+		SET del_yn = 'Y',
+			upt_date = CURRENT_TIMESTAMP
+		WHERE notification_id = #{notification_id}
+		  AND user_id = #{user_id}
+		  AND del_yn = 'N'
+	</update>
+
 	<!-- 알림 읽음 처리 -->
 	<update id="updateNotificationRead" parameterType="sqlMap">
+		/* notification.xml.updateNotificationRead */
 		UPDATE NOTIFICATION
 		SET is_read = 'Y',
 			read_date = CURRENT_TIMESTAMP,
@@ -35,6 +48,7 @@
 
 	<!-- 모든 알림 읽음 처리 -->
 	<update id="updateAllNotificationsRead" parameterType="sqlMap">
+		/* notification.xml.updateAllNotificationsRead */
 		UPDATE NOTIFICATION
 		SET is_read = 'Y',
 			read_date = CURRENT_TIMESTAMP,

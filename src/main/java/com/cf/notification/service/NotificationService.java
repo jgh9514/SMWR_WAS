@@ -22,6 +22,11 @@ public interface NotificationService {
 	Map<String, Object> markAllNotificationsRead(Map<String, Object> param, HttpSession session);
 
 	/**
+	 * 알림 숨김(목록에서 제거)
+	 */
+	Map<String, Object> dismissNotification(Map<String, Object> param, HttpSession session);
+
+	/**
 	 * 알림 생성
 	 * @param userId 알림을 받을 사용자 ID
 	 * @param type 알림 타입
