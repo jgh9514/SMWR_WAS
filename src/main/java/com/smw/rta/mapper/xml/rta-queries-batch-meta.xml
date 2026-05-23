@@ -1851,4 +1851,106 @@
                 field_cnt = EXCLUDED.field_cnt
     </insert>
 
+    <insert id="insertRtaMatchFlatForStagingReplays">
+        /* rta-queries-batch-meta.insertRtaMatchFlatForStagingReplays
+           staging_rta_summoner_snap_rid 의 replay_id 기준으로 rta_match_flat INSERT.
+           청크 트랜잭션 내에서 호출 — staging 은 현재 청크 rids 로 채워진 상태여야 함. */
+        INSERT INTO public.rta_match_flat (
+            replay_id, season_id, played_at, winner_wizard_id, rating_id,
+            p1_wizard_id, p1_wizard_name, p1_channel_uid, p1_country,
+            p1_rating_id, p1_ladder_score, p1_ladder_rank,
+            p1_is_winner, p1_is_first_pick, p1_alive_count, p1_leader_slot, p1_banned_unit,
+            p1_units, p1_unit_banned, p1_pick_slots,
+            p2_wizard_id, p2_wizard_name, p2_channel_uid, p2_country,
+            p2_rating_id, p2_ladder_score, p2_ladder_rank,
+            p2_is_winner, p2_is_first_pick, p2_alive_count, p2_leader_slot, p2_banned_unit,
+            p2_units, p2_unit_banned, p2_pick_slots
+        )
+        WITH staged AS (
+            SELECT s.replay_id FROM public.staging_rta_summoner_snap_rid s WHERE s.season_id = #{seasonId}
+        ),
+        unit_agg AS (
+            SELECT u.replay_id, u.wizard_id,
+                   array_agg(u.unit_master_id ORDER BY u.pick_slot_no) AS units,
+                   array_agg(u.is_banned ORDER BY u.pick_slot_no)       AS unit_banned,
+                   array_agg(u.pick_slot_no::smallint ORDER BY u.pick_slot_no) AS pick_slots
+            FROM public.rta_match_unit_pick u
+            INNER JOIN staged s ON s.replay_id = u.replay_id
+            GROUP BY u.replay_id, u.wizard_id
+        ),
+        ban_agg AS (
+            SELECT u.replay_id, u.wizard_id, MIN(u.pick_slot_no)::smallint AS banned_slot
+            FROM public.rta_match_unit_pick u
+            INNER JOIN staged s ON s.replay_id = u.replay_id
+            WHERE u.is_banned = true
+            GROUP BY u.replay_id, u.wizard_id
+        )
+        SELECT
+            m.replay_id, m.season_id, m.played_at, m.winner_wizard_id::bigint,
+            COALESCE(p1.rating_id, p2.rating_id) AS rating_id,
+            p1.wizard_id::bigint, p1.wizard_name, p1.channel_uid, p1.country_code,
+            p1.rating_id, p1.ladder_score, p1.ladder_rank,
+            p1.is_winner, p1.is_first_pick, p1.alive_count::smallint, p1.leader_pick_slot::smallint,
+            b1.banned_slot,
+            COALESCE(u1.units,      ARRAY[]::bigint[]),
+            COALESCE(u1.unit_banned, ARRAY[]::bool[]),
+            COALESCE(u1.pick_slots,  ARRAY[]::smallint[]),
+            p2.wizard_id::bigint, p2.wizard_name, p2.channel_uid, p2.country_code,
+            p2.rating_id, p2.ladder_score, p2.ladder_rank,
+            p2.is_winner, p2.is_first_pick, p2.alive_count::smallint, p2.leader_pick_slot::smallint,
+            b2.banned_slot,
+            COALESCE(u2.units,      ARRAY[]::bigint[]),
+            COALESCE(u2.unit_banned, ARRAY[]::bool[]),
+            COALESCE(u2.pick_slots,  ARRAY[]::smallint[])
+        FROM public.rta_match m
+        INNER JOIN staged s  ON s.replay_id = m.replay_id
+        LEFT JOIN public.rta_match_participant p1
+            ON p1.replay_id = m.replay_id AND p1.team_side = 1
+        LEFT JOIN public.rta_match_participant p2
+            ON p2.replay_id = m.replay_id AND p2.team_side = 2
+        LEFT JOIN unit_agg u1 ON u1.replay_id = m.replay_id AND u1.wizard_id = p1.wizard_id
+        LEFT JOIN unit_agg u2 ON u2.replay_id = m.replay_id AND u2.wizard_id = p2.wizard_id
+        LEFT JOIN ban_agg  b1 ON b1.replay_id = m.replay_id AND b1.wizard_id = p1.wizard_id
+        LEFT JOIN ban_agg  b2 ON b2.replay_id = m.replay_id AND b2.wizard_id = p2.wizard_id
+        WHERE p1.replay_id IS NOT NULL
+          AND p2.replay_id IS NOT NULL
+        ON CONFLICT (replay_id) DO NOTHING
+    </insert>
+
+    <select id="selectAllPlayerSummaryPageByFightSnap" resultType="map">
+        /* Redis 전체 워밍용: fight_snap 기준 wizard_id keyset 페이징 */
+        SELECT
+            fs.wizard_id::text                                                          AS wizard_id,
+            p.wizard_name,
+            p.country_code                                                              AS country,
+            p.channel_uid,
+            COALESCE(rs.score,        p.ladder_score)                                  AS score,
+            COALESCE(rs.rating_id,    p.rating_id)                                     AS rating_id,
+            COALESCE(rs.rank_position, p.ladder_rank)                                  AS rank_position,
+            p.played_at                                                                 AS last_match_at,
+            fs.match_cnt                                                                AS match_count,
+            fs.win_cnt                                                                  AS win_count,
+            COALESCE(rs.max_season_score::int, p.ladder_score::int)                    AS max_season_score,
+            CASE WHEN fs.match_cnt > 0
+                 THEN ROUND(100.0 * fs.win_cnt::numeric / NULLIF(fs.match_cnt, 0), 1)
+            END                                                                         AS win_rate_pct
+        FROM public.rta_agg_summoner_season_fight_snap fs
+        JOIN LATERAL (
+            SELECT wizard_id, wizard_name, country_code, channel_uid,
+                   ladder_score, rating_id, ladder_rank, played_at
+            FROM public.rta_match_participant
+            WHERE wizard_id = fs.wizard_id::text
+              AND season_id = fs.season_id
+            ORDER BY played_at DESC NULLS LAST
+            LIMIT 1
+        ) p ON true
+        LEFT JOIN public.rta_agg_summoner_ranking_snap rs
+               ON rs.season_id = fs.season_id
+              AND rs.wizard_id  = fs.wizard_id
+        WHERE fs.season_id  = #{seasonId}
+          AND fs.wizard_id  > #{afterWizardId}
+        ORDER BY fs.wizard_id ASC
+        LIMIT #{pageSize}
+    </select>
+
 </mapper>

@@ -35,14 +35,24 @@ public class RtaRedisCacheManagersConfig {
 	@Value("${smw.cache.rta.monster.expire-after-write-minutes:60}")
 	private long rtaMonsterExpireAfterWriteMinutes;
 
+	@Value("${smw.cache.rta-player.expire-after-write-minutes:30}")
+	private long rtaPlayerExpireAfterWriteMinutes;
+
 	/**
-	 * 티어·랭킹·시즌 등 5분 TTL. {@code rtaMonster} 는 {@link #rtaMonsterCacheManager} 로 분리(1h).
+	 * 티어·시즌 등 5분 TTL. 플레이어 summary는 {@link #rtaPlayerCacheManager}(30분)로 분리.
 	 */
 	@Bean("rtaShortLivedCacheManager")
 	public CacheManager rtaShortLivedCacheManager(RedisConnectionFactory connectionFactory, ObjectMapper objectMapper) {
 		return buildManager(connectionFactory, objectMapper,
 				Arrays.asList("rtaDashboardRankCut", "rtaRankCutDetail", "rtaDashboardTiers", "rtaRanking", "rtaSeasons"),
 				Duration.ofMinutes(shortLivedExpireAfterWriteMinutes));
+	}
+
+	@Bean("rtaPlayerCacheManager")
+	public CacheManager rtaPlayerCacheManager(RedisConnectionFactory connectionFactory, ObjectMapper objectMapper) {
+		return buildManager(connectionFactory, objectMapper,
+				Arrays.asList("rtaPlayerData"),
+				Duration.ofMinutes(rtaPlayerExpireAfterWriteMinutes));
 	}
 
 	@Bean("rtaMonsterCacheManager")

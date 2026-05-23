@@ -249,6 +249,15 @@ public interface RtaMapper {
     /** 청크 증분: staging_rta_summoner_snap_rid 의 replay_id 기준 ADD-UPSERT (청크 트랜잭션 내 호출) */
     int insertRtaSummonerFightSnapForStagingReplays(@Param("seasonId") long seasonId);
 
+    /** 청크 증분: staging_rta_summoner_snap_rid 의 replay_id 기준 rta_match_flat INSERT (청크 트랜잭션 내 호출) */
+    int insertRtaMatchFlatForStagingReplays(@Param("seasonId") long seasonId);
+
+    /** Redis 전체 워밍용: fight_snap 기준 wizard_id keyset 페이징 (map 리스트 반환) */
+    List<java.util.Map<String, Object>> selectAllPlayerSummaryPageByFightSnap(
+            @Param("seasonId") long seasonId,
+            @Param("afterWizardId") long afterWizardId,
+            @Param("pageSize") int pageSize);
+
     /**
      * 키셋: 시즌 내 {@code summoner_ranking_apply_result IS NULL} 인 {@code rta_match.replay_id} 중
      * after 보다 큰 것만 오름차순, 최대 limit 건.

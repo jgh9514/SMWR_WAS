@@ -38,6 +38,12 @@ public class RtaCaffeineCacheManagersConfig {
 	@Value("${smw.cache.rta.monster.maximum-size:2000}")
 	private long rtaMonsterMaximumSize;
 
+	@Value("${smw.cache.rta-player.maximum-size:5000}")
+	private long rtaPlayerMaximumSize;
+
+	@Value("${smw.cache.rta-player.expire-after-write-minutes:30}")
+	private long rtaPlayerExpireAfterWriteMinutes;
+
 	@Bean("rtaShortLivedCacheManager")
 	public CacheManager rtaShortLivedCacheManager() {
 		CaffeineCacheManager cacheManager = new CaffeineCacheManager();
@@ -50,6 +56,17 @@ public class RtaCaffeineCacheManagersConfig {
 		cacheManager.setCaffeine(Caffeine.newBuilder()
 				.maximumSize(shortLivedMaximumSize)
 				.expireAfterWrite(Duration.ofMinutes(shortLivedExpireAfterWriteMinutes))
+				.recordStats());
+		return cacheManager;
+	}
+
+	@Bean("rtaPlayerCacheManager")
+	public CacheManager rtaPlayerCacheManager() {
+		CaffeineCacheManager cacheManager = new CaffeineCacheManager();
+		cacheManager.setCacheNames(Arrays.asList("rtaPlayerData"));
+		cacheManager.setCaffeine(Caffeine.newBuilder()
+				.maximumSize(rtaPlayerMaximumSize)
+				.expireAfterWrite(Duration.ofMinutes(rtaPlayerExpireAfterWriteMinutes))
 				.recordStats());
 		return cacheManager;
 	}

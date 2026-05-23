@@ -319,6 +319,9 @@ public class RtaBatchAggregationService {
 				fight[0] = rtaMapper.insertRtaSummonerFightSnapForStagingReplays(seasonId);
 				perf.addChunkFightSnapMs(msSinceNanos(t1));
 
+				// C — staging replay 기준 rta_match_flat 비정규화 INSERT (JOIN 제거용)
+				rtaMapper.insertRtaMatchFlatForStagingReplays(seasonId);
+
 				t1 = System.nanoTime();
 				rtaMapper.markSummonerRankingAggDoneForStagingSeason(seasonId);
 				perf.addChunkMarkDoneMs(msSinceNanos(t1));

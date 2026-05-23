@@ -28,21 +28,26 @@ public class RtaCacheEvictor {
 	};
 
 	private static final String RTA_MONSTER_CACHE_NAME = "rtaMonster";
+	private static final String RTA_PLAYER_DATA_CACHE_NAME = "rtaPlayerData";
 
 	private final CacheManager rtaShortLivedCacheManager;
 	/** {@code rtaMonster} — 목록/상세/link-preview, TTL 1h ({@code rtaMonsterCacheManager}) */
 	private final CacheManager rtaMonsterCacheManager;
 	private final CacheManager rtaListReadCacheManager;
+	/** {@code rtaPlayerData} — 플레이어 summary/snap, TTL 30분 ({@code rtaPlayerCacheManager}) */
+	private final CacheManager rtaPlayerCacheManager;
 	private final ObjectProvider<RtaRedisCacheWarmup> rtaRedisCacheWarmup;
 
 	public RtaCacheEvictor(
 			@Qualifier("rtaShortLivedCacheManager") CacheManager rtaShortLivedCacheManager,
 			@Qualifier("rtaMonsterCacheManager") CacheManager rtaMonsterCacheManager,
 			@Qualifier("rtaListReadCacheManager") CacheManager rtaListReadCacheManager,
+			@Qualifier("rtaPlayerCacheManager") CacheManager rtaPlayerCacheManager,
 			ObjectProvider<RtaRedisCacheWarmup> rtaRedisCacheWarmup) {
 		this.rtaShortLivedCacheManager = rtaShortLivedCacheManager;
 		this.rtaMonsterCacheManager = rtaMonsterCacheManager;
 		this.rtaListReadCacheManager = rtaListReadCacheManager;
+		this.rtaPlayerCacheManager = rtaPlayerCacheManager;
 		this.rtaRedisCacheWarmup = rtaRedisCacheWarmup;
 	}
 
@@ -76,7 +81,12 @@ public class RtaCacheEvictor {
 			matchList.clear();
 			log.debug("[rta-cache] cleared: rtaMatchList (rtaListReadCacheManager)");
 		}
-		log.debug("[rta-cache] short-lived {} + rtaMonster + rtaMatchList 무효화", SHORT_LIVED_RTA_CACHE_NAMES.length);
+		Cache playerData = rtaPlayerCacheManager.getCache(RTA_PLAYER_DATA_CACHE_NAME);
+		if (playerData != null) {
+			playerData.clear();
+			log.debug("[rta-cache] cleared: {} (rtaPlayerCacheManager)", RTA_PLAYER_DATA_CACHE_NAME);
+		}
+		log.debug("[rta-cache] evictAllRtaCaches done");
 		rtaRedisCacheWarmup.ifAvailable(RtaRedisCacheWarmup::warmAfterEviction);
 	}
 }

@@ -210,6 +210,10 @@ smw:
     rta-list-read:
       maximum-size: ${SMW_RTA_LIST_READ_CACHE_MAXIMUM_SIZE:3000}
       expire-after-write-minutes: ${SMW_RTA_LIST_READ_CACHE_EXPIRE_MINUTES:15}
+    rta-player:
+      # 플레이어 summary/snap — 랭킹·티어보다 변화 적으므로 TTL 길게 유지
+      maximum-size: ${SMW_RTA_PLAYER_CACHE_MAXIMUM_SIZE:5000}
+      expire-after-write-minutes: ${SMW_RTA_PLAYER_CACHE_EXPIRE_MINUTES:30}
     rta:
       # false: Caffeine(로컬). prod/docker 프론트에서 true. 로컬은 application-local.yml
       use-redis: ${SMW_CACHE_RTA_USE_REDIS:false}

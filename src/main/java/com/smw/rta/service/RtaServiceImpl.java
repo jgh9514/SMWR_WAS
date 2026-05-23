@@ -591,7 +591,7 @@ public class RtaServiceImpl implements RtaService {
     }
 
     @Override
-    @Cacheable(cacheNames = "rtaRanking", cacheManager = "rtaShortLivedCacheManager",
+    @Cacheable(cacheNames = "rtaPlayerData", cacheManager = "rtaPlayerCacheManager",
             key = "'ps_' + #seasonId + '_' + #wizardId")
     public Map<String, Object> getRtaPlayerSummary(String wizardId, Long seasonId) {
         Long sid = doResolveSeasonId(seasonId);
@@ -618,7 +618,7 @@ public class RtaServiceImpl implements RtaService {
     private static final int RTA_PLAYER_NAME_HISTORY_MAX_ROWS = 30;
 
     @Override
-    @Cacheable(cacheNames = "rtaRanking", cacheManager = "rtaShortLivedCacheManager",
+    @Cacheable(cacheNames = "rtaPlayerData", cacheManager = "rtaPlayerCacheManager",
             key = "'pnh_' + (#seasonId != null ? #seasonId : 'all') + '_' + #wizardId")
     public Map<String, Object> getRtaPlayerNameHistory(String wizardId, Long seasonId) {
         Map<String, Object> out = new HashMap<>();
@@ -640,7 +640,7 @@ public class RtaServiceImpl implements RtaService {
     private static final int RTA_PLAYER_SCORE_DAILY_MAX_ROWS = 400;
 
     @Override
-    @Cacheable(cacheNames = "rtaRanking", cacheManager = "rtaShortLivedCacheManager",
+    @Cacheable(cacheNames = "rtaPlayerData", cacheManager = "rtaPlayerCacheManager",
             key = "'psd_' + #seasonId + '_' + #wizardId")
     public Map<String, Object> getRtaPlayerScoreDaily(String wizardId, Long seasonId) {
         Map<String, Object> out = new HashMap<>();
@@ -659,7 +659,7 @@ public class RtaServiceImpl implements RtaService {
     }
 
     @Override
-    @Cacheable(cacheNames = "rtaRanking", cacheManager = "rtaShortLivedCacheManager",
+    @Cacheable(cacheNames = "rtaPlayerData", cacheManager = "rtaPlayerCacheManager",
             key = "'pmon_' + (#seasonId != null ? #seasonId : 'd') + '_' + #wizardId")
     public Map<String, Object> getRtaPlayerMonsterUsage(String wizardId, Long seasonId) {
         Long sid = doResolveSeasonId(seasonId);
@@ -692,7 +692,7 @@ public class RtaServiceImpl implements RtaService {
     }
 
     @Override
-    @Cacheable(cacheNames = "rtaRanking", cacheManager = "rtaShortLivedCacheManager",
+    @Cacheable(cacheNames = "rtaPlayerData", cacheManager = "rtaPlayerCacheManager",
             key = "'pmb_' + (#seasonId != null ? #seasonId : 'null') + '_' + #wizardId + '_' + #unitMasterId")
     public Map<String, Object> getRtaPlayerMonsterPickBreakdown(String wizardId, Long seasonId, int unitMasterId) {
         Long sid = doResolveSeasonId(seasonId);
@@ -769,7 +769,7 @@ public class RtaServiceImpl implements RtaService {
     }
 
     @Override
-    @Cacheable(cacheNames = "rtaRanking", cacheManager = "rtaShortLivedCacheManager", key = "'pbox_' + #wizardId")
+    @Cacheable(cacheNames = "rtaPlayerData", cacheManager = "rtaPlayerCacheManager", key = "'pbox_' + #wizardId")
     public Map<String, Object> getRtaPlayerOwnedBox(String wizardId) {
         Map<String, Object> out = new HashMap<>();
         if (wizardId == null || wizardId.trim().isEmpty()) {
