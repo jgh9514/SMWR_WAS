@@ -819,6 +819,28 @@ public class RtaServiceImpl implements RtaService {
         return rtaServiceSelf.getRtaMonsterStats(n, 0, "trio", seasonId, null, null);
     }
 
+    @Override
+    @Cacheable(cacheNames = "rtaMonster", cacheManager = "rtaMonsterCacheManager",
+            key = "'counter_' + #seasonId + '_' + #ratingId + '_' + #monsterId + '_' + #comboSize")
+    public List<Map<String, Object>> getRtaCounterMatchup(int monsterId, Long seasonId, int ratingId, int comboSize) {
+        Long sid = doResolveSeasonId(seasonId);
+        if (sid == null) return Collections.emptyList();
+        List<Map<String, Object>> rows;
+        if (comboSize == 1) {
+            rows = rtaMapper.getRtaCounterSoloMatchups(monsterId, sid, ratingId);
+        } else if (comboSize == 2) {
+            rows = rtaMapper.getRtaCounterDuoMatchups(monsterId, sid, ratingId);
+        } else if (comboSize == 3) {
+            rows = rtaMapper.getRtaCounterTrioMatchups(monsterId, sid, ratingId);
+        } else {
+            return Collections.emptyList();
+        }
+        List<Map<String, Object>> solo  = comboSize == 1 ? rows : Collections.emptyList();
+        List<Map<String, Object>> duo   = comboSize == 2 ? rows : Collections.emptyList();
+        List<Map<String, Object>> trio  = comboSize == 3 ? rows : Collections.emptyList();
+        return mergeCounterMatchups(solo, duo, trio);
+    }
+
     /** 솔로·듀오·트리오 각각 상위 N건 — 전역 합산 top-N 시 한 탭만 채워지는 문제 방지 */
     private static final int COUNTER_MATCHUP_LIMIT_PER_SIZE = 30;
 

@@ -688,6 +688,28 @@ public class RtaController {
         }
     }
 
+    @Operation(summary = "RTA 카운터 상성 조회 (combo_size: 1=솔로 2=듀오 3=트리오)")
+    @PostMapping("/monster-counter")
+    public ResponseEntity<Map<String, Object>> getRtaMonsterCounter(@RequestBody Map<String, Object> param) {
+        try {
+            int monsterId = param.get("monster_id") != null ? Integer.parseInt(param.get("monster_id").toString()) : 0;
+            if (monsterId == 0) return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
+            int comboSize = param.get("combo_size") != null ? Integer.parseInt(param.get("combo_size").toString()) : 0;
+            if (comboSize < 1 || comboSize > 3) return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
+            Long sid = pickSeasonId(param);
+            Integer ratingId = pickRatingId(param);
+            if (ratingId == null || ratingId <= 0) return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
+            List<Map<String, Object>> rows = rtaService.getRtaCounterMatchup(monsterId, sid, ratingId, comboSize);
+            Map<String, Object> response = new HashMap<>();
+            response.put("rows", rows);
+            response.put("seasonId", sid);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("RTA monster counter 조회 실패 param={}", param, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
     @Operation(summary = "RTA 몬스터 개요: 통계·7일 추이·슬롯별 픽·장인 랭킹")
     @PostMapping("/monster/overview")
     public ResponseEntity<Map<String, Object>> getRtaMonsterOverview(@RequestBody Map<String, Object> param) {

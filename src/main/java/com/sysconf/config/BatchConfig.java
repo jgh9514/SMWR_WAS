@@ -129,11 +129,23 @@ public class BatchConfig {
 				.build();
 		TriggerKey tk = trigger.getKey();
 		if (scheduler.checkExists(tk)) {
-			scheduler.rescheduleJob(tk, trigger);
-			if (!scheduler.checkExists(jk)) {
-				scheduler.addJob(jobDetail, true);
+			try {
+				scheduler.rescheduleJob(tk, trigger);
+				if (!scheduler.checkExists(jk)) {
+					scheduler.addJob(jobDetail, true);
+				}
+				log.info("Quartz cron reschedule (기존 트리거). jobKey={}", jobKeyStr);
+			} catch (Exception e) {
+				// QRTZ_TRIGGERS에는 있지만 QRTZ_CRON_TRIGGERS에 없는 고아 트리거 — 삭제 후 재등록
+				log.warn("rescheduleJob 실패(고아 트리거 의심), 삭제 후 재등록. triggerKey={}", tk, e);
+				scheduler.unscheduleJob(tk);
+				if (scheduler.checkExists(jk)) {
+					scheduler.scheduleJob(trigger);
+				} else {
+					scheduler.scheduleJob(jobDetail, trigger);
+				}
+				log.info("Quartz cron 고아 트리거 복구 완료. jobKey={}", jobKeyStr);
 			}
-			log.info("Quartz cron reschedule (기존 트리거). jobKey={}", jobKeyStr);
 			return;
 		}
 		if (scheduler.checkExists(jk)) {
