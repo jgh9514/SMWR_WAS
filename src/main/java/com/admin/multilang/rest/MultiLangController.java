@@ -16,11 +16,13 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.admin.multilang.service.MultiLangService;
+import com.sysconf.annotation.RequireAdmin;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
 @Tag(name = "Multi Language", description = "다국어 관리 API")
+@RequireAdmin
 @RestController
 @RequestMapping("/api/v1/sm/mlang")
 public class MultiLangController {

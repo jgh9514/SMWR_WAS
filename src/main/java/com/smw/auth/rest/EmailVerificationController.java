@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.smw.auth.service.EmailService;
+import com.sysconf.security.ClientIpResolver;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -40,8 +41,7 @@ public class EmailVerificationController {
 			return ResponseEntity.ok(result);
 		}
 		
-		// 클라이언트 IP(간단 rate limit용)
-		String clientIp = request != null ? request.getRemoteAddr() : null;
+		String clientIp = ClientIpResolver.resolve(request);
 		return ResponseEntity.ok(emailService.sendVerificationCode(email.trim(), clientIp));
 	}
 

@@ -245,6 +245,22 @@ public class RtaController {
         }
     }
 
+    @Operation(summary = "RTA 소환사 상세 페이지 초기 데이터",
+            description = "summary·scoreDaily·monsterUsage·opponentH2H 를 서버 병렬 조회 후 단일 응답 — HTTP 왕복 5회→1회")
+    @PostMapping("/player/{wizardId}/page-data")
+    public ResponseEntity<Map<String, Object>> getRtaPlayerPageData(
+            @PathVariable String wizardId,
+            @RequestBody(required = false) Map<String, Object> param) {
+        try {
+            Long sid = pickSeasonId(param);
+            Map<String, Object> response = rtaService.getRtaPlayerPageData(wizardId, sid);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("RTA player page-data 조회 실패 wizardId={}", wizardId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
     @Operation(summary = "RTA 소환사 요약", description = "수집 리플레이 기준 최신 점수·글로벌 순위·승패 집계")
     @PostMapping("/player/{wizardId}/summary")
     public ResponseEntity<Map<String, Object>> getRtaPlayerSummary(

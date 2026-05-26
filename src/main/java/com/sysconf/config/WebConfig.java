@@ -63,16 +63,16 @@ public class WebConfig implements WebMvcConfigurer {
 		WebMvcConfigurer.super.addInterceptors(registry);
 		
 		// 일반용: 세션 주입 + @RequireLogin 분기
-		// RTA/배치 API는 인증 인터셉터를 타지 않고 API 로깅만 수행한다.
+		// RTA 공개 조회 API만 제외. 배치 관리(/api/v1/batch)는 쿠키·세션 주입 후 @RequireAdmin 검사 필요.
 		registry.addInterceptor(authSessionInterceptor)
 		        .addPathPatterns("/api/v1/**")
-		        .excludePathPatterns("/api/v1/rta/**", "/api/v1/batch/**");
+		        .excludePathPatterns("/api/v1/rta/**");
 
 		// 관리자용: @RequireAdmin 분기 (ROLE_ADMIN 권한 체크)
-		// 배치 API는 운영상 별도 보호를 전제로 인터셉터 적용에서 제외한다.
+		// 배치 관리 API(/api/v1/batch)는 @RequireAdmin 으로 보호 — exclude 하지 않음
 		registry.addInterceptor(adminAuthInterceptor)
 		        .addPathPatterns("/api/v1/**")
-		        .excludePathPatterns("/api/v1/rta/**", "/api/v1/batch/**");
+		        .excludePathPatterns("/api/v1/rta/**");
 
 		// API 로깅 인터셉터: 모든 API에 적용 (인증 필요 없이 로깅만 수행)
 		registry.addInterceptor(apiLoggingInterceptor)

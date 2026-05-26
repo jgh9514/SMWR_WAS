@@ -1309,7 +1309,7 @@
             WHERE season_id = #{seasonId}
               AND wizard_id = #{wizardId}
         ),
-        live_agg AS MATERIALIZED (
+        live_agg AS (
             SELECT
                 COUNT(*)::bigint                              AS match_cnt,
                 COUNT(*) FILTER (WHERE mp.is_winner)::bigint AS win_cnt
@@ -1389,7 +1389,7 @@
               AND wizard_id = #{wizardId}
             LIMIT 1
         ),
-        live_part AS MATERIALIZED (
+        live_part AS (
             SELECT
                 COUNT(DISTINCT mp.replay_id)::bigint AS match_cnt,
                 COUNT(DISTINCT CASE WHEN mp.is_winner IS TRUE THEN mp.replay_id END)::bigint AS win_cnt
@@ -1398,7 +1398,7 @@
               AND mp.season_id = #{seasonId}
               AND mp.wizard_id = #{wizardId}
         ),
-        live_picks AS MATERIALIZED (
+        live_picks AS (
             SELECT
                 COALESCE(SUM(CASE WHEN NOT up.is_banned THEN 1 ELSE 0 END), 0)::bigint AS non_ban_pick_cnt,
                 COALESCE(SUM(CASE WHEN up.is_banned THEN 1 ELSE 0 END), 0)::bigint     AS ban_event_cnt

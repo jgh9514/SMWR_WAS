@@ -41,11 +41,10 @@ public class LoginController {
 	@Operation(summary = "로그인", description = "사용자 로그인을 처리합니다.")
 	@PostMapping("/login")
 	public ResponseEntity<?> login(@RequestBody Map<String, Object> param, HttpServletRequest request, HttpSession session, HttpServletResponse response) throws Exception {
-		log.info("===== 로그인 요청 시작 =====");
-		log.info("요청 파라미터: {}", maskSensitive(param));
+		log.debug("로그인 요청 user_id={}", param != null ? param.get("user_id") : null);
 		try {
 			Map<String, Object> result = service.login(param, request, response);
-			log.info("로그인 결과: {}", result);
+			log.info("로그인 결과 code={}", result != null ? result.get("result") : null);
 			return ResponseEntity.ok(result);
 		} catch (Exception e) {
 			log.error("로그인 처리 중 오류 발생", e);
@@ -146,6 +145,13 @@ public class LoginController {
 			if (userId.isEmpty()) {
 				result.put("result", "FAIL");
 				result.put("message", "user_id가 필요합니다.");
+				result.put("isDuplicate", false);
+				return new ResponseEntity<>(result, HttpStatus.OK);
+			}
+			String userIdError = com.sysconf.security.AuthCredentialsValidator.validateUserId(userId);
+			if (userIdError != null) {
+				result.put("result", "FAIL");
+				result.put("message", userIdError);
 				result.put("isDuplicate", false);
 				return new ResponseEntity<>(result, HttpStatus.OK);
 			}

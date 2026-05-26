@@ -615,6 +615,58 @@ public class RtaServiceImpl implements RtaService {
         return response;
     }
 
+    private static final int RTA_PLAYER_OPPONENTS_PAGE_DATA_LIMIT = 5;
+
+    @Override
+    @Cacheable(cacheNames = "rtaPlayerData", cacheManager = "rtaPlayerCacheManager",
+            key = "'ppd_' + #seasonId + '_' + #wizardId")
+    public Map<String, Object> getRtaPlayerPageData(String wizardId, Long seasonId) {
+        Long sid = doResolveSeasonId(seasonId);
+        Map<String, Object> out = new HashMap<>();
+        if (wizardId == null || wizardId.trim().isEmpty() || sid == null) {
+            out.put("found", false);
+            return out;
+        }
+        String wid = wizardId.trim();
+        long sidL = sid;
+
+        CompletableFuture<Map<String, Object>> fSummary = CompletableFuture.supplyAsync(
+                () -> rtaMapper.getRtaPlayerSummaryFromAgg(wid, sidL), RTA_LINK_PREVIEW_EXECUTOR);
+        CompletableFuture<List<Map<String, Object>>> fScoreDaily = CompletableFuture.supplyAsync(
+                () -> rtaMapper.listRtaPlayerScoreDailySnap(wid, sidL, RTA_PLAYER_SCORE_DAILY_MAX_ROWS), RTA_LINK_PREVIEW_EXECUTOR);
+        CompletableFuture<List<Map<String, Object>>> fMonster = CompletableFuture.supplyAsync(
+                () -> rtaMapper.listRtaPlayerMonsterSnapFromAgg(wid, sidL), RTA_LINK_PREVIEW_EXECUTOR);
+        CompletableFuture<Map<String, Object>> fFight = CompletableFuture.supplyAsync(
+                () -> rtaMapper.getRtaPlayerSeasonFightSnapFromAgg(wid, sidL), RTA_LINK_PREVIEW_EXECUTOR);
+        CompletableFuture<List<Map<String, Object>>> fOpponent = CompletableFuture.supplyAsync(
+                () -> rtaMapper.listRtaPlayerOpponentHeadToHead(wid, sidL, RTA_PLAYER_OPPONENTS_PAGE_DATA_LIMIT + 1, 0), RTA_LINK_PREVIEW_EXECUTOR);
+
+        CompletableFuture.allOf(fSummary, fScoreDaily, fMonster, fFight, fOpponent).join();
+
+        Map<String, Object> summaryRow = fSummary.getNow(null);
+        if (summaryRow == null || summaryRow.isEmpty()) {
+            out.put("found", false);
+            return out;
+        }
+        Map<String, Object> summaryOut = new HashMap<>(summaryRow);
+        summaryOut.put("found", true);
+        summaryOut.put("seasonId", sid);
+
+        List<Map<String, Object>> opponentRaw = fOpponent.getNow(Collections.emptyList());
+        boolean hasMoreOpponents = opponentRaw.size() > RTA_PLAYER_OPPONENTS_PAGE_DATA_LIMIT;
+        List<Map<String, Object>> opponentPage = hasMoreOpponents
+                ? new ArrayList<>(opponentRaw.subList(0, RTA_PLAYER_OPPONENTS_PAGE_DATA_LIMIT))
+                : new ArrayList<>(opponentRaw);
+
+        out.put("summary", summaryOut);
+        out.put("scoreDaily", Map.of("rows", fScoreDaily.getNow(Collections.emptyList()), "seasonId", sid, "wizardId", wid));
+        out.put("monsterUsage", Map.of("rows", fMonster.getNow(Collections.emptyList()), "fight", fFight.getNow(Collections.emptyMap()), "seasonId", sid, "wizardId", wid));
+        out.put("opponentH2H", Map.of("rows", opponentPage, "has_more", hasMoreOpponents, "seasonId", sid, "wizardId", wid));
+        out.put("seasonId", sid);
+        out.put("found", true);
+        return out;
+    }
+
     private static final int RTA_PLAYER_NAME_HISTORY_MAX_ROWS = 30;
 
     @Override

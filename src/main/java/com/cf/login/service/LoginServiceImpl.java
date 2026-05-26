@@ -20,7 +20,12 @@ import com.sysconf.constants.Constant;
 import com.sysconf.util.CookieUtil;
 import com.sysconf.util.DateUtil;
 import com.sysconf.util.StringUtil;
+import com.sysconf.security.AuthCredentialsValidator;
+import com.sysconf.security.ClientIpResolver;
+import com.sysconf.security.LoginAttemptTracker;
 import com.sysconf.security.SHA256;
+
+import org.springframework.beans.factory.annotation.Value;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -46,6 +51,15 @@ public class LoginServiceImpl implements LoginService {
     
     @Autowired
     CookieUtil cookieUtil;
+
+    @Autowired
+    LoginAttemptTracker loginAttemptTracker;
+
+    @Value("${smw.security.auth.password-min-length:8}")
+    private int passwordMinLength;
+
+    @Value("${smw.security.auth.password-max-length:128}")
+    private int passwordMaxLength;
 
     @Override
     public Map<String, Object> selectDvcUserInfo(Map<String, Object> param) {
@@ -74,6 +88,21 @@ public class LoginServiceImpl implements LoginService {
             String email = param.get("email") != null ? param.get("email").toString().trim() : null;
             String userId = param.get("user_id") != null ? param.get("user_id").toString().trim() : null;
             String userName = param.get("user_name") != null ? param.get("user_name").toString().trim() : null;
+
+            String userIdError = AuthCredentialsValidator.validateUserId(userId);
+            if (userIdError != null) {
+                result.put("result", "FAIL");
+                result.put("message", userIdError);
+                return result;
+            }
+            Object rawPassword = param.get("password");
+            String passwordError = AuthCredentialsValidator.validatePassword(
+                    rawPassword != null ? rawPassword.toString() : null, passwordMinLength, passwordMaxLength);
+            if (passwordError != null) {
+                result.put("result", "FAIL");
+                result.put("message", passwordError);
+                return result;
+            }
             
             // 이메일 인증 완료 여부 확인
             if (email == null || !emailService.isEmailVerified(email)) {
@@ -142,34 +171,59 @@ public class LoginServiceImpl implements LoginService {
 
     @Override
     public Map<String, Object> login(Map<String, Object> param, HttpServletRequest request, HttpServletResponse response) {
-        log.info("===== LoginService.login() 시작 =====");
-        log.info("로그인 파라미터: user_id={}", param.get("user_id"));
         Map<String, Object> result = new HashMap<>();
+        String clientIp = ClientIpResolver.resolve(request);
+        String userId = param.get("user_id") != null ? param.get("user_id").toString().trim() : "";
         
         try {
-            Map<String, Object> userInfo = userService.selectUserInfo(param);
-            log.info("사용자 정보 조회 결과: {}", userInfo != null ? "존재함" : "없음");
+            if (loginAttemptTracker.isBlocked(clientIp, userId)) {
+                log.warn("로그인 일시 차단 — ip={}, user_id={}", clientIp, userId);
+                result.put("result", "LOCKuserINFO");
+                return result;
+            }
+
+            String userIdError = AuthCredentialsValidator.validateUserId(userId);
+            if (userIdError != null) {
+                result.put("result", "FAIL");
+                result.put("message", userIdError);
+                return result;
+            }
+            Object rawPassword = param.get("password");
+            String passwordError = AuthCredentialsValidator.validatePassword(
+                    rawPassword != null ? rawPassword.toString() : null, passwordMinLength, passwordMaxLength);
+            if (passwordError != null) {
+                result.put("result", "FAIL");
+                result.put("message", passwordError);
+                return result;
+            }
+
+            Map<String, Object> lookupParam = new HashMap<>(param);
+            lookupParam.put("user_id", userId);
+            Map<String, Object> userInfo = userService.selectUserInfo(lookupParam);
             
             String errorMessage = validateUser(userInfo);
             if (errorMessage != null) {
-                log.warn("사용자 검증 실패: {}", errorMessage);
+                log.warn("로그인 실패 — ip={}, code={}", clientIp, errorMessage);
+                loginAttemptTracker.onFailure(clientIp, userId);
                 result.put("result", errorMessage);
                 return result;
             }
-            // validateUser에서 null을 걸러도 정적 분석기가 추론을 못하는 경우가 있어 방어적으로 처리
             if (userInfo == null) {
+                loginAttemptTracker.onFailure(clientIp, userId);
                 result.put("result", "NOuserINFO");
                 return result;
             }
             
-            String encPwd = SHA256.encrypt(StringUtil.nvl(param.get("password").toString()));
-            String userPwd = userInfo.get("user_pw").toString();
-            
-            if (!encPwd.equals(userPwd)) {
-                log.info("==> Password does not match.");
+            String encPwd = SHA256.encrypt(StringUtil.nvl(rawPassword.toString()));
+            Object storedPw = userInfo.get("user_pw");
+            if (storedPw == null || !encPwd.equals(storedPw.toString())) {
+                log.warn("로그인 실패(비밀번호) — ip={}, user_id={}", clientIp, userId);
+                loginAttemptTracker.onFailure(clientIp, userId);
                 result.put("result", "PWDNOTMATCHED");
                 return result;
             }
+
+            loginAttemptTracker.onSuccess(clientIp, userId);
             
             if (param.get("isMobile") != null) {
                 userService.updateDvcId(param);
@@ -196,9 +250,9 @@ public class LoginServiceImpl implements LoginService {
             return result;
             
         } catch (Exception e) {
-            log.error("로그인 실패", e);
+            log.error("로그인 처리 오류 — ip={}, user_id={}", clientIp, userId, e);
             result.put("result", "FAIL");
-            result.put("message", e.getMessage());
+            result.put("message", "로그인 처리 중 오류가 발생했습니다.");
             return result;
         }
     }
@@ -268,12 +322,7 @@ public class LoginServiceImpl implements LoginService {
 
     @Override
     public void processUserLogin(HttpServletRequest request, HttpServletResponse response, Map<String, Object> userInfo) throws Exception {
-        String userIp = request.getHeader("X-Forwarded-For");
-        if (userIp == null) {
-            userIp = request.getRemoteAddr();
-        } else {
-            userIp = userIp.split(",")[0].trim();
-        }
+        String userIp = ClientIpResolver.resolve(request);
         userInfo.put("ip", userIp);
         
         insertUserLoginLog(userInfo);

@@ -111,6 +111,12 @@ public interface RtaService {
     Map<String, Object> getRtaPlayerSummary(String wizardId, Long seasonId);
 
     /**
+     * 소환사 상세 페이지 초기 로드 데이터 — summary·scoreDaily·monsterUsage·opponentH2H 병렬 조회.
+     * 5개 독립 HTTP 요청을 1개로 줄여 페이지 로드 시간 단축.
+     */
+    Map<String, Object> getRtaPlayerPageData(String wizardId, Long seasonId);
+
+    /**
      * 수집 리플레이 기준 과거 닉네임 목록 — {@code rta_match_participant} DISTINCT wizard_name.
      */
     Map<String, Object> getRtaPlayerNameHistory(String wizardId, Long seasonId);

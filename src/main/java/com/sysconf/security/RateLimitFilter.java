@@ -23,8 +23,7 @@ import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 
 /**
- * Rate Limiting 필터
- * IP 기반 요청 제한
+ * Rate Limiting 필터 — 인증·로그인 API는 엄격, 그 외 일부 경로는 기본 제한.
  */
 @Component
 @Order(2)
@@ -36,10 +35,27 @@ public class RateLimitFilter implements Filter {
 	@Value("${smw.rate-limit.window-seconds:60}")
 	private int windowSeconds;
 
+	@Value("${smw.rate-limit.auth-login-max-requests:10}")
+	private int authLoginMaxRequests;
+
+	@Value("${smw.rate-limit.auth-login-window-seconds:60}")
+	private int authLoginWindowSeconds;
+
+	@Value("${smw.rate-limit.auth-signup-max-requests:5}")
+	private int authSignupMaxRequests;
+
+	@Value("${smw.rate-limit.auth-signup-window-seconds:300}")
+	private int authSignupWindowSeconds;
+
+	@Value("${smw.rate-limit.auth-email-max-requests:8}")
+	private int authEmailMaxRequests;
+
+	@Value("${smw.rate-limit.auth-email-window-seconds:3600}")
+	private int authEmailWindowSeconds;
+
 	@Autowired(required = false)
 	private MeterRegistry meterRegistry;
 
-	// IP별 요청 기록
 	private final Map<String, RequestRecord> requestMap = new ConcurrentHashMap<>();
 	private final AtomicLong requestSequence = new AtomicLong();
 	private static final long CLEANUP_INTERVAL = 1000L;
@@ -58,15 +74,13 @@ public class RateLimitFilter implements Filter {
 		public synchronized boolean isAllowed(int maxRequests, long windowMs) {
 			long now = System.currentTimeMillis();
 			lastSeen = now;
-			
-			// 윈도우가 지났으면 리셋
+
 			if (now - windowStart > windowMs) {
 				count = 1;
 				windowStart = now;
 				return true;
 			}
 
-			// 요청 수 체크
 			if (count >= maxRequests) {
 				return false;
 			}
@@ -84,59 +98,59 @@ public class RateLimitFilter implements Filter {
 		}
 	}
 
-	/**
-	 * 클라이언트 IP 주소 추출
-	 */
-	private String getClientIp(HttpServletRequest request) {
-		String xForwardedFor = request.getHeader("X-Forwarded-For");
-		if (xForwardedFor != null && !xForwardedFor.isEmpty()) {
-			return xForwardedFor.split(",")[0].trim();
-		}
-
-		String xRealIp = request.getHeader("X-Real-IP");
-		if (xRealIp != null && !xRealIp.isEmpty()) {
-			return xRealIp;
-		}
-
-		return request.getRemoteAddr();
-	}
-
 	@Override
 	public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
 			throws IOException, ServletException {
-		
+
 		HttpServletRequest httpRequest = (HttpServletRequest) request;
 		HttpServletResponse httpResponse = (HttpServletResponse) response;
 
 		String requestUri = httpRequest.getRequestURI();
-		boolean isLoginEndpoint = requestUri != null && requestUri.contains("/login");
 
-		// Actuator 엔드포인트도 제외
 		if (requestUri != null && requestUri.startsWith("/actuator/")) {
 			chain.doFilter(request, response);
 			return;
 		}
 
-		// 일반 /api/v1/** 경로는 제외하되, 로그인 API는 예외적으로 Rate Limit 적용
-		if (requestUri != null && requestUri.startsWith("/api/v1/") && !isLoginEndpoint) {
+		AuthEndpointKind authKind = classifyAuthEndpoint(requestUri);
+		boolean isLoginEndpoint = authKind == AuthEndpointKind.LOGIN;
+
+		// /api/v1/** 중 인증 민감 경로만 rate limit (나머지 API는 WAS 부하·정상 트래픽 고려해 제외)
+		if (requestUri != null && requestUri.startsWith("/api/v1/") && authKind == AuthEndpointKind.NONE && !isLoginEndpoint) {
 			chain.doFilter(request, response);
 			return;
 		}
 
 		maybeCleanupRequestMap();
 
-		// 로그인 API는 더 엄격한 제한 적용
-		int effectiveMaxRequests = isLoginEndpoint ? 10 : maxRequests; // 로그인은 1분에 10회
-		int effectiveWindowSeconds = isLoginEndpoint ? 60 : windowSeconds;
+		int effectiveMaxRequests;
+		int effectiveWindowSeconds;
+		if (authKind == AuthEndpointKind.LOGIN) {
+			effectiveMaxRequests = authLoginMaxRequests;
+			effectiveWindowSeconds = authLoginWindowSeconds;
+		} else if (authKind == AuthEndpointKind.SIGNUP_OR_ENUM) {
+			effectiveMaxRequests = authSignupMaxRequests;
+			effectiveWindowSeconds = authSignupWindowSeconds;
+		} else if (authKind == AuthEndpointKind.EMAIL) {
+			effectiveMaxRequests = authEmailMaxRequests;
+			effectiveWindowSeconds = authEmailWindowSeconds;
+		} else if (isLoginEndpoint) {
+			effectiveMaxRequests = authLoginMaxRequests;
+			effectiveWindowSeconds = authLoginWindowSeconds;
+		} else {
+			effectiveMaxRequests = maxRequests;
+			effectiveWindowSeconds = windowSeconds;
+		}
 
-		String clientIp = getClientIp(httpRequest);
-		RequestRecord record = requestMap.computeIfAbsent(clientIp, k -> new RequestRecord());
+		String clientIp = ClientIpResolver.resolve(httpRequest);
+		String rateKey = clientIp + "|" + authKind.name();
+		RequestRecord record = requestMap.computeIfAbsent(rateKey, k -> new RequestRecord());
 
 		long windowMs = effectiveWindowSeconds * 1000L;
 		if (!record.isAllowed(effectiveMaxRequests, windowMs)) {
-			recordRateLimitMetric(requestUri, isLoginEndpoint, "blocked");
-			httpResponse.setStatus(429); // Too Many Requests
-			httpResponse.setContentType("application/json");
+			recordRateLimitMetric(requestUri, authKind, "blocked");
+			httpResponse.setStatus(429);
+			httpResponse.setContentType("application/json;charset=UTF-8");
 			httpResponse.setHeader("Retry-After", String.valueOf(effectiveWindowSeconds));
 			httpResponse.setHeader("X-RateLimit-Limit", String.valueOf(effectiveMaxRequests));
 			httpResponse.setHeader("X-RateLimit-Remaining", "0");
@@ -145,12 +159,38 @@ public class RateLimitFilter implements Filter {
 			return;
 		}
 
-		recordRateLimitMetric(requestUri, isLoginEndpoint, "allowed");
+		recordRateLimitMetric(requestUri, authKind, "allowed");
 		httpResponse.setHeader("X-RateLimit-Limit", String.valueOf(effectiveMaxRequests));
 		httpResponse.setHeader("X-RateLimit-Remaining", String.valueOf(record.getRemainingRequests(effectiveMaxRequests)));
 		httpResponse.setHeader("X-RateLimit-Window-Seconds", String.valueOf(effectiveWindowSeconds));
 
 		chain.doFilter(request, response);
+	}
+
+	private enum AuthEndpointKind {
+		NONE, LOGIN, SIGNUP_OR_ENUM, EMAIL
+	}
+
+	private static AuthEndpointKind classifyAuthEndpoint(String uri) {
+		if (uri == null || uri.isBlank()) {
+			return AuthEndpointKind.NONE;
+		}
+		if (!uri.startsWith("/api/v1/auth")) {
+			if (uri.contains("/login")) {
+				return AuthEndpointKind.LOGIN;
+			}
+			return AuthEndpointKind.NONE;
+		}
+		if (uri.contains("/email/")) {
+			return AuthEndpointKind.EMAIL;
+		}
+		if (uri.contains("/signup") || uri.contains("/user-id/check") || uri.contains("/mobile-biometric-login")) {
+			return AuthEndpointKind.SIGNUP_OR_ENUM;
+		}
+		if (uri.contains("/login")) {
+			return AuthEndpointKind.LOGIN;
+		}
+		return AuthEndpointKind.NONE;
 	}
 
 	private void maybeCleanupRequestMap() {
@@ -168,11 +208,15 @@ public class RateLimitFilter implements Filter {
 		maybeCleanupRequestMap();
 		Map<String, Object> snapshot = new LinkedHashMap<>();
 		snapshot.put("enabled", true);
-		snapshot.put("tracked_ips", requestMap.size());
+		snapshot.put("tracked_keys", requestMap.size());
 		snapshot.put("default_max_requests", maxRequests);
 		snapshot.put("default_window_seconds", windowSeconds);
-		snapshot.put("login_max_requests", 10);
-		snapshot.put("login_window_seconds", 60);
+		snapshot.put("auth_login_max_requests", authLoginMaxRequests);
+		snapshot.put("auth_login_window_seconds", authLoginWindowSeconds);
+		snapshot.put("auth_signup_max_requests", authSignupMaxRequests);
+		snapshot.put("auth_signup_window_seconds", authSignupWindowSeconds);
+		snapshot.put("auth_email_max_requests", authEmailMaxRequests);
+		snapshot.put("auth_email_window_seconds", authEmailWindowSeconds);
 
 		long now = System.currentTimeMillis();
 		int activeWindows = 0;
@@ -185,13 +229,13 @@ public class RateLimitFilter implements Filter {
 		return snapshot;
 	}
 
-	private void recordRateLimitMetric(String requestUri, boolean isLoginEndpoint, String outcome) {
+	private void recordRateLimitMetric(String requestUri, AuthEndpointKind kind, String outcome) {
 		if (meterRegistry == null) {
 			return;
 		}
 
-		String endpointType = isLoginEndpoint ? "login" : "general";
-		String normalizedUri = normalizeUri(requestUri, isLoginEndpoint);
+		String endpointType = kind == AuthEndpointKind.NONE ? "general" : kind.name().toLowerCase();
+		String normalizedUri = normalizeUri(requestUri, kind);
 		Counter.builder("smw.rate_limit.requests")
 				.description("Rate limit decision count")
 				.tag("endpoint_type", endpointType)
@@ -201,12 +245,18 @@ public class RateLimitFilter implements Filter {
 				.increment();
 	}
 
-	private String normalizeUri(String requestUri, boolean isLoginEndpoint) {
+	private String normalizeUri(String requestUri, AuthEndpointKind kind) {
 		if (requestUri == null || requestUri.trim().isEmpty()) {
 			return "unknown";
 		}
-		if (isLoginEndpoint) {
-			return "/login";
+		if (kind == AuthEndpointKind.LOGIN) {
+			return "/api/v1/auth/login";
+		}
+		if (kind == AuthEndpointKind.SIGNUP_OR_ENUM) {
+			return "/api/v1/auth/signup-or-check";
+		}
+		if (kind == AuthEndpointKind.EMAIL) {
+			return "/api/v1/auth/email";
 		}
 
 		String[] parts = requestUri.split("/");
@@ -231,4 +281,3 @@ public class RateLimitFilter implements Filter {
 		return segment.matches("[0-9a-fA-F\\-]{16,}");
 	}
 }
-
