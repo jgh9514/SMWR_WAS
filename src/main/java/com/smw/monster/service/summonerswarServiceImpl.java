@@ -1664,8 +1664,14 @@ public class summonerswarServiceImpl implements summonerswarService {
 
 	@Override
 	public int applyPendingArenaReplayRawFromDb() {
+		return applyPendingArenaReplayRawFromDb(0);
+	}
+
+	@Override
+	public int applyPendingArenaReplayRawFromDb(int maxBatchesOverride) {
 		int maxRows = Math.max(1, rtaRawApplyProperties.getMaxRowsPerRun());
-		int maxBatches = Math.max(1, rtaRawApplyProperties.getMaxBatchesPerJob());
+		int configured = Math.max(1, rtaRawApplyProperties.getMaxBatchesPerJob());
+		int maxBatches = maxBatchesOverride > 0 ? maxBatchesOverride : configured;
 
 		long t0 = System.currentTimeMillis();
 		int totalApplied = 0;

@@ -373,7 +373,15 @@ public class RtaBatchAggregationService {
 	 * 회당 상한·라운드 상한 후 잔여는 다음 스케줄 또는 수동 재실행에서 처리된다.
 	 */
 	public RawApplyDrainResult drainReplayRawPending(summonerswarService service) {
-		int totalApplied = service.applyPendingArenaReplayRawFromDb();
+		return drainReplayRawPending(service, 0);
+	}
+
+	/**
+	 * 원본 스테이징 미적용 건을 정규화 테이블로 반영한다.
+	 * {@code maxBatchesOverride > 0} 이면 해당 값을 Job 당 라운드 상한으로 사용( backlog catch-up ).
+	 */
+	public RawApplyDrainResult drainReplayRawPending(summonerswarService service, int maxBatchesOverride) {
+		int totalApplied = service.applyPendingArenaReplayRawFromDb(maxBatchesOverride);
 		String stopReason = totalApplied == 0 ? "적용할 raw 없음" : "완료";
 		return new RawApplyDrainResult(totalApplied, stopReason);
 	}
@@ -657,7 +665,17 @@ public class RtaBatchAggregationService {
 	 * @return 처리된 총 rid 수
 	 */
 	public int drainPickSlotSnap(RtaMapper mapper, int chunkSize) {
+		return drainPickSlotSnap(mapper, chunkSize, 0);
+	}
+
+	/**
+	 * pick_slot_snap incremental drain.
+	 * @param maxRoundsPerJob {@code <= 0} 이면 pending 소진까지, {@code > 0} 이면 라운드 상한.
+	 */
+	public int drainPickSlotSnap(RtaMapper mapper, int chunkSize, int maxRoundsPerJob) {
 		int total = 0;
+		int rounds = 0;
+		boolean capped = maxRoundsPerJob > 0;
 		while (true) {
 			List<Long> rids = mapper.selectPendingPickSlotSnapRids(chunkSize);
 			if (rids == null || rids.isEmpty()) break;
@@ -669,7 +687,8 @@ public class RtaBatchAggregationService {
 					mapper.markPickSlotSnapDoneForRids(ridArr);
 				});
 				total += rids.size();
-				log.info("drainPickSlotSnap: chunk={}, totalSoFar={}", rids.size(), total);
+				rounds++;
+				log.info("drainPickSlotSnap: chunk={}, totalSoFar={}, round={}", rids.size(), total, rounds);
 			} catch (Exception e) {
 				log.error("drainPickSlotSnap: chunk 처리 실패, 실패 마킹 후 중단. rids[0]={}", ridArr[0], e);
 				try {
@@ -680,6 +699,10 @@ public class RtaBatchAggregationService {
 				break;
 			}
 
+			if (capped && rounds >= maxRoundsPerJob) {
+				log.info("drainPickSlotSnap: 라운드 상한 {} 도달 — 잔여는 다음 실행에서 처리", maxRoundsPerJob);
+				break;
+			}
 			if (rids.size() < chunkSize) break;
 		}
 		return total;

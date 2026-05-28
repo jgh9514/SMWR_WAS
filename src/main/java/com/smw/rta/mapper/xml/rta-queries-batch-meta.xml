@@ -8,11 +8,19 @@
          (MyBatis <select> 하나에 SET + SELECT 두 문장 불가 — 별도 <update> 로 분리)
     -->
     <select id="selectPendingSynergyAggRids" resultType="long">
+        /* rta-queries-batch-meta.selectPendingSynergyAggRids */
         SELECT m.replay_id
         FROM public.rta_match m
         WHERE m.synergy_applied_at IS NULL
         ORDER BY m.replay_id
         LIMIT #{batchSize}
+    </select>
+
+    <select id="countPendingSynergyAgg" resultType="long">
+        /* rta-queries-batch-meta.countPendingSynergyAgg */
+        SELECT COUNT(*)::bigint
+        FROM public.rta_match m
+        WHERE m.synergy_applied_at IS NULL
     </select>
 
     <!-- 파티션 배치용: 특정 rid 구간 내 미집계 rid 조회 -->
@@ -528,12 +536,21 @@
          idx_rta_match_pick_slot_pending (replay_id ASC)
          WHERE pick_slot_snap_applied_at IS NULL 사용 -->
     <select id="selectPendingPickSlotSnapRids" resultType="long">
+        /* rta-queries-batch-meta.selectPendingPickSlotSnapRids */
         SELECT replay_id
         FROM public.rta_match
         WHERE pick_slot_snap_applied_at IS NULL
           AND (pick_slot_snap_apply_result IS NULL OR pick_slot_snap_apply_result != 'F')
         ORDER BY replay_id
         LIMIT #{batchSize}
+    </select>
+
+    <select id="countPendingPickSlotSnap" resultType="long">
+        /* rta-queries-batch-meta.countPendingPickSlotSnap */
+        SELECT COUNT(*)::bigint
+        FROM public.rta_match
+        WHERE pick_slot_snap_applied_at IS NULL
+          AND (pick_slot_snap_apply_result IS NULL OR pick_slot_snap_apply_result != 'F')
     </select>
 
     <!-- pick_slot_snap 청크 단위 누적 UPSERT
@@ -813,12 +830,12 @@
             1::smallint                AS "opponentComboSize",
             c.win_cnt::bigint          AS "winCnt",
             c.lose_cnt::bigint         AS "loseCnt",
-            c.match_cnt::bigint        AS "matchCnt"
+            (c.win_cnt + c.lose_cnt)::bigint AS "matchCnt"
         FROM public.rta_agg_counter_solo c
         WHERE c.season_id          = #{seasonId}
           AND c.rating_id          = #{ratingId}
           AND c.subject_monster_id = #{monsterId}
-        ORDER BY c.match_cnt DESC NULLS LAST
+        ORDER BY (c.win_cnt + c.lose_cnt) DESC NULLS LAST, c.opponent_monster_id ASC
         LIMIT 100
     </select>
 
@@ -828,12 +845,12 @@
             2::smallint                AS "opponentComboSize",
             c.win_cnt::bigint          AS "winCnt",
             c.lose_cnt::bigint         AS "loseCnt",
-            c.match_cnt::bigint        AS "matchCnt"
+            (c.win_cnt + c.lose_cnt)::bigint AS "matchCnt"
         FROM public.rta_agg_counter_duo c
         WHERE c.season_id          = #{seasonId}
           AND c.rating_id          = #{ratingId}
           AND c.subject_monster_id = #{monsterId}
-        ORDER BY c.match_cnt DESC NULLS LAST
+        ORDER BY (c.win_cnt + c.lose_cnt) DESC NULLS LAST, c.opponent_monster_id ASC
         LIMIT 100
     </select>
 
@@ -843,12 +860,12 @@
             3::smallint                AS "opponentComboSize",
             c.win_cnt::bigint          AS "winCnt",
             c.lose_cnt::bigint         AS "loseCnt",
-            c.match_cnt::bigint        AS "matchCnt"
+            (COALESCE(c.match_cnt, c.win_cnt + c.lose_cnt))::bigint AS "matchCnt"
         FROM public.rta_agg_counter_trio c
         WHERE c.season_id          = #{seasonId}
           AND c.rating_id          = #{ratingId}
           AND c.subject_monster_id = #{monsterId}
-        ORDER BY c.match_cnt DESC NULLS LAST
+        ORDER BY (c.win_cnt + c.lose_cnt) DESC NULLS LAST, c.opponent_monster_id ASC
         LIMIT 100
     </select>
 
@@ -1008,6 +1025,13 @@
         FROM public.rta_match m
         WHERE m.summoner_ranking_apply_result IS NULL
         ORDER BY m.season_id
+    </select>
+
+    <select id="countPendingSummonerRankingReplays" resultType="long">
+        /* rta-queries-batch-meta.countPendingSummonerRankingReplays */
+        SELECT COUNT(*)::bigint
+        FROM public.rta_match m
+        WHERE m.summoner_ranking_apply_result IS NULL
     </select>
 
     <insert id="insertRtaSummonerSeasonFightSnapForSeason">

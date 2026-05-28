@@ -997,7 +997,16 @@ public class RtaServiceImpl implements RtaService {
             }
             result.add(row);
         }
+        result.sort((a, b) -> Long.compare(counterRowMatchCnt(b), counterRowMatchCnt(a)));
         return result;
+    }
+
+    private static long counterRowMatchCnt(Map<String, Object> row) {
+        Object mc = row.get("matchCnt");
+        if (mc instanceof Number n) {
+            return n.longValue();
+        }
+        return toLong(row.get("winCnt")) + toLong(row.get("loseCnt"));
     }
 
     private static void appendCounterMatchupSlice(List<Map<String, Object>> out, List<Map<String, Object>> rows) {

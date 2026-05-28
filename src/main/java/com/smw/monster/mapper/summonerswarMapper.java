@@ -87,6 +87,8 @@ public interface summonerswarMapper {
 	/** RTA raw: pending/failed 조회 (rid 오름차순, 한 실행당 {@code limit}건 상한). */
 	List<Map<String, ?>> selectRtaReplayRawPending(@Param("limit") int limit);
 
+	Long countRtaReplayRawPending();
+
 	/** rta_match 부모 없는 고아 행 전수 삭제 (배치용, unit → user 순) */
 	int deleteArenaRtaOrphanUnitsGlobal();
 

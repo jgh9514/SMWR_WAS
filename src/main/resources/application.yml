@@ -271,6 +271,8 @@ smw:
       fail-fast-on-error: ${SMW_RTA_RAW_APPLY_FAIL_FAST:true}
       # 한 통합 Job 안에서 SELECT→처리 라운드 최대 횟수(applyPendingArenaReplayRawFromDb). 빈 조회 시 종료. env: SMW_RTA_RAW_APPLY_MAX_BATCHES
       max-batches-per-job: ${SMW_RTA_RAW_APPLY_MAX_BATCHES:1}
+      # backlog catch-up 시 raw Job 당 라운드 절대 상한
+      max-batches-cap: ${SMW_RTA_RAW_APPLY_MAX_BATCHES_CAP:100}
     # 통합 RTA 배치(시너지 등). 수치·스킵은 DB 여유에 맞게 조절.
     batch:
       # rid 한 라운드당 상한. 크면 힙·merge 부담↑ — OOM 시 SMW_RTA_SYNERGY_BATCH_SIZE로 더 낮춤(예: 1000)
@@ -292,6 +294,13 @@ smw:
       skip-tier-agg-daily-in-unified-job: ${SMW_RTA_BATCH_SKIP_TIER_AGG_DAILY_IN_UNIFIED:true}
       # true: 시너지·카운터 staging COPY/merge 를 한 라운드에서 병렬(처리량↑). false: 순차(락·lock_timeout 경합↓)
       parallel-synergy-counter-staging-flush: ${SMW_RTA_PARALLEL_SYNERGY_COUNTER_FLUSH:false}
+      # true: 미처리(backlog) 많을 때 Job 당 라운드·배치 상한 자동 상향(catch-up). false: yml 고정값만 사용
+      backlog-scaling-enabled: ${SMW_RTA_BATCH_BACKLOG_SCALING:true}
+      # catch-up 시 시너지 Job 당 라운드 절대 상한 (pending/batchSize 와 min 비교)
+      synergy-max-rounds-cap: ${SMW_RTA_SYNERGY_MAX_ROUNDS_CAP:50}
+      pick-slot-max-rounds-cap: ${SMW_RTA_PICK_SLOT_MAX_ROUNDS_CAP:50}
+      # 이 pending 이상이면 catch-up(라운드 간 pause 생략 등)
+      backlog-high-watermark: ${SMW_RTA_BATCH_BACKLOG_HIGH_WATERMARK:10000}
       # rta_agg_summoner_monster_snap / pick_turn: 키셋 N건 → UNLOGGED staging_rta_summoner_snap_rid 적재 후 JOIN 집계(DDL: sql/ddl/migrate_20260502_staging_rta_summoner_snap_rid.sql). 청크는 단일 TX(몬·픽턴·S 마킹).
       summoner-monster-snap-replay-chunk-size: ${SMW_RTA_SUMMONER_MONSTER_SNAP_REPLAY_CHUNK:3000}
     # 카운터 집계 대량 반영: COPY + UNLOGGED 스테이징 + 집합 UPSERT. DDL: sql/staging_matchup_agg.sql

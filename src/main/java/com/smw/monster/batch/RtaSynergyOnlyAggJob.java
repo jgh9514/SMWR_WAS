@@ -7,6 +7,7 @@ import com.smw.rta.cache.RtaCacheEvictor;
 import com.smw.rta.config.RtaBatchProperties;
 import com.smw.rta.mapper.RtaMapper;
 import com.smw.rta.service.RtaBatchAggregationService;
+import com.smw.rta.service.RtaBatchBacklogScaler;
 import com.smw.rta.service.RtaSynergyAggService;
 
 /**
@@ -34,16 +35,26 @@ public class RtaSynergyOnlyAggJob extends BaseBatchJob {
 		RtaBatchAggregationService aggregationService = applicationContext.getBean(RtaBatchAggregationService.class);
 		RtaSynergyAggService synergyAggService    = applicationContext.getBean(RtaSynergyAggService.class);
 		RtaBatchProperties rtaBatchProperties     = applicationContext.getBean(RtaBatchProperties.class);
+		RtaBatchBacklogScaler backlogScaler       = applicationContext.getBean(RtaBatchBacklogScaler.class);
 
 		int     synergyBatch      = Math.max(1, rtaBatchProperties.getSynergyBatchSize());
 		int     synPause          = Math.max(0, rtaBatchProperties.getSynergyPauseMsBetweenRounds());
 		boolean evictEachRound    = rtaBatchProperties.isSynergyOnlyEvictCachesEachRound();
-		int     maxRounds         = rtaBatchProperties.getSynergyMaxRoundsPerJob();
+		int     maxRoundsConfigured = rtaBatchProperties.getSynergyMaxRoundsPerJob();
+
+		RtaBatchBacklogScaler.RtaBatchBacklogCounts backlog = backlogScaler.snapshot();
+		int maxRounds = backlogScaler.resolveSynergyMaxRounds(
+				backlog.synergyPending(), synergyBatch, maxRoundsConfigured);
+		synPause = backlogScaler.resolveSynergyPauseMs(backlog.synergyPending(), synPause, synergyBatch);
 
 		addLog("[시작] RTA 시너지·카운터 단독 집계 — 배치 %d건/라운드, Job당 라운드상한=%s, 라운드별캐시무효화=%s",
 				synergyBatch,
 				maxRounds <= 0 ? "무제한(pending 소진까지)" : String.valueOf(maxRounds),
 				evictEachRound ? "Y" : "N");
+		addLog("· backlog: synergy pending %,d (설정 라운드 %s → 이번 Job %s)",
+				backlog.synergyPending(),
+				maxRoundsConfigured <= 0 ? "무제한" : String.valueOf(maxRoundsConfigured),
+				maxRounds <= 0 ? "무제한" : String.valueOf(maxRounds));
 		if (synPause > 0) {
 			addLog("· 라운드 간 대기: %dms", synPause);
 		}

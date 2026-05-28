@@ -6,6 +6,7 @@ import org.quartz.JobExecutionContext;
 import com.smw.rta.cache.RtaCacheEvictor;
 import com.smw.rta.cache.RtaRedisCacheWarmup;
 import com.smw.rta.config.RtaBatchProperties;
+import com.smw.rta.service.RtaBatchBacklogScaler;
 import com.smw.rta.mapper.RtaMapper;
 import com.smw.rta.service.RtaBatchAggregationService;
 
@@ -24,16 +25,23 @@ public class RtaMonsterDailySnapJob extends BaseBatchJob {
         RtaMapper rtaMapper = applicationContext.getBean(RtaMapper.class);
         RtaBatchAggregationService aggregationService = applicationContext.getBean(RtaBatchAggregationService.class);
         RtaCacheEvictor rtaCacheEvictor = applicationContext.getBean(RtaCacheEvictor.class);
-        int pickSlotDrainBatchSize = applicationContext.getBean(RtaBatchProperties.class).getPickSlotDrainBatchSize();
+        RtaBatchProperties batchProps = applicationContext.getBean(RtaBatchProperties.class);
+        RtaBatchBacklogScaler backlogScaler = applicationContext.getBean(RtaBatchBacklogScaler.class);
+        int pickSlotDrainBatchSize = batchProps.getPickSlotDrainBatchSize();
 
         addLog("--- rta_agg_monster_daily_snap 재적재 (시즌 시작일~오늘 누락분) ---");
         long t0 = System.currentTimeMillis();
         int inserted = aggregationService.rebuildMonsterDailySnap(rtaMapper);
         addLog("daily snap 완료: insertedDates=%d, elapsed=%dms", inserted, System.currentTimeMillis() - t0);
 
-        addLog("--- rta_agg_monster_pick_slot_snap incremental drain ---");
+        RtaBatchBacklogScaler.RtaBatchBacklogCounts backlog = backlogScaler.snapshot();
+        int pickSlotMaxRounds = backlogScaler.resolvePickSlotMaxRounds(
+                backlog.pickSlotPending(), pickSlotDrainBatchSize, 1);
+
+        addLog("--- rta_agg_monster_pick_slot_snap incremental drain (pending %,d → maxRounds=%d) ---",
+                backlog.pickSlotPending(), pickSlotMaxRounds);
         long t1 = System.currentTimeMillis();
-        int slotRids = aggregationService.drainPickSlotSnap(rtaMapper, pickSlotDrainBatchSize);
+        int slotRids = aggregationService.drainPickSlotSnap(rtaMapper, pickSlotDrainBatchSize, pickSlotMaxRounds);
         addLog("pick slot snap 완료: processedRids=%d, elapsed=%dms", slotRids, System.currentTimeMillis() - t1);
 
         addLog("--- rta_agg_monster_top_summoner_snap 재적재 ---");

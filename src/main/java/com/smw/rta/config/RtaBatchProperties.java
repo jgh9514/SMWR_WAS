@@ -68,6 +68,24 @@ public class RtaBatchProperties {
 	 */
 	private int pickSlotDrainBatchSize = 2000;
 
+	/**
+	 * true 이면 미처리 건수에 따라 Job 당 라운드·배치 상한을 자동 상향(catch-up).
+	 * 평소에는 yml 기본값 유지, backlog 가 쌓이면 {@link com.smw.rta.service.RtaBatchBacklogScaler} 가 상한 계산.
+	 */
+	private boolean backlogScalingEnabled = true;
+
+	/** backlog catch-up 시 시너지 Job 당 라운드 절대 상한. {@code synergy-max-rounds-per-job} 기본(1)보다 커야 효과 있음. */
+	private int synergyMaxRoundsCap = 50;
+
+	/** pick-slot drain catch-up 시 Job 당 라운드 절대 상한. 0 이하면 drain-until-empty. */
+	private int pickSlotMaxRoundsCap = 50;
+
+	/**
+	 * 이 건수 이상 pending 이면 catch-up 모드(라운드 간 pause 생략 등).
+	 * {@code synergy-batch-size} 와 비교해 더 큰 값을 쓴다.
+	 */
+	private long backlogHighWatermark = 10_000L;
+
 	/** 배치 실패 시 Slack 알림용 Bot Token (xoxb-...). 비어 있으면 알림 생략. */
 	private String slackToken = "";
 

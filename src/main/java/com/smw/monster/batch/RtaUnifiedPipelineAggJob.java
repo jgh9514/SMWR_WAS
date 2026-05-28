@@ -9,6 +9,7 @@ import com.smw.rta.config.RtaBatchProperties;
 import com.smw.rta.config.RtaRawApplyProperties;
 import com.smw.rta.mapper.RtaMapper;
 import com.smw.rta.service.RtaBatchAggregationService;
+import com.smw.rta.service.RtaBatchBacklogScaler;
 
 /**
  * RTA 관련 집계를 한 번의 스케줄로 순서대로 수행한다.
@@ -49,17 +50,28 @@ public class RtaUnifiedPipelineAggJob extends BaseBatchJob {
 		RtaBatchAggregationService aggregationService = applicationContext.getBean(RtaBatchAggregationService.class);
 		RtaBatchProperties rtaBatchProperties = applicationContext.getBean(RtaBatchProperties.class);
 		RtaRawApplyProperties rtaRawApplyProperties = applicationContext.getBean(RtaRawApplyProperties.class);
+		RtaBatchBacklogScaler backlogScaler = applicationContext.getBean(RtaBatchBacklogScaler.class);
 
 		int step = 0;
 
 		addLog("[시작] RTA 통합 파이프라인 — 핵심 %d단계 (raw → 부가)", PIPELINE_STEPS);
 
+		RtaBatchBacklogScaler.RtaBatchBacklogCounts backlog = backlogScaler.snapshot();
+		int rowsPerBatch = Math.max(1, rtaRawApplyProperties.getMaxRowsPerRun());
+		int configuredRawBatches = Math.max(1, rtaRawApplyProperties.getMaxBatchesPerJob());
+		int rawMaxBatches = backlogScaler.resolveRawMaxBatches(
+				backlog.rawPending(), rowsPerBatch, configuredRawBatches);
+
 		step++;
-		addLog("[%d/%d] RTA raw 정규화 — LIMIT %d행×최대 %d회(빈 조회까지, 미처리만 다음 스케줄)",
+		addLog("[%d/%d] RTA raw 정규화 — LIMIT %d행×최대 %d회(설정 %d, backlog raw %,d → 이번 Job %d회)",
 				step, PIPELINE_STEPS,
-				rtaRawApplyProperties.getMaxRowsPerRun(),
-				rtaRawApplyProperties.getMaxBatchesPerJob());
-		RtaBatchAggregationService.RawApplyDrainResult raw = aggregationService.drainReplayRawPending(summonerswarService);
+				rowsPerBatch,
+				rawMaxBatches,
+				configuredRawBatches,
+				backlog.rawPending(),
+				rawMaxBatches);
+		RtaBatchAggregationService.RawApplyDrainResult raw = aggregationService.drainReplayRawPending(
+				summonerswarService, rawMaxBatches);
 		addLog("[%d/%d] · 완료 — 누적 적용 %d건, %s",
 				step, PIPELINE_STEPS,
 				raw.totalApplied(),

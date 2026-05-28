@@ -275,6 +275,8 @@ public interface RtaMapper {
      */
     List<Long> selectSeasonIdsWithPendingSummonerRankingReplays();
 
+    Long countPendingSummonerRankingReplays();
+
     /** 시즌 스냅 전량 삭제 직후 — 해당 시즌 {@code rta_match} 소환사 스냅 플래그를 NULL 로 (재집계 대기). */
     int clearSummonerRankingMatchFlagsForSeason(@Param("seasonId") long seasonId);
 
@@ -370,6 +372,9 @@ public interface RtaMapper {
 
     /** 시너지 미집계 rid ({@code rta_match.synergy_applied_at IS NULL}, rid 오름차순). 성공/실패는 {@code synergy_apply_result}. */
     List<Long> selectPendingSynergyAggRids(@Param("batchSize") int batchSize);
+
+    /** 시너지 미집계 건수 — backlog 스케일링·모니터링용 */
+    Long countPendingSynergyAgg();
 
     /** 파티션 배치용: 특정 rid 구간([minRid, maxRid]) 내 미집계 rid만 조회. */
     List<Long> selectPendingSynergyAggRidsBetween(@Param("minRid") long minRid,
@@ -498,6 +503,8 @@ public interface RtaMapper {
 
     /** pick_slot_snap 미처리 replay_id 청크 */
     List<Long> selectPendingPickSlotSnapRids(@Param("batchSize") int batchSize);
+
+    Long countPendingPickSlotSnap();
 
     /** pick_slot_snap 청크 누적 UPSERT — per_rating + all_rating(-1) 동시 처리 */
     int insertPickSlotSnapForRids(@Param("rids") long[] rids);

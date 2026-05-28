@@ -2,6 +2,7 @@ package com.admin.batch.rest;
 
 import java.io.IOException;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -25,6 +26,8 @@ import com.admin.batch.sse.BatchLogBroadcaster;
 import com.admin.log.service.LogService;
 import com.smw.monster.util.SlackNotifier;
 import com.smw.rta.config.RtaBatchProperties;
+import com.smw.rta.config.RtaRawApplyProperties;
+import com.smw.rta.service.RtaBatchBacklogScaler;
 import com.sysconf.annotation.RequireAdmin;
 import com.sysconf.config.BatchConfig;
 import com.sysconf.constants.Constant;
@@ -54,6 +57,59 @@ public class BatchController {
 
 	@Autowired
 	private RtaBatchProperties rtaBatchProperties;
+
+	@Autowired
+	private RtaRawApplyProperties rtaRawApplyProperties;
+
+	@Autowired
+	private RtaBatchBacklogScaler rtaBatchBacklogScaler;
+
+	@Operation(summary = "RTA 배치 backlog·catch-up 계획", description = "미처리 건수와 backlog 스케일링 적용 시 Job 당 처리 상한을 조회합니다.")
+	@GetMapping("/backlog")
+	public ResponseEntity<Map<String, Object>> batchBacklogPlan() {
+		RtaBatchBacklogScaler.RtaBatchBacklogCounts counts = rtaBatchBacklogScaler.snapshot();
+		int synergyBatch = Math.max(1, rtaBatchProperties.getSynergyBatchSize());
+		int rawRows = Math.max(1, rtaRawApplyProperties.getMaxRowsPerRun());
+		int pickChunk = Math.max(1, rtaBatchProperties.getPickSlotDrainBatchSize());
+
+		int synergyRounds = rtaBatchBacklogScaler.resolveSynergyMaxRounds(
+				counts.synergyPending(), synergyBatch, rtaBatchProperties.getSynergyMaxRoundsPerJob());
+		int rawBatches = rtaBatchBacklogScaler.resolveRawMaxBatches(
+				counts.rawPending(), rawRows, rtaRawApplyProperties.getMaxBatchesPerJob());
+		int pickRounds = rtaBatchBacklogScaler.resolvePickSlotMaxRounds(
+				counts.pickSlotPending(), pickChunk, 1);
+		int synergyPause = rtaBatchBacklogScaler.resolveSynergyPauseMs(
+				counts.synergyPending(), rtaBatchProperties.getSynergyPauseMsBetweenRounds(), synergyBatch);
+
+		Map<String, Object> pending = new LinkedHashMap<>();
+		pending.put("synergy", counts.synergyPending());
+		pending.put("raw", counts.rawPending());
+		pending.put("pick_slot", counts.pickSlotPending());
+		pending.put("summoner_ranking", counts.summonerRankingPending());
+
+		Map<String, Object> configured = new LinkedHashMap<>();
+		configured.put("synergy_max_rounds_per_job", rtaBatchProperties.getSynergyMaxRoundsPerJob());
+		configured.put("synergy_batch_size", synergyBatch);
+		configured.put("raw_max_batches_per_job", rtaRawApplyProperties.getMaxBatchesPerJob());
+		configured.put("raw_max_rows_per_run", rawRows);
+		configured.put("backlog_scaling_enabled", rtaBatchProperties.isBacklogScalingEnabled());
+
+		Map<String, Object> scaled = new LinkedHashMap<>();
+		scaled.put("synergy_max_rounds", synergyRounds);
+		scaled.put("synergy_pause_ms", synergyPause);
+		scaled.put("raw_max_batches", rawBatches);
+		scaled.put("pick_slot_max_rounds", pickRounds);
+		scaled.put("synergy_max_rounds_cap", rtaBatchProperties.getSynergyMaxRoundsCap());
+		scaled.put("raw_max_batches_cap", rtaRawApplyProperties.getMaxBatchesCap());
+		scaled.put("pick_slot_max_rounds_cap", rtaBatchProperties.getPickSlotMaxRoundsCap());
+
+		Map<String, Object> result = new LinkedHashMap<>();
+		result.put("result", Constant.SUCCESS);
+		result.put("pending", pending);
+		result.put("configured", configured);
+		result.put("scaled_plan", scaled);
+		return ResponseEntity.ok(result);
+	}
 
 	@Operation(summary = "Slack 테스트 발송", description = "smw.rta.batch.slack-token·slack-channel-id 로 배치 실패 알림과 동일 경로에 샘플 메시지를 보냅니다. 토큰/채널 미설정 시 실패 응답.")
 	@PostMapping("/slack/test")

@@ -135,6 +135,12 @@ public interface summonerswarService {
 	 */
 	int applyPendingArenaReplayRawFromDb();
 
+	/**
+	 * {@link #applyPendingArenaReplayRawFromDb()} 과 동일하나 Job 당 라운드 상한을 명시.
+	 * {@code maxBatches <= 0} 이면 yml {@code max-batches-per-job} 사용.
+	 */
+	int applyPendingArenaReplayRawFromDb(int maxBatches);
+
 	public List<Map<String, ?>> selectRecordList(Map<String, Object> param);
 
 	public List<Map<String, ?>> selectRecordUserDetail(Map<String, Object> param);
