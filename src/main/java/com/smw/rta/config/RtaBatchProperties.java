@@ -14,7 +14,7 @@ import lombok.Setter;
 public class RtaBatchProperties {
 
 	/** {@code synergy_applied_at IS NULL}(미집계) rid 를 한 라운드에서 가져오는 건수. {@code smw.rta.batch.synergy-batch-size} 와 맞출 것. */
-	private int synergyBatchSize = 2000;
+	private int synergyBatchSize = 20_000;
 
 	/**
 	 * {@link com.smw.monster.batch.RtaSynergyOnlyAggJob} 가 한 실행에서 처리하는 시너지 drain 라운드 상한.
@@ -60,7 +60,7 @@ public class RtaBatchProperties {
 	 * false — 처리량은 다소 느려질 수 있으나 동시에 다른 잡·Pod·세션과 {@code rta_agg_*} 락이 겹쳐
 	 * {@code lock timeout} 이 나는 환경에서 유리.
 	 */
-	private boolean parallelSynergyCounterStagingFlush = true;
+	private boolean parallelSynergyCounterStagingFlush = false;
 
 	/**
 	 * {@link com.smw.monster.batch.RtaMonsterDailySnapJob}에서 pick-slot snap drain 시

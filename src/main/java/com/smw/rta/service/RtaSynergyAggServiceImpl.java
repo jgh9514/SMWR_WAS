@@ -55,7 +55,7 @@ public class RtaSynergyAggServiceImpl implements RtaSynergyAggService {
 	private int counterLegacyUpsertMaxRows;
 
 	/** COPY+merge 를 이 행 수마다 끊어 실행 — 한 번에 수백만 행 merge 시 DB 가 멈춘 것처럼 보일 수 있음 */
-	@Value("${smw.rta.counter-agg.copy-staging-chunk-rows:600000}")
+	@Value("${smw.rta.counter-agg.copy-staging-chunk-rows:400000}")
 	private int counterCopyStagingChunkRows;
 
 	@Value("${smw.rta.counter-agg.use-copy-staging:true}")

@@ -26,6 +26,14 @@ public class RtaRankCutSnapshotAggJob extends BaseBatchJob {
 		RtaBatchAggregationService.RankCutSnapshotRebuildResult r = aggregationService.rebuildRankCutSnapshots(rtaMapper);
 		addLog("시즌×티어 총경기 %d행(%dms), 시간별 랭크컷 스냅 적재(%dms)",
 				r.matchTotalRows(), r.matchTotalMs(), r.hourlyMs());
+		if (r.validationAnomalyCount() > 0) {
+			addLog("· [검증] 집계 이상 징후 %d건 — 샘플:", r.validationAnomalyCount());
+			for (String sample : r.validationSamples()) {
+				addLog("  · %s", sample);
+			}
+		} else {
+			addLog("· [검증] 이상 징후 없음");
+		}
 
 		rtaCacheEvictor.evictAllRtaCaches();
 		addLog("RTA 캐시 무효화 (랭크컷 스냅샷)");

@@ -11,6 +11,7 @@ import java.util.Map;
 import java.util.TreeSet;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -43,6 +44,9 @@ public class RtaBatchAggregationService {
 	 */
 	@Value("${smw.rta.batch.summoner-monster-snap-replay-chunk-size:3000}")
 	private int summonerMonsterSnapReplayChunkSize;
+
+	@Autowired
+	private RtaRankCutSnapValidator rankCutSnapValidator;
 
 	public RtaBatchAggregationService(
 			@Qualifier("rtaJdbcTransactionManager") PlatformTransactionManager transactionManager) {
@@ -476,13 +480,19 @@ public class RtaBatchAggregationService {
 		Long defaultSid = rtaMapper.selectDefaultSeasonIdForNow();
 		if (defaultSid == null) {
 			log.warn("rebuildRankCutSnapshots: 현재 시즌 없음");
-			return new RankCutSnapshotRebuildResult(0L, 0L, 0L);
+			return RankCutSnapshotRebuildResult.empty();
 		}
 		long sid = defaultSid.longValue();
+
+		java.util.Map<Integer, Long> matchTotalsBefore = rankCutSnapValidator.loadMatchTotals(rtaMapper, sid);
 
 		long t0 = System.nanoTime();
 		rtaMapper.rebuildRtaSeasonRatingMatchTotal(sid);
 		long matchTotalMs = msSinceNanos(t0);
+
+		RtaRankCutSnapValidator.RtaRankCutValidationReport validationReport =
+				rankCutSnapValidator.validateMatchTotalRebuild(sid, matchTotalsBefore,
+						rankCutSnapValidator.loadMatchTotals(rtaMapper, sid));
 
 		t0 = System.nanoTime();
 		List<Instant> missingHours = rtaMapper.selectMissingRankCutSnapHours(sid, 720);
@@ -498,10 +508,13 @@ public class RtaBatchAggregationService {
 				log.info("랭크컷 스냅 스킵 (경기 없음) seasonId={} hour={}", sid, hour);
 				continue;
 			}
+
+			validationReport = validationReport.merge(
+					rankCutSnapValidator.validateHourlySnap(rtaMapper, sid, hour, rows));
+
 			int attempt = 0;
 			while (true) {
 				try {
-					final int inserted;
 					final List<com.smw.rta.model.RtaRankCutSnapRow> r = rows;
 					int[] result = {0};
 					transactionTemplate.executeWithoutResult(tx -> {
@@ -523,8 +536,15 @@ public class RtaBatchAggregationService {
 		rtaMapper.pruneRtaRankCutHourlySnap();
 		long hourlyMs = msSinceNanos(t0);
 
+		rankCutSnapValidator.notifyIfNeeded(validationReport);
+
 		long matchTotalRows = safeCount(rtaMapper.countRtaSeasonRatingMatchTotalRows());
-		return new RankCutSnapshotRebuildResult(matchTotalRows, matchTotalMs, hourlyMs);
+		return new RankCutSnapshotRebuildResult(
+				matchTotalRows,
+				matchTotalMs,
+				hourlyMs,
+				validationReport.anomalyCount(),
+				validationReport.formatSamples(15));
 	}
 
 	private static long safeCount(Long n) {
@@ -799,7 +819,16 @@ public class RtaBatchAggregationService {
 	 * @param anchorMs     {@code insertRtaRankCutoffAnchorSnapFromLive} 소요(ms)
 	 * @param snapshotMs   {@code insertRtaSnapshotRankCutForAllSeasons} 소요(ms)
 	 */
-	public record RankCutSnapshotRebuildResult(long matchTotalRows, long matchTotalMs, long hourlyMs) {
+	public record RankCutSnapshotRebuildResult(
+			long matchTotalRows,
+			long matchTotalMs,
+			long hourlyMs,
+			int validationAnomalyCount,
+			List<String> validationSamples) {
+
+		public static RankCutSnapshotRebuildResult empty() {
+			return new RankCutSnapshotRebuildResult(0L, 0L, 0L, 0, List.of());
+		}
 	}
 
 	private static long msSinceNanos(long startNanos) {

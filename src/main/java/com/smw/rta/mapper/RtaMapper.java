@@ -131,6 +131,12 @@ public interface RtaMapper {
     /** {@code rta_agg_season_rating_match_total} 전체 행 수 (배치 적재 후 로깅) */
     Long countRtaSeasonRatingMatchTotalRows();
 
+    List<Map<String, Object>> selectSeasonRatingMatchTotals(@Param("seasonId") long seasonId);
+
+    List<Map<String, Object>> selectPreviousRankCutSnapsByGrade(
+            @Param("seasonId") long seasonId,
+            @Param("beforeHour") java.time.Instant beforeHour);
+
     /** 배치 전용: 세션 lock_timeout 해제 (인덱스 락 충돌 방지) */
     @org.apache.ibatis.annotations.Update("SET lock_timeout = 0")
     void disableLockTimeout();

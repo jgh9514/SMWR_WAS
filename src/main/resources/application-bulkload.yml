@@ -1,0 +1,17 @@
+# 대량 백필·catch-up 전용 (spring.profiles.active 에 bulkload 추가)
+# 예: SPRING_PROFILES_ACTIVE=docker,bulkload
+smw:
+  rta:
+    raw-apply:
+      max-rows-per-run: 5000
+      max-batches-per-job: 50
+      max-batches-cap: 200
+      fail-fast-on-error: false
+    batch:
+      synergy-max-rounds-per-job: 0
+      synergy-pause-ms-between-rounds: 0
+      synergy-max-rounds-cap: 200
+      pick-slot-max-rounds-cap: 200
+      backlog-high-watermark: 5000
+      rank-cut-validation:
+        enabled: false

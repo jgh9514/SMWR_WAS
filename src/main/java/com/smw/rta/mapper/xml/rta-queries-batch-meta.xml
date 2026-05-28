@@ -678,8 +678,31 @@
     </insert>
 
     <select id="countRtaSeasonRatingMatchTotalRows" resultType="long">
+        /* rta-queries-batch-meta.countRtaSeasonRatingMatchTotalRows */
         SELECT COUNT(*)::bigint
         FROM public.rta_agg_season_rating_match_total
+    </select>
+
+    <select id="selectSeasonRatingMatchTotals" resultType="map">
+        /* rta-queries-batch-meta.selectSeasonRatingMatchTotals */
+        SELECT
+            rating_id     AS "ratingId",
+            total_matches AS "totalMatches"
+        FROM public.rta_agg_season_rating_match_total
+        WHERE season_id = #{seasonId}
+    </select>
+
+    <select id="selectPreviousRankCutSnapsByGrade" resultType="map">
+        /* rta-queries-batch-meta.selectPreviousRankCutSnapsByGrade */
+        SELECT DISTINCT ON (h.grade_slot)
+            h.grade_slot   AS "gradeSlot",
+            h.sort_order   AS "sortOrder",
+            h.cutoff_score AS "cutoffScore",
+            h.snapped_at   AS "snappedAt"
+        FROM public.rta_agg_rank_cut_hourly_snap h
+        WHERE h.season_id = #{seasonId}
+          AND h.snapped_at &lt; #{beforeHour}::timestamptz
+        ORDER BY h.grade_slot, h.snapped_at DESC
     </select>
 
     <!--

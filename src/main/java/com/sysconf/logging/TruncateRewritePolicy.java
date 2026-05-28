@@ -35,7 +35,7 @@ public final class TruncateRewritePolicy implements RewritePolicy {
         }
 
         String safe = LogPayloadTrimmer.truncateUtf8(combined.toString(), LogPayloadTrimmer.DEFAULT_MAX_MESSAGE_BYTES);
-        return Log4jLogEvent.newBuilder(event)
+        return new Log4jLogEvent.Builder(event)
                 .setMessage(new SimpleMessage(safe))
                 .setThrown(null)
                 .build();

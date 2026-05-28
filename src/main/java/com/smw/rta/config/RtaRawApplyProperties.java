@@ -20,7 +20,7 @@ public class RtaRawApplyProperties {
 	 * 한 Job 실행에서 SELECT→처리 반복 최대 횟수. 조회 결과가 빈 배열이면 그 전에 종료.
 	 * 동일 행이 계속 pending 으로 남는 비정상 시 무한 루프 방지.
 	 */
-	private int maxBatchesPerJob = 2000;
+	private int maxBatchesPerJob = 1;
 
 	/**
 	 * backlog catch-up 시 raw 정규화 Job 당 라운드(배치) 절대 상한.
