@@ -2,8 +2,6 @@ package com.smw.monster.batch;
 
 import java.util.HashMap;
 import java.util.Map;
-import java.nio.charset.StandardCharsets;
-
 import org.quartz.Job;
 import org.quartz.JobExecutionContext;
 import org.quartz.JobExecutionException;
@@ -18,6 +16,7 @@ import com.admin.batch.sse.BatchLogBroadcaster;
 import com.smw.monster.service.SwarfarmSyncService;
 import com.smw.monster.util.SlackNotifier;
 import com.smw.rta.config.RtaBatchProperties;
+import com.sysconf.logging.LogPayloadTrimmer;
 
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -34,11 +33,6 @@ import lombok.extern.slf4j.Slf4j;
 public abstract class BaseBatchJob implements Job {
 
     protected StringBuilder logContent = new StringBuilder();
-    /**
-     * Grafana Cloud Loki(OTLP logs) max line size is 256KB.
-     * 배치 로그는 DB(rslt_txt)에도 저장되므로, 외부 로그 전송만 안전하게 자른다.
-     */
-    private static final int OTEL_SAFE_LOG_MAX_BYTES = 240 * 1024;
     protected Long runSn = null;
     protected Long currentBatId = null;
     protected ApplicationContext applicationContext;
@@ -289,34 +283,9 @@ public abstract class BaseBatchJob implements Job {
         String timestamp = java.time.LocalDateTime.now().format(
             java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
         logContent.append("[").append(timestamp).append("] ").append(logMessage).append("\n");
-        String safeForExternal = truncateUtf8ToBytes(logMessage, OTEL_SAFE_LOG_MAX_BYTES);
+        String safeForExternal = LogPayloadTrimmer.truncateUtf8(logMessage, LogPayloadTrimmer.DEFAULT_MAX_MESSAGE_BYTES);
         log.info(safeForExternal);
         pushStreamLine("[" + timestamp + "] " + safeForExternal);
-    }
-
-    private static String truncateUtf8ToBytes(String s, int maxBytes) {
-        if (s == null) {
-            return null;
-        }
-        byte[] bytes = s.getBytes(StandardCharsets.UTF_8);
-        if (bytes.length <= maxBytes) {
-            return s;
-        }
-        final String suffix = "… [TRUNCATED: over OTLP log line limit]";
-        int budget = Math.max(0, maxBytes - suffix.getBytes(StandardCharsets.UTF_8).length);
-        // 이진 탐색으로 UTF-8 바이트 기준 최대 접두사 길이 찾기
-        int lo = 0;
-        int hi = s.length();
-        while (lo < hi) {
-            int mid = (lo + hi + 1) >>> 1;
-            int b = s.substring(0, mid).getBytes(StandardCharsets.UTF_8).length;
-            if (b <= budget) {
-                lo = mid;
-            } else {
-                hi = mid - 1;
-            }
-        }
-        return s.substring(0, lo) + suffix;
     }
     
     /**
@@ -333,7 +302,7 @@ public abstract class BaseBatchJob implements Job {
         service.setLogCallback((msg) -> {
             String timestamp = java.time.LocalDateTime.now().format(
                     java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
-            String safeMsg = truncateUtf8ToBytes(String.valueOf(msg), OTEL_SAFE_LOG_MAX_BYTES);
+            String safeMsg = LogPayloadTrimmer.truncateUtf8(String.valueOf(msg), LogPayloadTrimmer.DEFAULT_MAX_MESSAGE_BYTES);
             String line = "[" + timestamp + "] " + safeMsg;
             logContent.append(line).append("\n");
             pushStreamLine(line);

@@ -1435,16 +1435,23 @@
            픽·밴·선첫·승·패·픽률·승률·밴율: 배치 스냅만 사용해 몹 행 간·시즌 fight 정의와 맞물리게 한다.
            분모(match_cnt)= rta_agg_summoner_season_fight_snap 우선; 스냅 행 없으면 participant DISTINCT replay( 배치 동일 규약 ). */
         WITH match_denom AS (
-            SELECT COALESCE(
-                (SELECT fs.match_cnt::numeric
-                 FROM public.rta_agg_summoner_season_fight_snap fs
-                 WHERE fs.season_id = #{seasonId}
-                   AND fs.wizard_id = #{wizardId}),
-                (SELECT COUNT(DISTINCT mp.replay_id)::numeric
-                 FROM public.rta_match_participant mp
-                 WHERE mp.season_id = #{seasonId}
-                   AND mp.wizard_id = #{wizardId})
-            ) AS total_matches
+            <choose>
+                <when test="knownTotalMatches != null">
+                    SELECT #{knownTotalMatches}::numeric AS total_matches
+                </when>
+                <otherwise>
+                    SELECT COALESCE(
+                        (SELECT fs.match_cnt::numeric
+                         FROM public.rta_agg_summoner_season_fight_snap fs
+                         WHERE fs.season_id = #{seasonId}
+                           AND fs.wizard_id = #{wizardId}),
+                        (SELECT COUNT(DISTINCT mp.replay_id)::numeric
+                         FROM public.rta_match_participant mp
+                         WHERE mp.season_id = #{seasonId}
+                           AND mp.wizard_id = #{wizardId})
+                    ) AS total_matches
+                </otherwise>
+            </choose>
         ),
         stats_summary AS (
             SELECT
@@ -1490,6 +1497,9 @@
         CROSS JOIN match_denom md
         LEFT JOIN public.monster m ON m.monster_id = s.unit_master_id::text
         ORDER BY s.actual_pick_cnt DESC NULLS LAST, s.unit_master_id ASC
+        <if test="limit != null and limit &gt; 0">
+        LIMIT #{limit}
+        </if>
     </select>
 
     <!-- 소환사×몬 픽 순서별 통계 — pick_slot_no 는 rta_match_unit_pick·배치와 동일하게 플레이어 팀 기준 1~5 (전장 전체 순번 미사용). per team_side -->
@@ -1555,19 +1565,47 @@
 
     <!-- 소환사 일별 점수 추이 — rta_agg_summoner_score_daily_snap only (no live fallback) -->
     <select id="listRtaPlayerScoreDailySnap" resultType="map">
-        /* rta-queries-live.listRtaPlayerScoreDailySnap */
-        SELECT
-            d.snap_date,
-            d.end_of_day_score AS score,
-            d.match_cnt,
-            d.win_cnt,
-            d.lose_cnt,
-            (d.end_of_day_score - LAG(d.end_of_day_score) OVER (ORDER BY d.snap_date))::int AS score_delta
-        FROM public.rta_agg_summoner_score_daily_snap d
-        WHERE d.season_id = #{seasonId}
-          AND d.wizard_id = #{wizardId}
-        ORDER BY d.snap_date ASC
-        LIMIT #{limit}
+        /* rta-queries-live.listRtaPlayerScoreDailySnap
+           recentTailOnly=true: 최근 N일( snap_date DESC LIMIT )만 읽고 ASC 재정렬 — page-data 초기 로드용 */
+        <choose>
+            <when test="recentTailOnly != null and recentTailOnly">
+                SELECT
+                    t.snap_date,
+                    t.score,
+                    t.match_cnt,
+                    t.win_cnt,
+                    t.lose_cnt,
+                    (t.score - LAG(t.score) OVER (ORDER BY t.snap_date))::int AS score_delta
+                FROM (
+                    SELECT
+                        d.snap_date,
+                        d.end_of_day_score AS score,
+                        d.match_cnt,
+                        d.win_cnt,
+                        d.lose_cnt
+                    FROM public.rta_agg_summoner_score_daily_snap d
+                    WHERE d.season_id = #{seasonId}
+                      AND d.wizard_id = #{wizardId}
+                    ORDER BY d.snap_date DESC
+                    LIMIT #{limit}
+                ) t
+                ORDER BY t.snap_date ASC
+            </when>
+            <otherwise>
+                SELECT
+                    d.snap_date,
+                    d.end_of_day_score AS score,
+                    d.match_cnt,
+                    d.win_cnt,
+                    d.lose_cnt,
+                    (d.end_of_day_score - LAG(d.end_of_day_score) OVER (ORDER BY d.snap_date))::int AS score_delta
+                FROM public.rta_agg_summoner_score_daily_snap d
+                WHERE d.season_id = #{seasonId}
+                  AND d.wizard_id = #{wizardId}
+                ORDER BY d.snap_date ASC
+                LIMIT #{limit}
+            </otherwise>
+        </choose>
     </select>
 
     <!-- 시즌 전체 상대 H2H — 배치 rta_agg_summoner_opponent_h2h_snap (라이브 집계 없음) -->

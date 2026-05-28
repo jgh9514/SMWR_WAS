@@ -1,5 +1,10 @@
 package com.smw.monster.batch;
 
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.time.temporal.ChronoUnit;
+
 import org.quartz.DisallowConcurrentExecution;
 import org.quartz.JobExecutionContext;
 
@@ -25,6 +30,17 @@ public class RtaTierDailyAggJob extends BaseBatchJob {
 		RtaMapper rtaMapper = applicationContext.getBean(RtaMapper.class);
 		RtaBatchAggregationService aggregationService = applicationContext.getBean(RtaBatchAggregationService.class);
 		RtaCacheEvictor rtaCacheEvictor = applicationContext.getBean(RtaCacheEvictor.class);
+
+		// 현재 시각 기준 이전 정시(집계 대상 시간대의 종료점)를 threshold 로 사용.
+		// 예) 12:05에 실행 → threshold = 12:00 → rta_match 에 played_at >= 12:00 인 데이터가
+		// 있어야 11시~12시 수집이 완료된 것으로 판단하고 진행.
+		Instant threshold = ZonedDateTime.now(ZoneId.of("Asia/Seoul"))
+				.truncatedTo(ChronoUnit.HOURS)
+				.toInstant();
+		if (!rtaMapper.existsRtaMatchAfter(threshold)) {
+			addLog("집계 스킵 — %s 이후 rta_match 데이터 없음 (이전 시간대 수집 미완료)", threshold);
+			return;
+		}
 
 		addLog("--- rta_agg_tier_daily 재적재 (시즌별 DELETE+UPSERT) ---");
 		RtaBatchAggregationService.TierDailyAggRebuildResult tier = aggregationService.rebuildTierAggDaily(rtaMapper);

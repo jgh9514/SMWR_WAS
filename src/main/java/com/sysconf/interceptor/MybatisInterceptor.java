@@ -1,9 +1,9 @@
 package com.sysconf.interceptor;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
-import java.nio.charset.StandardCharsets;
 
 import org.apache.ibatis.executor.Executor;
 import org.apache.ibatis.mapping.BoundSql;
@@ -24,6 +24,7 @@ import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
 import com.sysconf.cache.CurrentSeasonCache;
+import com.sysconf.logging.LogPayloadTrimmer;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -52,9 +53,6 @@ import lombok.extern.slf4j.Slf4j;
         }
 )
 public class MybatisInterceptor implements Interceptor {
-
-    /** Grafana Cloud Loki(OTLP logs) max line size is 256KB. */
-    private static final int OTEL_SAFE_LOG_MAX_BYTES = 240 * 1024;
 
 	@Value("${smw.globalDblinkNm}")
 	private String globalDblinkNm;
@@ -212,35 +210,11 @@ public class MybatisInterceptor implements Interceptor {
         try {
             BoundSql boundSql = ms.getBoundSql(parameter);
             String inlined = buildInlinedSql(ms, boundSql, parameter);
-            String safe = truncateUtf8ToBytes(inlined, OTEL_SAFE_LOG_MAX_BYTES);
+            String safe = LogPayloadTrimmer.truncateUtf8(inlined, LogPayloadTrimmer.DEFAULT_MAX_MESSAGE_BYTES);
             log.info("SQL(inlined) mapperId={}\n{}", ms.getId(), safe);
         } catch (Exception e) {
             log.warn("SQL(inlined) build failed. mapperId={}", ms.getId(), e);
         }
-    }
-
-    private static String truncateUtf8ToBytes(String s, int maxBytes) {
-        if (s == null) {
-            return null;
-        }
-        byte[] bytes = s.getBytes(StandardCharsets.UTF_8);
-        if (bytes.length <= maxBytes) {
-            return s;
-        }
-        final String suffix = "… [TRUNCATED: over OTLP log line limit]";
-        int budget = Math.max(0, maxBytes - suffix.getBytes(StandardCharsets.UTF_8).length);
-        int lo = 0;
-        int hi = s.length();
-        while (lo < hi) {
-            int mid = (lo + hi + 1) >>> 1;
-            int b = s.substring(0, mid).getBytes(StandardCharsets.UTF_8).length;
-            if (b <= budget) {
-                lo = mid;
-            } else {
-                hi = mid - 1;
-            }
-        }
-        return s.substring(0, lo) + suffix;
     }
 
     private boolean shouldInject(Map<String, Object> parameters, String key) {
@@ -366,6 +340,9 @@ public class MybatisInterceptor implements Interceptor {
     	}
     	if (value instanceof long[] arr) {
     		return formatLongArrayForSqlLog(arr);
+    	}
+    	if (value instanceof Collection<?> coll) {
+    		return LogPayloadTrimmer.formatCollectionForSqlLog(coll);
     	}
     	if (value instanceof java.util.Date) {
     		java.text.SimpleDateFormat fmt = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");

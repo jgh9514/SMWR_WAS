@@ -147,6 +147,9 @@ public interface RtaMapper {
     long countRtaMatchForHour(@Param("seasonId") long seasonId,
                               @Param("snapHour") java.time.Instant snapHour);
 
+    /** threshold 이후(포함) played_at 를 가진 rta_match 가 1건 이상 있으면 true — 시간대 수집 완료 판단용 */
+    boolean existsRtaMatchAfter(@Param("threshold") java.time.Instant threshold);
+
 
     /** 시간대별 랭크컷 계산 결과 조회 */
     List<com.smw.rta.model.RtaRankCutSnapRow> selectRankCutSnapsForHour(
@@ -324,7 +327,8 @@ public interface RtaMapper {
 
     /** 소환사 일별 점수 스냅 — {@code rta_agg_summoner_score_daily_snap} */
     List<Map<String, Object>> listRtaPlayerScoreDailySnap(@Param("wizardId") String wizardId,
-            @Param("seasonId") long seasonId, @Param("limit") int limit);
+            @Param("seasonId") long seasonId, @Param("limit") int limit,
+            @Param("recentTailOnly") Boolean recentTailOnly);
 
     Map<String, Object> getRtaPlayerSummaryFromAgg(@Param("wizardId") String wizardId,
             @Param("seasonId") Long seasonId);
@@ -345,7 +349,8 @@ public interface RtaMapper {
      * {@code rta_agg_summoner_monster_snap} + fight 스냅, {@code monster} 메타.
      */
     List<Map<String, Object>> listRtaPlayerMonsterSnapFromAgg(@Param("wizardId") String wizardId,
-            @Param("seasonId") long seasonId);
+            @Param("seasonId") long seasonId, @Param("limit") Integer limit,
+            @Param("knownTotalMatches") Long knownTotalMatches);
 
     /**
      * 시즌×소환사×몬스터 — 드래프트 슬롯 묶음별 픽·승 — {@code rta_agg_summoner_pick_turn_snap} 롤업(스냅).

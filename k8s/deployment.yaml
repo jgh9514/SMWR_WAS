@@ -149,6 +149,8 @@ spec:
           value: "otlp"
         - name: OTEL_LOG_LEVEL
           value: "warn"
+        - name: OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT
+          value: "8192"
         - name: OTEL_RESOURCE_ATTRIBUTES
           value: "deployment.environment=production,service.namespace=smwr"
         # API Pod: Quartz 크론은 배치 Pod(smw-batch)에서만 등록. docker 만 — quartz-jdbc( JobStoreTX ) 미로드

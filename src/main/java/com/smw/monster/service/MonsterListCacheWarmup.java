@@ -31,7 +31,8 @@ class MonsterListCacheWarmup {
                 swService.selectMonsterList(param);
                 log.info("[MonsterListCacheWarmup] monsterList cache warmed in {}ms", System.currentTimeMillis() - t);
             } catch (Exception e) {
-                log.warn("[MonsterListCacheWarmup] cache warmup failed — will be populated on first request", e);
+                log.warn("[MonsterListCacheWarmup] cache warmup failed — will be populated on first request: {} — {}",
+                        e.getClass().getSimpleName(), e.getMessage());
             }
         });
     }
