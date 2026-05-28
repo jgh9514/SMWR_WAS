@@ -1284,23 +1284,37 @@
     -->
     <select id="getRtaPlayerSummaryFromAgg" resultType="map">
         /* rta-queries-live.getRtaPlayerSummaryFromAgg
-           latest: LIMIT 1로 최신 프로필 row만 읽음 (idx_rta_participant_season_wizard_played).
-           match_cnt·win_cnt: rta_agg_summoner_season_fight_snap(PK 조회) 우선, 없으면 participant 집계.
-           max_season_score: idx_rta_participant_ranking_v2(ladder_score DESC) 로 MAX 즉시 반환. */
-        WITH latest AS (
+           search_snap: 닉·국가·채널 PK 조회 — latest participant 풀스캔·Sort 제거.
+           score_profile: idx_rta_participant_ranking_v2(ladder_score DESC, replay_id DESC) 1행.
+           last_at: idx_rta_participant_player_timeline(played_at DESC, replay_id DESC) 1행.
+           match_cnt·win_cnt: fight_snap PK 우선, 없을 때만 participant 집계. */
+        WITH search AS (
+            SELECT wizard_name, country, channel_uid
+            FROM public.rta_agg_summoner_search_snap
+            WHERE wizard_id = #{wizardId}
+            LIMIT 1
+        ),
+        score_profile AS (
             SELECT
-                p.wizard_id,
-                p.wizard_name,
-                p.country_code AS country,
-                p.channel_uid,
-                p.ladder_score AS score,
+                p.ladder_score::int AS score,
                 p.rating_id,
                 p.ladder_rank,
-                p.played_at    AS last_match_at
+                p.wizard_name       AS sp_wizard_name,
+                p.country_code      AS sp_country,
+                p.channel_uid       AS sp_channel_uid
             FROM public.rta_match_participant p
-            WHERE p.wizard_id = #{wizardId}
-              AND p.season_id = #{seasonId}
-            ORDER BY p.played_at DESC NULLS LAST
+            WHERE p.season_id = #{seasonId}
+              AND p.wizard_id = #{wizardId}
+              AND p.ladder_score &gt; 0
+            ORDER BY p.ladder_score DESC NULLS LAST, p.replay_id DESC
+            LIMIT 1
+        ),
+        last_at AS (
+            SELECT p.played_at AS last_match_at
+            FROM public.rta_match_participant p
+            WHERE p.season_id = #{seasonId}
+              AND p.wizard_id = #{wizardId}
+            ORDER BY p.played_at DESC NULLS LAST, p.replay_id DESC
             LIMIT 1
         ),
         fight_snap AS (
@@ -1318,27 +1332,35 @@
               AND mp.season_id = #{seasonId}
               AND mp.wizard_id = #{wizardId}
         ),
-        score_max AS (
-            SELECT p.ladder_score::int AS max_season_score
-            FROM public.rta_match_participant p
-            WHERE p.wizard_id = #{wizardId}
-              AND p.season_id = #{seasonId}
-              AND p.ladder_score &gt; 0
-            ORDER BY p.ladder_score DESC NULLS LAST
-            LIMIT 1
+        profile AS (
+            SELECT
+                #{wizardId}::text AS wizard_id,
+                COALESCE(sr.wizard_name, sp.sp_wizard_name)     AS wizard_name,
+                COALESCE(sr.country, sp.sp_country)             AS country,
+                COALESCE(sr.channel_uid, sp.sp_channel_uid)     AS channel_uid,
+                sp.score,
+                sp.rating_id,
+                sp.ladder_rank,
+                la.last_match_at
+            FROM search sr
+            LEFT JOIN score_profile sp ON TRUE
+            LEFT JOIN last_at la ON TRUE
+            WHERE sr.wizard_name IS NOT NULL
+               OR sp.score IS NOT NULL
+               OR la.last_match_at IS NOT NULL
         )
         SELECT
-            COALESCE(s.rank_position, l.ladder_rank)                                    AS rank_position,
-            l.wizard_id::text                                                            AS wizard_id,
-            l.wizard_name,
-            l.country,
-            l.channel_uid,
-            COALESCE(s.score, l.score)                                                   AS score,
-            COALESCE(s.rating_id, l.rating_id)                                          AS rating_id,
-            l.last_match_at,
-            COALESCE(fs.match_cnt, la.match_cnt, 0)::bigint                             AS match_count,
-            COALESCE(fs.win_cnt,   la.win_cnt,   0)::bigint                             AS win_count,
-            COALESCE(s.max_season_score::int, sm.max_season_score, l.score::int)        AS max_season_score,
+            COALESCE(s.rank_position, p.ladder_rank)                              AS rank_position,
+            p.wizard_id,
+            p.wizard_name,
+            p.country,
+            p.channel_uid,
+            COALESCE(s.score, p.score)                                            AS score,
+            COALESCE(s.rating_id, p.rating_id)                                    AS rating_id,
+            p.last_match_at,
+            COALESCE(fs.match_cnt, la.match_cnt, 0)::bigint                       AS match_count,
+            COALESCE(fs.win_cnt,   la.win_cnt,   0)::bigint                       AS win_count,
+            COALESCE(s.max_season_score::int, p.score::int)                       AS max_season_score,
             CASE
                 WHEN COALESCE(fs.match_cnt, la.match_cnt, 0) &gt; 0
                 THEN ROUND(
@@ -1347,14 +1369,13 @@
                     1
                 )
                 ELSE NULL
-            END                                                                          AS win_rate_pct
-        FROM latest l
+            END                                                                    AS win_rate_pct
+        FROM profile p
         LEFT JOIN fight_snap fs ON TRUE
         LEFT JOIN live_agg la ON TRUE
-        LEFT JOIN score_max sm ON TRUE
         LEFT JOIN public.rta_agg_summoner_ranking_snap s
             ON s.season_id = #{seasonId}
-           AND s.wizard_id = l.wizard_id
+           AND s.wizard_id = p.wizard_id
         LIMIT 1
     </select>
 
@@ -1375,6 +1396,23 @@
         GROUP BY p.wizard_name
         ORDER BY MAX(p.played_at) DESC NULLS LAST, p.wizard_name
         LIMIT #{limit}
+    </select>
+
+    <select id="getRtaPlayerSeasonFightSnapPkOnly" resultType="map">
+        /* rta-queries-live.getRtaPlayerSeasonFightSnapPkOnly — page-data 초기 로드용, 라이브 폴백 없음 */
+        SELECT
+            s.match_cnt::bigint         AS match_cnt,
+            s.non_ban_pick_cnt::bigint  AS non_ban_pick_cnt,
+            s.ban_event_cnt::bigint     AS ban_event_cnt,
+            CASE
+                WHEN s.match_cnt &gt; 0
+                THEN ROUND(100.0 * s.win_cnt::numeric / s.match_cnt::numeric, 2)
+            END AS season_win_rate_pct,
+            s.computed_at
+        FROM public.rta_agg_summoner_season_fight_snap s
+        WHERE s.season_id = #{seasonId}
+          AND s.wizard_id = #{wizardId}
+        LIMIT 1
     </select>
 
     <select id="getRtaPlayerSeasonFightSnapFromAgg" resultType="map">

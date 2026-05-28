@@ -352,6 +352,10 @@ public interface RtaMapper {
     Map<String, Object> getRtaPlayerSeasonFightSnapFromAgg(@Param("wizardId") String wizardId,
             @Param("seasonId") long seasonId);
 
+    /** page-data용 fight 스냅 PK 조회만 — participant·unit_pick 라이브 폴백 없음 */
+    Map<String, Object> getRtaPlayerSeasonFightSnapPkOnly(@Param("wizardId") String wizardId,
+            @Param("seasonId") long seasonId);
+
     /**
      * 시즌×소환사×몬스터 스냅 목록(비율 컬럼 포함).
      * {@code rta_agg_summoner_monster_snap} + fight 스냅, {@code monster} 메타.

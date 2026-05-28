@@ -654,22 +654,23 @@ public class RtaServiceImpl implements RtaService {
         String wid = wizardId.trim();
         long sidL = sid;
 
-        Map<String, Object> fightSnap = rtaMapper.getRtaPlayerSeasonFightSnapFromAgg(wid, sidL);
-        Long knownMatchCnt = extractFightSnapMatchCnt(fightSnap);
-
+        CompletableFuture<Map<String, Object>> fFightSnap = CompletableFuture.supplyAsync(
+                () -> rtaMapper.getRtaPlayerSeasonFightSnapPkOnly(wid, sidL), RTA_LINK_PREVIEW_EXECUTOR);
         CompletableFuture<Map<String, Object>> fSummary = CompletableFuture.supplyAsync(
                 () -> rtaMapper.getRtaPlayerSummaryFromAgg(wid, sidL), RTA_LINK_PREVIEW_EXECUTOR);
         CompletableFuture<List<Map<String, Object>>> fScoreDaily = CompletableFuture.supplyAsync(
                 () -> rtaMapper.listRtaPlayerScoreDailySnap(wid, sidL, RTA_PLAYER_PAGE_DATA_SCORE_DAILY_LIMIT, Boolean.TRUE),
                 RTA_LINK_PREVIEW_EXECUTOR);
-        CompletableFuture<List<Map<String, Object>>> fMonster = CompletableFuture.supplyAsync(
-                () -> rtaMapper.listRtaPlayerMonsterSnapFromAgg(wid, sidL, RTA_PLAYER_PAGE_DATA_MONSTER_LIMIT, knownMatchCnt),
+        CompletableFuture<List<Map<String, Object>>> fMonster = fFightSnap.thenApplyAsync(
+                snap -> rtaMapper.listRtaPlayerMonsterSnapFromAgg(
+                        wid, sidL, RTA_PLAYER_PAGE_DATA_MONSTER_LIMIT, extractFightSnapMatchCnt(snap)),
                 RTA_LINK_PREVIEW_EXECUTOR);
         CompletableFuture<List<Map<String, Object>>> fOpponent = CompletableFuture.supplyAsync(
                 () -> rtaMapper.listRtaPlayerOpponentHeadToHead(wid, sidL, RTA_PLAYER_OPPONENTS_PAGE_DATA_LIMIT + 1, 0),
                 RTA_LINK_PREVIEW_EXECUTOR);
 
-        CompletableFuture.allOf(fSummary, fScoreDaily, fMonster, fOpponent).join();
+        CompletableFuture.allOf(fFightSnap, fSummary, fScoreDaily, fMonster, fOpponent).join();
+        Map<String, Object> fightSnap = fFightSnap.getNow(Collections.emptyMap());
 
         Map<String, Object> summaryRow = fSummary.getNow(null);
         if (summaryRow == null || summaryRow.isEmpty()) {
@@ -688,7 +689,7 @@ public class RtaServiceImpl implements RtaService {
 
         Map<String, Object> fightOut = fightSnap != null && !fightSnap.isEmpty()
                 ? fightSnap
-                : Collections.emptyMap();
+                : Collections.emptyMap(); // page-data: 스냅 없으면 빈 fight — picks 탭 /monster-usage 에서 전량 조회
 
         out.put("summary", summaryOut);
         out.put("scoreDaily", Map.of("rows", fScoreDaily.getNow(Collections.emptyList()), "seasonId", sid, "wizardId", wid));
