@@ -1,6 +1,24 @@
 # 메모리·노드 여유가 작을 때 배포 순서 (App 교체 + Batch 단계적 스케일)
 
-동일 이미지로 **smw-app**·**smw-batch**를 띄우면, 배포 시점에 **API 롤아웃 + 배치 Pod 기동**이 겹치면서 노드 OOMKilled·스케줄 실패가 나기 쉽다. 그럴 땥 아래 순서로 **배치를 잠시 0**으로 두고 App만 교체한 뒤, 배치를 **1**로 올리고(평시 목표는 `batch-deployment`의 `replicas`와 같음) 필요하면 **2**로 스케일한다.
+## t4g.medium (4GB) 메모리 배분
+
+단일 노드(t4g.medium **4GB**)에 **smw-app · smw-batch · smw-redis · smwr-front** 만 둘 때 기준.
+
+**PostgreSQL은 별도 EC2/RDS** — 아래 limits에 DB 메모리는 포함하지 않는다. 노드 4GB 전부 앱·캐시·프론트에 쓸 수 있다.
+
+| Pod | requests | limits | 런타임 |
+|-----|----------|--------|--------|
+| smw-app | 512Mi | 768Mi | `-Xmx512m` (JAVA_TOOL_OPTIONS) |
+| smw-batch | 512Mi | 896Mi | `-Xmx640m` |
+| smw-redis | 128Mi | 256Mi | `--maxmemory 192mb` LRU |
+| smwr-front | 192Mi | 384Mi | `NODE_OPTIONS --max-old-space-size=256` |
+
+- **limits 합 ~2.3GB** → OS·K3s·버스트 여유 ~1.7GB
+- **JAVA_OPTS** 는 Dockerfile ENTRYPOINT에서 미사용 → **`JAVA_TOOL_OPTIONS`** 로 힙 지정
+- Hikari: API `10` / 배치 `12` (`SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE`)
+- 배포·롤아웃 중 OOM 시 아래 **staged rollout** 순서 사용
+
+동일 이미지로 **smw-app**·**smw-batch**를 띄우면, 배포 시점에 **API 롤아웃 + 배치 Pod 기동**이 겹치면서 노드 OOMKilled·스케줄 실패가 나기 쉽다. 그럴 땐 아래 순서로 **배치를 잠시 0**으로 두고 App만 교체한 뒤, 배치를 **1**로 올리고(평시 목표는 `batch-deployment`의 `replicas`와 같음) 필요하면 **2**로 스케일한다.
 
 ## GitHub Actions (기본: 둘 다 동시에 교체)
 

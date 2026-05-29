@@ -47,10 +47,17 @@ spec:
               value: "jdbc"
             - name: TZ
               value: "Asia/Seoul"
+            # 배치 Job 청크·Quartz — WAS보다 힙 여유 (limit 896Mi)
             - name: JAVA_TOOL_OPTIONS
-              value: "-Duser.timezone=Asia/Seoul"
-            - name: JAVA_OPTS
-              value: "-Xms512m -Xmx512m"
+              value: "-Duser.timezone=Asia/Seoul -Xms448m -Xmx640m -XX:+UseG1GC -XX:MaxGCPauseMillis=200"
+            - name: SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE
+              value: "12"
+            - name: SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE
+              value: "4"
+            - name: SERVER_TOMCAT_THREADS_MAX
+              value: "40"
+            - name: SERVER_TOMCAT_THREADS_MIN_SPARE
+              value: "5"
             - name: SPRING_DATASOURCE_URL
               valueFrom:
                 secretKeyRef:
@@ -158,9 +165,9 @@ spec:
           resources:
             requests:
               memory: "512Mi"
-              cpu: "400m"
+              cpu: "300m"
             limits:
-              memory: "768Mi"
+              memory: "896Mi"
               cpu: "1500m"
           startupProbe:
             httpGet:

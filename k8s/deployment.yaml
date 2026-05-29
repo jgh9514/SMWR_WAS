@@ -49,10 +49,17 @@ spec:
         # OS·JVM 기본 시간대 (Jackson JSON·로그·DB timestamp 해석 — UTC Pod와 로컬 차이 방지)
         - name: TZ
           value: "Asia/Seoul"
+        # t4g.medium(4GB) 단일 노드: WAS 힙 512m, limit 768Mi (배치·Redis·Front와 합산 ~2.3GB, OS/K3s 여유 ~1.7GB)
         - name: JAVA_TOOL_OPTIONS
-          value: "-Duser.timezone=Asia/Seoul"
-        - name: JAVA_OPTS
-          value: "-Xms512m -Xmx512m"
+          value: "-Duser.timezone=Asia/Seoul -Xms384m -Xmx512m -XX:+UseG1GC -XX:MaxGCPauseMillis=200"
+        - name: SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE
+          value: "10"
+        - name: SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE
+          value: "5"
+        - name: SERVER_TOMCAT_THREADS_MAX
+          value: "80"
+        - name: SERVER_TOMCAT_THREADS_MIN_SPARE
+          value: "10"
         - name: SPRING_DATASOURCE_URL
           valueFrom:
             secretKeyRef:
@@ -165,11 +172,11 @@ spec:
           value: "smw-redis"
         - name: SMW_CACHE_RTA_USE_REDIS
           value: "true"
-        # 단일 노드/소형 EC2에서 Insufficient memory 스케줄 실패 시 requests·limits 낮춤 (kubectl describe node 로 allocatable 확인)
+        # Insufficient memory 방지: requests 합이 노드 allocatable 이내 (t4g.medium 기준 아래 DEPLOYMENT_ROLLOUT.md)
         resources:
           requests:
             memory: "512Mi"
-            cpu: "400m"
+            cpu: "300m"
           limits:
             memory: "768Mi"
             cpu: "1000m"
