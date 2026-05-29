@@ -47,9 +47,11 @@ spec:
               value: "jdbc"
             - name: TZ
               value: "Asia/Seoul"
-            # limit 896Mi: 힙 512m + OTEL agent·Metaspace·스레드 여유 (640m 힙은 OOMKilled 빈발)
+            # limit 1024Mi: Metaspace 256m + 힙 512m (128m Metaspace cap 은 기동 OOM). OTEL agent OFF.
             - name: JAVA_TOOL_OPTIONS
-              value: "-Duser.timezone=Asia/Seoul -Xms384m -Xmx512m -XX:MaxMetaspaceSize=128m -XX:ReservedCodeCacheSize=48m -XX:+UseG1GC -XX:MaxGCPauseMillis=200"
+              value: "-Duser.timezone=Asia/Seoul -Xms384m -Xmx512m -XX:MaxMetaspaceSize=256m -XX:ReservedCodeCacheSize=64m -XX:+UseG1GC -XX:MaxGCPauseMillis=200"
+            - name: SMW_GRAFANA_OTEL_ENABLED
+              value: "false"
             - name: SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE
               value: "8"
             - name: SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE
@@ -186,7 +188,7 @@ spec:
               memory: "512Mi"
               cpu: "300m"
             limits:
-              memory: "896Mi"
+              memory: "1024Mi"
               cpu: "1500m"
           startupProbe:
             httpGet:

@@ -39,19 +39,12 @@ WORKDIR /app
 # 빌드 스테이지에서 준비된 app.jar 및 Grafana agent 복사
 COPY --from=build /app/target/app.jar app.jar
 COPY --from=build /app/grafana-opentelemetry-java.jar grafana-opentelemetry-java.jar
+COPY docker-entrypoint.sh /app/docker-entrypoint.sh
+RUN chmod +x /app/docker-entrypoint.sh
 
 # 포트 노출
 EXPOSE 8080
 
-# OTEL_JAVA_AGENT: GRAFANA_OTEL_ENABLED=true 일 때만 agent 활성화
-# K8s 힙: JAVA_TOOL_OPTIONS -Xmx (deployment.yaml). 미설정 시 cgroup 기준 MaxRAMPercentage fallback.
-ENTRYPOINT ["java", \
-  "-XX:+UseG1GC", \
-  "-XX:+UseStringDeduplication", \
-  "-XX:MaxRAMPercentage=70.0", \
-  "-XX:InitialRAMPercentage=25.0", \
-  "-XX:MaxGCPauseMillis=200", \
-  "-Djava.security.egd=file:/dev/./urandom", \
-  "-javaagent:grafana-opentelemetry-java.jar", \
-  "-jar", "app.jar"]
-
+# SMW_GRAFANA_OTEL_ENABLED=false 이면 javaagent 미로드 (배치 Pod Metaspace·RSS 절약)
+# K8s 힙·Metaspace: JAVA_TOOL_OPTIONS (deployment.yaml / batch-deployment.yaml)
+ENTRYPOINT ["/app/docker-entrypoint.sh"]

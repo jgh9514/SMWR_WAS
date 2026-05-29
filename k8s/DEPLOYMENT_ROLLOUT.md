@@ -9,11 +9,11 @@
 | Pod | requests | limits | 런타임 |
 |-----|----------|--------|--------|
 | smw-app | 512Mi | 768Mi | `-Xmx512m` (JAVA_TOOL_OPTIONS) |
-| smw-batch | 512Mi | 896Mi | `-Xmx512m` + `MaxMetaspaceSize=128m` (OTEL agent·비힙 여유) |
+| smw-batch | 512Mi | 1024Mi | `-Xmx512m` `MaxMetaspaceSize=256m` · OTEL agent OFF |
 | smw-redis | 128Mi | 256Mi | `--maxmemory 192mb` LRU |
 | smwr-front | 192Mi | 384Mi | `NODE_OPTIONS --max-old-space-size=256` |
 
-- **limits 합 ~2.3GB** → OS·K3s·버스트 여유 ~1.7GB
+- **limits 합 ~2.4GB** → OS·K3s·버스트 여유 ~1.6GB
 - **JAVA_OPTS** 는 Dockerfile ENTRYPOINT에서 미사용 → **`JAVA_TOOL_OPTIONS`** 로 힙 지정
 - Hikari: API `10` / 배치 `8` (`SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE`)
 - RTA backlog catch-up(배치 Pod): `SMW_RTA_SYNERGY_BATCH_SIZE=5000`, `SMW_RTA_SYNERGY_MAX_ROUNDS_CAP=3`, raw `SMW_RTA_RAW_APPLY_MAX_BATCHES_CAP=5` — `GET /api/v1/batch/backlog` 로 적용값 확인
