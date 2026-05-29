@@ -243,13 +243,24 @@ smw:
     raw-apply:
       max-rows-per-run: ${SMW_RTA_RAW_APPLY_MAX_ROWS:1000}
       max-batches-per-job: ${SMW_RTA_RAW_APPLY_MAX_BATCHES:1}
+      max-batches-cap: ${SMW_RTA_RAW_APPLY_MAX_BATCHES_CAP:20}
+      apply-chunk-size: ${SMW_RTA_RAW_APPLY_CHUNK_SIZE:1000}
       fail-fast-on-error: ${SMW_RTA_RAW_APPLY_FAIL_FAST:true}
     batch:
-      synergy-batch-size: ${SMW_RTA_SYNERGY_BATCH_SIZE:20000}
+      synergy-batch-size: ${SMW_RTA_SYNERGY_BATCH_SIZE:10000}
       synergy-max-rounds-per-job: ${SMW_RTA_SYNERGY_MAX_ROUNDS_PER_JOB:1}
+      synergy-max-rounds-cap: ${SMW_RTA_SYNERGY_MAX_ROUNDS_CAP:10}
+      pick-slot-drain-batch-size: ${SMW_RTA_PICK_SLOT_DRAIN_BATCH_SIZE:2000}
+      pick-slot-max-rounds-cap: ${SMW_RTA_PICK_SLOT_MAX_ROUNDS_CAP:10}
       backlog-scaling-enabled: ${SMW_RTA_BATCH_BACKLOG_SCALING:true}
+      backlog-high-watermark: ${SMW_RTA_BATCH_BACKLOG_HIGH_WATERMARK:10000}
+      synergy-pause-ms-between-rounds: ${SMW_RTA_SYNERGY_PAUSE_MS:50}
       slack-token: ${SMW_BATCH_SLACK_TOKEN:}
       slack-channel-id: ${SMW_BATCH_SLACK_CHANNEL_ID:}
+    synergy-agg:
+      copy-staging-chunk-rows: ${SMW_RTA_SYNERGY_AGG_COPY_STAGING_CHUNK_ROWS:600000}
+    counter-agg:
+      copy-staging-chunk-rows: ${SMW_RTA_COUNTER_AGG_COPY_STAGING_CHUNK_ROWS:400000}
     # rank-cut-validation · counter/synergy-agg · staging-merge → Java @ConfigurationProperties / @Value 기본값
     # 대시보드 API: rta_agg_* / rta_rank_cutoff_anchor_snap 등 집계·스냅만 (라이브 풀스캔 없음).
   ops:
@@ -268,6 +279,22 @@ smw:
       api-error-rate-critical-percent: ${SMW_OPS_API_ERROR_RATE_CRITICAL_PERCENT:10}
       api-slow-rate-warning-percent: ${SMW_OPS_API_SLOW_RATE_WARNING_PERCENT:5}
       api-slow-rate-critical-percent: ${SMW_OPS_API_SLOW_RATE_CRITICAL_PERCENT:15}
+  grafana:
+    cloud:
+      enabled: ${SMW_GRAFANA_CLOUD_ENABLED:false}
+      base-url: ${SMW_GRAFANA_CLOUD_BASE_URL:https://2489437.grafana.net}
+      access-token: ${SMW_GRAFANA_CLOUD_ACCESS_TOKEN:}
+      dashboards:
+        - id: smwr
+          title: SMWR 서비스
+          description: WAS API · JVM · HTTP (OpenTelemetry / Prometheus)
+          uid: ${SMW_GRAFANA_DASHBOARD_WAS_UID:}
+          slug: ${SMW_GRAFANA_DASHBOARD_WAS_SLUG:smwr-was}
+        - id: batch
+          title: 배치
+          description: smw-batch · Quartz · Spring Batch
+          uid: ${SMW_GRAFANA_DASHBOARD_BATCH_UID:}
+          slug: ${SMW_GRAFANA_DASHBOARD_BATCH_SLUG:smwr-batch}
   mybatis:
     log:
       # true: MybatisInterceptor 가 ? 를 값으로 치환한 SQL(inlined) 를 INFO 로 출력 (전 매퍼·별도 로거 DEBUG 불필요)

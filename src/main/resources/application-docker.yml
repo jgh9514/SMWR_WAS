@@ -199,6 +199,26 @@ smw:
       api-slow-rate-critical-percent: ${SMW_OPS_API_SLOW_RATE_CRITICAL_PERCENT:15}
   swarfarm:
     image-download-concurrency: ${SMW_SWARFARM_IMAGE_DOWNLOAD_CONCURRENCY:4}
+  # t4g.medium 배치 Pod — backlog catch-up·청크 상한 보수적 (OOM 방지). bulkload 프로필은 별도 상향.
+  rta:
+    raw-apply:
+      max-rows-per-run: 500
+      max-batches-per-job: 1
+      max-batches-cap: 5
+      apply-chunk-size: 500
+    batch:
+      synergy-batch-size: 5000
+      synergy-max-rounds-per-job: 1
+      synergy-max-rounds-cap: 3
+      pick-slot-drain-batch-size: 1000
+      pick-slot-max-rounds-cap: 3
+      backlog-scaling-enabled: true
+      backlog-high-watermark: 15000
+      synergy-pause-ms-between-rounds: 150
+    synergy-agg:
+      copy-staging-chunk-rows: 100000
+    counter-agg:
+      copy-staging-chunk-rows: 80000
   mybatis:
     log:
       # "파라미터까지 합쳐진 완성된 SQL" 로그 (MybatisInterceptor DEBUG에서 출력)

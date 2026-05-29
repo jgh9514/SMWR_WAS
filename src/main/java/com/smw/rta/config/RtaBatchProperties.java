@@ -14,7 +14,7 @@ import lombok.Setter;
 public class RtaBatchProperties {
 
 	/** {@code synergy_applied_at IS NULL}(미집계) rid 를 한 라운드에서 가져오는 건수. {@code smw.rta.batch.synergy-batch-size} 와 맞출 것. */
-	private int synergyBatchSize = 20_000;
+	private int synergyBatchSize = 10_000;
 
 	/**
 	 * {@link com.smw.monster.batch.RtaSynergyOnlyAggJob} 가 한 실행에서 처리하는 시너지 drain 라운드 상한.
@@ -75,10 +75,10 @@ public class RtaBatchProperties {
 	private boolean backlogScalingEnabled = true;
 
 	/** backlog catch-up 시 시너지 Job 당 라운드 절대 상한. {@code synergy-max-rounds-per-job} 기본(1)보다 커야 효과 있음. */
-	private int synergyMaxRoundsCap = 50;
+	private int synergyMaxRoundsCap = 10;
 
 	/** pick-slot drain catch-up 시 Job 당 라운드 절대 상한. 0 이하면 drain-until-empty. */
-	private int pickSlotMaxRoundsCap = 50;
+	private int pickSlotMaxRoundsCap = 10;
 
 	/**
 	 * 이 건수 이상 pending 이면 catch-up 모드(라운드 간 pause 생략 등).

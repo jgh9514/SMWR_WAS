@@ -26,7 +26,7 @@ public class RtaRawApplyProperties {
 	 * backlog catch-up 시 raw 정규화 Job 당 라운드(배치) 절대 상한.
 	 * {@link com.smw.rta.service.RtaBatchBacklogScaler} 가 {@code max-batches-per-job} 기본값보다 상향할 때 사용.
 	 */
-	private int maxBatchesCap = 100;
+	private int maxBatchesCap = 20;
 
 	/** 정규화 INSERT 청크 크기 (최소 1은 서비스에서 보정) */
 	private int applyChunkSize = 1000;
