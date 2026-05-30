@@ -76,7 +76,6 @@ public class DashboardServiceImpl implements DashboardService {
 		// 일별 통계 데이터 조회 (최근 7일)
 		List<Map<String, Object>> dailyStats = dashboardMapper.selectDailyStats(param);
 		result.put("dailyStats", dailyStats);
-		result.put("opsMetrics", getOpsMetricsSnapshot());
 
 		return result;
 	}

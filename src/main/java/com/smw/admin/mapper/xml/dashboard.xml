@@ -4,44 +4,45 @@
 
 	<!-- 대시보드 통계 조회 -->
 	<select id="selectDashboardStats" resultType="java.util.HashMap">
+		/* dashboard.xml.selectDashboardStats */
 		SELECT 
-			-- 오늘 가입한 사람 수
-			(SELECT COUNT(*) 
-			 FROM SYS_USER 
-			 WHERE crt_date::date = CURRENT_DATE
-			   AND del_yn = 'N') AS todaySignups,
+			-- 오늘 가입 (idx_sys_user_crt_date — crt_date 범위, ::date 래핑 없음)
+			(SELECT COUNT(*)
+			 FROM SYS_USER
+			 WHERE del_yn = 'N'
+			   AND crt_date &gt;= CURRENT_DATE
+			   AND crt_date &lt; CURRENT_DATE + INTERVAL '1 day') AS todaySignups,
 			
-			-- 전체 사용자 수
-			(SELECT COUNT(*) 
-			 FROM SYS_USER 
+			(SELECT COUNT(*)
+			 FROM SYS_USER
 			 WHERE del_yn = 'N') AS totalUsers,
 			
-			-- 오늘 로그인 사용자 수 (중복 제거)
 			(SELECT COUNT(DISTINCT user_id)
 			 FROM sys_user_login_log
-			 WHERE login_date >= TO_CHAR(CURRENT_DATE, 'YYYYMMDD')
-			   AND login_date &lt;  TO_CHAR(CURRENT_DATE + INTERVAL '1 day', 'YYYYMMDD')) AS todayLogins,
+			 WHERE login_date &gt;= TO_CHAR(CURRENT_DATE, 'YYYYMMDD')
+			   AND login_date &lt; TO_CHAR(CURRENT_DATE + INTERVAL '1 day', 'YYYYMMDD')) AS todayLogins,
 			
-			-- 오늘 게시글 수 (공지사항 + 문의)
-			(SELECT COUNT(*) 
-			 FROM NOTICE 
-			 WHERE crt_date::date = CURRENT_DATE
-			   AND del_yn = 'N'
-			) + 
-			(SELECT COUNT(*) 
-			 FROM INQUIRY 
-			 WHERE crt_date::date = CURRENT_DATE
-			   AND del_yn = 'N'
-			) AS todayPosts,
+			(SELECT COUNT(*)
+			 FROM NOTICE
+			 WHERE del_yn = 'N'
+			   AND crt_date &gt;= CURRENT_DATE
+			   AND crt_date &lt; CURRENT_DATE + INTERVAL '1 day')
+			+
+			(SELECT COUNT(*)
+			 FROM INQUIRY
+			 WHERE del_yn = 'N'
+			   AND crt_date &gt;= CURRENT_DATE
+			   AND crt_date &lt; CURRENT_DATE + INTERVAL '1 day') AS todayPosts,
 			
-			-- 오늘 길드 신청건
-			(SELECT COUNT(*) 
-			 FROM GUILD_APPLICATION 
-			 WHERE crt_date::date = CURRENT_DATE) AS todayGuildApplications
+			(SELECT COUNT(*)
+			 FROM GUILD_APPLICATION
+			 WHERE crt_date &gt;= CURRENT_DATE
+			   AND crt_date &lt; CURRENT_DATE + INTERVAL '1 day') AS todayGuildApplications
 	</select>
 
 	<!-- 일별 통계 데이터 조회 (최근 7일) -->
 	<select id="selectDailyStats" resultType="java.util.HashMap">
+		/* dashboard.xml.selectDailyStats */
 		SELECT 
 			TO_CHAR(date_range.date, 'YYYY-MM-DD') AS date,
 			COALESCE(user_stats.signups, 0) AS signups,

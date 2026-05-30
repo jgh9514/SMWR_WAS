@@ -35,7 +35,10 @@ public class LogServiceImpl implements LogService {
 	
 	@Override
 	public List<Map<String, ?>> selectLoginHisList(Map<String, Object> param) {
-		return mapper.selectLoginHisList(param);
+		Map<String, Object> queryParam = param != null ? new HashMap<>(param) : new HashMap<>();
+		queryParam.put("limit", clampInt(queryParam.get("limit"), 200, 1, 1000));
+		queryParam.put("offset", clampInt(queryParam.get("offset"), 0, 0, Integer.MAX_VALUE));
+		return mapper.selectLoginHisList(queryParam);
 	}
 	
 	@Override

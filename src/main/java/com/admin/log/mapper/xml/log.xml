@@ -5,18 +5,36 @@
 	<!-- 로그인 이력 목록 조회 -->
 	<select id="selectLoginHisList" parameterType="sqlMap" resultType="sqlMap">
 		/* selectLoginHisList */
-		SELECT 
-			user_log_sn,
-			user_id,
-			login_date,
-			ip_addr,
-			lang_cd
-		FROM SYS_USER_LOGIN_LOG
-		WHERE 1=1
-		<if test="user_id != null and user_id != ''">
-			AND user_id = #{user_id}
-		</if>
-		ORDER BY login_date DESC
+		SELECT
+			l.user_log_sn,
+			l.user_id AS usr_id,
+			u.user_nm AS usr_nm,
+			l.login_date AS login_dtm,
+			l.ip_addr,
+			l.lang_cd,
+			COALESCE(roles.role_list, '') AS role_list
+		FROM SYS_USER_LOGIN_LOG l
+		LEFT JOIN SYS_USER u
+			ON u.user_id = l.user_id
+			AND u.del_yn = 'N'
+		LEFT JOIN LATERAL (
+			SELECT STRING_AGG(r.role_nm, ', ' ORDER BY r.sort_sn NULLS LAST, r.role_id) AS role_list
+			FROM SYS_USER_ROLE ur
+			INNER JOIN SYS_ROLE r
+				ON r.role_id = ur.role_id
+				AND r.del_yn = 'N'
+				AND r.usg_yn = 'Y'
+			WHERE ur.user_id = l.user_id
+			  AND ur.del_yn = 'N'
+		) roles ON TRUE
+		<where>
+			<if test="user_id != null and user_id != ''">
+				AND l.user_id = #{user_id}
+			</if>
+		</where>
+		ORDER BY l.login_date DESC, l.user_log_sn DESC
+		LIMIT #{limit}
+		OFFSET #{offset}
 	</select>
 
 	<!-- API 이력 목록 조회 -->

@@ -52,6 +52,11 @@ public class GrafanaCloudService {
 
 	private HttpClient httpClient;
 
+	private volatile GrafanaEmbedConfigResponse embedConfigCache;
+	private volatile long embedConfigCachedAtMs;
+
+	private static final long EMBED_CONFIG_CACHE_TTL_MS = 5 * 60_000L;
+
 	@PostConstruct
 	void initHttpClient() {
 		httpClient = HttpClient.newBuilder()
@@ -61,6 +66,19 @@ public class GrafanaCloudService {
 	}
 
 	public GrafanaEmbedConfigResponse getEmbedConfig() {
+		long now = System.currentTimeMillis();
+		GrafanaEmbedConfigResponse cached = embedConfigCache;
+		if (cached != null && now - embedConfigCachedAtMs < EMBED_CONFIG_CACHE_TTL_MS) {
+			return cached;
+		}
+
+		GrafanaEmbedConfigResponse fresh = loadEmbedConfig();
+		embedConfigCache = fresh;
+		embedConfigCachedAtMs = now;
+		return fresh;
+	}
+
+	private GrafanaEmbedConfigResponse loadEmbedConfig() {
 		if (!properties.isConfigured()) {
 			return GrafanaEmbedConfigResponse.builder()
 					.enabled(false)

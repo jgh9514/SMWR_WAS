@@ -3,6 +3,9 @@ package com.smw.admin.rest;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
@@ -34,6 +37,12 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 @RestController
 @RequestMapping("/api/v1/admin")
 public class AdminController {
+
+	/** 운영 개요: 배치·DB·메트릭·API 로그를 한 요청에서 병렬 조회 */
+	private static final Executor ADMIN_OPS_OVERVIEW_EXECUTOR = Executors.newVirtualThreadPerTaskExecutor();
+
+	/** ops/overview 배치 진단 — 전체 1000건 스캔 대신 최근 N건만 (요약·실패 목록용) */
+	private static final int OPS_OVERVIEW_BATCH_RUN_LIMIT = 200;
 
 	@Autowired
 	private DashboardService dashboardService;
@@ -195,45 +204,87 @@ public class AdminController {
 		ResponseEntity<?> guard = requireAdmin(request);
 		if (guard != null) return guard;
 
-		Map<String, Object> query = param != null ? param : new HashMap<>();
+		Map<String, Object> query = param != null ? new HashMap<>(param) : new HashMap<>();
 		Map<String, Object> overview = new HashMap<>();
 		overview.put("result", "SUCCESS");
 
-		try {
-			overview.put("batch", adminBatchService.getBatchDiagnostics(query));
-			overview.put("batch_status", "SUCCESS");
-		} catch (Exception e) {
-			overview.put("batch_status", "FAIL");
-			overview.put("batch_error", e.getMessage());
-		}
+		Map<String, Object> batchQuery = buildOpsOverviewBatchQuery(query);
+		Map<String, Object> apiLogQuery = buildOpsOverviewApiLogQuery(query);
 
-		try {
-			overview.put("db", adminPerfService.getDiagnostics(new HashMap<>(query)));
-			overview.put("db_status", "SUCCESS");
-		} catch (Exception e) {
-			overview.put("db_status", "FAIL");
-			overview.put("db_error", e.getMessage());
-		}
+		CompletableFuture<Map<String, Object>> fBatch = CompletableFuture.supplyAsync(() -> {
+			Map<String, Object> part = new HashMap<>();
+			try {
+				part.put("batch", adminBatchService.getBatchDiagnostics(batchQuery));
+				part.put("batch_status", "SUCCESS");
+			} catch (Exception e) {
+				part.put("batch_status", "FAIL");
+				part.put("batch_error", e.getMessage());
+			}
+			return part;
+		}, ADMIN_OPS_OVERVIEW_EXECUTOR);
 
-		try {
-			overview.put("metrics", dashboardService.getOpsMetricsSnapshot());
-			overview.put("metrics_status", "SUCCESS");
-		} catch (Exception e) {
-			overview.put("metrics_status", "FAIL");
-			overview.put("metrics_error", e.getMessage());
-		}
+		CompletableFuture<Map<String, Object>> fDb = CompletableFuture.supplyAsync(() -> {
+			Map<String, Object> part = new HashMap<>();
+			try {
+				part.put("db", adminPerfService.getDiagnostics(new HashMap<>(query)));
+				part.put("db_status", "SUCCESS");
+			} catch (Exception e) {
+				part.put("db_status", "FAIL");
+				part.put("db_error", e.getMessage());
+			}
+			return part;
+		}, ADMIN_OPS_OVERVIEW_EXECUTOR);
 
-		try {
-			overview.put("api_logs", logService.getRecentApiDiagnostics(new HashMap<>(query)));
-			overview.put("api_logs_status", "SUCCESS");
-		} catch (Exception e) {
-			overview.put("api_logs_status", "FAIL");
-			overview.put("api_logs_error", e.getMessage());
-		}
+		CompletableFuture<Map<String, Object>> fMetrics = CompletableFuture.supplyAsync(() -> {
+			Map<String, Object> part = new HashMap<>();
+			try {
+				part.put("metrics", dashboardService.getOpsMetricsSnapshot());
+				part.put("metrics_status", "SUCCESS");
+			} catch (Exception e) {
+				part.put("metrics_status", "FAIL");
+				part.put("metrics_error", e.getMessage());
+			}
+			return part;
+		}, ADMIN_OPS_OVERVIEW_EXECUTOR);
+
+		CompletableFuture<Map<String, Object>> fApiLogs = CompletableFuture.supplyAsync(() -> {
+			Map<String, Object> part = new HashMap<>();
+			try {
+				part.put("api_logs", logService.getRecentApiDiagnostics(apiLogQuery));
+				part.put("api_logs_status", "SUCCESS");
+			} catch (Exception e) {
+				part.put("api_logs_status", "FAIL");
+				part.put("api_logs_error", e.getMessage());
+			}
+			return part;
+		}, ADMIN_OPS_OVERVIEW_EXECUTOR);
+
+		CompletableFuture.allOf(fBatch, fDb, fMetrics, fApiLogs).join();
+		overview.putAll(fBatch.join());
+		overview.putAll(fDb.join());
+		overview.putAll(fMetrics.join());
+		overview.putAll(fApiLogs.join());
 
 		overview.put("health", buildOpsHealth(overview));
 
 		return ResponseEntity.ok(overview);
+	}
+
+	private static Map<String, Object> buildOpsOverviewBatchQuery(Map<String, Object> base) {
+		Map<String, Object> q = new HashMap<>(base);
+		if (!q.containsKey("limit")) {
+			q.put("limit", OPS_OVERVIEW_BATCH_RUN_LIMIT);
+		}
+		q.putIfAbsent("recent_limit", 20);
+		q.putIfAbsent("failure_limit", 10);
+		return q;
+	}
+
+	private static Map<String, Object> buildOpsOverviewApiLogQuery(Map<String, Object> base) {
+		Map<String, Object> q = new HashMap<>(base);
+		q.putIfAbsent("window_hours", 24);
+		q.putIfAbsent("summary_limit", 10);
+		return q;
 	}
 
 	@SuppressWarnings("unchecked")
