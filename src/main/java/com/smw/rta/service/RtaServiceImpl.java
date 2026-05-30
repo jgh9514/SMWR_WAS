@@ -657,7 +657,7 @@ public class RtaServiceImpl implements RtaService {
         CompletableFuture<Map<String, Object>> fFightSnap = CompletableFuture.supplyAsync(
                 () -> rtaMapper.getRtaPlayerSeasonFightSnapPkOnly(wid, sidL), RTA_LINK_PREVIEW_EXECUTOR);
         CompletableFuture<Map<String, Object>> fSummary = CompletableFuture.supplyAsync(
-                () -> rtaMapper.getRtaPlayerSummaryFromAgg(wid, sidL), RTA_LINK_PREVIEW_EXECUTOR);
+                () -> rtaServiceSelf.getRtaPlayerSummary(wid, sidL), RTA_LINK_PREVIEW_EXECUTOR);
         CompletableFuture<List<Map<String, Object>>> fScoreDaily = CompletableFuture.supplyAsync(
                 () -> rtaMapper.listRtaPlayerScoreDailySnap(wid, sidL, RTA_PLAYER_PAGE_DATA_SCORE_DAILY_LIMIT, Boolean.TRUE),
                 RTA_LINK_PREVIEW_EXECUTOR);
@@ -672,8 +672,8 @@ public class RtaServiceImpl implements RtaService {
         CompletableFuture.allOf(fFightSnap, fSummary, fScoreDaily, fMonster, fOpponent).join();
         Map<String, Object> fightSnap = fFightSnap.getNow(Collections.emptyMap());
 
-        Map<String, Object> summaryRow = fSummary.getNow(null);
-        if (summaryRow == null || summaryRow.isEmpty()) {
+        Map<String, Object> summaryRow = fSummary.getNow(Collections.emptyMap());
+        if (summaryRow.isEmpty() || !Boolean.TRUE.equals(summaryRow.get("found"))) {
             out.put("found", false);
             return out;
         }
