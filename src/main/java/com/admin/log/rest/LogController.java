@@ -88,6 +88,7 @@ public class LogController {
 		result.put("totalCount", totalCount);
 		result.put("limit", resolveInt(param, "limit", 200));
 		result.put("offset", resolveInt(param, "offset", 0));
+		result.putAll(service.getApiHistoryListMeta(param));
 		return new ResponseEntity<>(result, HttpStatus.OK);
 	}
 	

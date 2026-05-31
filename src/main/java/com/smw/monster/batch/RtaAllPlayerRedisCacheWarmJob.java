@@ -39,7 +39,12 @@ public class RtaAllPlayerRedisCacheWarmJob extends BaseBatchJob {
         addLog("Redis 전체 소환사 summary 워밍 시작 (seasonId=%d)", seasonId);
         t0 = System.currentTimeMillis();
         warmup.warmAllPlayerSummaries(seasonId);
-        addLog("Redis 워밍 완료: %dms", System.currentTimeMillis() - t0);
+        addLog("Redis summary 워밍 완료: %dms", System.currentTimeMillis() - t0);
+
+        addLog("Redis 랭킹 상위 page-data(ppd_) 워밍 시작");
+        t0 = System.currentTimeMillis();
+        warmup.warmTopPlayerPageData(seasonId, 500);
+        addLog("Redis page-data 워밍 완료: %dms", System.currentTimeMillis() - t0);
     }
 
     @Override

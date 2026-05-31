@@ -348,6 +348,10 @@ public interface RtaMapper {
     Map<String, Object> getRtaPlayerSummaryFromAgg(@Param("wizardId") String wizardId,
             @Param("seasonId") Long seasonId);
 
+    /** page-data용 — 스냅 우선 summary(+ fight 스냅 컬럼). 스냅 미스 시 {@link #getRtaPlayerSummaryFromAgg} 폴백은 서비스에서 처리. */
+    Map<String, Object> getRtaPlayerSummarySnapFirst(@Param("wizardId") String wizardId,
+            @Param("seasonId") Long seasonId);
+
     /**
      * 수집 리플레이 participant 기준 과거 닉네임( DISTINCT wizard_name ).
      * {@code seasonId} null 이면 전 시즌.

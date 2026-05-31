@@ -37,6 +37,20 @@
 		OFFSET #{offset}
 	</select>
 
+	<sql id="apiHisObservabilityOnlyFilter">
+		<if test="observability_only != null and observability_only">
+			<if test="api_log_has_http_status">
+				AND http_status IS NOT NULL
+			</if>
+			<if test="api_log_has_elapsed_ms">
+				AND elapsed_ms IS NOT NULL
+			</if>
+			<if test="api_log_has_trace_id">
+				AND trace_id IS NOT NULL AND trace_id &lt;&gt; ''
+			</if>
+		</if>
+	</sql>
+
 	<!-- API 이력 목록 조회 -->
 	<select id="selectApiHisList" parameterType="sqlMap" resultType="sqlMap">
 		/* selectApiHisList */
@@ -104,6 +118,7 @@
 		<if test="api_log_has_elapsed_ms and slow_only != null and slow_only and slow_threshold_ms != null">
 			AND elapsed_ms <![CDATA[>=]]> #{slow_threshold_ms}
 		</if>
+		<include refid="apiHisObservabilityOnlyFilter"/>
 		ORDER BY exe_dtm DESC, api_exe_log_sn DESC
 		LIMIT #{limit}
 		OFFSET #{offset}
@@ -156,6 +171,7 @@
 		<if test="api_log_has_elapsed_ms and slow_only != null and slow_only and slow_threshold_ms != null">
 			AND elapsed_ms <![CDATA[>=]]> #{slow_threshold_ms}
 		</if>
+		<include refid="apiHisObservabilityOnlyFilter"/>
 	</select>
 
 	<select id="selectRecentApiLogSummary" parameterType="sqlMap" resultType="sqlMap">
@@ -270,9 +286,11 @@
 	</insert>
 
 	<select id="selectApiExecutionLogColumns" resultType="sqlMap">
-		SELECT lower(column_name) as column_name
+		/* log.selectApiExecutionLogColumns */
+		SELECT lower(column_name) AS column_name
 		FROM information_schema.columns
-		WHERE lower(table_name) = 'sys_api_exe_log'
+		WHERE table_schema = 'public'
+		  AND lower(table_name) = 'sys_api_exe_log'
 	</select>
 
 </mapper>

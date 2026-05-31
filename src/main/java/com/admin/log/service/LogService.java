@@ -11,6 +11,8 @@ public interface LogService {
 
 	public int selectApiHisCount(Map<String, Object> param);
 
+	public Map<String, Object> getApiHistoryListMeta(Map<String, Object> param);
+
 	public Map<String, Object> getRecentApiDiagnostics(Map<String, Object> param);
 	
 	public List<Map<String, ?>> selectBatHisList(Map<String, Object> param);

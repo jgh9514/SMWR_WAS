@@ -621,6 +621,65 @@ public class RtaServiceImpl implements RtaService {
     /** page-data 개요: 최근 N일 score-daily (전 시즌은 chart 펼침 시 별도 API) */
     private static final int RTA_PLAYER_PAGE_DATA_SCORE_DAILY_LIMIT = 45;
 
+    private static Map<String, Object> loadRtaPlayerSummaryRowForPageData(String wizardId, long seasonId, RtaMapper mapper) {
+        Map<String, Object> row = mapper.getRtaPlayerSummarySnapFirst(wizardId, seasonId);
+        if (row == null || row.isEmpty()) {
+            row = mapper.getRtaPlayerSummaryFromAgg(wizardId, seasonId);
+        }
+        return row != null ? row : Collections.emptyMap();
+    }
+
+    private static Map<String, Object> extractFightOutFromSummaryRow(Map<String, Object> summaryRow) {
+        if (summaryRow == null || summaryRow.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        Object matchCnt = summaryRow.get("fs_match_cnt");
+        if (matchCnt == null) {
+            matchCnt = summaryRow.get("match_count");
+        }
+        if (matchCnt == null) {
+            return Collections.emptyMap();
+        }
+        long cnt = matchCnt instanceof Number n ? n.longValue() : Long.parseLong(matchCnt.toString());
+        if (cnt <= 0) {
+            return Collections.emptyMap();
+        }
+        Map<String, Object> fight = new HashMap<>();
+        fight.put("match_cnt", cnt);
+        Object winCnt = summaryRow.get("fs_win_cnt");
+        if (winCnt != null) {
+            fight.put("win_cnt", winCnt);
+        }
+        Object nonBan = summaryRow.get("fs_non_ban_pick_cnt");
+        if (nonBan != null) {
+            fight.put("non_ban_pick_cnt", nonBan);
+        }
+        Object ban = summaryRow.get("fs_ban_event_cnt");
+        if (ban != null) {
+            fight.put("ban_event_cnt", ban);
+        }
+        Object computedAt = summaryRow.get("fs_computed_at");
+        if (computedAt != null) {
+            fight.put("computed_at", computedAt);
+        }
+        Object winRate = summaryRow.get("fs_season_win_rate_pct");
+        if (winRate != null) {
+            fight.put("season_win_rate_pct", winRate);
+        }
+        return fight;
+    }
+
+    private static Map<String, Object> summaryOutWithoutFightExtras(Map<String, Object> row) {
+        Map<String, Object> out = new HashMap<>(row);
+        out.remove("fs_match_cnt");
+        out.remove("fs_win_cnt");
+        out.remove("fs_non_ban_pick_cnt");
+        out.remove("fs_ban_event_cnt");
+        out.remove("fs_computed_at");
+        out.remove("fs_season_win_rate_pct");
+        return out;
+    }
+
     private static Long extractFightSnapMatchCnt(Map<String, Object> fightSnap) {
         if (fightSnap == null || fightSnap.isEmpty()) {
             return null;
@@ -641,43 +700,99 @@ public class RtaServiceImpl implements RtaService {
         return null;
     }
 
+    @Autowired(required = false)
+    @Qualifier("rtaPlayerPageDataL1Cache")
+    private Cache rtaPlayerPageDataL1Cache;
+
+    @Autowired
+    @Qualifier("rtaPlayerCacheManager")
+    private CacheManager rtaPlayerCacheManager;
+
+    private static String rtaPlayerPageDataCacheKey(long seasonId, String wizardId) {
+        return "ppd_" + seasonId + "_" + wizardId;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> copyPageDataMap(Object cached) {
+        if (!(cached instanceof Map<?, ?> raw)) {
+            return null;
+        }
+        return new HashMap<>((Map<String, Object>) raw);
+    }
+
     @Override
-    @Cacheable(cacheNames = "rtaPlayerData", cacheManager = "rtaPlayerCacheManager",
-            key = "'ppd_' + #seasonId + '_' + #wizardId")
     public Map<String, Object> getRtaPlayerPageData(String wizardId, Long seasonId) {
         Long sid = doResolveSeasonId(seasonId);
-        Map<String, Object> out = new HashMap<>();
         if (wizardId == null || wizardId.trim().isEmpty() || sid == null) {
-            out.put("found", false);
-            return out;
+            return Map.of("found", false);
         }
         String wid = wizardId.trim();
+        String cacheKey = rtaPlayerPageDataCacheKey(sid, wid);
+
+        if (rtaPlayerPageDataL1Cache != null) {
+            Cache.ValueWrapper l1Hit = rtaPlayerPageDataL1Cache.get(cacheKey);
+            if (l1Hit != null) {
+                Map<String, Object> copied = copyPageDataMap(l1Hit.get());
+                if (copied != null) {
+                    return copied;
+                }
+            }
+        }
+
+        Cache redisCache = rtaPlayerCacheManager != null ? rtaPlayerCacheManager.getCache("rtaPlayerData") : null;
+        if (redisCache != null) {
+            Cache.ValueWrapper redisHit = redisCache.get(cacheKey);
+            if (redisHit != null) {
+                Map<String, Object> copied = copyPageDataMap(redisHit.get());
+                if (copied != null) {
+                    if (rtaPlayerPageDataL1Cache != null) {
+                        rtaPlayerPageDataL1Cache.put(cacheKey, copied);
+                    }
+                    return copied;
+                }
+            }
+        }
+
+        Map<String, Object> computed = loadRtaPlayerPageDataUncached(wid, sid);
+        if (redisCache != null) {
+            redisCache.put(cacheKey, computed);
+        }
+        if (rtaPlayerPageDataL1Cache != null) {
+            rtaPlayerPageDataL1Cache.put(cacheKey, new HashMap<>(computed));
+        }
+        return computed;
+    }
+
+    /** DB 조회 — L1·Redis 미스 시만. 100ms SLA는 캐시 히트 전제. */
+    private Map<String, Object> loadRtaPlayerPageDataUncached(String wid, long sid) {
+        Map<String, Object> out = new HashMap<>();
         long sidL = sid;
 
-        CompletableFuture<Map<String, Object>> fFightSnap = CompletableFuture.supplyAsync(
-                () -> rtaMapper.getRtaPlayerSeasonFightSnapPkOnly(wid, sidL), RTA_LINK_PREVIEW_EXECUTOR);
-        CompletableFuture<Map<String, Object>> fSummary = CompletableFuture.supplyAsync(
-                () -> rtaServiceSelf.getRtaPlayerSummary(wid, sidL), RTA_LINK_PREVIEW_EXECUTOR);
+        CompletableFuture<Map<String, Object>> fSummaryBundle = CompletableFuture.supplyAsync(
+                () -> loadRtaPlayerSummaryRowForPageData(wid, sidL, rtaMapper), RTA_LINK_PREVIEW_EXECUTOR);
         CompletableFuture<List<Map<String, Object>>> fScoreDaily = CompletableFuture.supplyAsync(
                 () -> rtaMapper.listRtaPlayerScoreDailySnap(wid, sidL, RTA_PLAYER_PAGE_DATA_SCORE_DAILY_LIMIT, Boolean.TRUE),
                 RTA_LINK_PREVIEW_EXECUTOR);
-        CompletableFuture<List<Map<String, Object>>> fMonster = fFightSnap.thenApplyAsync(
-                snap -> rtaMapper.listRtaPlayerMonsterSnapFromAgg(
-                        wid, sidL, RTA_PLAYER_PAGE_DATA_MONSTER_LIMIT, extractFightSnapMatchCnt(snap)),
+        CompletableFuture<List<Map<String, Object>>> fMonster = fSummaryBundle.thenApplyAsync(
+                bundle -> {
+                    Map<String, Object> fight = extractFightOutFromSummaryRow(bundle);
+                    return rtaMapper.listRtaPlayerMonsterSnapFromAgg(
+                            wid, sidL, RTA_PLAYER_PAGE_DATA_MONSTER_LIMIT, extractFightSnapMatchCnt(fight));
+                },
                 RTA_LINK_PREVIEW_EXECUTOR);
         CompletableFuture<List<Map<String, Object>>> fOpponent = CompletableFuture.supplyAsync(
                 () -> rtaMapper.listRtaPlayerOpponentHeadToHead(wid, sidL, RTA_PLAYER_OPPONENTS_PAGE_DATA_LIMIT + 1, 0),
                 RTA_LINK_PREVIEW_EXECUTOR);
 
-        CompletableFuture.allOf(fFightSnap, fSummary, fScoreDaily, fMonster, fOpponent).join();
-        Map<String, Object> fightSnap = fFightSnap.getNow(Collections.emptyMap());
+        CompletableFuture.allOf(fSummaryBundle, fScoreDaily, fMonster, fOpponent).join();
 
-        Map<String, Object> summaryRow = fSummary.getNow(Collections.emptyMap());
-        if (summaryRow.isEmpty() || !Boolean.TRUE.equals(summaryRow.get("found"))) {
+        Map<String, Object> summaryBundle = fSummaryBundle.getNow(Collections.emptyMap());
+        if (summaryBundle.isEmpty()) {
             out.put("found", false);
             return out;
         }
-        Map<String, Object> summaryOut = new HashMap<>(summaryRow);
+        Map<String, Object> fightOut = extractFightOutFromSummaryRow(summaryBundle);
+        Map<String, Object> summaryOut = summaryOutWithoutFightExtras(summaryBundle);
         summaryOut.put("found", true);
         summaryOut.put("seasonId", sid);
 
@@ -686,10 +801,6 @@ public class RtaServiceImpl implements RtaService {
         List<Map<String, Object>> opponentPage = hasMoreOpponents
                 ? new ArrayList<>(opponentRaw.subList(0, RTA_PLAYER_OPPONENTS_PAGE_DATA_LIMIT))
                 : new ArrayList<>(opponentRaw);
-
-        Map<String, Object> fightOut = fightSnap != null && !fightSnap.isEmpty()
-                ? fightSnap
-                : Collections.emptyMap(); // page-data: 스냅 없으면 빈 fight — picks 탭 /monster-usage 에서 전량 조회
 
         out.put("summary", summaryOut);
         out.put("scoreDaily", Map.of("rows", fScoreDaily.getNow(Collections.emptyList()), "seasonId", sid, "wizardId", wid));

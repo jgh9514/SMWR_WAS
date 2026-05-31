@@ -181,6 +181,9 @@ smw:
     rta-player:
       maximum-size: ${SMW_RTA_PLAYER_CACHE_MAXIMUM_SIZE:2000}
       expire-after-write-minutes: ${SMW_RTA_PLAYER_CACHE_EXPIRE_MINUTES:30}
+      page-data-l1:
+        maximum-size: ${SMW_RTA_PAGE_DATA_L1_MAXIMUM_SIZE:4000}
+        expire-after-write-minutes: ${SMW_RTA_PAGE_DATA_L1_EXPIRE_MINUTES:5}
     rta:
       # K8s·운영: RTA 캐시 Redis(Pod 공유). 로컬은 local 프로필이 false. Redis 없이 docker만 쓸 때 false
       use-redis: ${SMW_CACHE_RTA_USE_REDIS:true}

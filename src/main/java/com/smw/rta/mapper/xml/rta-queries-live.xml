@@ -1379,6 +1379,157 @@
         LIMIT 1
     </select>
 
+    <select id="getRtaPlayerSummarySnapFirst" resultType="map">
+        /* rta-queries-live.getRtaPlayerSummarySnapFirst
+           page-data·초기 로드: search·ranking·fight·score_daily 스냅 우선.
+           participant는 랭킹·일별점수 스냅 모두 없을 때 score 1회, 마지막 경기 시각은 일별 스냅 없을 때만 1회. */
+        WITH search AS (
+            SELECT wizard_name, country, channel_uid
+            FROM public.rta_agg_summoner_search_snap
+            WHERE wizard_id = #{wizardId}
+            LIMIT 1
+        ),
+        ranking AS (
+            SELECT
+                rank_position,
+                score,
+                rating_id,
+                max_season_score,
+                wizard_name AS rk_wizard_name,
+                country     AS rk_country,
+                channel_uid AS rk_channel_uid
+            FROM public.rta_agg_summoner_ranking_snap
+            WHERE season_id = #{seasonId}
+              AND wizard_id = #{wizardId}
+            LIMIT 1
+        ),
+        fight_snap AS (
+            SELECT
+                match_cnt,
+                win_cnt,
+                non_ban_pick_cnt,
+                ban_event_cnt,
+                computed_at,
+                CASE
+                    WHEN match_cnt &gt; 0
+                    THEN ROUND(100.0 * win_cnt::numeric / match_cnt::numeric, 2)
+                END AS season_win_rate_pct
+            FROM public.rta_agg_summoner_season_fight_snap
+            WHERE season_id = #{seasonId}
+              AND wizard_id = #{wizardId}
+            LIMIT 1
+        ),
+        score_daily_tail AS (
+            SELECT
+                d.end_of_day_score AS latest_score,
+                d.snap_date        AS latest_snap_date
+            FROM public.rta_agg_summoner_score_daily_snap d
+            WHERE d.season_id = #{seasonId}
+              AND d.wizard_id = #{wizardId}
+            ORDER BY d.snap_date DESC
+            LIMIT 1
+        ),
+        score_daily_max AS (
+            SELECT MAX(d.end_of_day_score)::int AS max_score
+            FROM public.rta_agg_summoner_score_daily_snap d
+            WHERE d.season_id = #{seasonId}
+              AND d.wizard_id = #{wizardId}
+        ),
+        need_participant_score AS (
+            SELECT 1
+            WHERE NOT EXISTS (SELECT 1 FROM ranking)
+              AND NOT EXISTS (
+                  SELECT 1 FROM score_daily_tail t WHERE t.latest_score IS NOT NULL AND t.latest_score &gt; 0
+              )
+        ),
+        part_score AS (
+            SELECT
+                p.ladder_score::int AS score,
+                p.rating_id,
+                p.ladder_rank,
+                p.wizard_name,
+                p.country_code      AS country,
+                p.channel_uid
+            FROM public.rta_match_participant p
+            WHERE EXISTS (SELECT 1 FROM need_participant_score)
+              AND p.season_id = #{seasonId}
+              AND p.wizard_id = #{wizardId}
+              AND p.ladder_score &gt; 0
+            ORDER BY p.ladder_score DESC NULLS LAST, p.replay_id DESC
+            LIMIT 1
+        ),
+        part_last AS (
+            SELECT p.played_at AS last_match_at
+            FROM public.rta_match_participant p
+            WHERE NOT EXISTS (SELECT 1 FROM score_daily_tail)
+              AND p.season_id = #{seasonId}
+              AND p.wizard_id = #{wizardId}
+            ORDER BY p.played_at DESC NULLS LAST, p.replay_id DESC
+            LIMIT 1
+        ),
+        profile AS (
+            SELECT
+                #{wizardId}::text AS wizard_id,
+                COALESCE(sr.wizard_name, rk.rk_wizard_name, ps.wizard_name)     AS wizard_name,
+                COALESCE(sr.country,     rk.rk_country,     ps.country)         AS country,
+                COALESCE(sr.channel_uid, rk.rk_channel_uid, ps.channel_uid)     AS channel_uid,
+                COALESCE(rk.score, sdt.latest_score, ps.score)                  AS score,
+                COALESCE(rk.rating_id, ps.rating_id)                            AS rating_id,
+                COALESCE(rk.rank_position, ps.ladder_rank)                      AS rank_position,
+                COALESCE(rk.max_season_score::int, sdm.max_score,
+                    COALESCE(rk.score, sdt.latest_score, ps.score)::int)         AS max_season_score,
+                COALESCE(pl.last_match_at::text, sdt.latest_snap_date::text)    AS last_match_at,
+                fs.match_cnt                                                      AS fs_match_cnt,
+                fs.win_cnt                                                        AS fs_win_cnt,
+                fs.non_ban_pick_cnt                                               AS fs_non_ban_pick_cnt,
+                fs.ban_event_cnt                                                  AS fs_ban_event_cnt,
+                fs.computed_at                                                    AS fs_computed_at,
+                fs.season_win_rate_pct                                            AS fs_season_win_rate_pct
+            FROM (SELECT 1) anchor
+            LEFT JOIN search sr ON TRUE
+            LEFT JOIN ranking rk ON TRUE
+            LEFT JOIN fight_snap fs ON TRUE
+            LEFT JOIN score_daily_tail sdt ON TRUE
+            LEFT JOIN score_daily_max sdm ON TRUE
+            LEFT JOIN part_score ps ON TRUE
+            LEFT JOIN part_last pl ON TRUE
+            WHERE sr.wizard_name IS NOT NULL
+               OR rk.score IS NOT NULL
+               OR COALESCE(fs.match_cnt, 0) &gt; 0
+               OR sdt.latest_score IS NOT NULL
+               OR ps.score IS NOT NULL
+               OR pl.last_match_at IS NOT NULL
+        )
+        SELECT
+            p.rank_position,
+            p.wizard_id,
+            p.wizard_name,
+            p.country,
+            p.channel_uid,
+            p.score,
+            p.rating_id,
+            p.last_match_at,
+            COALESCE(p.fs_match_cnt, 0)::bigint                                      AS match_count,
+            COALESCE(p.fs_win_cnt,   0)::bigint                                      AS win_count,
+            p.max_season_score,
+            CASE
+                WHEN COALESCE(p.fs_match_cnt, 0) &gt; 0
+                THEN ROUND(
+                    100.0 * COALESCE(p.fs_win_cnt, 0)::numeric
+                          / NULLIF(p.fs_match_cnt, 0)::numeric,
+                    1
+                )
+                ELSE NULL
+            END                                                                      AS win_rate_pct,
+            p.fs_match_cnt,
+            p.fs_non_ban_pick_cnt,
+            p.fs_ban_event_cnt,
+            p.fs_computed_at,
+            p.fs_season_win_rate_pct
+        FROM profile p
+        LIMIT 1
+    </select>
+
     <select id="listRtaPlayerWizardNameHistory" resultType="map">
         /* rta-queries-live.listRtaPlayerWizardNameHistory */
         SELECT

@@ -53,6 +53,17 @@ public class LogServiceImpl implements LogService {
 		return mapper.selectApiHisCount(queryParam);
 	}
 
+	@Override
+	public Map<String, Object> getApiHistoryListMeta(Map<String, Object> param) {
+		Map<String, Object> queryParam = buildApiHistoryQuery(param);
+		Map<String, Object> meta = new HashMap<>();
+		meta.put("httpStatusEnabled", Boolean.TRUE.equals(queryParam.get("api_log_has_http_status")));
+		meta.put("elapsedMsEnabled", Boolean.TRUE.equals(queryParam.get("api_log_has_elapsed_ms")));
+		meta.put("traceIdEnabled", Boolean.TRUE.equals(queryParam.get("api_log_has_trace_id")));
+		meta.put("observabilityOnly", Boolean.TRUE.equals(queryParam.get("observability_only")));
+		return meta;
+	}
+
 	/**
 	 * 운영 개요(health)용: 기간 내 건수·에러·슬로우 집계 1회만 조회.
 	 * 상위 URL·샘플 행은 DB 부하가 커서 생략 — 상세는 {@link LogService#selectApiHisList} 등으로 조회.
@@ -169,6 +180,16 @@ public class LogServiceImpl implements LogService {
 	}
 
 	private void normalizeApiHistoryQuery(Map<String, Object> param) {
+		if (!param.containsKey("observability_only")) {
+			param.put("observability_only", Boolean.TRUE);
+		} else {
+			Boolean observabilityOnly = parseBoolean(param.get("observability_only"));
+			if (observabilityOnly != null) {
+				param.put("observability_only", observabilityOnly);
+			} else {
+				param.remove("observability_only");
+			}
+		}
 		param.put("limit", clampInt(param.get("limit"), 200, 1, 1000));
 		param.put("offset", clampInt(param.get("offset"), 0, 0, Integer.MAX_VALUE));
 		param.put("http_status", parseInteger(param.get("http_status")));
@@ -179,6 +200,60 @@ public class LogServiceImpl implements LogService {
 
 		Long slowThresholdMs = parseLong(param.get("slow_threshold_ms"));
 		param.put("slow_threshold_ms", slowThresholdMs != null ? slowThresholdMs : 1000L);
+
+		trimStringParam(param, "user_id");
+		trimStringParam(param, "api_id");
+		trimStringParam(param, "api_exe_url");
+		trimStringParam(param, "api_exe_url_keyword");
+		trimStringParam(param, "mthd_tp_cd");
+		trimStringParam(param, "ip_addr");
+		trimStringParam(param, "trace_id");
+		putNormalizedExeDtm(param, "start_exe_dtm", false);
+		putNormalizedExeDtm(param, "end_exe_dtm", true);
+	}
+
+	private void trimStringParam(Map<String, Object> param, String key) {
+		Object raw = param.get(key);
+		if (raw == null) {
+			return;
+		}
+		String text = String.valueOf(raw).trim();
+		if (text.isEmpty()) {
+			param.remove(key);
+		} else {
+			param.put(key, text);
+		}
+	}
+
+	/** exe_dtm(varchar yyyyMMddHHmmss) 비교용 — ISO·하이픈 포맷을 DB 저장 형식으로 통일 */
+	private void putNormalizedExeDtm(Map<String, Object> param, String key, boolean endOfRange) {
+		Object raw = param.get(key);
+		if (raw == null) {
+			return;
+		}
+		String normalized = normalizeExeDtmForQuery(String.valueOf(raw).trim(), endOfRange);
+		if (normalized == null || normalized.isEmpty()) {
+			param.remove(key);
+		} else {
+			param.put(key, normalized);
+		}
+	}
+
+	private String normalizeExeDtmForQuery(String text, boolean endOfRange) {
+		if (text == null || text.isEmpty()) {
+			return null;
+		}
+		String compact = text.replaceAll("[^0-9]", "");
+		if (compact.length() >= 14) {
+			return compact.substring(0, 14);
+		}
+		if (compact.length() == 12) {
+			return compact + "00";
+		}
+		if (compact.length() == 8) {
+			return compact + (endOfRange ? "235959" : "000000");
+		}
+		return null;
 	}
 
 	private Set<String> getApiExecutionLogColumns() {

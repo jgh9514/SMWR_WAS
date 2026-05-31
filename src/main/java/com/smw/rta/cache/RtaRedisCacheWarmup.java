@@ -25,6 +25,9 @@ public class RtaRedisCacheWarmup {
 
 	private static final int PLAYER_WARMUP_PAGE_SIZE = 500;
 
+	/** page-data Redis 키(ppd_) — 랭킹 상위·검색 유입 대부분 커버 */
+	private static final int PAGE_DATA_WARM_RANKING_LIMIT = 500;
+
 	@Autowired
 	private RtaMapper rtaMapper;
 
@@ -122,6 +125,42 @@ public class RtaRedisCacheWarmup {
 		} catch (Exception e) {
 			log.warn("[rta-cache] warmAllPlayerSummaries failed (non-fatal): seasonId={} total={} err={}",
 					seasonId, total, e.getMessage());
+		}
+	}
+
+	/**
+	 * 랭킹 상위 N명 {@code ppd_{seasonId}_{wizardId}} Redis 선적재 — page-data 첫 조회 DB 4연타 방지.
+	 */
+	public void warmTopPlayerPageData(long seasonId, int limit) {
+		int cap = limit > 0 ? Math.min(limit, PAGE_DATA_WARM_RANKING_LIMIT) : PAGE_DATA_WARM_RANKING_LIMIT;
+		try {
+			List<Map<String, Object>> rows = rtaMapper.getRtaSummonerRankingFromAgg(cap, 0, seasonId, null);
+			if (rows == null || rows.isEmpty()) {
+				log.debug("[rta-cache] warmTopPlayerPageData: no ranking rows seasonId={}", seasonId);
+				return;
+			}
+			int ok = 0;
+			int fail = 0;
+			for (Map<String, Object> row : rows) {
+				Object widObj = row.get("wizard_id");
+				if (widObj == null) {
+					continue;
+				}
+				String wizardId = String.valueOf(widObj).trim();
+				if (wizardId.isEmpty()) {
+					continue;
+				}
+				try {
+					rtaService.getRtaPlayerPageData(wizardId, seasonId);
+					ok++;
+				} catch (Exception e) {
+					fail++;
+					log.debug("[rta-cache] warmTopPlayerPageData fail wizardId={}: {}", wizardId, e.getMessage());
+				}
+			}
+			log.info("[rta-cache] warmTopPlayerPageData done: seasonId={} ok={} fail={}", seasonId, ok, fail);
+		} catch (Exception e) {
+			log.warn("[rta-cache] warmTopPlayerPageData failed (non-fatal): seasonId={} err={}", seasonId, e.getMessage());
 		}
 	}
 
