@@ -49,9 +49,9 @@ spec:
         # OS·JVM 기본 시간대 (Jackson JSON·로그·DB timestamp 해석 — UTC Pod와 로컬 차이 방지)
         - name: TZ
           value: "Asia/Seoul"
-        # t4g.medium(4GB) 단일 노드: WAS 힙 512m, limit 768Mi (배치·Redis·Front와 합산 ~2.3GB, OS/K3s 여유 ~1.7GB)
+        # t4g.medium(4GB): 힙 512m + Metaspace cap, limit 1Gi (768Mi는 off-heap·OTEL·Tomcat으로 OOMKilled 137 빈번)
         - name: JAVA_TOOL_OPTIONS
-          value: "-Duser.timezone=Asia/Seoul -Xms384m -Xmx512m -XX:+UseG1GC -XX:MaxGCPauseMillis=200"
+          value: "-Duser.timezone=Asia/Seoul -Xms384m -Xmx512m -XX:MaxMetaspaceSize=192m -XX:ReservedCodeCacheSize=64m -XX:+UseG1GC -XX:MaxGCPauseMillis=200"
         - name: SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE
           value: "10"
         - name: SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE
@@ -189,32 +189,33 @@ spec:
             memory: "512Mi"
             cpu: "300m"
           limits:
-            memory: "768Mi"
+            memory: "1Gi"
             cpu: "1000m"
+        # liveness만 검사 — DB·Redis 준비 전에도 포트 기동 여부 확인(메모리 압박 시 3s timeout 완화)
         startupProbe:
           httpGet:
-            path: /actuator/health
+            path: /actuator/health/liveness
             port: 8080
-          initialDelaySeconds: 10
+          initialDelaySeconds: 25
           periodSeconds: 10
-          timeoutSeconds: 3
-          failureThreshold: 18
+          timeoutSeconds: 10
+          failureThreshold: 30
         livenessProbe:
           httpGet:
             path: /actuator/health/liveness
             port: 8080
           initialDelaySeconds: 0
-          periodSeconds: 10
-          timeoutSeconds: 5
+          periodSeconds: 15
+          timeoutSeconds: 10
           failureThreshold: 3
         readinessProbe:
           httpGet:
             path: /actuator/health/readiness
             port: 8080
           initialDelaySeconds: 0
-          periodSeconds: 5
-          timeoutSeconds: 3
-          failureThreshold: 3
+          periodSeconds: 10
+          timeoutSeconds: 10
+          failureThreshold: 6
 
 ---
 apiVersion: v1

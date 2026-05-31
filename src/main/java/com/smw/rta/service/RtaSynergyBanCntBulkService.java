@@ -77,8 +77,7 @@ public class RtaSynergyBanCntBulkService {
 			}
 		} catch (SQLException | IOException e) {
 			throw new IllegalStateException("ban_cnt staging UPDATE 실패: " + e.getMessage(), e);
-		} finally {
-			DataSourceUtils.releaseConnection(conn, dataSource);
 		}
+		// 호출부 @Transactional 커넥션 — 여기서 release 하면 상위 rollback 이 "JDBC rollback failed" 로 실패할 수 있음
 	}
 }

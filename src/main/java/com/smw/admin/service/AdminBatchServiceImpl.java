@@ -32,8 +32,26 @@ public class AdminBatchServiceImpl implements AdminBatchService {
     public Map<String, Object> getBatchDiagnostics(Map<String, Object> param) {
         Map<String, Object> query = param != null ? new HashMap<>(param) : new HashMap<>();
         if (!query.containsKey("limit")) {
-            query.put("limit", 1000);
+            query.put("limit", 200);
         }
+        Object limitObj = query.get("limit");
+        int limit = 200;
+        if (limitObj instanceof Number) {
+            limit = ((Number) limitObj).intValue();
+        } else if (limitObj != null) {
+            try {
+                limit = Integer.parseInt(String.valueOf(limitObj).trim());
+            } catch (NumberFormatException ignored) {
+                limit = 200;
+            }
+        }
+        if (limit < 1) {
+            limit = 1;
+        }
+        if (limit > 200) {
+            limit = 200;
+        }
+        query.put("limit", limit);
         List<Map<String, ?>> runs = batchMapper.selectBatchRunHisList(query);
         Map<String, String> batchNameMap = loadBatchNameMap();
 

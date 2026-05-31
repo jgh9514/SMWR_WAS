@@ -192,12 +192,12 @@ spec:
               cpu: "1500m"
           startupProbe:
             httpGet:
-              path: /actuator/health
+              path: /actuator/health/liveness
               port: 8080
-            initialDelaySeconds: 15
+            initialDelaySeconds: 25
             periodSeconds: 10
-            timeoutSeconds: 3
-            failureThreshold: 24
+            timeoutSeconds: 10
+            failureThreshold: 30
           livenessProbe:
             httpGet:
               path: /actuator/health/liveness
@@ -212,8 +212,8 @@ spec:
               port: 8080
             initialDelaySeconds: 0
             periodSeconds: 10
-            timeoutSeconds: 3
-            failureThreshold: 3
+            timeoutSeconds: 10
+            failureThreshold: 6
 
 ---
 apiVersion: v1

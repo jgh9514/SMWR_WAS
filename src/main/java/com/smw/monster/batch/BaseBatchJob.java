@@ -163,15 +163,14 @@ public abstract class BaseBatchJob implements Job {
 
             String infraReason = classifyInfraFailure(e);
             if (infraReason != null) {
-                // 커넥션 풀 종료·앱 재시작 등 인프라 문제 — 배치 비활성화 없이 다음 스케줄에서 재시도
+                // 커넥션 종료·idle-in-tx·rollback 실패 등 — 이력은 FAIL, Quartz ERROR·Job 재던지기는 생략
                 log.warn("[batch] 인프라 오류로 실패 — 스케줄 유지 (batchName={}, reason={}, error={})",
-                        getBatchName(), infraReason, e.getMessage());
+                        getBatchName(), infraReason, sanitizeErrorMessage(e));
                 sendSlackFailureAlert(getBatchName(), e, false, infraReason);
-            } else {
-                sendSlackFailureAlert(getBatchName(), e, true, null);
-                disableJobOnFailure();
+                return;
             }
-
+            sendSlackFailureAlert(getBatchName(), e, true, null);
+            disableJobOnFailure();
             log.error("배치 실행 중 오류 발생", e);
             throw new JobExecutionException("배치 실행 실패: " + e.getMessage(), e);
         } finally {
@@ -422,10 +421,18 @@ public abstract class BaseBatchJob implements Job {
             if (t instanceof org.springframework.dao.TransientDataAccessException) {
                 return "TransientDataAccess";
             }
+            if (t instanceof org.springframework.transaction.TransactionSystemException) {
+                return "TransactionSystem";
+            }
 
             String msg = t.getMessage();
             if (msg != null) {
                 String lc = msg.toLowerCase();
+                if (lc.contains("jdbc rollback failed")
+                        || lc.contains("idle_in_transaction_session_timeout")
+                        || lc.contains("canceling statement due to user request")) {
+                    return "ConnectionOrTxTimeout";
+                }
                 if (lc.contains("has been closed") || lc.contains("connection is closed") || lc.contains("connection closed")) {
                     return "ConnectionClosed";
                 }

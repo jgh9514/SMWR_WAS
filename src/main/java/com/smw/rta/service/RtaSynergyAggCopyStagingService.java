@@ -99,9 +99,8 @@ public class RtaSynergyAggCopyStagingService {
 		} catch (SQLException | IOException e) {
 			tryTruncateStagingOnNewConn();
 			throw new IllegalStateException("COPY/merge staging_synergy_agg 실패: " + e.getMessage(), e);
-		} finally {
-			DataSourceUtils.releaseConnection(conn, dataSource);
 		}
+		// 커넥션 해제는 rtaJdbcTransactionManager 가 commit/rollback 시 수행 (@Transactional 과 이중 release 금지)
 	}
 
 	private void tryTruncateStagingOnNewConn() {

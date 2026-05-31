@@ -232,15 +232,23 @@ public class BatchController {
 		return new ResponseEntity<>(result, executed ? HttpStatus.OK : HttpStatus.BAD_REQUEST);
 	}
 
-	@Operation(summary = "배치 실행 이력 목록", description = "배치 실행 이력을 조회합니다.")
+	@Operation(summary = "배치 실행 이력 목록", description = "배치 실행 이력을 조회합니다. 로그 본문은 미리보기(512자)만 포함하며, 전문은 /run-his/detail 을 사용합니다.")
 	@PostMapping("/run-his")
 	public ResponseEntity<?> selectBatchRunHis(@RequestBody(required = false) Map<String, Object> param) {
 		Map<String, Object> query = param == null ? new HashMap<>() : new HashMap<>(param);
 		if (!query.containsKey("limit")) {
-			query.put("limit", 10);
+			query.put("limit", 30);
 		}
-		List<Map<String, ?>> list = logService.selectBatchRunHisList(query);
-		return new ResponseEntity<>(list, HttpStatus.OK);
+		try {
+			List<Map<String, ?>> list = logService.selectBatchRunHisList(query);
+			return new ResponseEntity<>(list, HttpStatus.OK);
+		} catch (Exception e) {
+			log.error("배치 실행 이력 조회 실패 param={}", query, e);
+			Map<String, Object> err = new HashMap<>();
+			err.put("result", Constant.FAIL);
+			err.put("message", "배치 실행 이력을 조회할 수 없습니다.");
+			return new ResponseEntity<>(err, HttpStatus.INTERNAL_SERVER_ERROR);
+		}
 	}
 
 	@Operation(summary = "배치 실행 이력 상세", description = "특정 실행 이력 상세를 조회합니다. body: runSn 또는 run_sn")

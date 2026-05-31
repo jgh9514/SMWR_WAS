@@ -659,7 +659,25 @@
     <!-- 참고: selectPendingPickSlotSnapRids 의 WHERE 조건과 동일하게 유지할 것 -->
 
     <!-- 현재 시즌×티어별 총 경기 수 재집계: 픽률·밴률 분모용.
-         participant.season_id 직접 사용 — rta_match JOIN 불필요(season_id 중복 보유). -->
+         participant.season_id 직접 사용 — rta_match JOIN 불필요(season_id 중복 보유).
+         인덱스: idx_rta_participant_season_rating_played (season_id, rating_id, …).
+         RtaRankCutSnapshotAggJob 과 시너지 집계가 겹치면 락 대기 — 서비스 측 재시도·SET LOCAL lock_timeout=0. -->
+    <select id="existsParticipantPlayedAfterMatchTotalComputed" resultType="boolean">
+        /* rta-queries-batch-meta.existsParticipantPlayedAfterMatchTotalComputed */
+        SELECT EXISTS (
+            SELECT 1
+            FROM public.rta_match_participant p
+            WHERE p.season_id = #{seasonId}
+              AND p.played_at &gt; COALESCE(
+                  (SELECT MAX(t.computed_at)
+                   FROM public.rta_agg_season_rating_match_total t
+                   WHERE t.season_id = #{seasonId}),
+                  '-infinity'::timestamptz
+              )
+            LIMIT 1
+        )
+    </select>
+
     <insert id="rebuildRtaSeasonRatingMatchTotal">
         INSERT INTO public.rta_agg_season_rating_match_total (season_id, rating_id, total_matches, computed_at)
         SELECT

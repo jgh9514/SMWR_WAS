@@ -257,6 +257,8 @@ smw:
       synergy-pause-ms-between-rounds: ${SMW_RTA_SYNERGY_PAUSE_MS:50}
       slack-token: ${SMW_BATCH_SLACK_TOKEN:}
       slack-channel-id: ${SMW_BATCH_SLACK_CHANNEL_ID:}
+      rank-cut-missing-hours-per-run: ${SMW_RTA_RANK_CUT_MISSING_HOURS_PER_RUN:48}
+      skip-season-rating-match-total-if-fresh: ${SMW_RTA_SKIP_MATCH_TOTAL_IF_FRESH:true}
     synergy-agg:
       copy-staging-chunk-rows: ${SMW_RTA_SYNERGY_AGG_COPY_STAGING_CHUNK_ROWS:600000}
     counter-agg:

@@ -1,19 +1,22 @@
 # 메모리·노드 여유가 작을 때 배포 순서 (App 교체 + Batch 단계적 스케일)
 
+> **운영 환경 정본**: [docs/운영_인프라_환경.md](../../docs/운영_인프라_환경.md)  
+> t4g.medium = K8s(redis, app, front, batch) · t4g.small = PostgreSQL only
+
 ## t4g.medium (4GB) 메모리 배분
 
-단일 노드(t4g.medium **4GB**)에 **smw-app · smw-batch · smw-redis · smwr-front** 만 둘 때 기준.
+단일 노드(t4g.medium **4GB**, ARM64)에 **smw-app · smw-batch · smw-redis · smwr-front** 만 둘 때 기준.
 
-**PostgreSQL은 별도 EC2/RDS** — 아래 limits에 DB 메모리는 포함하지 않는다. 노드 4GB 전부 앱·캐시·프론트에 쓸 수 있다.
+**PostgreSQL은 별도 EC2 t4g.small (2GB)** — 아래 limits에 DB 메모리는 포함하지 않는다. 노드 4GB는 앱·캐시·프론트·K3s에 사용한다.
 
 | Pod | requests | limits | 런타임 |
 |-----|----------|--------|--------|
-| smw-app | 512Mi | 768Mi | `-Xmx512m` (JAVA_TOOL_OPTIONS) |
+| smw-app | 512Mi | **1Gi** | `-Xmx512m` `MaxMetaspaceSize=192m` · OTEL ON (off-heap 여유 필요) |
 | smw-batch | 512Mi | 1024Mi | `-Xmx512m` `MaxMetaspaceSize=256m` · OTEL agent OFF |
 | smw-redis | 128Mi | 256Mi | `--maxmemory 192mb` LRU |
 | smwr-front | 192Mi | 384Mi | `NODE_OPTIONS --max-old-space-size=256` |
 
-- **limits 합 ~2.4GB** → OS·K3s·버스트 여유 ~1.6GB
+- **limits 합 ~2.7GB** (app 1Gi + batch 1Gi + redis 256Mi + front 384Mi) → OS·K3s·버스트 여유 ~1.3GB
 - **JAVA_OPTS** 는 Dockerfile ENTRYPOINT에서 미사용 → **`JAVA_TOOL_OPTIONS`** 로 힙 지정
 - Hikari: API `10` / 배치 `8` (`SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE`)
 - RTA backlog catch-up(배치 Pod): `SMW_RTA_SYNERGY_BATCH_SIZE=5000`, `SMW_RTA_SYNERGY_MAX_ROUNDS_CAP=3`, raw `SMW_RTA_RAW_APPLY_MAX_BATCHES_CAP=5` — `GET /api/v1/batch/backlog` 로 적용값 확인
@@ -72,6 +75,13 @@
 
 - `apply` 전에 `batch-deployment.yaml`의 `replicas`를 배포 당시 목표(예: 1)로 맞추거나,
 - `apply` 후 `kubectl scale`로 다시 맞추는 식으로 정리.
+
+## OOMKilled (Exit 137) · Readiness 실패
+
+- **원인**: Pod limit 768Mi + `-Xmx512m` 이면 Metaspace·스레드·OTEL·네이티브가 limit을 넘기기 쉽다. 부팅·GC 중 probe `timeoutSeconds: 3` 도 `context deadline exceeded` 를 유발한다.
+- **조치** (`k8s/deployment.yaml`): app limit **1Gi**, `MaxMetaspaceSize=192m`, startup/readiness **timeout 10s** · startup **initialDelay 25s** · failureThreshold 상향.
+- **배포 시**: App·Batch 동시 롤아웃은 노드 메모리 스파이크 → **staged rollout**(batch 0 → app → batch 1) 권장.
+- **노드 4GB가 빠듯하면**: limit **1280Mi** 로 한 단계 더 올리거나, 배치 replica 0 상태에서 app만 먼저 안정화.
 
 ## ImagePullBackOff: `... not found` (태그)
 

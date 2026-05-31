@@ -112,30 +112,36 @@
 		WHERE run_sn = #{run_sn}
 	</update>
 
-	<!-- 배치 실행 이력 목록 조회 -->
+	<!-- 배치 실행 이력 목록 조회 (rslt_txt 전문 제외 — 대용량 로그로 500/OOM 방지, 상세는 selectBatchRunHisDetail) -->
 	<select id="selectBatchRunHisList" parameterType="sqlMap" resultType="sqlMap">
 		/* selectBatchRunHisList */
-		SELECT 
-			run_sn as bat_exe_log_sn,
+		SELECT
+			run_sn AS bat_exe_log_sn,
 			bat_id,
-			start_dtm as exe_dtm,
+			start_dtm AS exe_dtm,
 			end_dtm,
 			rslt_cd,
-			rslt_txt,
+			CASE
+				WHEN rslt_txt IS NULL OR rslt_txt = '' THEN NULL
+				ELSE SUBSTRING(rslt_txt FROM 1 FOR 512)
+			END AS rslt_txt,
+			(rslt_txt IS NOT NULL AND char_length(rslt_txt) > 512) AS rslt_txt_truncated,
+			(rslt_txt IS NOT NULL AND rslt_txt &lt;&gt; '') AS has_rslt_txt,
 			crt_user_id,
 			crt_date
 		FROM sys_batch_run_his
-		WHERE 1=1
-		<if test="bat_id != null and bat_id != ''">
-			AND bat_id = #{bat_id}
-		</if>
+		<where>
+			<if test="bat_id != null and bat_id != ''">
+				AND bat_id = #{bat_id}
+			</if>
+		</where>
 		ORDER BY run_sn DESC
 		<choose>
 			<when test="limit != null">
 				LIMIT #{limit}
 			</when>
 			<otherwise>
-				LIMIT 1000
+				LIMIT 200
 			</otherwise>
 		</choose>
 	</select>

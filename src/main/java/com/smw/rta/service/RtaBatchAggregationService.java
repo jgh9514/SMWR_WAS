@@ -20,6 +20,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import com.smw.monster.service.summonerswarService;
 import com.smw.rta.cache.RtaCacheEvictor;
+import com.smw.rta.config.RtaBatchProperties;
 import com.smw.rta.mapper.RtaMapper;
 
 import lombok.extern.slf4j.Slf4j;
@@ -34,6 +35,7 @@ import lombok.extern.slf4j.Slf4j;
 public class RtaBatchAggregationService {
 
 	private final TransactionTemplate transactionTemplate;
+	private final RtaBatchProperties rtaBatchProperties;
 
 	/** {@code insertRtaMonsterStatsTierTop*SnapForSeason} 및 API 스냅 폴백과 동일 */
 	@Value("${smw.rta.monster-stats.min-pick-count:10}")
@@ -49,8 +51,10 @@ public class RtaBatchAggregationService {
 	private RtaRankCutSnapValidator rankCutSnapValidator;
 
 	public RtaBatchAggregationService(
-			@Qualifier("rtaJdbcTransactionManager") PlatformTransactionManager transactionManager) {
+			@Qualifier("rtaJdbcTransactionManager") PlatformTransactionManager transactionManager,
+			RtaBatchProperties rtaBatchProperties) {
 		this.transactionTemplate = new TransactionTemplate(transactionManager);
+		this.rtaBatchProperties = rtaBatchProperties;
 	}
 
 	/**
@@ -67,26 +71,16 @@ public class RtaBatchAggregationService {
 		} else {
 			long sid = seasonId.longValue();
 			long t0 = System.nanoTime();
-			// 독립 TX: advisory lock + 해당 시즌 랭킹 스냅만 전량 DELETE 후 INSERT
-			transactionTemplate.executeWithoutResult(status -> {
-				rtaMapper.disableLocalLockTimeout();
-				rtaMapper.acquireRtaSummonerSnapSeasonXactLock(sid);
-				rtaMapper.deleteRtaSummonerRankingSnapBySeason(sid);
-				rtaMapper.insertRtaSummonerRankingSnapForSeason(sid);
-			});
+			rebuildSummonerRankingSnapForSeasonWithRetry(rtaMapper, sid);
 			rankingMs = msSinceNanos(t0);
 		}
 		// 검색 스냅은 현재 시즌 participant 기준 upsert — 과거 항목은 유지(삭제 없음)
-		if (seasonId == null) {
-			log.warn("rebuildSummonerRankingAgg: 현재 시즌 null — 검색 스냅 upsert 시 season_id=-1 로 실행됨(데이터 없는 행 가능성)");
-		}
-		final long searchSid = seasonId != null ? seasonId.longValue() : -1L;
 		long t1 = System.nanoTime();
-		transactionTemplate.executeWithoutResult(status -> {
-			rtaMapper.disableLocalLockTimeout();
-			rtaMapper.acquireRtaSummonerSearchSnapGlobalXactLock();
-			rtaMapper.upsertRtaSummonerSearchSnap(searchSid);
-		});
+		if (seasonId != null) {
+			rebuildSummonerSearchSnapWithRetry(rtaMapper, seasonId.longValue());
+		} else {
+			log.warn("rebuildSummonerRankingAgg: 현재 시즌 없음 — 검색 스냅 생략");
+		}
 		searchMs = msSinceNanos(t1);
 		long wallMs = msSinceNanos(wallStart);
 		log.info("랭킹 스냅 {}ms, 검색 스냅 {}ms, 전체 {}ms", rankingMs, searchMs, wallMs);
@@ -94,6 +88,57 @@ public class RtaBatchAggregationService {
 				(int) safeCount(rtaMapper.countRtaSummonerRankingSnapRows()),
 				(int) safeCount(rtaMapper.countRtaSummonerSearchSnapRows()),
 				rankingMs, searchMs, wallMs);
+	}
+
+	private void rebuildSummonerRankingSnapForSeasonWithRetry(RtaMapper rtaMapper, long seasonId) {
+		int attempt = 0;
+		while (true) {
+			try {
+				transactionTemplate.executeWithoutResult(status -> {
+					applyBatchTxSessionGuards(rtaMapper);
+					rtaMapper.acquireRtaSummonerSnapSeasonXactLock(seasonId);
+					rtaMapper.deleteRtaSummonerRankingSnapBySeason(seasonId);
+					rtaMapper.insertRtaSummonerRankingSnapForSeason(seasonId);
+				});
+				return;
+			} catch (Exception e) {
+				if (!isInfraRetryable(e) || ++attempt >= 3) {
+					log.error("rebuildSummonerRankingSnap 실패 seasonId={} attempt={}", seasonId, attempt, e);
+					throw e;
+				}
+				log.warn("rebuildSummonerRankingSnap 재시도 {}/3 seasonId={}: {}",
+						attempt, seasonId, e.getMessage());
+				sleepQuiet(3_000 * attempt);
+			}
+		}
+	}
+
+	private void rebuildSummonerSearchSnapWithRetry(RtaMapper rtaMapper, long seasonId) {
+		int attempt = 0;
+		while (true) {
+			try {
+				transactionTemplate.executeWithoutResult(status -> {
+					applyBatchTxSessionGuards(rtaMapper);
+					rtaMapper.acquireRtaSummonerSearchSnapGlobalXactLock();
+					rtaMapper.upsertRtaSummonerSearchSnap(seasonId);
+				});
+				return;
+			} catch (Exception e) {
+				if (!isInfraRetryable(e) || ++attempt >= 3) {
+					log.error("rebuildSummonerSearchSnap 실패 seasonId={} attempt={}", seasonId, attempt, e);
+					throw e;
+				}
+				log.warn("rebuildSummonerSearchSnap 재시도 {}/3 seasonId={}: {}",
+						attempt, seasonId, e.getMessage());
+				sleepQuiet(3_000 * attempt);
+			}
+		}
+	}
+
+	/** 장시간 배치 TX: 세션 lock·idle-in-tx 타임아웃 해제. */
+	private static void applyBatchTxSessionGuards(RtaMapper mapper) {
+		mapper.disableLocalLockTimeout();
+		mapper.disableLocalIdleInTransactionTimeout();
 	}
 
 	/**
@@ -486,17 +531,22 @@ public class RtaBatchAggregationService {
 
 		java.util.Map<Integer, Long> matchTotalsBefore = rankCutSnapValidator.loadMatchTotals(rtaMapper, sid);
 
-		long t0 = System.nanoTime();
-		rtaMapper.rebuildRtaSeasonRatingMatchTotal(sid);
-		long matchTotalMs = msSinceNanos(t0);
+		long matchTotalMs;
+		if (shouldRebuildSeasonRatingMatchTotal(rtaMapper, sid)) {
+			matchTotalMs = rebuildSeasonRatingMatchTotalWithRetry(rtaMapper, sid);
+		} else {
+			matchTotalMs = 0L;
+			log.info("rebuildRankCutSnapshots: match_total 생략(participant 변경 없음) seasonId={}", sid);
+		}
 
 		RtaRankCutSnapValidator.RtaRankCutValidationReport validationReport =
 				rankCutSnapValidator.validateMatchTotalRebuild(sid, matchTotalsBefore,
 						rankCutSnapValidator.loadMatchTotals(rtaMapper, sid));
 
-		t0 = System.nanoTime();
-		List<Instant> missingHours = rtaMapper.selectMissingRankCutSnapHours(sid, 720);
-		log.info("랭크컷 스냅 누락 시간대 seasonId={} count={}", sid, missingHours.size());
+		int hourLimit = Math.max(1, rtaBatchProperties.getRankCutMissingHoursPerRun());
+		long t0 = System.nanoTime();
+		List<Instant> missingHours = rtaMapper.selectMissingRankCutSnapHours(sid, hourLimit);
+		log.info("랭크컷 스냅 누락 시간대 seasonId={} count={} (1회 상한 {}시간)", sid, missingHours.size(), hourLimit);
 		for (Instant hour : missingHours) {
 			long matchCount = rtaMapper.countRtaMatchForHour(sid, hour);
 			if (matchCount == 0) {
@@ -518,18 +568,19 @@ public class RtaBatchAggregationService {
 					final List<com.smw.rta.model.RtaRankCutSnapRow> r = rows;
 					int[] result = {0};
 					transactionTemplate.executeWithoutResult(tx -> {
-						rtaMapper.disableLockTimeout();
+						applyBatchTxSessionGuards(rtaMapper);
 						result[0] = rtaMapper.insertRtaRankCutHourlySnaps(sid, hour, r);
 					});
 					log.info("랭크컷 스냅 적재 완료 seasonId={} hour={} inserted={}", sid, hour, result[0]);
 					break;
 				} catch (Exception e) {
-					if (++attempt >= 3) {
+					if (!isInfraRetryable(e) || ++attempt >= 3) {
 						log.error("랭크컷 스냅 적재 실패 seasonId={} hour={} attempt={}", sid, hour, attempt, e);
 						throw e;
 					}
-					log.warn("랭크컷 스냅 적재 락 충돌 재시도 {}/3 seasonId={} hour={}", attempt, sid, hour);
-					try { Thread.sleep(3_000L * attempt); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); throw e; }
+					log.warn("랭크컷 스냅 적재 인프라 재시도 {}/3 seasonId={} hour={}: {}",
+							attempt, sid, hour, e.getMessage());
+					sleepQuiet(3_000 * attempt);
 				}
 			}
 		}
@@ -571,6 +622,80 @@ public class RtaBatchAggregationService {
 		} catch (InterruptedException e) {
 			Thread.currentThread().interrupt();
 		}
+	}
+
+	private boolean shouldRebuildSeasonRatingMatchTotal(RtaMapper rtaMapper, long seasonId) {
+		if (!rtaBatchProperties.isSkipSeasonRatingMatchTotalIfFresh()) {
+			return true;
+		}
+		try {
+			return rtaMapper.existsParticipantPlayedAfterMatchTotalComputed(seasonId);
+		} catch (Exception e) {
+			log.warn("match_total 신선도 조회 실패 — 재집계 수행 seasonId={}: {}", seasonId, e.getMessage());
+			return true;
+		}
+	}
+
+	/**
+	 * {@code rta_agg_season_rating_match_total} UPSERT — 시너지·몬스터 집계와 락이 겹치면
+	 * Hikari {@code lock_timeout}(기본 120s) 초과 시 {@code CannotAcquireLockException} 발생.
+	 */
+	private long rebuildSeasonRatingMatchTotalWithRetry(RtaMapper rtaMapper, long seasonId) {
+		int attempt = 0;
+		while (true) {
+			long t0 = System.nanoTime();
+			try {
+				transactionTemplate.executeWithoutResult(tx -> {
+					applyBatchTxSessionGuards(rtaMapper);
+					rtaMapper.rebuildRtaSeasonRatingMatchTotal(seasonId);
+				});
+				return msSinceNanos(t0);
+			} catch (Exception e) {
+				if (!isInfraRetryable(e) || ++attempt >= 3) {
+					log.error("rebuildRtaSeasonRatingMatchTotal 실패 seasonId={} attempt={}", seasonId, attempt, e);
+					throw e;
+				}
+				log.warn("rebuildRtaSeasonRatingMatchTotal 인프라 재시도 {}/3 seasonId={}: {}",
+						attempt, seasonId, e.getMessage());
+				sleepQuiet(3_000 * attempt);
+			}
+		}
+	}
+
+	/** 락·커넥션 종료·idle-in-tx 타임아웃 등 인프라 일시 오류(재시도 대상). */
+	private static boolean isInfraRetryable(Throwable t) {
+		for (Throwable c = t; c != null; c = c.getCause()) {
+			String cn = c.getClass().getName();
+			if (cn.contains("CannotAcquireLockException")
+					|| cn.contains("PessimisticLockingFailureException")
+					|| cn.contains("DeadlockLoserDataAccessException")
+					|| cn.contains("TransactionSystemException")
+					|| cn.contains("DataAccessResourceFailureException")
+					|| cn.contains("ConnectionClosed")
+					|| cn.contains("ConnectionIsClosedException")) {
+				return true;
+			}
+			if (c instanceof java.sql.SQLException sql) {
+				String state = sql.getSQLState();
+				if ("55P03".equals(state) || "40P01".equals(state)) {
+					return true;
+				}
+			}
+			String msg = c.getMessage();
+			if (msg != null) {
+				String lower = msg.toLowerCase();
+				if (lower.contains("lock timeout")
+						|| lower.contains("deadlock")
+						|| lower.contains("could not obtain lock")
+						|| lower.contains("canceling statement due to lock")
+						|| lower.contains("idle_in_transaction_session_timeout")
+						|| lower.contains("connection closed")
+						|| lower.contains("jdbc rollback failed")) {
+					return true;
+				}
+			}
+		}
+		return false;
 	}
 
 	// ── 몬스터 일별·슬롯 집계 ────────────────────────────────────────────

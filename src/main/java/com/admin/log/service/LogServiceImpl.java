@@ -110,7 +110,31 @@ public class LogServiceImpl implements LogService {
 	@Override
 	public List<Map<String, ?>> selectBatchRunHisList(Map<String, Object> param) {
 		Map<String, Object> queryParam = param != null ? new HashMap<>(param) : new HashMap<>();
+		queryParam.put("limit", clampInt(queryParam.get("limit"), 50, 1, 200));
+		normalizeBatchRunHisBatId(queryParam);
 		return batchMapper.selectBatchRunHisList(queryParam);
+	}
+
+	/** bat_id는 bigint — 잘못된 문자열이면 필터 제거(무효 입력으로 500 방지) */
+	private void normalizeBatchRunHisBatId(Map<String, Object> queryParam) {
+		Object batId = queryParam.get("bat_id");
+		if (batId == null) {
+			return;
+		}
+		String text = String.valueOf(batId).trim();
+		if (text.isEmpty()) {
+			queryParam.remove("bat_id");
+			return;
+		}
+		if (batId instanceof Number) {
+			queryParam.put("bat_id", ((Number) batId).longValue());
+			return;
+		}
+		try {
+			queryParam.put("bat_id", Long.parseLong(text));
+		} catch (NumberFormatException ignore) {
+			queryParam.remove("bat_id");
+		}
 	}
 
 	@Override

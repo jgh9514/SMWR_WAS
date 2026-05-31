@@ -123,9 +123,8 @@ public class RtaCounterMatchupCopyStagingService {
 			// merge 실패 시에도 staging 정리 시도 — 새 커넥션으로 별도 실행(현 커넥션은 이미 깨진 상태일 수 있음)
 			tryTruncateStagingOnNewConn();
 			throw new IllegalStateException("COPY/merge staging_matchup_agg 실패: " + e.getMessage(), e);
-		} finally {
-			DataSourceUtils.releaseConnection(conn, dataSource);
 		}
+		// 커넥션 해제는 rtaJdbcTransactionManager 가 commit/rollback 시 수행 (@Transactional 과 이중 release 금지)
 	}
 
 	/** merge 실패 시 스테이징 테이블을 새 커넥션으로 정리 — 기존 커넥션이 이미 끊긴 상태일 수 있음 */

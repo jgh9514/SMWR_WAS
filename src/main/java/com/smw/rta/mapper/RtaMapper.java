@@ -128,6 +128,9 @@ public interface RtaMapper {
     /** 현재 시즌×티어별 총 경기 수 upsert 재집계 ({@code rta_agg_season_rating_match_total}). */
     int rebuildRtaSeasonRatingMatchTotal(@Param("seasonId") long seasonId);
 
+    /** participant 최신 played_at 이 match_total 집계 시각보다 이후이면 true(재집계 필요). */
+    boolean existsParticipantPlayedAfterMatchTotalComputed(@Param("seasonId") long seasonId);
+
     /** {@code rta_agg_season_rating_match_total} 전체 행 수 (배치 적재 후 로깅) */
     Long countRtaSeasonRatingMatchTotalRows();
 
@@ -144,6 +147,10 @@ public interface RtaMapper {
     /** 배치 전용: 현재 TX 범위에서만 lock_timeout 해제 — TX 종료(commit/rollback) 시 자동 복원 */
     @org.apache.ibatis.annotations.Update("SET LOCAL lock_timeout = 0")
     void disableLocalLockTimeout();
+
+    /** 배치 전용: 현재 TX에서 idle_in_transaction_session_timeout 해제(기본 300s 초과 방지). */
+    @org.apache.ibatis.annotations.Update("SET LOCAL idle_in_transaction_session_timeout = 0")
+    void disableLocalIdleInTransactionTimeout();
 
     /** 시즌의 누락된 랭크컷 스냅 시간대 목록 조회 (limit: 1회 처리 최대 개수) */
     List<java.time.Instant> selectMissingRankCutSnapHours(@Param("seasonId") long seasonId,

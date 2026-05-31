@@ -238,8 +238,6 @@ public class RtaSynergyAggServiceImpl implements RtaSynergyAggService {
 			return n > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) n;
 		} catch (SQLException | IOException e) {
 			throw new IllegalStateException("markSynergyAggDone JDBC 실패: " + e.getMessage(), e);
-		} finally {
-			DataSourceUtils.releaseConnection(conn, dataSource);
 		}
 	}
 

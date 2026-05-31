@@ -91,4 +91,16 @@ public class RtaBatchProperties {
 
 	/** 배치 실패 알림을 보낼 Slack 채널 ID. */
 	private String slackChannelId = "";
+
+	/**
+	 * {@link com.smw.monster.batch.RtaRankCutSnapshotAggJob} 1회당 채울 누락 시간대(시간) 상한.
+	 * 기존 720은 한 실행이 수 시간 걸릴 수 있어 다른 RTA 배치·API와 participant 락/풀 경합을 유발한다.
+	 */
+	private int rankCutMissingHoursPerRun = 48;
+
+	/**
+	 * true 이면 participant 에 {@code played_at} 이 집계 시각 이후인 행이 없을 때
+	 * {@code rta_agg_season_rating_match_total} 전 시즌 GROUP BY 재집계를 생략한다.
+	 */
+	private boolean skipSeasonRatingMatchTotalIfFresh = true;
 }
