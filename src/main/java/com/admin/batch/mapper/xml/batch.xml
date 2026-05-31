@@ -123,9 +123,9 @@
 			rslt_cd,
 			CASE
 				WHEN rslt_txt IS NULL OR rslt_txt = '' THEN NULL
-				ELSE SUBSTRING(rslt_txt FROM 1 FOR 512)
+				ELSE LEFT(rslt_txt, 512)
 			END AS rslt_txt,
-			(rslt_txt IS NOT NULL AND char_length(rslt_txt) > 512) AS rslt_txt_truncated,
+			(SUBSTRING(rslt_txt FROM 513 FOR 1) IS NOT NULL) AS rslt_txt_truncated,
 			(rslt_txt IS NOT NULL AND rslt_txt &lt;&gt; '') AS has_rslt_txt,
 			crt_user_id,
 			crt_date

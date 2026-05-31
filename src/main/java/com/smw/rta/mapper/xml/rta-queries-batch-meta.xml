@@ -371,16 +371,23 @@
       과거 시즌 항목은 삭제되지 않고 유지(upsert 방식). 닉/국가/channel_uid가 동일하면 DO UPDATE 스킵.
     -->
     <insert id="upsertRtaSummonerSearchSnap">
-        WITH pick AS (
-            SELECT DISTINCT ON (mp.wizard_id)
+        WITH latest_replay AS (
+            SELECT mp.wizard_id, MAX(mp.replay_id) AS replay_id
+            FROM public.rta_match_participant mp
+            WHERE mp.season_id = #{seasonId}
+              AND mp.wizard_id &lt;&gt; ''
+            GROUP BY mp.wizard_id
+        ),
+        pick AS (
+            SELECT
                 mp.wizard_id,
                 mp.wizard_name,
                 mp.country_code AS country,
                 mp.channel_uid
-            FROM public.rta_match_participant mp
-            WHERE mp.season_id = #{seasonId}
-              AND mp.wizard_id &lt;&gt; ''
-            ORDER BY mp.wizard_id, mp.replay_id DESC
+            FROM latest_replay lr
+            INNER JOIN public.rta_match_participant mp
+                ON mp.replay_id = lr.replay_id
+               AND mp.wizard_id = lr.wizard_id
         )
         INSERT INTO public.rta_agg_summoner_search_snap (wizard_id, wizard_name, country, channel_uid)
         SELECT p.wizard_id, p.wizard_name, p.country, p.channel_uid

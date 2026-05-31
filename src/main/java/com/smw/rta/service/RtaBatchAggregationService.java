@@ -96,9 +96,15 @@ public class RtaBatchAggregationService {
 			try {
 				transactionTemplate.executeWithoutResult(status -> {
 					applyBatchTxSessionGuards(rtaMapper);
+					long t0 = System.nanoTime();
 					rtaMapper.acquireRtaSummonerSnapSeasonXactLock(seasonId);
+					log.info("ranking snap lock seasonId={} {}ms", seasonId, msSinceNanos(t0));
+					long t1 = System.nanoTime();
 					rtaMapper.deleteRtaSummonerRankingSnapBySeason(seasonId);
+					log.info("ranking snap delete seasonId={} {}ms", seasonId, msSinceNanos(t1));
+					long t2 = System.nanoTime();
 					rtaMapper.insertRtaSummonerRankingSnapForSeason(seasonId);
+					log.info("ranking snap insert seasonId={} {}ms", seasonId, msSinceNanos(t2));
 				});
 				return;
 			} catch (Exception e) {
@@ -119,8 +125,12 @@ public class RtaBatchAggregationService {
 			try {
 				transactionTemplate.executeWithoutResult(status -> {
 					applyBatchTxSessionGuards(rtaMapper);
+					long t0 = System.nanoTime();
 					rtaMapper.acquireRtaSummonerSearchSnapGlobalXactLock();
+					log.info("search snap lock seasonId={} {}ms", seasonId, msSinceNanos(t0));
+					long t1 = System.nanoTime();
 					rtaMapper.upsertRtaSummonerSearchSnap(seasonId);
+					log.info("search snap upsert seasonId={} {}ms", seasonId, msSinceNanos(t1));
 				});
 				return;
 			} catch (Exception e) {

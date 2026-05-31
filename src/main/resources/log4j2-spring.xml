@@ -120,7 +120,8 @@
             <AppenderRef ref="Console"/>
             <AppenderRef ref="SqlAppender"/>
         </Logger>
-        <Logger name="log4jdbc.log4j2" level="INFO" additivity="false">
+        <!-- INFO 시 ResultSet.getInt/next 등 행 단위 스파이 로그 폭주 — SQL 문·시간은 jdbc.sqltiming -->
+        <Logger name="log4jdbc.log4j2" level="WARN" additivity="false">
             <OtelExportSizeCapFilter maxBytes="204800" onMatch="DENY" onMismatch="NEUTRAL"/>
             <RegexFilter regex="(?s).*\\|[-]{5,}\\|.*" onMatch="DENY" onMismatch="NEUTRAL"/>
             <AppenderRef ref="Console"/>

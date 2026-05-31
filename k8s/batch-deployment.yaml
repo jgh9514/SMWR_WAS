@@ -52,6 +52,9 @@ spec:
               value: "-Duser.timezone=Asia/Seoul -Xms384m -Xmx512m -XX:MaxMetaspaceSize=256m -XX:ReservedCodeCacheSize=64m -XX:+UseG1GC -XX:MaxGCPauseMillis=200"
             - name: SMW_GRAFANA_OTEL_ENABLED
               value: "false"
+            # 장시간 집계(랭킹·검색 스냅 등): JDBC socketTimeout 기본 600s 이면 10분 후 Connection closed
+            - name: SPRING_DATASOURCE_SOCKET_TIMEOUT
+              value: "2400"
             - name: SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE
               value: "8"
             - name: SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE

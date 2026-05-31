@@ -46,6 +46,9 @@ spring:
       leak-detection-threshold: ${SPRING_DATASOURCE_HIKARI_LEAK_DETECTION_THRESHOLD:0}
       data-source-properties:
         reWriteBatchedInserts: ${SPRING_DATASOURCE_REWRITE_BATCHED_INSERTS:true}
+        # 배치 Pod: SMWR_WAS/k8s/batch-deployment.yaml 에서 2400(40분) 권장. API Pod 기본 600s.
+        socketTimeout: ${SPRING_DATASOURCE_SOCKET_TIMEOUT:600}
+        tcpKeepAlive: true
   servlet:
     multipart.max-file-size: ${SMW_MULTIPART_MAX_FILE_SIZE:512MB}
     max-request-size: ${SMW_MULTIPART_MAX_REQUEST_SIZE:512MB}
