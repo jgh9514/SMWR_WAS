@@ -359,20 +359,19 @@
         ORDER BY rms.date_add DESC NULLS LAST
     </select>
 
-    <!-- 특정 몬스터가 픽·밴된 최근 N경기 -->
+    <!-- 특정 몬스터가 픽·밴된 최근 N경기
+         rta_match 시즌 풀스캔+EXISTS(unit_pick) 대신 idx_rta_match_unit_pick_unit → rta_match PK 조인. -->
     <select id="getMonsterRecentMatches" resultType="map">
         WITH rms AS MATERIALIZED (
             SELECT m.replay_id AS rid,
                    m.played_at AS date_add,
                    m.battle_type,
                    m.winner_wizard_id
-            FROM public.rta_match m
-            WHERE m.season_id = #{seasonId}
-              AND EXISTS (
-                  SELECT 1 FROM public.rta_match_unit_pick u
-                  WHERE u.replay_id = m.replay_id
-                    AND u.unit_master_id = #{monsterId}
-              )
+            FROM public.rta_match_unit_pick u
+            INNER JOIN public.rta_match m
+                ON m.replay_id = u.replay_id
+               AND m.season_id = #{seasonId}
+            WHERE u.unit_master_id = #{monsterId}
             <if test="ratingId != null">
               AND EXISTS (
                   SELECT 1 FROM public.rta_match_participant p
@@ -388,6 +387,7 @@
                     <foreach collection="ratingIds" item="rid" open="(" separator="," close=")">#{rid}</foreach>
               )
             </if>
+            GROUP BY m.replay_id, m.played_at, m.battle_type, m.winner_wizard_id
             ORDER BY m.played_at DESC NULLS LAST
             LIMIT #{limit}
         ),
