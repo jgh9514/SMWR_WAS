@@ -91,6 +91,17 @@ public class RtaBatchAggregationService {
 	}
 
 	private void rebuildSummonerRankingSnapForSeasonWithRetry(RtaMapper rtaMapper, long seasonId) {
+		// DELETE 는 짧은 TX — INSERT(대용량 CTE)와 분리해 idle-in-tx·커넥션 유지 시간을 줄인다.
+		transactionTemplate.executeWithoutResult(status -> {
+			applyBatchTxSessionGuards(rtaMapper);
+			long t0 = System.nanoTime();
+			rtaMapper.acquireRtaSummonerSnapSeasonXactLock(seasonId);
+			log.info("ranking snap delete-phase lock seasonId={} {}ms", seasonId, msSinceNanos(t0));
+			long t1 = System.nanoTime();
+			rtaMapper.deleteRtaSummonerRankingSnapBySeason(seasonId);
+			log.info("ranking snap delete seasonId={} {}ms", seasonId, msSinceNanos(t1));
+		});
+
 		int attempt = 0;
 		while (true) {
 			try {
@@ -98,21 +109,18 @@ public class RtaBatchAggregationService {
 					applyBatchTxSessionGuards(rtaMapper);
 					long t0 = System.nanoTime();
 					rtaMapper.acquireRtaSummonerSnapSeasonXactLock(seasonId);
-					log.info("ranking snap lock seasonId={} {}ms", seasonId, msSinceNanos(t0));
+					log.info("ranking snap insert-phase lock seasonId={} {}ms", seasonId, msSinceNanos(t0));
 					long t1 = System.nanoTime();
-					rtaMapper.deleteRtaSummonerRankingSnapBySeason(seasonId);
-					log.info("ranking snap delete seasonId={} {}ms", seasonId, msSinceNanos(t1));
-					long t2 = System.nanoTime();
 					rtaMapper.insertRtaSummonerRankingSnapForSeason(seasonId);
-					log.info("ranking snap insert seasonId={} {}ms", seasonId, msSinceNanos(t2));
+					log.info("ranking snap insert seasonId={} {}ms", seasonId, msSinceNanos(t1));
 				});
 				return;
 			} catch (Exception e) {
 				if (!isInfraRetryable(e) || ++attempt >= 3) {
-					log.error("rebuildSummonerRankingSnap 실패 seasonId={} attempt={}", seasonId, attempt, e);
+					log.error("rebuildSummonerRankingSnap insert 실패 seasonId={} attempt={}", seasonId, attempt, e);
 					throw e;
 				}
-				log.warn("rebuildSummonerRankingSnap 재시도 {}/3 seasonId={}: {}",
+				log.warn("rebuildSummonerRankingSnap insert 재시도 {}/3 seasonId={}: {}",
 						attempt, seasonId, e.getMessage());
 				sleepQuiet(3_000 * attempt);
 			}
@@ -149,6 +157,7 @@ public class RtaBatchAggregationService {
 	private static void applyBatchTxSessionGuards(RtaMapper mapper) {
 		mapper.disableLocalLockTimeout();
 		mapper.disableLocalIdleInTransactionTimeout();
+		mapper.disableLocalStatementTimeout();
 	}
 
 	/**
@@ -246,19 +255,81 @@ public class RtaBatchAggregationService {
 				last);
 	}
 
+	/** H2H 스냅 DELETE 시 wizard_id 배치 크기 — 단일 DELETE·장시간 커넥션 I/O 오류 완화. */
+	private static final int OPPONENT_H2H_DELETE_WIZARD_BATCH = 2_000;
+
 	/**
 	 * {@code rta_agg_summoner_opponent_h2h_snap} 시즌별 DELETE 후 INSERT 반환 행 합계.
+	 * DELETE·INSERT 를 분리 TX + 세션 가드 + 인프라 재시도로 적용한다.
 	 */
-	private static int replaceOpponentH2hSnapForSeasons(RtaMapper rtaMapper, Collection<Long> seasonIds) {
+	private int replaceOpponentH2hSnapForSeasons(RtaMapper rtaMapper, Collection<Long> seasonIds) {
 		if (seasonIds == null || seasonIds.isEmpty()) {
 			return 0;
 		}
 		int inserted = 0;
 		for (long sid : new TreeSet<>(seasonIds)) {
-			rtaMapper.deleteRtaSummonerOpponentH2hSnapBySeason(sid);
-			inserted += rtaMapper.insertRtaSummonerOpponentH2hSnapForSeason(sid);
+			deleteOpponentH2hSnapBySeasonWithRetry(rtaMapper, sid);
+			inserted += insertOpponentH2hSnapForSeasonWithRetry(rtaMapper, sid);
 		}
 		return inserted;
+	}
+
+	private void deleteOpponentH2hSnapBySeasonWithRetry(RtaMapper rtaMapper, long seasonId) {
+		int attempt = 0;
+		while (true) {
+			try {
+				transactionTemplate.executeWithoutResult(status -> {
+					applyBatchTxSessionGuards(rtaMapper);
+					long t0 = System.nanoTime();
+					int deleted = deleteOpponentH2hSnapBySeasonChunked(rtaMapper, seasonId);
+					log.info("h2h snap delete seasonId={} rows={} {}ms", seasonId, deleted, msSinceNanos(t0));
+				});
+				return;
+			} catch (Exception e) {
+				if (!isInfraRetryable(e) || ++attempt >= 3) {
+					log.error("deleteOpponentH2hSnap 실패 seasonId={} attempt={}", seasonId, attempt, e);
+					throw e;
+				}
+				log.warn("deleteOpponentH2hSnap 재시도 {}/3 seasonId={}: {}", attempt, seasonId, e.getMessage());
+				sleepQuiet(3_000 * attempt);
+			}
+		}
+	}
+
+	private static int deleteOpponentH2hSnapBySeasonChunked(RtaMapper rtaMapper, long seasonId) {
+		int total = 0;
+		for (;;) {
+			int n = rtaMapper.deleteRtaSummonerOpponentH2hSnapBySeasonWizardBatch(
+					seasonId, OPPONENT_H2H_DELETE_WIZARD_BATCH);
+			if (n <= 0) {
+				break;
+			}
+			total += n;
+		}
+		return total;
+	}
+
+	private int insertOpponentH2hSnapForSeasonWithRetry(RtaMapper rtaMapper, long seasonId) {
+		int attempt = 0;
+		while (true) {
+			try {
+				final int[] rows = { 0 };
+				transactionTemplate.executeWithoutResult(status -> {
+					applyBatchTxSessionGuards(rtaMapper);
+					long t0 = System.nanoTime();
+					rows[0] = rtaMapper.insertRtaSummonerOpponentH2hSnapForSeason(seasonId);
+					log.info("h2h snap insert seasonId={} rows={} {}ms", seasonId, rows[0], msSinceNanos(t0));
+				});
+				return rows[0];
+			} catch (Exception e) {
+				if (!isInfraRetryable(e) || ++attempt >= 3) {
+					log.error("insertOpponentH2hSnap 실패 seasonId={} attempt={}", seasonId, attempt, e);
+					throw e;
+				}
+				log.warn("insertOpponentH2hSnap 재시도 {}/3 seasonId={}: {}", attempt, seasonId, e.getMessage());
+				sleepQuiet(3_000 * attempt);
+			}
+		}
 	}
 
 	/**
@@ -356,6 +427,7 @@ public class RtaBatchAggregationService {
 			int[] box = { 0 };
 			int[] fight = { 0 };
 			transactionTemplate.executeWithoutResult(status -> {
+				applyBatchTxSessionGuards(rtaMapper);
 				long t1 = System.nanoTime();
 				rtaMapper.truncateStagingRtaSummonerSnapRid();
 				rtaMapper.insertStagingRtaSummonerSnapRidBatch(seasonId, chunkRids);
@@ -700,7 +772,11 @@ public class RtaBatchAggregationService {
 						|| lower.contains("canceling statement due to lock")
 						|| lower.contains("idle_in_transaction_session_timeout")
 						|| lower.contains("connection closed")
-						|| lower.contains("jdbc rollback failed")) {
+						|| lower.contains("jdbc rollback failed")
+						|| lower.contains("i/o error")
+						|| lower.contains("sending to the backend")
+						|| lower.contains("socket closed")
+						|| lower.contains("broken pipe")) {
 					return true;
 				}
 			}

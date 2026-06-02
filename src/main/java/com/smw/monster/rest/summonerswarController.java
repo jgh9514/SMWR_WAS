@@ -357,7 +357,9 @@ public class summonerswarController {
     @SuppressWarnings("unchecked")
 	@PostMapping("/siege-upload")
     @Transactional
-    @CacheEvict(cacheNames = {"guildSiegeHistory", "guildSiegeHistoryCount"}, cacheManager = "shortLivedCacheManager", allEntries = true)
+    @CacheEvict(cacheNames = {
+            "guildSiegeHistory", "guildSiegeHistoryCount", "battleRecordList", "battleRecordDetail"
+    }, cacheManager = "shortLivedCacheManager", allEntries = true)
     public ResponseEntity<?> saveSiegeData(@RequestBody Map<String, Object> param, HttpSession session, HttpServletRequest request) {
     	Map<String, Object> p = param != null ? param : new HashMap<>();
     	ResponseEntity<?> guard = requireLoginAndGuild(request, p);

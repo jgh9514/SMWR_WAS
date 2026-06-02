@@ -1879,13 +1879,54 @@ public class summonerswarServiceImpl implements summonerswarService {
 	}
 	
 	@Override
+	@Cacheable(cacheNames = "battleRecordList", cacheManager = "shortLivedCacheManager", keyGenerator = "stableMapKeyGenerator")
 	public List<Map<String, ?>> selectRecordList(Map<String, Object> param) {
-		return swMapper.selectRecordList(param);
+		Map<String, Object> query = normalizeRecordListQuery(param);
+		return swMapper.selectRecordList(query);
 	}
-	
+
 	@Override
+	@Cacheable(cacheNames = "battleRecordDetail", cacheManager = "shortLivedCacheManager", keyGenerator = "stableMapKeyGenerator")
 	public List<Map<String, ?>> selectRecordUserDetail(Map<String, Object> param) {
-		return swMapper.selectRecordUserDetail(param);
+		Map<String, Object> query = normalizeRecordDetailQuery(param);
+		return swMapper.selectRecordUserDetail(query);
+	}
+
+	/** record-detail: paging·offset(1-based page) → LIMIT/OFFSET */
+	private Map<String, Object> normalizeRecordDetailQuery(Map<String, Object> param) {
+		Map<String, Object> query = param != null ? new HashMap<>(param) : new HashMap<>();
+		int limit = 50;
+		int page = 1;
+		try {
+			if (query.get("paging") != null) {
+				limit = Integer.parseInt(String.valueOf(query.get("paging")));
+			}
+		} catch (Exception ignore) {
+			// default
+		}
+		try {
+			if (query.get("offset") != null) {
+				page = Integer.parseInt(String.valueOf(query.get("offset")));
+			}
+		} catch (Exception ignore) {
+			// default
+		}
+		if (limit <= 0) {
+			limit = 50;
+		}
+		if (limit > 200) {
+			limit = 200;
+		}
+		if (page <= 0) {
+			page = 1;
+		}
+		query.put("limit", limit);
+		query.put("sql_offset", (page - 1) * limit);
+		return query;
+	}
+
+	private Map<String, Object> normalizeRecordListQuery(Map<String, Object> param) {
+		return param != null ? new HashMap<>(param) : new HashMap<>();
 	}
 	
 	@Override

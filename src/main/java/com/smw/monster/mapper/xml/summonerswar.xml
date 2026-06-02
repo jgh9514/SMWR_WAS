@@ -1606,123 +1606,155 @@
 	</select>
 		
 	<select id="selectRecordList" parameterType="sqlMap" resultType="sqlMap">
-		/* selectRecordList - 본인 길드 인원만 */
-		select wizard_id
-		     , wizard_name
-		     , total_count
-		     , win_count
-		     , lose_count
-		     , round(win_count::numeric / total_count * 100, 2) as total_rate
-		  from (select wizard_id
-				     , wizard_name
-				     , count(case when win_lose = '1' then 1 end) as win_count
-				     , count(case when win_lose = '2' then 1 end) as lose_count
-				     , count(1) as total_count
-				  from battle_log_list bll
-				 where 1 = 1
-				   <!-- 본인 길드 인원만 -->
-				   <if test="sess_guild_id != null and sess_guild_id != ''">
-				   AND bll.guild_id = #{sess_guild_id}::text
-				   </if>
-				   <!-- 시즌: season_no 없으면 전체, 있으면 해당 시즌만 -->
-				   <if test="season_no != null and season_no != ''">
-				   AND EXISTS (
-				     SELECT 1 FROM guild_siege_season gss
-				     WHERE gss.season_no = #{season_no}::int
-				       AND TO_DATE(SUBSTRING(bll.match_id, 1, 6), 'YYYYMM') >= gss.start_date
-				       AND (gss.end_date IS NULL OR TO_DATE(SUBSTRING(bll.match_id, 1, 6), 'YYYYMM') &lt;= gss.end_date)
-				   )
-				   </if>
-				 group by wizard_id
-				        , wizard_name
-			   ) bllb
-		 order by win_count desc
+		/* summonerswar.selectRecordList — 길드 인원별 승패 집계, 시즌은 match_id YYYYMM 범위(SARGable) */
+		<if test="season_no != null and season_no != ''">
+		WITH season_bounds AS (
+			SELECT
+				to_char(gss.start_date, 'YYYYMM') AS start_yyyymm,
+				to_char(COALESCE(gss.end_date, DATE '2099-12-31'), 'YYYYMM') AS end_yyyymm
+			FROM public.guild_siege_season gss
+			WHERE gss.season_no = #{season_no}::int
+			LIMIT 1
+		),
+		</if>
+		filtered AS (
+			SELECT
+				bll.wizard_id,
+				bll.wizard_name,
+				bll.win_lose
+			FROM public.battle_log_list bll
+			<if test="season_no != null and season_no != ''">
+			CROSS JOIN season_bounds sb
+			</if>
+			WHERE 1 = 1
+			<if test="sess_guild_id != null and sess_guild_id != ''">
+			  AND bll.guild_id = #{sess_guild_id}::text
+			</if>
+			<if test="season_no != null and season_no != ''">
+			  AND substring(bll.match_id, 1, 6) &gt;= sb.start_yyyymm
+			  AND substring(bll.match_id, 1, 6) &lt;= sb.end_yyyymm
+			</if>
+		)
+		SELECT
+			f.wizard_id,
+			f.wizard_name,
+			COUNT(*)::bigint AS total_count,
+			COUNT(*) FILTER (WHERE f.win_lose = '1')::bigint AS win_count,
+			COUNT(*) FILTER (WHERE f.win_lose = '2')::bigint AS lose_count,
+			ROUND(
+				100.0 * COUNT(*) FILTER (WHERE f.win_lose = '1')::numeric
+					/ NULLIF(COUNT(*), 0)::numeric,
+				2
+			) AS total_rate
+		FROM filtered f
+		GROUP BY f.wizard_id, f.wizard_name
+		ORDER BY win_count DESC, f.wizard_name ASC
 	</select>
 	
 		
 	<select id="selectRecordUserDetail" parameterType="sqlMap" resultType="sqlMap">
-		/* selectRecordUserDetail */
-		select match_id
-             , a.log_id
-			  , a.log_timestamp
-			  , max(a.win_lose) as win_lose
-			  , max(a.guild_name) as guild_name
-			  , max(a.wizard_name) as wizard_name
-			  , max(a.opp_guild_name) as opp_guild_name
-			  , max(a.opp_wizard_name) as opp_wizard_name
-			  , max(case when a.type = 'defense' then m1.image_url end) as defense_monster_1
-			  , max(case when a.type = 'defense' then m2.image_url end) as defense_monster_2
-			  , max(case when a.type = 'defense' then m3.image_url end) as defense_monster_3
-			  , max(case when a.type = 'attack' then m1.image_url end) as attack_monster_1
-			  , max(case when a.type = 'attack' then m2.image_url end) as attack_monster_2
-			  , max(case when a.type = 'attack' then m3.image_url end) as attack_monster_3
-			  , max(case when a.type = 'defense' then m1.leader_id end) as defense_leader_id
-			  , max(case when a.type = 'defense' then ml1.type end) as defense_leader_type
-			  , max(case when a.type = 'defense' then ml1.stat end) as defense_leader_stat
-			  , max(case when a.type = 'defense' then ml1.increase_by end) as defense_leader_increase_by
-			  , max(case when a.type = 'defense' then ml1.icon_path end) as defense_leader_icon
-			  , max(case when a.type = 'defense' then get_leader_skill_desc(ml1.type, ml1.stat, ml1.increase_by) end) as defense_leader_skill_description
-			  , max(case when a.type = 'attack' then m1.leader_id end) as attack_leader_id
-			  , max(case when a.type = 'attack' then ml1.type end) as attack_leader_type
-			  , max(case when a.type = 'attack' then ml1.stat end) as attack_leader_stat
-			  , max(case when a.type = 'attack' then ml1.increase_by end) as attack_leader_increase_by
-			  , max(case when a.type = 'attack' then ml1.icon_path end) as attack_leader_icon
-			  , max(case when a.type = 'attack' then get_leader_skill_desc(ml1.type, ml1.stat, ml1.increase_by) end) as attack_leader_skill_description
-		   from (select vbdi.match_id
-			          , vbdi.log_id
-			          , vbdi.log_timestamp
-			          , vbdi.type
-			          , bll.win_lose
-			          , bll.guild_name
-			          , bll.wizard_name
-			          , bll.opp_guild_name
-			          , bll.opp_wizard_name
-			          , case when mcm1.original_monster_id is null then vbdi.monster_id_1 else mcm1.original_monster_id end AS monster_id_1
-			          , case when mcm2.original_monster_id is null then vbdi.monster_id_2 else mcm2.original_monster_id end AS monster_id_2
-			          , case when mcm3.original_monster_id is null then vbdi.monster_id_3 else mcm3.original_monster_id end AS monster_id_3
-			       from view_battle_deck_info vbdi
-			       		       LEFT JOIN monster_collaboration_mapping mcm1
-		   	 ON vbdi.monster_id_1 = mcm1.collaboration_monster_id
-		       LEFT JOIN monster_collaboration_mapping mcm2
-		  	     ON vbdi.monster_id_2 = mcm2.collaboration_monster_id
-		       LEFT JOIN monster_collaboration_mapping mcm3
-		 	     ON vbdi.monster_id_3 = mcm3.collaboration_monster_id
-			  	   join (select bll.*
-							     , gsbl.guild_name
-							     , gsbl2.guild_name as opp_guild_name
-							  from battle_log_list bll
-							  left join guild_siege_battle_log gsbl
-							    on bll.match_id = gsbl.match_id
-							   and bll.guild_id = gsbl.guild_id
-							  left join guild_siege_battle_log gsbl2
-							    on bll.match_id = gsbl2.match_id
-							   and bll.opp_guild_id = gsbl2.guild_id
-							  where 1=1
-							  	<!-- 본인 길드 인원만 -->
-							  	<if test="sess_guild_id != null and sess_guild_id != ''">
-							  	AND bll.guild_id = #{sess_guild_id}::text
-							  	</if>
-					    ) bll
-			  	     on vbdi.match_id = bll.match_id
-			  	    and vbdi.log_id = bll.log_id
-			  	    and bll.wizard_id = #{wizard_id}
-		        ) a
-		 LEFT JOIN monster m1 ON a.monster_id_1 = m1.monster_id
-		 LEFT JOIN monster m2 ON a.monster_id_2 = m2.monster_id
-		 LEFT JOIN monster m3 ON a.monster_id_3 = m3.monster_id
-		 LEFT JOIN monster_leaders ml1 ON m1.leader_id = ml1.leader_id
-		WHERE 1 = 1
-		  <!-- 시즌: season_no 없으면 전체, 있으면 해당 시즌만 -->
-		  <if test="season_no != null and season_no != ''">
-		  AND EXISTS (
-		    SELECT 1 FROM guild_siege_season gss
-		    WHERE gss.season_no = #{season_no}::int
-		      AND TO_DATE(SUBSTRING(a.match_id, 1, 6), 'YYYYMM') >= gss.start_date
-		      AND (gss.end_date IS NULL OR TO_DATE(SUBSTRING(a.match_id, 1, 6), 'YYYYMM') &lt;= gss.end_date)
-		  )
-		  </if>
-		group by a.match_id, a.log_id, a.log_timestamp
-   order by a.log_timestamp desc
+		/* summonerswar.selectRecordUserDetail — bll 선필터·LIMIT 후 vbdi·monster 조인 */
+		<if test="season_no != null and season_no != ''">
+		WITH season_bounds AS (
+			SELECT
+				to_char(gss.start_date, 'YYYYMM') AS start_yyyymm,
+				to_char(COALESCE(gss.end_date, DATE '2099-12-31'), 'YYYYMM') AS end_yyyymm
+			FROM public.guild_siege_season gss
+			WHERE gss.season_no = #{season_no}::int
+			LIMIT 1
+		),
+		</if>
+		bll_core AS (
+			SELECT
+				bll.match_id,
+				bll.log_id,
+				bll.log_timestamp,
+				bll.win_lose,
+				COALESCE(gsbl.guild_name, bll.guild_name) AS guild_name,
+				bll.wizard_name,
+				COALESCE(gsbl2.guild_name, bll.opp_guild_name) AS opp_guild_name,
+				bll.opp_wizard_name
+			FROM public.battle_log_list bll
+			<if test="season_no != null and season_no != ''">
+			CROSS JOIN season_bounds sb
+			</if>
+			LEFT JOIN public.guild_siege_battle_log gsbl
+				ON bll.match_id = gsbl.match_id
+			   AND bll.guild_id = gsbl.guild_id
+			LEFT JOIN public.guild_siege_battle_log gsbl2
+				ON bll.match_id = gsbl2.match_id
+			   AND bll.opp_guild_id = gsbl2.guild_id
+			WHERE bll.wizard_id = #{wizard_id}
+			<if test="sess_guild_id != null and sess_guild_id != ''">
+			  AND bll.guild_id = #{sess_guild_id}::text
+			</if>
+			<if test="season_no != null and season_no != ''">
+			  AND substring(bll.match_id, 1, 6) &gt;= sb.start_yyyymm
+			  AND substring(bll.match_id, 1, 6) &lt;= sb.end_yyyymm
+			</if>
+			ORDER BY bll.log_timestamp DESC
+			LIMIT #{limit}
+			OFFSET #{sql_offset}
+		),
+		deck_rows AS (
+			SELECT
+				vbdi.match_id,
+				vbdi.log_id,
+				vbdi.log_timestamp,
+				vbdi.type,
+				bll.win_lose,
+				bll.guild_name,
+				bll.wizard_name,
+				bll.opp_guild_name,
+				bll.opp_wizard_name,
+				CASE WHEN mcm1.original_monster_id IS NULL THEN vbdi.monster_id_1 ELSE mcm1.original_monster_id END AS monster_id_1,
+				CASE WHEN mcm2.original_monster_id IS NULL THEN vbdi.monster_id_2 ELSE mcm2.original_monster_id END AS monster_id_2,
+				CASE WHEN mcm3.original_monster_id IS NULL THEN vbdi.monster_id_3 ELSE mcm3.original_monster_id END AS monster_id_3
+			FROM bll_core bll
+			INNER JOIN public.view_battle_deck_info vbdi
+				ON vbdi.match_id = bll.match_id
+			   AND vbdi.log_id = bll.log_id
+			LEFT JOIN public.monster_collaboration_mapping mcm1
+				ON vbdi.monster_id_1 = mcm1.collaboration_monster_id
+			LEFT JOIN public.monster_collaboration_mapping mcm2
+				ON vbdi.monster_id_2 = mcm2.collaboration_monster_id
+			LEFT JOIN public.monster_collaboration_mapping mcm3
+				ON vbdi.monster_id_3 = mcm3.collaboration_monster_id
+		)
+		SELECT
+			a.match_id,
+			a.log_id,
+			a.log_timestamp,
+			MAX(a.win_lose) AS win_lose,
+			MAX(a.guild_name) AS guild_name,
+			MAX(a.wizard_name) AS wizard_name,
+			MAX(a.opp_guild_name) AS opp_guild_name,
+			MAX(a.opp_wizard_name) AS opp_wizard_name,
+			MAX(CASE WHEN a.type = 'defense' THEN m1.image_url END) AS defense_monster_1,
+			MAX(CASE WHEN a.type = 'defense' THEN m2.image_url END) AS defense_monster_2,
+			MAX(CASE WHEN a.type = 'defense' THEN m3.image_url END) AS defense_monster_3,
+			MAX(CASE WHEN a.type = 'attack' THEN m1.image_url END) AS attack_monster_1,
+			MAX(CASE WHEN a.type = 'attack' THEN m2.image_url END) AS attack_monster_2,
+			MAX(CASE WHEN a.type = 'attack' THEN m3.image_url END) AS attack_monster_3,
+			MAX(CASE WHEN a.type = 'defense' THEN m1.leader_id END) AS defense_leader_id,
+			MAX(CASE WHEN a.type = 'defense' THEN ml1.type END) AS defense_leader_type,
+			MAX(CASE WHEN a.type = 'defense' THEN ml1.stat END) AS defense_leader_stat,
+			MAX(CASE WHEN a.type = 'defense' THEN ml1.increase_by END) AS defense_leader_increase_by,
+			MAX(CASE WHEN a.type = 'defense' THEN ml1.icon_path END) AS defense_leader_icon,
+			MAX(CASE WHEN a.type = 'defense' THEN get_leader_skill_desc(ml1.type, ml1.stat, ml1.increase_by) END) AS defense_leader_skill_description,
+			MAX(CASE WHEN a.type = 'attack' THEN m1.leader_id END) AS attack_leader_id,
+			MAX(CASE WHEN a.type = 'attack' THEN ml1.type END) AS attack_leader_type,
+			MAX(CASE WHEN a.type = 'attack' THEN ml1.stat END) AS attack_leader_stat,
+			MAX(CASE WHEN a.type = 'attack' THEN ml1.increase_by END) AS attack_leader_increase_by,
+			MAX(CASE WHEN a.type = 'attack' THEN ml1.icon_path END) AS attack_leader_icon,
+			MAX(CASE WHEN a.type = 'attack' THEN get_leader_skill_desc(ml1.type, ml1.stat, ml1.increase_by) END) AS attack_leader_skill_description
+		FROM deck_rows a
+		LEFT JOIN public.monster m1 ON a.monster_id_1 = m1.monster_id
+		LEFT JOIN public.monster m2 ON a.monster_id_2 = m2.monster_id
+		LEFT JOIN public.monster m3 ON a.monster_id_3 = m3.monster_id
+		LEFT JOIN public.monster_leaders ml1 ON m1.leader_id = ml1.leader_id
+		GROUP BY a.match_id, a.log_id, a.log_timestamp
+		ORDER BY a.log_timestamp DESC
 	</select>
 	
 	<select id="selectGuildSiegeHistorySimple" parameterType="sqlMap" resultType="sqlMap">

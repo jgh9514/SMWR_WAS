@@ -187,12 +187,28 @@ GROUP BY bucket_date, grade_slot
 
 	<!--
 	  소환사 랭킹 전용: participant 에 season_id 가 있으므로 rta_match_in_season JOIN 불필요.
-	  top_wizards(최고점 행) + win_agg(경기수·승수) 두 CTE로 분리 — 윈도 함수 + DISTINCT ON 동시 사용 시
-	  테이블 전체 정렬이 두 번 발생해 대용량 시즌에서 커넥션 I/O 오류 유발, GROUP BY로 교체.
+	  participant_base MATERIALIZED 1회 적재 후 top_wizards(DISTINCT ON) + wizard_stats(GROUP BY) —
+	  시즌 participant 3회 풀스캔 대신 1회 범위 스캔으로 배치 시간·커넥션 유지 부담을 줄인다.
 	-->
 	<sql id="rtaSummonerRankingTopWizardsPairCte">
+		participant_base AS MATERIALIZED (
+			SELECT
+				wizard_id,
+				wizard_name,
+				country_code,
+				channel_uid,
+				ladder_score,
+				rating_id,
+				is_winner,
+				played_at,
+				replay_id
+			FROM public.rta_match_participant
+			WHERE season_id = #{seasonId}
+			  AND ladder_score &gt; 0
+			  AND wizard_id &lt;&gt; ''
+		),
 		top_wizards AS (
-			/* wizard_id 별 가장 최근 경기 행 — 현재 점수 기준 */
+			/* wizard_id 별 가장 최근 경기 행 — 현재 점수 기준 (idx_rta_participant_ranking_v2) */
 			SELECT DISTINCT ON (wizard_id)
 				wizard_id,
 				wizard_name,
@@ -200,31 +216,17 @@ GROUP BY bucket_date, grade_slot
 				channel_uid,
 				ladder_score AS cur_score,
 				rating_id
-			FROM public.rta_match_participant
-			WHERE season_id = #{seasonId}
-			  AND ladder_score &gt; 0
-			  AND wizard_id &lt;&gt; ''
+			FROM participant_base
 			ORDER BY wizard_id, played_at DESC, replay_id DESC
 		),
-		max_score_agg AS (
-			/* 시즌 최고 점수 — max_season_score 필드용 */
-			SELECT wizard_id, MAX(ladder_score)::int AS max_score
-			FROM public.rta_match_participant
-			WHERE season_id = #{seasonId}
-			  AND ladder_score &gt; 0
-			  AND wizard_id &lt;&gt; ''
-			GROUP BY wizard_id
-		),
-		win_agg AS (
-			/* 경기수·승수는 GROUP BY 집계 */
+		wizard_stats AS (
+			/* 시즌 최고 점수 + 경기수·승수 — participant 시즌 범위 1회 스캔으로 집계 */
 			SELECT
 				wizard_id,
-				COUNT(*)::bigint                                                AS match_count,
-				SUM(CASE WHEN is_winner THEN 1 ELSE 0 END)::bigint             AS win_count
-			FROM public.rta_match_participant
-			WHERE season_id = #{seasonId}
-			  AND ladder_score &gt; 0
-			  AND wizard_id &lt;&gt; ''
+				MAX(ladder_score)::int AS max_score,
+				COUNT(*)::bigint AS match_count,
+				SUM(CASE WHEN is_winner THEN 1 ELSE 0 END)::bigint AS win_count
+			FROM participant_base
 			GROUP BY wizard_id
 		)
 	</sql>
@@ -246,13 +248,12 @@ GROUP BY bucket_date, grade_slot
 				t.country,
 				t.channel_uid,
 				t.cur_score,
-				COALESCE(ms.max_score, t.cur_score) AS max_score,
+				COALESCE(ws.max_score, t.cur_score) AS max_score,
 				t.rating_id,
-				COALESCE(a.match_count, 0) AS match_count,
-				COALESCE(a.win_count,   0) AS win_count
+				COALESCE(ws.match_count, 0) AS match_count,
+				COALESCE(ws.win_count,   0) AS win_count
 			FROM top_wizards t
-			LEFT JOIN max_score_agg ms ON ms.wizard_id = t.wizard_id
-			LEFT JOIN win_agg a ON a.wizard_id = t.wizard_id
+			LEFT JOIN wizard_stats ws ON ws.wizard_id = t.wizard_id
 			ORDER BY t.cur_score DESC, t.wizard_id ASC
 			LIMIT 500
 		),

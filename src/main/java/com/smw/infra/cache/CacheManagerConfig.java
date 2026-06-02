@@ -45,7 +45,9 @@ public class CacheManagerConfig {
                 "noticeDetail",
                 "popupNoticeList",
                 "guildSiegeHistory",
-                "guildSiegeHistoryCount"
+                "guildSiegeHistoryCount",
+                "battleRecordList",
+                "battleRecordDetail"
         ));
         cacheManager.setCaffeine(Caffeine.newBuilder()
                 .maximumSize(shortLivedMaximumSize)

@@ -152,6 +152,10 @@ public interface RtaMapper {
     @org.apache.ibatis.annotations.Update("SET LOCAL idle_in_transaction_session_timeout = 0")
     void disableLocalIdleInTransactionTimeout();
 
+    /** 배치 전용: 장시간 INSERT/CTE — 세션 statement_timeout 이 짧을 때 중단 방지. */
+    @org.apache.ibatis.annotations.Update("SET LOCAL statement_timeout = 0")
+    void disableLocalStatementTimeout();
+
     /** 시즌의 누락된 랭크컷 스냅 시간대 목록 조회 (limit: 1회 처리 최대 개수) */
     List<java.time.Instant> selectMissingRankCutSnapHours(@Param("seasonId") long seasonId,
                                                           @Param("limit") int limit);
@@ -248,6 +252,14 @@ public interface RtaMapper {
 
     /** 시즌 단위: 소환사×상대 H2H 스냅 삭제(재적재 직전) */
     int deleteRtaSummonerOpponentH2hSnapBySeason(@Param("seasonId") long seasonId);
+
+    /**
+     * 시즌 H2H 스냅을 wizard_id 배치로 삭제 — 단일 DELETE 장시간·I/O 오류 완화.
+     * {@code idx_rta_agg_summoner_opp_h2h_season_wizard} 활용.
+     */
+    int deleteRtaSummonerOpponentH2hSnapBySeasonWizardBatch(
+            @Param("seasonId") long seasonId,
+            @Param("wizardBatchSize") int wizardBatchSize);
 
     /**
      * 시즌×participant 기준 1:1 H2H 전량 INSERT — {@code rta_match_participant} me/o 조인 집계.

@@ -288,7 +288,7 @@
           AND s.season_id = #{seasonId}
     </update>
 
-    <!-- 랭킹 스냅: RtaBatchAggregationService 에서 lock → delete(전량) → insert(이 구문) 동일 TX -->
+    <!-- 랭킹 스냅: delete TX 와 분리된 insert TX 에서 lock 후 이 구문 실행 -->
     <select id="acquireRtaSummonerSnapSeasonXactLock" resultType="int">
         SELECT 1
         FROM (
@@ -1006,9 +1006,24 @@
         WHERE season_id = #{seasonId}
     </delete>
 
+    <delete id="deleteRtaSummonerOpponentH2hSnapBySeasonWizardBatch">
+        /* rta-queries-batch-meta.deleteRtaSummonerOpponentH2hSnapBySeasonWizardBatch */
+        DELETE FROM public.rta_agg_summoner_opponent_h2h_snap h
+        WHERE h.season_id = #{seasonId}
+          AND h.wizard_id IN (
+            SELECT w.wizard_id
+            FROM (
+                SELECT DISTINCT wizard_id
+                FROM public.rta_agg_summoner_opponent_h2h_snap
+                WHERE season_id = #{seasonId}
+                LIMIT #{wizardBatchSize}
+            ) w
+          )
+    </delete>
+
     <insert id="insertRtaSummonerOpponentH2hSnapForSeason">
         /* rta-queries-batch-meta.insertRtaSummonerOpponentH2hSnapForSeason
-           동일 replay_id×위자드 participant 중복 행이 있어도 경기당 1회만 집계한다. */
+           participant 시즌 1회 MATERIALIZED 후 replay 1:1 집계. */
         INSERT INTO public.rta_agg_summoner_opponent_h2h_snap (
             season_id,
             wizard_id,
@@ -1021,6 +1036,33 @@
             lose_cnt,
             computed_at
         )
+        WITH season_part AS MATERIALIZED (
+            SELECT
+                replay_id,
+                season_id,
+                wizard_id,
+                wizard_name,
+                channel_uid,
+                country_code,
+                is_winner
+            FROM public.rta_match_participant
+            WHERE season_id = #{seasonId}
+        ),
+        duel AS (
+            SELECT DISTINCT ON (me.replay_id, me.wizard_id, o.wizard_id)
+                me.season_id,
+                me.wizard_id,
+                o.wizard_id AS opponent_wizard_id,
+                o.wizard_name AS opponent_wizard_name,
+                o.channel_uid AS opponent_channel_uid,
+                o.country_code AS opponent_country_code,
+                me.is_winner
+            FROM season_part me
+            INNER JOIN season_part o
+                ON o.replay_id = me.replay_id
+               AND o.wizard_id &lt;&gt; me.wizard_id
+            ORDER BY me.replay_id, me.wizard_id, o.wizard_id
+        )
         SELECT
             d.season_id,
             d.wizard_id,
@@ -1032,22 +1074,7 @@
             SUM(CASE WHEN d.is_winner IS TRUE THEN 1 ELSE 0 END)::bigint,
             SUM(CASE WHEN d.is_winner IS FALSE THEN 1 ELSE 0 END)::bigint,
             CURRENT_TIMESTAMP
-        FROM (
-            SELECT DISTINCT ON (me.replay_id, me.wizard_id, o.wizard_id)
-                me.season_id,
-                me.wizard_id,
-                o.wizard_id AS opponent_wizard_id,
-                o.wizard_name AS opponent_wizard_name,
-                o.channel_uid AS opponent_channel_uid,
-                o.country_code AS opponent_country_code,
-                me.is_winner
-            FROM public.rta_match_participant me
-            INNER JOIN public.rta_match_participant o
-                ON o.replay_id = me.replay_id
-               AND o.wizard_id &lt;&gt; me.wizard_id
-            WHERE me.season_id = #{seasonId}
-            ORDER BY me.replay_id, me.wizard_id, o.wizard_id
-        ) d
+        FROM duel d
         GROUP BY d.season_id, d.wizard_id, d.opponent_wizard_id
     </insert>
 
