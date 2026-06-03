@@ -250,14 +250,21 @@
         WHERE season_id = #{seasonId}
     </update>
 
-    <update id="truncateStagingRtaSummonerSnapRid">
-        /* rta-queries-batch-meta.truncateStagingRtaSummonerSnapRid — 청크 시작 시 비움(UNLOGGED) */
-        TRUNCATE public.staging_rta_summoner_snap_rid
+    <update id="ensureSummonerSnapChunkTempStaging">
+        /* rta-queries-batch-meta.ensureSummonerSnapChunkTempStaging
+           청크 TX 전용 TEMP staging — public UNLOGGED TRUNCATE(ACCESS EXCLUSIVE) 락 경합 제거.
+           public. 접두사 없이 참조하면 이 세션에서는 TEMP 가 permanent 를 가린다.
+           ON COMMIT DELETE ROWS: 커밋 시 행만 비움, 다음 청크에서 재 INSERT. */
+        CREATE TEMP TABLE IF NOT EXISTS staging_rta_summoner_snap_rid (
+            season_id bigint NOT NULL,
+            replay_id bigint NOT NULL,
+            CONSTRAINT staging_rta_summoner_snap_rid_pkey PRIMARY KEY (season_id, replay_id)
+        ) ON COMMIT DELETE ROWS
     </update>
 
     <insert id="insertStagingRtaSummonerSnapRidBatch">
         /* rta-queries-batch-meta.insertStagingRtaSummonerSnapRidBatch */
-        INSERT INTO public.staging_rta_summoner_snap_rid (season_id, replay_id)
+        INSERT INTO staging_rta_summoner_snap_rid (season_id, replay_id)
         VALUES
         <foreach collection="rids" item="rid" separator=",">
         (#{seasonId}, #{rid})
@@ -273,7 +280,7 @@
             up.unit_master_id,
             CURRENT_TIMESTAMP
         FROM public.rta_match_unit_pick up
-        INNER JOIN public.staging_rta_summoner_snap_rid s
+        INNER JOIN staging_rta_summoner_snap_rid s
             ON s.replay_id = up.replay_id
            AND s.season_id = #{seasonId}
         INNER JOIN public.rta_match_participant mp
@@ -291,7 +298,7 @@
         UPDATE public.rta_match m
         SET summoner_ranking_applied_at = CURRENT_TIMESTAMP,
             summoner_ranking_apply_result = 'S'
-        FROM public.staging_rta_summoner_snap_rid s
+        FROM staging_rta_summoner_snap_rid s
         WHERE m.replay_id = s.replay_id
           AND m.season_id = s.season_id
           AND s.season_id = #{seasonId}
@@ -1191,7 +1198,7 @@
         )
         WITH staged AS (
             SELECT s.replay_id
-              FROM public.staging_rta_summoner_snap_rid s
+              FROM staging_rta_summoner_snap_rid s
              WHERE s.season_id = #{seasonId}
         ),
         part AS (
@@ -1241,7 +1248,7 @@
 
     <!--
       소환사×몬스터 스냅: 시즌 전량을 한 문에 집계하면 I/O·work_mem·JDBC "sending" 오류가 날 수 있어
-      스테이징 rid 청크로 집계 — INSERT 전 {@code truncateStagingRtaSummonerSnapRid} + {@code insertStagingRtaSummonerSnapRidBatch} 필수.
+      스테이징 rid 청크로 집계 — INSERT 전 {@code ensureSummonerSnapChunkTempStaging} + {@code insertStagingRtaSummonerSnapRidBatch} 필수.
     -->
     <insert id="insertRtaSummonerMonsterSnapForSeasonReplayChunk">
         /* rta-queries-batch-meta.insertRtaSummonerMonsterSnapForSeasonReplayChunk */
@@ -1257,7 +1264,7 @@
                 mp.is_winner,
                 mp.is_first_pick
             FROM public.rta_match_participant mp
-            INNER JOIN public.staging_rta_summoner_snap_rid s
+            INNER JOIN staging_rta_summoner_snap_rid s
                 ON s.season_id = mp.season_id
                AND s.replay_id = mp.replay_id
             WHERE mp.season_id = #{seasonId}
@@ -1271,7 +1278,7 @@
                 up.is_banned,
                 up.pick_slot_no
             FROM public.rta_match_unit_pick up
-            INNER JOIN public.staging_rta_summoner_snap_rid s
+            INNER JOIN staging_rta_summoner_snap_rid s
                 ON s.replay_id = up.replay_id
                AND s.season_id = #{seasonId}
             ORDER BY up.replay_id, up.wizard_id, up.unit_master_id, up.is_banned ASC, up.pick_slot_no ASC
@@ -1297,40 +1304,20 @@
             GROUP BY p.season_id, p.wizard_id, u.unit_master_id
         )
         SELECT
-            d.season_id,
-            d.wizard_id,
-            d.unit_master_id,
-            d.pick_cnt,
-            d.ban_cnt,
-            d.win_cnt,
-            d.lose_cnt,
-            d.first_pick_cnt,
-            d.owned_copy_count,
+            a.season_id,
+            a.wizard_id,
+            a.unit_master_id,
+            a.pick_cnt,
+            a.ban_cnt,
+            a.win_cnt,
+            a.lose_cnt,
+            a.first_pick_cnt,
+            COALESCE(o.copy_count, 0)::int AS owned_copy_count,
             CURRENT_TIMESTAMP
-        FROM (
-            SELECT
-                a.season_id,
-                a.wizard_id,
-                a.unit_master_id,
-                MAX(a.pick_cnt)       AS pick_cnt,
-                MAX(a.ban_cnt)        AS ban_cnt,
-                MAX(a.win_cnt)        AS win_cnt,
-                MAX(a.lose_cnt)       AS lose_cnt,
-                MAX(a.first_pick_cnt) AS first_pick_cnt,
-                MAX(COALESCE(o.copy_count, 0))::int AS owned_copy_count
-            FROM agg a
-            LEFT JOIN (
-                SELECT
-                    wizard_id,
-                    master_id,
-                    MAX(copy_count)::int AS copy_count
-                FROM public.user_monster_owned_agg
-                GROUP BY wizard_id, master_id
-            ) o
-                ON o.wizard_id = a.wizard_id
-               AND o.master_id = a.unit_master_id
-            GROUP BY a.season_id, a.wizard_id, a.unit_master_id
-        ) d
+        FROM agg a
+        LEFT JOIN public.user_monster_owned_agg o
+            ON o.wizard_id = a.wizard_id
+           AND o.master_id = a.unit_master_id
         ON CONFLICT ON CONSTRAINT rta_agg_summoner_monster_snap_pkey DO UPDATE SET
             pick_cnt           = public.rta_agg_summoner_monster_snap.pick_cnt + EXCLUDED.pick_cnt,
             ban_cnt            = public.rta_agg_summoner_monster_snap.ban_cnt + EXCLUDED.ban_cnt,
@@ -1368,7 +1355,7 @@
                 mp.is_winner,
                 mp.is_first_pick
             FROM public.rta_match_participant mp
-            INNER JOIN public.staging_rta_summoner_snap_rid s
+            INNER JOIN staging_rta_summoner_snap_rid s
                 ON s.season_id = mp.season_id
                AND s.replay_id = mp.replay_id
             WHERE mp.season_id = #{seasonId}
@@ -1382,7 +1369,7 @@
                 up.is_banned,
                 up.pick_slot_no
             FROM public.rta_match_unit_pick up
-            INNER JOIN public.staging_rta_summoner_snap_rid s
+            INNER JOIN staging_rta_summoner_snap_rid s
                 ON s.replay_id = up.replay_id
                AND s.season_id = #{seasonId}
         ),
@@ -1990,7 +1977,7 @@
             p2_units, p2_unit_banned, p2_pick_slots
         )
         WITH staged AS (
-            SELECT s.replay_id FROM public.staging_rta_summoner_snap_rid s WHERE s.season_id = #{seasonId}
+            SELECT s.replay_id FROM staging_rta_summoner_snap_rid s WHERE s.season_id = #{seasonId}
         ),
         unit_agg AS (
             SELECT u.replay_id, u.wizard_id,

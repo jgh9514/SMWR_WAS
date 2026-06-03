@@ -89,7 +89,66 @@
 	
 	<select id="selectEnemyTeamList" parameterType="sqlMap" resultType="sqlMap">
 		/* selectEnemyTeamList */
-				<!-- siege_defense_deck_stats + 수동 등록 방덱(siege_defense_deck_manual) -->
+		<choose>
+		<when test='match_id != null and match_id != "" and match_id != "null"'>
+		<!-- match_id 지정 시: view_battle_deck_info + battle_log_list 조인으로 해당 매치 방덱+전적만 조회 -->
+		SELECT deck.m1_id || '-' || deck.m2_id || '-' || deck.m3_id AS key
+		     , deck.m1_id AS monster_id_1, deck.m2_id AS monster_id_2, deck.m3_id AS monster_id_3
+		     , m1.image_url AS image_url1, m2.image_url AS image_url2, m3.image_url AS image_url3
+		     , COUNT(1) AS total_count
+		     , ROUND(100.0 * SUM(CASE WHEN bll.win_lose = '1' THEN 1 ELSE 0 END) / COUNT(*), 1) AS total_rate
+		     , SUM(CASE WHEN bll.win_lose = '1' THEN 1 ELSE 0 END) AS win_count
+		     , SUM(CASE WHEN bll.win_lose = '2' THEN 1 ELSE 0 END) AS lose_count
+		     , m1.leader_id AS leader_id, ml1.type AS leader_type, ml1.stat AS leader_stat
+		     , ml1.increase_by AS leader_increase_by, ml1.icon_path AS leader_icon
+		     , get_leader_skill_desc(ml1.type, ml1.stat, ml1.increase_by) AS leader_skill_description
+		  FROM (
+		    SELECT vbdi.match_id, vbdi.log_timestamp
+		         , COALESCE(mcm1.original_monster_id, vbdi.monster_id_1) AS m1_id
+		         , LEAST(COALESCE(mcm2.original_monster_id, vbdi.monster_id_2),
+		                COALESCE(mcm3.original_monster_id, vbdi.monster_id_3)) AS m2_id
+		         , GREATEST(COALESCE(mcm2.original_monster_id, vbdi.monster_id_2),
+		                    COALESCE(mcm3.original_monster_id, vbdi.monster_id_3)) AS m3_id
+		      FROM view_battle_deck_info vbdi
+		      LEFT JOIN monster_collaboration_mapping mcm1 ON vbdi.monster_id_1 = mcm1.collaboration_monster_id
+		      LEFT JOIN monster_collaboration_mapping mcm2 ON vbdi.monster_id_2 = mcm2.collaboration_monster_id
+		      LEFT JOIN monster_collaboration_mapping mcm3 ON vbdi.monster_id_3 = mcm3.collaboration_monster_id
+		     WHERE vbdi.type = 'defense'
+		       AND vbdi.match_id = #{match_id}
+		  ) deck
+		  LEFT JOIN battle_log_list bll ON deck.match_id = bll.match_id AND deck.log_timestamp = bll.log_timestamp
+		  LEFT JOIN monster m1 ON deck.m1_id = m1.monster_id
+		  LEFT JOIN monster m2 ON deck.m2_id = m2.monster_id
+		  LEFT JOIN monster m3 ON deck.m3_id = m3.monster_id
+		  LEFT JOIN monster_leaders ml1 ON m1.leader_id = ml1.leader_id
+		 WHERE 1=1
+		   <if test="monster_id1_ids != null and monster_id1_ids.size() > 0">
+		   AND deck.m1_id IN <foreach collection="monster_id1_ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+		   </if>
+		   <if test="(monster_id2_ids != null and monster_id2_ids.size() > 0) or (monster_id3_ids != null and monster_id3_ids.size() > 0)">
+		     <choose>
+		       <when test="monster_id2_ids != null and monster_id2_ids.size() > 0 and monster_id3_ids != null and monster_id3_ids.size() > 0">
+		   AND deck.m2_id IN <foreach collection="monster_id2_ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+		   AND deck.m3_id IN <foreach collection="monster_id3_ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+		       </when>
+		       <when test="monster_id2_ids != null and monster_id2_ids.size() > 0">
+		   AND (deck.m2_id IN <foreach collection="monster_id2_ids" item="id" open="(" separator="," close=")">#{id}</foreach> OR deck.m3_id IN <foreach collection="monster_id2_ids" item="id" open="(" separator="," close=")">#{id}</foreach>)
+		       </when>
+		       <otherwise>
+		   AND (deck.m2_id IN <foreach collection="monster_id3_ids" item="id" open="(" separator="," close=")">#{id}</foreach> OR deck.m3_id IN <foreach collection="monster_id3_ids" item="id" open="(" separator="," close=")">#{id}</foreach>)
+		       </otherwise>
+		     </choose>
+		   </if>
+		 GROUP BY deck.m1_id, deck.m2_id, deck.m3_id, m1.image_url, m2.image_url, m3.image_url
+		        , m1.leader_id, ml1.type, ml1.stat, ml1.increase_by, ml1.icon_path
+		 <if test="min_lose_count != null and min_lose_count != ''">
+		 HAVING SUM(CASE WHEN bll.win_lose = '2' THEN 1 ELSE 0 END) >= #{min_lose_count}::int
+		 </if>
+		 ORDER BY total_count DESC
+		 LIMIT CAST(#{paging} AS bigint) OFFSET (CAST(#{paging} AS bigint) * (CAST(#{offset} AS bigint) - 1))
+		</when>
+		<otherwise>
+		<!-- match_id 없음: siege_defense_deck_stats 집계 경로 + 수동 등록 방덱 -->
 				SELECT * FROM (
 				SELECT DISTINCT ON (monster_id_1, monster_id_2, monster_id_3)
 				       key, monster_id_1, monster_id_2, monster_id_3
@@ -246,6 +305,8 @@
 				) combined
 				ORDER BY total_count DESC
 				LIMIT CAST(#{paging} AS bigint) OFFSET (CAST(#{paging} AS bigint) * (CAST(#{offset} AS bigint) - 1))
+		</otherwise>
+		</choose>
 	</select>
 
 
@@ -1514,11 +1575,11 @@
 		)
 		, legacy_vote_normalized AS (
 		    -- deck_id 없는 레거시 투표: 공격 몬스터 조합(콜라보 정규화)별 집계
-		    SELECT array_agg(u ORDER BY u)::text AS norm_key
+		    SELECT norm.u::text AS norm_key
 		         , v.vote_type
 		         , COUNT(*)::int AS cnt
 		      FROM siege_deck_user_vote v
-		         , LATERAL (
+		      CROSS JOIN LATERAL (
 		             SELECT array_agg(u ORDER BY u) AS u
 		               FROM unnest(ARRAY[
 		                 COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = v.atk_monster_1::text LIMIT 1), v.atk_monster_1::text),
@@ -1530,7 +1591,7 @@
 		       AND v.def_monster_1 = #{dm1}
 		       AND v.def_monster_2 = #{dm2}
 		       AND v.def_monster_3 = #{dm3}
-		     GROUP BY norm_key, v.vote_type
+		     GROUP BY norm.u, v.vote_type
 		)
 		SELECT srad.id AS id
 		     , srad.id AS deck_id

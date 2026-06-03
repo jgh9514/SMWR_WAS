@@ -201,6 +201,11 @@ spec:
               value: "10800000"
             - name: SMW_RTA_SYNERGY_APPLY_SUB_BATCH_SIZE
               value: "800"
+            # 소환사 몬·픽턴 — 키셋 청크 1000, TX당 replay 200 (t4g.small UPSERT·JDBC 타임아웃 완화)
+            - name: SMW_RTA_BATCH_SUMMONER_MONSTER_SNAP_REPLAY_CHUNK_SIZE
+              value: "1000"
+            - name: SMW_RTA_BATCH_SUMMONER_MONSTER_SNAP_TX_REPLAY_SIZE
+              value: "200"
           resources:
             requests:
               memory: "512Mi"

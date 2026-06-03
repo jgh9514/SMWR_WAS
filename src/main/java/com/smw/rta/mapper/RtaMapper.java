@@ -315,15 +315,15 @@ public interface RtaMapper {
     /** 시즌 스냅 전량 삭제 직후 — 해당 시즌 {@code rta_match} 소환사 스냅 플래그를 NULL 로 (재집계 대기). */
     int clearSummonerRankingMatchFlagsForSeason(@Param("seasonId") long seasonId);
 
-    /** 무거운 스냅: 청크 시작 시 스테이징 비우기(UNLOGGED). */
-    void truncateStagingRtaSummonerSnapRid();
+    /** 무거운 스냅: 청크 TX 전용 TEMP staging (public TRUNCATE 락 경합 방지). */
+    void ensureSummonerSnapChunkTempStaging();
 
     /** 스테이징에 replay_id 적재 — 이후 집계 SQL 이 JOIN 으로 참조. */
     int insertStagingRtaSummonerSnapRidBatch(@Param("seasonId") long seasonId, @Param("rids") List<Long> rids);
 
     /**
      * {@code rta_agg_summoner_monster_snap} — 스테이징에 올린 rid 만 집계하여 INSERT.
-     * 직전에 {@link #truncateStagingRtaSummonerSnapRid}, {@link #insertStagingRtaSummonerSnapRidBatch} 필수.
+     * 직전에 {@link #ensureSummonerSnapChunkTempStaging}, {@link #insertStagingRtaSummonerSnapRidBatch} 필수.
      */
     int insertRtaSummonerMonsterSnapForSeasonReplayChunk(@Param("seasonId") long seasonId);
 

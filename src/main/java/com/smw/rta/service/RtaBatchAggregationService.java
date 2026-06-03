@@ -48,8 +48,14 @@ public class RtaBatchAggregationService {
 	/**
 	 * {@code rta_agg_summoner_monster_snap}: 시즌 INSERT 를 리플레이 ID 키셋 청크로 분할(한 문 집계 부담·I/O 오류 완화).
 	 */
-	@Value("${smw.rta.batch.summoner-monster-snap-replay-chunk-size:3000}")
+	@Value("${smw.rta.batch.summoner-monster-snap-replay-chunk-size:1000}")
 	private int summonerMonsterSnapReplayChunkSize;
+
+	/**
+	 * 키셋 청크 내 실제 DB 트랜잭션 replay 상한 — UPSERT·픽턴·flat 을 짧은 TX 로 쪼개 JDBC 타임아웃 완화.
+	 */
+	@Value("${smw.rta.batch.summoner-monster-snap-tx-replay-size:200}")
+	private int summonerMonsterSnapTxReplaySize;
 
 	private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
@@ -415,6 +421,11 @@ public class RtaBatchAggregationService {
 					summonerMonsterSnapReplayChunkSize);
 		}
 		int limit = Math.max(100, summonerMonsterSnapReplayChunkSize);
+		if (summonerMonsterSnapTxReplaySize < 50) {
+			log.warn("summonerMonsterSnapTxReplaySize={} 가 최솟값(50) 미만 — 50 으로 강제 적용",
+					summonerMonsterSnapTxReplaySize);
+		}
+		int txReplayLimit = Math.max(50, summonerMonsterSnapTxReplaySize);
 		int monTotal = 0;
 		int pickTurnTotal = 0;
 		int ownedBoxTotal = 0;
@@ -427,53 +438,71 @@ public class RtaBatchAggregationService {
 			if (rids == null || rids.isEmpty()) {
 				break;
 			}
-			final List<Long> chunkRids = rids;
-			int[] mon = { 0 };
-			int[] pick = { 0 };
-			int[] box = { 0 };
-			int[] fight = { 0 };
-			transactionTemplate.executeWithoutResult(status -> {
-				applyBatchTxSessionGuards(rtaMapper);
-				long t1 = System.nanoTime();
-				rtaMapper.truncateStagingRtaSummonerSnapRid();
-				rtaMapper.insertStagingRtaSummonerSnapRidBatch(seasonId, chunkRids);
-				perf.addChunkStagingMs(msSinceNanos(t1));
-
-				t1 = System.nanoTime();
-				mon[0] = rtaMapper.insertRtaSummonerMonsterSnapForSeasonReplayChunk(seasonId);
-				perf.addChunkMonsterSnapMs(msSinceNanos(t1));
-
-				t1 = System.nanoTime();
-				pick[0] = rtaMapper.insertRtaSummonerPickTurnSnapForSeasonReplayChunk(seasonId);
-				perf.addChunkPickTurnSnapMs(msSinceNanos(t1));
-
-				t1 = System.nanoTime();
-				box[0] = rtaMapper.mergeRtaSummonerOwnedBoxSnapFromStagingReplayChunk(seasonId);
-				perf.addChunkOwnedBoxMergeMs(msSinceNanos(t1));
-
-				// B — staging replay 기준 fight snap ADD-UPSERT (기존 행에 누적)
-				t1 = System.nanoTime();
-				fight[0] = rtaMapper.insertRtaSummonerFightSnapForStagingReplays(seasonId);
-				perf.addChunkFightSnapMs(msSinceNanos(t1));
-
-				// C — staging replay 기준 rta_match_flat 비정규화 INSERT (JOIN 제거용)
-				rtaMapper.insertRtaMatchFlatForStagingReplays(seasonId);
-
-				t1 = System.nanoTime();
-				rtaMapper.markSummonerRankingAggDoneForStagingSeason(seasonId);
-				perf.addChunkMarkDoneMs(msSinceNanos(t1));
-			});
-			perf.incrementChunkIterations();
-			monTotal += mon[0];
-			pickTurnTotal += pick[0];
-			ownedBoxTotal += box[0];
-			fightTotal += fight[0];
+			for (List<Long> subRids : partitionReplayIds(rids, txReplayLimit)) {
+				int[] mon = { 0 };
+				int[] pick = { 0 };
+				int[] box = { 0 };
+				int[] fight = { 0 };
+				executeSummonerSnapSubChunkTransaction(rtaMapper, seasonId, subRids, mon, pick, box, fight, perf);
+				perf.incrementChunkIterations();
+				monTotal += mon[0];
+				pickTurnTotal += pick[0];
+				ownedBoxTotal += box[0];
+				fightTotal += fight[0];
+			}
 			if (rids.size() < limit) {
 				break;
 			}
 			afterExclusive = rids.get(rids.size() - 1);
 		}
 		return new ChunkTotals(monTotal, pickTurnTotal, ownedBoxTotal, fightTotal);
+	}
+
+	private void executeSummonerSnapSubChunkTransaction(RtaMapper rtaMapper, long seasonId, List<Long> subRids,
+			int[] mon, int[] pick, int[] box, int[] fight, SummonerMonsterSnapPerfAccumulator perf) {
+		transactionTemplate.executeWithoutResult(status -> {
+			applyBatchTxSessionGuards(rtaMapper);
+			long t1 = System.nanoTime();
+			rtaMapper.ensureSummonerSnapChunkTempStaging();
+			rtaMapper.insertStagingRtaSummonerSnapRidBatch(seasonId, subRids);
+			perf.addChunkStagingMs(msSinceNanos(t1));
+
+			t1 = System.nanoTime();
+			mon[0] = rtaMapper.insertRtaSummonerMonsterSnapForSeasonReplayChunk(seasonId);
+			perf.addChunkMonsterSnapMs(msSinceNanos(t1));
+
+			t1 = System.nanoTime();
+			pick[0] = rtaMapper.insertRtaSummonerPickTurnSnapForSeasonReplayChunk(seasonId);
+			perf.addChunkPickTurnSnapMs(msSinceNanos(t1));
+
+			t1 = System.nanoTime();
+			box[0] = rtaMapper.mergeRtaSummonerOwnedBoxSnapFromStagingReplayChunk(seasonId);
+			perf.addChunkOwnedBoxMergeMs(msSinceNanos(t1));
+
+			t1 = System.nanoTime();
+			fight[0] = rtaMapper.insertRtaSummonerFightSnapForStagingReplays(seasonId);
+			perf.addChunkFightSnapMs(msSinceNanos(t1));
+
+			rtaMapper.insertRtaMatchFlatForStagingReplays(seasonId);
+
+			t1 = System.nanoTime();
+			rtaMapper.markSummonerRankingAggDoneForStagingSeason(seasonId);
+			perf.addChunkMarkDoneMs(msSinceNanos(t1));
+		});
+	}
+
+	private static List<List<Long>> partitionReplayIds(List<Long> rids, int maxSize) {
+		if (rids == null || rids.isEmpty()) {
+			return List.of();
+		}
+		if (rids.size() <= maxSize) {
+			return List.of(rids);
+		}
+		List<List<Long>> parts = new ArrayList<>((rids.size() + maxSize - 1) / maxSize);
+		for (int i = 0; i < rids.size(); i += maxSize) {
+			parts.add(rids.subList(i, Math.min(i + maxSize, rids.size())));
+		}
+		return parts;
 	}
 
 	/**
