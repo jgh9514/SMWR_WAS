@@ -33,9 +33,26 @@ public class RtaBatchBacklogScaler {
 	public RtaBatchBacklogCounts snapshot() {
 		return new RtaBatchBacklogCounts(
 				synergyPendingCachedOrCount(),
-				safeCount(swMapper.countRtaReplayRawPending()),
-				safeCount(rtaMapper.countPendingPickSlotSnap()),
-				safeCount(rtaMapper.countPendingSummonerRankingReplays()));
+				rawPendingCount(),
+				pickSlotPendingCount(),
+				summonerRankingPendingCount());
+	}
+
+	/**
+	 * {@link com.smw.monster.batch.RtaUnifiedPipelineAggJob} — raw 정규화 backlog 상한만 계산.
+	 * 시너지·pick-slot·소환사 랭킹 COUNT 는 호출하지 않는다.
+	 */
+	public long rawPendingCount() {
+		return safeCount(swMapper.countRtaReplayRawPending());
+	}
+
+	/** {@link com.smw.monster.batch.RtaMonsterDailySnapJob} pick-slot drain 상한용. */
+	public long pickSlotPendingCount() {
+		return safeCount(rtaMapper.countPendingPickSlotSnap());
+	}
+
+	private long summonerRankingPendingCount() {
+		return safeCount(rtaMapper.countPendingSummonerRankingReplays());
 	}
 
 	/**

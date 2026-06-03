@@ -2,12 +2,16 @@ package com.smw.rta.service;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.TreeSet;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -46,6 +50,8 @@ public class RtaBatchAggregationService {
 	 */
 	@Value("${smw.rta.batch.summoner-monster-snap-replay-chunk-size:3000}")
 	private int summonerMonsterSnapReplayChunkSize;
+
+	private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
 	@Autowired
 	private RtaRankCutSnapValidator rankCutSnapValidator;
@@ -591,11 +597,32 @@ public class RtaBatchAggregationService {
 	}
 
 	/**
+	 * 티어 일별 집계 상한: {@code rta_match} 최신 {@code played_at} 정시에서 1시간 전까지.
+	 * {@code playedBeforeExclusive} 미만 participant만 집계(진행 중인 최신 정시 버킷 제외).
+	 */
+	public record TierDailyDataWindow(
+			Instant maxPlayedAt,
+			Instant tierThroughAt,
+			Instant playedBeforeExclusive) {
+	}
+
+	public Optional<TierDailyDataWindow> resolveTierDailyDataWindow(RtaMapper rtaMapper, long seasonId) {
+		Instant maxPlayed = rtaMapper.selectMaxRtaMatchPlayedAt(seasonId);
+		if (maxPlayed == null) {
+			return Optional.empty();
+		}
+		ZonedDateTime latestHour = ZonedDateTime.ofInstant(maxPlayed, KST).truncatedTo(ChronoUnit.HOURS);
+		Instant playedBeforeExclusive = latestHour.toInstant();
+		Instant tierThroughAt = latestHour.minusHours(1).toInstant();
+		return Optional.of(new TierDailyDataWindow(maxPlayed, tierThroughAt, playedBeforeExclusive));
+	}
+
+	/**
 	 * 시즌별 {@code rta_agg_tier_daily} 전량 재적재.
 	 * <p>
 	 * 당일만 MERGE하는 증분이 아니라, 시즌마다 해당 {@code season_id} 행을 모두 DELETE 한 뒤
 	 * {@code rta_season} 기준(서울) 일자 구간에 대해 누적 집계를 처음부터 다시 넣는다.
-	 * 배치가 중간에 실패했더라도 다음 실행에서 같은 방식으로 전 일자가 일관되게 복구된다.
+	 * 집계 participant 상한은 {@link #resolveTierDailyDataWindow} — 최신 {@code played_at} 정시−1h.
 	 */
 	public TierDailyAggRebuildResult rebuildTierAggDaily(RtaMapper rtaMapper) {
 		Long seasonId = rtaMapper.selectDefaultSeasonIdForNow();
@@ -603,10 +630,18 @@ public class RtaBatchAggregationService {
 			log.warn("rebuildTierAggDaily: 현재 시즌 없음 — rta_season 에 is_active=true 또는 등록된 시즌이 있는지 확인");
 			return new TierDailyAggRebuildResult(0, 0L, 0L, -1L);
 		}
+		Optional<TierDailyDataWindow> window = resolveTierDailyDataWindow(rtaMapper, seasonId.longValue());
+		if (window.isEmpty()) {
+			log.warn("rebuildTierAggDaily: rta_match 데이터 없음 seasonId={}", seasonId);
+			return new TierDailyAggRebuildResult(0, 0L, 0L, seasonId);
+		}
 		long t0 = System.nanoTime();
-		int rows = rtaMapper.insertRtaTierAggDailyForSeason(seasonId);
+		long sid = seasonId.longValue();
+		rtaMapper.deleteRtaAggTierDailyForSeason(sid);
+		rtaMapper.insertRtaTierAggDailyForSeason(sid, window.get().playedBeforeExclusive());
+		long rows = rtaMapper.countRtaAggTierDailyForSeason(sid);
 		long ms = msSinceNanos(t0);
-		return new TierDailyAggRebuildResult(rows, ms, ms, seasonId);
+		return new TierDailyAggRebuildResult(rows, ms, ms, sid);
 	}
 
 	/**
@@ -835,8 +870,6 @@ public class RtaBatchAggregationService {
 		return totalInserted;
 	}
 
-	private static final java.time.ZoneId KST = java.time.ZoneId.of("Asia/Seoul");
-
 	/**
 	 * {@code rta_agg_summoner_score_daily_snap} — 시즌 시작~오늘(KST) 중 스냅이 없는 모든 일자를
 	 * 소급 적재하고(경기 없는 날 포함), 오늘·어제(KST)는 매 실행마다 UPSERT(당일 점수 갱신).
@@ -1032,7 +1065,7 @@ public class RtaBatchAggregationService {
 	 * @param maxSeasonMs    시즌 중 가장 오래 걸린 소요(ms)
 	 * @param slowestSeasonId 가장 오래 걸린 시즌 ID (-1 이면 처리 시즌 없음)
 	 */
-	public record TierDailyAggRebuildResult(int totalRows, long wallMs, long maxSeasonMs, long slowestSeasonId) {
+	public record TierDailyAggRebuildResult(long totalRows, long wallMs, long maxSeasonMs, long slowestSeasonId) {
 	}
 
 	/**

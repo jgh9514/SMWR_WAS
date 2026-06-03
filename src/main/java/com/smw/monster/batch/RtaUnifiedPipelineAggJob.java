@@ -53,11 +53,11 @@ public class RtaUnifiedPipelineAggJob extends BaseBatchJob {
 
 		addLog("[시작] RTA 통합 파이프라인 — 핵심 %d단계 (raw → 부가)", PIPELINE_STEPS);
 
-		RtaBatchBacklogScaler.RtaBatchBacklogCounts backlog = backlogScaler.snapshot();
+		long rawPending = backlogScaler.rawPendingCount();
 		int rowsPerBatch = Math.max(1, rtaRawApplyProperties.getMaxRowsPerRun());
 		int configuredRawBatches = Math.max(1, rtaRawApplyProperties.getMaxBatchesPerJob());
 		int rawMaxBatches = backlogScaler.resolveRawMaxBatches(
-				backlog.rawPending(), rowsPerBatch, configuredRawBatches);
+				rawPending, rowsPerBatch, configuredRawBatches);
 
 		step++;
 		addLog("[%d/%d] RTA raw 정규화 — LIMIT %d행×최대 %d회(설정 %d, backlog raw %,d → 이번 Job %d회)",
@@ -65,7 +65,7 @@ public class RtaUnifiedPipelineAggJob extends BaseBatchJob {
 				rowsPerBatch,
 				rawMaxBatches,
 				configuredRawBatches,
-				backlog.rawPending(),
+				rawPending,
 				rawMaxBatches);
 		RtaBatchAggregationService.RawApplyDrainResult raw = aggregationService.drainReplayRawPending(
 				summonerswarService, rawMaxBatches);
@@ -83,13 +83,15 @@ public class RtaUnifiedPipelineAggJob extends BaseBatchJob {
 				runMonster ? "Y" : "N",
 				runTier ? "Y" : "N");
 
+		long tierRows = 0L;
 		if (runMonster) {
 			RtaBatchAggregationService.MonsterStatsRebuildResult mon = aggregationService.rebuildMonsterStatsAgg(rtaMapper);
 			addLog("[%d/%d] · 몬스터 통계 완료 — meta=%d, pick=%d", step, PIPELINE_STEPS, mon.metaRows(), mon.pickRows());
 		}
 		if (runTier) {
 			RtaBatchAggregationService.TierDailyAggRebuildResult tier = aggregationService.rebuildTierAggDaily(rtaMapper);
-			addLog("[%d/%d] · 티어 일별 완료 — %d행", step, PIPELINE_STEPS, tier.totalRows());
+			tierRows = tier.totalRows();
+			addLog("[%d/%d] · 티어 일별 완료 — %,d행", step, PIPELINE_STEPS, tierRows);
 		}
 		if (!runMonster && !runTier) {
 			addLog("[%d/%d] · 부가 스킵 — 별도 Job(티어일별·랭킹·소환사스냅·H2H·랭크컷 등)",
@@ -98,7 +100,12 @@ public class RtaUnifiedPipelineAggJob extends BaseBatchJob {
 		addLog("[%d/%d] · 부가 완료", step, PIPELINE_STEPS);
 
 		addLog("[종료] RTA 조회 캐시 무효화");
-		rtaCacheEvictor.evictAllRtaCaches();
+		boolean cacheDirty = raw.totalApplied() > 0 || tierRows > 0;
+		if (cacheDirty) {
+			rtaCacheEvictor.evictAllRtaCaches();
+		} else {
+			addLog("[종료] RTA 캐시 무효화 생략 — 이번 실행 적용·집계 없음");
+		}
 	}
 
 	@Override

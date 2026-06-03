@@ -1627,9 +1627,7 @@
 			CROSS JOIN season_bounds sb
 			</if>
 			WHERE 1 = 1
-			<if test="sess_guild_id != null and sess_guild_id != ''">
 			  AND bll.guild_id = #{sess_guild_id}::text
-			</if>
 			<if test="season_no != null and season_no != ''">
 			  AND substring(bll.match_id, 1, 6) &gt;= sb.start_yyyymm
 			  AND substring(bll.match_id, 1, 6) &lt;= sb.end_yyyymm
@@ -1652,6 +1650,34 @@
 	</select>
 	
 		
+	<select id="existsRecordWizardInGuild" parameterType="sqlMap" resultType="boolean">
+		/* summonerswar.existsRecordWizardInGuild — record-detail: 세션 길드 소속 wizard만 허용 */
+		<if test="season_no != null and season_no != ''">
+		WITH season_bounds AS (
+			SELECT
+				to_char(gss.start_date, 'YYYYMM') AS start_yyyymm,
+				to_char(COALESCE(gss.end_date, DATE '2099-12-31'), 'YYYYMM') AS end_yyyymm
+			FROM public.guild_siege_season gss
+			WHERE gss.season_no = #{season_no}::int
+			LIMIT 1
+		)
+		</if>
+		SELECT EXISTS (
+			SELECT 1
+			FROM public.battle_log_list bll
+			<if test="season_no != null and season_no != ''">
+			CROSS JOIN season_bounds sb
+			</if>
+			WHERE bll.wizard_id = #{wizard_id}
+			  AND bll.guild_id = #{sess_guild_id}::text
+			<if test="season_no != null and season_no != ''">
+			  AND substring(bll.match_id, 1, 6) &gt;= sb.start_yyyymm
+			  AND substring(bll.match_id, 1, 6) &lt;= sb.end_yyyymm
+			</if>
+			LIMIT 1
+		)
+	</select>
+
 	<select id="selectRecordUserDetail" parameterType="sqlMap" resultType="sqlMap">
 		/* summonerswar.selectRecordUserDetail — bll 선필터·LIMIT 후 vbdi·monster 조인 */
 		<if test="season_no != null and season_no != ''">
@@ -1685,9 +1711,7 @@
 				ON bll.match_id = gsbl2.match_id
 			   AND bll.opp_guild_id = gsbl2.guild_id
 			WHERE bll.wizard_id = #{wizard_id}
-			<if test="sess_guild_id != null and sess_guild_id != ''">
 			  AND bll.guild_id = #{sess_guild_id}::text
-			</if>
 			<if test="season_no != null and season_no != ''">
 			  AND substring(bll.match_id, 1, 6) &gt;= sb.start_yyyymm
 			  AND substring(bll.match_id, 1, 6) &lt;= sb.end_yyyymm

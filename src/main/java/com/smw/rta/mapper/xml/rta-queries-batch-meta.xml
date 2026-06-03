@@ -756,6 +756,14 @@
         )
     </select>
 
+    <!-- RtaTierDailyAggJob: 시즌별 최신 rta_match.played_at (idx_rta_match_season_played_at) -->
+    <select id="selectMaxRtaMatchPlayedAt" resultType="java.time.Instant">
+        /* selectMaxRtaMatchPlayedAt */
+        SELECT MAX(m.played_at)
+        FROM public.rta_match m
+        WHERE m.season_id = #{seasonId}
+    </select>
+
     <!-- 특정 시간대에 rta_match 경기가 존재하는지 확인. JSON이 아직 적재 전이면 0 반환 → 스킵. -->
     <select id="countRtaMatchForHour" resultType="long">
         SELECT COUNT(*)

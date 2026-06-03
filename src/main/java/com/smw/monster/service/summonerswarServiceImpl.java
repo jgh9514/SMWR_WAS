@@ -59,6 +59,7 @@ import com.smw.rta.service.ArenaRtaUploadCopyBulkService;
 import com.smw.rta.service.RtaBulkRidTempTable;
 import com.smw.monster.util.MonsterIdEvolutionUtil;
 import com.sysconf.config.MybatisBatchConfig;
+import com.sysconf.exception.GuildBattleRecordAccessException;
 import com.sysconf.exception.RtaUploadValidationException;
 
 @Slf4j
@@ -1509,13 +1510,32 @@ public class summonerswarServiceImpl implements summonerswarService {
 	@Override
 	@SuppressWarnings("unchecked")
 	public Map<String, Integer> applyArenaRtaUploadFromParsedItems(List<Map<String, ?>> log_list) {
-		return applyArenaRtaUploadFromParsedItemsWithMode(log_list, ArenaRtaPersistMode.FULL);
+		return applyArenaRtaUploadFromParsedItemsWithMode(log_list, ArenaRtaPersistMode.FULL, ArenaRtaUploadOptions.apiDefault());
 	}
 
 	@Override
 	@SuppressWarnings("unchecked")
 	public Map<String, Integer> applyArenaRtaNormalizedChunk(List<Map<String, ?>> log_list) {
-		return applyArenaRtaUploadFromParsedItemsWithMode(log_list, ArenaRtaPersistMode.NORMALIZED_ONLY);
+		return applyArenaRtaUploadFromParsedItemsWithMode(
+				log_list,
+				ArenaRtaPersistMode.NORMALIZED_ONLY,
+				ArenaRtaUploadOptions.forNormalizedChunk(rtaRawApplyProperties.isEvictCachesEachChunk()));
+	}
+
+	/** raw drain·API 업로드 공통 옵션 */
+	private record ArenaRtaUploadOptions(boolean evictCachesAfterApply, boolean skipExistingRidPrecheck) {
+		static ArenaRtaUploadOptions apiDefault() {
+			return new ArenaRtaUploadOptions(true, false);
+		}
+
+		static ArenaRtaUploadOptions forNormalizedChunk(boolean evictCachesEachChunk) {
+			return new ArenaRtaUploadOptions(evictCachesEachChunk, false);
+		}
+
+		/** {@link #applyPendingArenaReplayRawRows} — 선행 bulk 중복조회 후 청크 적재 */
+		static ArenaRtaUploadOptions forBatchRawDrain(boolean evictCachesEachChunk) {
+			return new ArenaRtaUploadOptions(evictCachesEachChunk, true);
+		}
 	}
 
 	/** API 공통: 파싱 로그 → 배치 적재 (FULL 또는 NORMALIZED_ONLY). */
@@ -1523,6 +1543,14 @@ public class summonerswarServiceImpl implements summonerswarService {
 	private Map<String, Integer> applyArenaRtaUploadFromParsedItemsWithMode(
 			List<Map<String, ?>> log_list,
 			ArenaRtaPersistMode persistMode) {
+		return applyArenaRtaUploadFromParsedItemsWithMode(log_list, persistMode, ArenaRtaUploadOptions.apiDefault());
+	}
+
+	@SuppressWarnings("unchecked")
+	private Map<String, Integer> applyArenaRtaUploadFromParsedItemsWithMode(
+			List<Map<String, ?>> log_list,
+			ArenaRtaPersistMode persistMode,
+			ArenaRtaUploadOptions options) {
 		Map<String, Integer> empty = new HashMap<>();
 		empty.put("success", 0);
 		empty.put("fail", 0);
@@ -1538,7 +1566,9 @@ public class summonerswarServiceImpl implements summonerswarService {
 				distinctRids.add(rid);
 			}
 		}
-		Set<Long> existingInDb = selectArenaRidsExisting(distinctRids);
+		Set<Long> existingInDb = options.skipExistingRidPrecheck()
+				? Collections.emptySet()
+				: selectArenaRidsExisting(distinctRids);
 		Set<Long> seenInRequest = new HashSet<>();
 		List<Map<String, ?>> arenaBatch = new ArrayList<>();
 		List<Map<String, ?>> userBatch = new ArrayList<>();
@@ -1653,7 +1683,9 @@ public class summonerswarServiceImpl implements summonerswarService {
 			fail += dup;
 			success = Math.max(0, success - dup);
 		}
-		if ((persistMode == ArenaRtaPersistMode.FULL || persistMode == ArenaRtaPersistMode.NORMALIZED_ONLY) && success > 0) {
+		if (options.evictCachesAfterApply()
+				&& (persistMode == ArenaRtaPersistMode.FULL || persistMode == ArenaRtaPersistMode.NORMALIZED_ONLY)
+				&& success > 0) {
 			rtaCacheEvictor.evictAllRtaCaches();
 		}
 		Map<String, Integer> result = new HashMap<>();
@@ -1791,7 +1823,10 @@ public class summonerswarServiceImpl implements summonerswarService {
 			long tc = System.currentTimeMillis();
 			chunkIdx++;
 			try {
-				Map<String, Integer> counts = applyArenaRtaUploadFromParsedItemsWithMode(sub, ArenaRtaPersistMode.NORMALIZED_ONLY);
+				Map<String, Integer> counts = applyArenaRtaUploadFromParsedItemsWithMode(
+						sub,
+						ArenaRtaPersistMode.NORMALIZED_ONLY,
+						ArenaRtaUploadOptions.forBatchRawDrain(rtaRawApplyProperties.isEvictCachesEachChunk()));
 				int ok = counts.getOrDefault("success", 0);
 				applied += ok;
 				log.info("[rta-raw-apply] [3] 청크 #{}: {}건 → ok={} ({}ms)",
@@ -1882,6 +1917,7 @@ public class summonerswarServiceImpl implements summonerswarService {
 	@Cacheable(cacheNames = "battleRecordList", cacheManager = "shortLivedCacheManager", keyGenerator = "stableMapKeyGenerator")
 	public List<Map<String, ?>> selectRecordList(Map<String, Object> param) {
 		Map<String, Object> query = normalizeRecordListQuery(param);
+		assertSessionGuildPresent(query);
 		return swMapper.selectRecordList(query);
 	}
 
@@ -1889,7 +1925,47 @@ public class summonerswarServiceImpl implements summonerswarService {
 	@Cacheable(cacheNames = "battleRecordDetail", cacheManager = "shortLivedCacheManager", keyGenerator = "stableMapKeyGenerator")
 	public List<Map<String, ?>> selectRecordUserDetail(Map<String, Object> param) {
 		Map<String, Object> query = normalizeRecordDetailQuery(param);
+		assertRecordDetailGuildAccess(query);
 		return swMapper.selectRecordUserDetail(query);
+	}
+
+	@Override
+	@Transactional(readOnly = true)
+	public boolean existsRecordWizardInGuild(Map<String, Object> param) {
+		if (param == null) {
+			return false;
+		}
+		String guildId = stringParam(param.get("sess_guild_id"));
+		String wizardId = stringParam(param.get("wizard_id"));
+		if (guildId == null || wizardId == null) {
+			return false;
+		}
+		return Boolean.TRUE.equals(swMapper.existsRecordWizardInGuild(param));
+	}
+
+	private void assertSessionGuildPresent(Map<String, Object> query) {
+		if (stringParam(query.get("sess_guild_id")) == null) {
+			throw new GuildBattleRecordAccessException("길드 가입이 필요합니다.");
+		}
+	}
+
+	private void assertRecordDetailGuildAccess(Map<String, Object> query) {
+		assertSessionGuildPresent(query);
+		String wizardId = stringParam(query.get("wizard_id"));
+		if (wizardId == null) {
+			throw new GuildBattleRecordAccessException("잘못된 전적 조회 요청입니다.");
+		}
+		if (!existsRecordWizardInGuild(query)) {
+			throw new GuildBattleRecordAccessException("같은 길드 소속 전적만 조회할 수 있습니다.");
+		}
+	}
+
+	private static String stringParam(Object raw) {
+		if (raw == null) {
+			return null;
+		}
+		String s = String.valueOf(raw).trim();
+		return s.isEmpty() ? null : s;
 	}
 
 	/** record-detail: paging·offset(1-based page) → LIMIT/OFFSET */

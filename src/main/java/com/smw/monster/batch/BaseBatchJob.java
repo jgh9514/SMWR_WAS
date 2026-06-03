@@ -65,6 +65,9 @@ public abstract class BaseBatchJob implements Job {
         logBroadcaster = null;
         Timer.Sample batchTimerSample = null;
         boolean completedOk = false;
+        boolean runHisFinalized = false;
+        String pendingRsltCd = null;
+        String pendingRsltTxt = null;
         
         try {
             // ApplicationContext 가져오기
@@ -142,7 +145,9 @@ public abstract class BaseBatchJob implements Job {
             addLog("===== 배치 실행 완료 =====");
             addLog("소요 시간: %.2f초", elapsedTime / 1000.0);
             
-            updateBatchRunHis("SUCCESS", getLogContent());
+            pendingRsltCd = "SUCCESS";
+            pendingRsltTxt = getLogContent();
+            runHisFinalized = updateBatchRunHisWithRetry(pendingRsltCd, pendingRsltTxt, 3);
             recordBatchMetrics("SUCCESS", batchTimerSample);
             completedOk = true;
             
@@ -163,7 +168,9 @@ public abstract class BaseBatchJob implements Job {
                 errorLog += "\n\n상세 오류:\n" + stackTrace;
             }
             
-            updateBatchRunHis("FAIL", errorLog);
+            pendingRsltCd = "FAIL";
+            pendingRsltTxt = errorLog;
+            runHisFinalized = updateBatchRunHisWithRetry("FAIL", errorLog, 3);
             recordBatchMetrics("FAIL", batchTimerSample);
 
             String infraReason = classifyInfraFailure(e);
@@ -179,6 +186,20 @@ public abstract class BaseBatchJob implements Job {
             log.error("배치 실행 중 오류 발생", e);
             throw new JobExecutionException("배치 실행 실패: " + e.getMessage(), e);
         } finally {
+            if (!runHisFinalized && runSn != null) {
+                if (pendingRsltCd != null) {
+                    runHisFinalized = updateBatchRunHisWithRetry(pendingRsltCd, pendingRsltTxt, 5);
+                }
+                if (!runHisFinalized) {
+                    String partial = getLogContent();
+                    if (partial == null || partial.isBlank()) {
+                        partial = "[auto] Job 종료 시 이력 갱신 실패";
+                    } else {
+                        partial = partial + "\n[auto] Job 종료 시 SUCCESS/FAIL 갱신 재시도 실패";
+                    }
+                    updateBatchRunHisWithRetry(completedOk ? "SUCCESS" : "FAIL", partial, 3);
+                }
+            }
             completeLogStream(completedOk);
         }
     }
@@ -342,11 +363,34 @@ public abstract class BaseBatchJob implements Job {
     /**
      * 배치 실행 이력 업데이트
      * 별도 트랜잭션(REQUIRES_NEW)으로 처리하여 연결 누수 방지
+     * @return 갱신 성공 여부
      */
-    protected void updateBatchRunHis(String rsltCd, String rsltTxt) {
+    protected boolean updateBatchRunHis(String rsltCd, String rsltTxt) {
+        return updateBatchRunHisWithRetry(rsltCd, rsltTxt, 1);
+    }
+
+    private boolean updateBatchRunHisWithRetry(String rsltCd, String rsltTxt, int maxAttempts) {
+        int attempts = Math.max(1, maxAttempts);
+        for (int i = 1; i <= attempts; i++) {
+            if (doUpdateBatchRunHis(rsltCd, rsltTxt)) {
+                return true;
+            }
+            if (i < attempts) {
+                try {
+                    Thread.sleep(200L * i);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean doUpdateBatchRunHis(String rsltCd, String rsltTxt) {
         if (runSn == null || batchMapper == null) {
             log.warn("배치 실행 이력 업데이트 실패: runSn={}, batchMapper={}", runSn, batchMapper);
-            return;
+            return false;
         }
         
         TransactionStatus updateTxStatus = null;
@@ -380,6 +424,7 @@ public abstract class BaseBatchJob implements Job {
             
             log.info("배치 실행 이력 업데이트 완료. run_sn={}, rslt_cd={}, 로그 길이={}자", 
                     runSn, rsltCd, finalTxt != null ? finalTxt.length() : 0);
+            return true;
         } catch (Exception e) {
             // 트랜잭션 롤백
             if (updateTxStatus != null && !updateTxStatus.isCompleted()) {
@@ -391,6 +436,7 @@ public abstract class BaseBatchJob implements Job {
             }
             log.error("배치 실행 이력 업데이트 중 오류 발생", e);
         }
+        return false;
     }
     
     /**

@@ -565,13 +565,16 @@
         WHERE replay_id = #{rid}
     </select>
 
-    <!-- 시즌당 일자×티어: 증분 없음 — 해당 season_id 행 전부 DELETE 후 시즌(서울)일자 범위 통째로 SELECT 재적재.
-         ON CONFLICT 로 동시 실행·잔존 행·SELECT 중복 시에도 실패하지 않음 -->
+    <!-- 시즌당 일자×티어: 증분 없음 — DELETE 는 deleteRtaAggTierDailyForSeason 후 INSERT.
+         ON CONFLICT: 동시 실행·잔존 행·SELECT 중복 시에도 실패하지 않음 -->
+    <delete id="deleteRtaAggTierDailyForSeason">
+        /* deleteRtaAggTierDailyForSeason */
+        DELETE FROM public.rta_agg_tier_daily
+        WHERE season_id = #{seasonId}
+    </delete>
+
     <insert id="insertRtaTierAggDailyForSeason">
-        WITH deleted AS (
-            DELETE FROM public.rta_agg_tier_daily
-            WHERE season_id = #{seasonId}
-        )
+        /* insertRtaTierAggDailyForSeason */
         INSERT INTO public.rta_agg_tier_daily (season_id, bucket_date, grade_slot, player_count, sort_order, computed_at)
         SELECT #{seasonId}, d.bucket_date, d.grade_slot, d.player_count, d.sort_order, now()
         FROM (
@@ -582,6 +585,13 @@
             sort_order = EXCLUDED.sort_order,
             computed_at = EXCLUDED.computed_at
     </insert>
+
+    <select id="countRtaAggTierDailyForSeason" resultType="long">
+        /* countRtaAggTierDailyForSeason */
+        SELECT COUNT(*)
+        FROM public.rta_agg_tier_daily
+        WHERE season_id = #{seasonId}
+    </select>
 
     <select id="getRtaMonsterStatsTotalFromAgg" resultType="java.lang.Long">
         SELECT COALESCE(SUM(t.total_matches), 0)

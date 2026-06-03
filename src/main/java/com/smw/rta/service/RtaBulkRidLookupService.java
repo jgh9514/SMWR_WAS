@@ -40,6 +40,7 @@ import lombok.extern.slf4j.Slf4j;
 public class RtaBulkRidLookupService {
 
 	private final DataSource dataSource;
+	private final com.smw.rta.config.RtaRawApplyProperties rtaRawApplyProperties;
 
 	/**
 	 * rids 중 {@code rta_match.replay_id}에 이미 존재하는 rid 반환.
@@ -51,7 +52,8 @@ public class RtaBulkRidLookupService {
 		long t0 = System.currentTimeMillis();
 		try (Connection conn = dataSource.getConnection()) {
 			conn.setAutoCommit(false);
-			RtaBulkRidTempTable.loadRids(conn, rids);
+			int indexThreshold = Math.max(0, rtaRawApplyProperties.getBulkRidTempIndexThreshold());
+			RtaBulkRidTempTable.loadRids(conn, rids, indexThreshold);
 			Set<Long> result = new HashSet<>();
 			try (Statement st = conn.createStatement();
 				 ResultSet rs = st.executeQuery(
@@ -84,7 +86,8 @@ public class RtaBulkRidLookupService {
 		long t0 = System.currentTimeMillis();
 		try (Connection conn = dataSource.getConnection()) {
 			conn.setAutoCommit(false);
-			RtaBulkRidTempTable.loadRids(conn, rids);
+			int indexThreshold = Math.max(0, rtaRawApplyProperties.getBulkRidTempIndexThreshold());
+			RtaBulkRidTempTable.loadRids(conn, rids, indexThreshold);
 			Set<String> result = new HashSet<>();
 			try (Statement st = conn.createStatement();
 				 ResultSet rs = st.executeQuery(
@@ -122,7 +125,8 @@ public class RtaBulkRidLookupService {
 		long t0 = System.currentTimeMillis();
 		try (Connection conn = dataSource.getConnection()) {
 			conn.setAutoCommit(false);
-			RtaBulkRidTempTable.loadRids(conn, rids);
+			int indexThreshold = Math.max(0, rtaRawApplyProperties.getBulkRidTempIndexThreshold());
+			RtaBulkRidTempTable.loadRids(conn, rids, indexThreshold);
 			loadSynergyReplayRows(conn, replayByRid);
 			loadSynergyUnitRows(conn, unitsByRid);
 			loadSynergyRatingRows(conn, ratingsByRid);
@@ -166,7 +170,8 @@ public class RtaBulkRidLookupService {
 		long t0 = System.currentTimeMillis();
 		try (Connection conn = dataSource.getConnection()) {
 			conn.setAutoCommit(false);
-			RtaBulkRidTempTable.loadRids(conn, rids);
+			int indexThreshold = Math.max(0, rtaRawApplyProperties.getBulkRidTempIndexThreshold());
+			RtaBulkRidTempTable.loadRids(conn, rids, indexThreshold);
 			List<RtaSynergyBanDeltaRow> out = new ArrayList<>();
 			String sql = """
 					WITH pnorm AS (

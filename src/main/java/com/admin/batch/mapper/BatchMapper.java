@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.Map;
 
 import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
 
 @Mapper
 public interface BatchMapper {
@@ -26,5 +27,8 @@ public interface BatchMapper {
 
 	/** 배치 오류 시 use_yn = 'N' 으로 비활성화 */
 	public int disableBatch(Long batId);
+
+	/** RUNNING 고착 행을 ABORTED 로 정리. @return 갱신 건수 */
+	int abortStaleBatchRunHis(@Param("staleHours") int staleHours);
 
 }

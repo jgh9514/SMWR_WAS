@@ -45,7 +45,9 @@ spec:
               name: s3-credentials
               key: AWS_REGION
         - name: SPRING_PROFILES_ACTIVE
-          value: "docker"
+          value: "docker,quartz-jdbc"
+        - name: SPRING_QUARTZ_JOB_STORE_TYPE
+          value: "jdbc"
         # OS·JVM 기본 시간대 (Jackson JSON·로그·DB timestamp 해석 — UTC Pod와 로컬 차이 방지)
         - name: TZ
           value: "Asia/Seoul"
@@ -171,10 +173,14 @@ spec:
               name: smw-grafana-secret
               key: access-token
               optional: true
-        # API Pod: Quartz 크론은 배치 Pod(smw-batch)에서만 등록. docker 만 — quartz-jdbc( JobStoreTX ) 미로드
+        # API Pod: Quartz 크론은 smw-batch에서만. JDBC 클러스터 trigger-only로 수동 실행 → batch Pod 실행.
         - name: SMW_BATCH_QUARTZ_ENABLED
           value: "false"
-        # Quartz Scheduler.start() 자체를 끔 — 트리거 폴링/실행 없음(크론 미등록과 별도). 배치 Pod는 true
+        - name: SMW_BATCH_QUARTZ_TRIGGER_ONLY
+          value: "true"
+        - name: SMW_QUARTZ_THREAD_COUNT
+          value: "1"
+        # trigger-only Config가 start→standby. auto-startup false면 FactoryBean 미기동 → Config에서 start.
         - name: SPRING_QUARTZ_AUTO_STARTUP
           value: "false"
         # Spring @Scheduled — application-docker 기본 false. API는 미설정으로 off, 배치 Pod만 true

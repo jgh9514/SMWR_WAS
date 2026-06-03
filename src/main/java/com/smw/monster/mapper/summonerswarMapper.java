@@ -97,6 +97,9 @@ public interface summonerswarMapper {
 	public List<Map<String, ?>> selectRecordList(Map<String, Object> param);
 
 	public List<Map<String, ?>> selectRecordUserDetail(Map<String, Object> param);
+
+	/** 세션 길드 전투 로그에 대상 wizard_id 존재 여부 (record-detail 접근 검증) */
+	boolean existsRecordWizardInGuild(Map<String, Object> param);
 	
 	public List<Map<String, ?>> selectGuildSiegeHistorySimple(Map<String, Object> param);
 	

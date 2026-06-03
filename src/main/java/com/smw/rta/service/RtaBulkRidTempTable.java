@@ -21,6 +21,14 @@ public final class RtaBulkRidTempTable {
 	}
 
 	public static void loadRids(Connection conn, Collection<Long> rids) throws SQLException, IOException {
+		loadRids(conn, rids, 5000);
+	}
+
+	/**
+	 * @param tempIndexThreshold 이 건수 초과 시에만 {@code tmp_bulk_rids(rid)} 인덱스·ANALYZE 생성
+	 */
+	public static void loadRids(Connection conn, Collection<Long> rids, int tempIndexThreshold)
+			throws SQLException, IOException {
 		try (Statement st = conn.createStatement()) {
 			st.execute("DROP TABLE IF EXISTS tmp_bulk_rids");
 			st.execute("CREATE TEMP TABLE tmp_bulk_rids (rid bigint) ON COMMIT DROP");
@@ -32,9 +40,11 @@ public final class RtaBulkRidTempTable {
 		}
 		byte[] bytes = sb.toString().getBytes(StandardCharsets.UTF_8);
 		cm.copyIn("COPY tmp_bulk_rids (rid) FROM STDIN WITH (FORMAT text)", new ByteArrayInputStream(bytes));
-		try (Statement st = conn.createStatement()) {
-			st.execute("CREATE INDEX ON tmp_bulk_rids (rid)");
-			st.execute("ANALYZE tmp_bulk_rids");
+		if (rids.size() > tempIndexThreshold) {
+			try (Statement st = conn.createStatement()) {
+				st.execute("CREATE INDEX ON tmp_bulk_rids (rid)");
+				st.execute("ANALYZE tmp_bulk_rids");
+			}
 		}
 	}
 

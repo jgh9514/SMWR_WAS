@@ -1,5 +1,6 @@
-# K8s smw-batch 전용. SPRING_PROFILES_ACTIVE 에 quartz-jdbc 포함 시만 로드.
-# docker 프로필과 공존(예: docker,quartz-jdbc). smw-app 은 docker 만 — Quartz RAMJobStore, 아래 org.quartz.jobStore.* 병합 없음.
+# K8s smw-app·smw-batch 공용. SPRING_PROFILES_ACTIVE 에 quartz-jdbc 포함 시 JDBC JobStore(클러스터).
+# smw-app: docker,quartz-jdbc + SMW_BATCH_QUARTZ_TRIGGER_ONLY=true (standby, 수동 트리거만).
+# smw-batch: docker,quartz-jdbc + SMW_BATCH_QUARTZ_ENABLED=true (크론·Job 실행).
 ---
 spring:
   config:

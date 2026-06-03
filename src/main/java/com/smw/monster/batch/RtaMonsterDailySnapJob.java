@@ -33,11 +33,11 @@ public class RtaMonsterDailySnapJob extends BaseBatchJob {
         int inserted = aggregationService.rebuildMonsterDailySnap(rtaMapper);
         addLog("daily snap 완료 — insertedDates=%d", inserted);
 
-        RtaBatchBacklogScaler.RtaBatchBacklogCounts backlog = backlogScaler.snapshot();
+        long pickSlotPending = backlogScaler.pickSlotPendingCount();
         int pickSlotMaxRounds = backlogScaler.resolvePickSlotMaxRounds(
-                backlog.pickSlotPending(), pickSlotDrainBatchSize, 1);
+                pickSlotPending, pickSlotDrainBatchSize, 1);
 
-        addLog("--- pick slot drain (pending %,d, maxRounds=%d) ---", backlog.pickSlotPending(), pickSlotMaxRounds);
+        addLog("--- pick slot drain (pending %,d, maxRounds=%d) ---", pickSlotPending, pickSlotMaxRounds);
         int slotRids = aggregationService.drainPickSlotSnap(rtaMapper, pickSlotDrainBatchSize, pickSlotMaxRounds);
         addLog("pick slot snap 완료 — processedRids=%d", slotRids);
 

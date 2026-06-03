@@ -18,4 +18,12 @@ public class GlobalApiExceptionHandler {
 		body.put("message", ex.getMessage());
 		return new ResponseEntity<>(body, HttpStatus.BAD_REQUEST);
 	}
+
+	@ExceptionHandler(GuildBattleRecordAccessException.class)
+	public ResponseEntity<Map<String, Object>> handleGuildBattleRecordAccess(GuildBattleRecordAccessException ex) {
+		Map<String, Object> body = new HashMap<>();
+		body.put("result", "FAIL");
+		body.put("message", ex.getMessage());
+		return new ResponseEntity<>(body, HttpStatus.FORBIDDEN);
+	}
 }

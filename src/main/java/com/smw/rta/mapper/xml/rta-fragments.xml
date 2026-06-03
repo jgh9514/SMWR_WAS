@@ -40,7 +40,7 @@ tier_official AS (
 	  bucket_date D: 시즌 내 (서울) D일까지 한 판이라도 한 소환사만 포함, 티어는 그 시점까지의 최근 경기 rating_id 기준(일별 마지막 판 → 구간 전파).
 	  캘린더는 rta_season(서울) 구간을 사용 — 매치 MIN/MAX만 쓰지 않아 시즌 말·무경기일 누적 스냅도 같은 배치로 재계산 가능.
 	  성능: calendar×LATERAL(DISTINCT ON …) 대신 wizard별 경기일 구간(LEAD) + generate_series 로 동일 논리를 단일 패스에 가깝게 펼침.
-	  배치 적재·라이브 폴백 공통. 파라미터: {@code seasonId}.
+	  배치 적재·라이브 폴백 공통. 파라미터: {@code seasonId}, (선택) {@code playedBeforeExclusive} — MAX(played_at) 정시, 미완료 최신 시간대 제외.
 	-->
 	<sql id="rtaTierDistributionDailyInnerFromMatch">
 WITH season_bounds AS (
@@ -53,9 +53,29 @@ WITH season_bounds AS (
 tier_bounds AS (
     SELECT
         sb.s0 AS d0,
-        LEAST(sb.s1_inc, (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')::date) AS d1
+        LEAST(
+            sb.s1_inc,
+            <choose>
+                <when test="playedBeforeExclusive != null">
+                    ((#{playedBeforeExclusive}::timestamptz - INTERVAL '1 hour') AT TIME ZONE 'Asia/Seoul')::date
+                </when>
+                <otherwise>
+                    (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')::date
+                </otherwise>
+            </choose>
+        ) AS d1
     FROM season_bounds sb
-    WHERE sb.s0 &lt;= LEAST(sb.s1_inc, (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')::date)
+    WHERE sb.s0 &lt;= LEAST(
+            sb.s1_inc,
+            <choose>
+                <when test="playedBeforeExclusive != null">
+                    ((#{playedBeforeExclusive}::timestamptz - INTERVAL '1 hour') AT TIME ZONE 'Asia/Seoul')::date
+                </when>
+                <otherwise>
+                    (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')::date
+                </otherwise>
+            </choose>
+        )
 ),
 day_last AS (
     SELECT DISTINCT ON (t.wizard_id, t.match_day)
@@ -72,6 +92,9 @@ day_last AS (
         FROM public.rta_match_participant u
         WHERE u.season_id = #{seasonId}
           AND u.rating_id &gt;= 1000
+          <if test="playedBeforeExclusive != null">
+          AND u.played_at &lt; #{playedBeforeExclusive}::timestamptz
+          </if>
     ) t
     ORDER BY t.wizard_id, t.match_day, t.played_at DESC, t.replay_id DESC
 ),

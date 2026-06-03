@@ -172,6 +172,14 @@ smw:
   batch:
     quartz:
       enabled: ${SMW_BATCH_QUARTZ_ENABLED:false}
+      # smw-app + quartz-jdbc: JDBC 클러스터 트리거만(standby). Job 실행은 smw-batch.
+      trigger-only: ${SMW_BATCH_QUARTZ_TRIGGER_ONLY:false}
+    log:
+      redis-bridge-enabled: ${SMW_BATCH_LOG_REDIS_BRIDGE:true}
+      sse-timeout-ms: ${SMW_BATCH_LOG_SSE_TIMEOUT_MS:7200000}
+    run-his:
+      stale-cleanup-enabled: ${SMW_BATCH_RUN_HIS_STALE_CLEANUP:true}
+      stale-running-hours: ${SMW_BATCH_RUN_HIS_STALE_HOURS:6}
   globalDblinkNm: SMW_DBLINK
   cookie-live-time: 2592000
   # SYS_ROLE/SYS_USER_ROLE 제거 시: 관리자 user_id 목록(콤마 구분). RequireAdmin·알림 수신·댓글 삭제 등
@@ -251,6 +259,8 @@ smw:
       max-batches-per-job: ${SMW_RTA_RAW_APPLY_MAX_BATCHES:1}
       max-batches-cap: ${SMW_RTA_RAW_APPLY_MAX_BATCHES_CAP:20}
       apply-chunk-size: ${SMW_RTA_RAW_APPLY_CHUNK_SIZE:1000}
+      evict-caches-each-chunk: ${SMW_RTA_RAW_APPLY_EVICT_EACH_CHUNK:false}
+      bulk-rid-temp-index-threshold: ${SMW_RTA_RAW_APPLY_BULK_RID_TEMP_INDEX_THRESHOLD:5000}
       fail-fast-on-error: ${SMW_RTA_RAW_APPLY_FAIL_FAST:true}
     batch:
       synergy-batch-size: ${SMW_RTA_SYNERGY_BATCH_SIZE:10000}

@@ -1,10 +1,5 @@
 package com.smw.monster.batch;
 
-import java.time.Instant;
-import java.time.ZoneId;
-import java.time.ZonedDateTime;
-import java.time.temporal.ChronoUnit;
-
 import org.quartz.DisallowConcurrentExecution;
 import org.quartz.JobExecutionContext;
 
@@ -15,6 +10,9 @@ import com.smw.rta.service.RtaBatchAggregationService;
 /**
  * 대시보드용 {@code rta_agg_tier_daily} 만 시즌별 전량 재적재한다(당일 증분 아님). participant 풀스캔으로 무겁기 때문에
  * {@link RtaUnifiedPipelineAggJob}(짧은 주기)와 분리해 <b>1시간 등 긴 주기</b>로 돌리는 것을 권장한다.
+ * <p>
+ * 집계 상한: {@code rta_match} 시즌별 MAX({@code played_at}) 정시 − 1시간까지(진행 중인 최신 정시 버킷 제외).
+ * 벽시계 정시({@code now}) 기준 EXISTS 가 아니다.
  * <p>
  * DB 등록: {@code sql/migrate_add_rta_tier_daily_batch_config.sql} 로 {@code sys_batch_config} 에 삽입(중복 시 생략).
  * 크론 예: 매시 정각 {@code 0 0 * * * ?} — {@code use_yn=Y} 이고 {@code smw.batch.quartz.enabled=true} 일 때만 스케줄 등록.
@@ -31,21 +29,32 @@ public class RtaTierDailyAggJob extends BaseBatchJob {
 		RtaBatchAggregationService aggregationService = applicationContext.getBean(RtaBatchAggregationService.class);
 		RtaCacheEvictor rtaCacheEvictor = applicationContext.getBean(RtaCacheEvictor.class);
 
-		// 현재 시각 기준 이전 정시(집계 대상 시간대의 종료점)를 threshold 로 사용.
-		// 예) 12:05에 실행 → threshold = 12:00 → rta_match 에 played_at >= 12:00 인 데이터가
-		// 있어야 11시~12시 수집이 완료된 것으로 판단하고 진행.
-		Instant threshold = ZonedDateTime.now(ZoneId.of("Asia/Seoul"))
-				.truncatedTo(ChronoUnit.HOURS)
-				.toInstant();
-		if (!rtaMapper.existsRtaMatchAfter(threshold)) {
-			addLog("집계 스킵 — %s 이후 rta_match 데이터 없음 (이전 시간대 수집 미완료)", threshold);
+		Long seasonId = rtaMapper.selectDefaultSeasonIdForNow();
+		if (seasonId == null) {
+			addLog("집계 스킵 — 활성 시즌 없음");
 			return;
 		}
 
+		var windowOpt = aggregationService.resolveTierDailyDataWindow(rtaMapper, seasonId.longValue());
+		if (windowOpt.isEmpty()) {
+			addLog("집계 스킵 — season_id=%d rta_match 데이터 없음", seasonId);
+			return;
+		}
+
+		RtaBatchAggregationService.TierDailyDataWindow window = windowOpt.get();
+		addLog("집계 상한 — rta_match 최신 played_at=%s, tierThrough(최신 정시−1h)=%s, 제외 played_at>=%s",
+				window.maxPlayedAt(),
+				window.tierThroughAt(),
+				window.playedBeforeExclusive());
+
 		addLog("--- rta_agg_tier_daily 재적재 ---");
 		RtaBatchAggregationService.TierDailyAggRebuildResult tier = aggregationService.rebuildTierAggDaily(rtaMapper);
-		addLog("적재 합계 %d행, 소요 %dms (최장 시즌 sid=%d, %dms)",
-				tier.totalRows(), tier.wallMs(), tier.slowestSeasonId(), tier.maxSeasonMs());
+		if (tier.totalRows() == 0 && tier.slowestSeasonId() >= 0) {
+			addLog("적재 0행 — 상한 구간에 participant 없음 또는 시즌 범위 밖");
+		} else {
+			addLog("적재 합계 %,d행, 소요 %dms (시즌 sid=%d)",
+					tier.totalRows(), tier.wallMs(), tier.slowestSeasonId());
+		}
 
 		rtaCacheEvictor.evictAllRtaCaches();
 		addLog("RTA 조회 캐시 무효화 완료");

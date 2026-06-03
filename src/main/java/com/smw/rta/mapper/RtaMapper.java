@@ -51,8 +51,18 @@ public interface RtaMapper {
 
     List<Map<String, Object>> debugMatchDetail(@Param("rid") String rid);
 
-    /** 시즌별 일자×티어 집계 적재 — 해당 시즌 행만 삭제 후 INSERT (배치 전용). {@code season_id} 기준. */
-    int insertRtaTierAggDailyForSeason(@Param("seasonId") long seasonId);
+    /** 시즌별 {@code rta_agg_tier_daily} 전량 삭제 (배치 재적재 전). */
+    int deleteRtaAggTierDailyForSeason(@Param("seasonId") long seasonId);
+
+    /** 시즌별 일자×티어 집계 INSERT (배치 전용). {@code playedBeforeExclusive} 로 participant 상한. */
+    int insertRtaTierAggDailyForSeason(@Param("seasonId") long seasonId,
+            @Param("playedBeforeExclusive") java.time.Instant playedBeforeExclusive);
+
+    /** 시즌별 {@code rta_agg_tier_daily} 적재 행 수 — JDBC updateCount 대신 로그·검증용 */
+    long countRtaAggTierDailyForSeason(@Param("seasonId") long seasonId);
+
+    /** 시즌 내 {@code rta_match.played_at} 최대값 — 티어 일별 집계 상한 계산용 */
+    java.time.Instant selectMaxRtaMatchPlayedAt(@Param("seasonId") long seasonId);
 
     /** 시즌 총 매치 수 (집계 메타) */
     Long getRtaMonsterStatsTotalFromAgg(@Param("seasonId") Long seasonId);
@@ -164,7 +174,7 @@ public interface RtaMapper {
     long countRtaMatchForHour(@Param("seasonId") long seasonId,
                               @Param("snapHour") java.time.Instant snapHour);
 
-    /** threshold 이후(포함) played_at 를 가진 rta_match 가 1건 이상 있으면 true — 시간대 수집 완료 판단용 */
+    /** threshold 이후(포함) played_at 를 가진 rta_match 가 1건 이상 있으면 true — 레거시·기타 Job용 */
     boolean existsRtaMatchAfter(@Param("threshold") java.time.Instant threshold);
 
 

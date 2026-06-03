@@ -317,7 +317,8 @@ public class BatchConfig {
 			// 이미 스케줄러에 등록된 경우에는 즉시 트리거만 발행
 			if (scheduler.checkExists(quartzJobKey)) {
 				scheduler.triggerJob(quartzJobKey, jobDataMap);
-				log.info("배치 수동 실행 트리거 완료. batId={}, jobClassName={}", batId, jobClassName);
+				log.info("배치 수동 실행 트리거 완료(JDBC/cluster). batId={}, jobClassName={}, streamId={}",
+						batId, jobClassName, jobData != null ? jobData.get("stream_id") : null);
 				return true;
 			}
 

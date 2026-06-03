@@ -55,4 +55,16 @@ public class RtaRawApplyProperties {
 	 * false 이면 기존처럼 해당 행만 failed 표기하고 계속한다.
 	 */
 	private boolean failFastOnError = true;
+
+	/**
+	 * {@link com.smw.monster.batch.RtaUnifiedPipelineAggJob} raw drain 청크마다 {@code evictAllRtaCaches} 호출 여부.
+	 * false(기본) — Job 종료 시 1회만 무효화. true — 청크마다 전체 RTA 캐시+Redis warmup(부하↑).
+	 */
+	private boolean evictCachesEachChunk = false;
+
+	/**
+	 * {@code tmp_bulk_rids} COPY 후 임시 인덱스·ANALYZE 생성 임계 rid 건수.
+	 * 이하이면 PG hash join 으로 충분해 인덱스 생성 비용을 생략한다.
+	 */
+	private int bulkRidTempIndexThreshold = 5000;
 }
