@@ -525,6 +525,7 @@ public class RtaBatchAggregationService {
 	 *
 	 * @param maxRoundsPerJob {@code <= 0} 이면 pending 소진까지 반복
 	 * @param pauseMsBetweenRounds 라운드 사이 대기(ms), 0 이면 생략
+	 * @param maxWallClockMsPerJob {@code > 0} 이면 벽시계 상한(ms) 초과 시 종료, {@code <= 0} 이면 제한 없음
 	 */
 	public SynergyDrainResult drainSynergyPending(
 			RtaMapper rtaMapper,
@@ -533,28 +534,37 @@ public class RtaBatchAggregationService {
 			int batchSize,
 			boolean evictCachesEachRound,
 			int pauseMsBetweenRounds,
-			int maxRoundsPerJob) {
+			int maxRoundsPerJob,
+			long maxWallClockMsPerJob) {
 		int rounds = 0;
 		int totalOk = 0;
 		int totalFail = 0;
 		boolean capped = maxRoundsPerJob > 0;
+		final long wallDeadlineNanos = maxWallClockMsPerJob > 0
+				? System.nanoTime() + maxWallClockMsPerJob * 1_000_000L
+				: 0L;
 
 		// idx_rta_match_synergy_pending(partial index) 강제 사용 — Seq Scan 방지
 		rtaMapper.hintBatchDisableSeqScan();
 		try {
 			String stopReason = "완료";
 			while (true) {
+				if (wallDeadlineNanos > 0L && System.nanoTime() >= wallDeadlineNanos) {
+					stopReason = "실행 시간 상한 도달 — 잔여는 다음 스케줄에서 처리";
+					break;
+				}
 				List<Long> rids = rtaMapper.selectPendingSynergyAggRids(batchSize);
 				if (rids == null || rids.isEmpty()) {
 					stopReason = rounds == 0 ? "시너지 pending 없음" : "pending 소진";
 					break;
 				}
-				// 첫 rid 실패 시 예외로 상위 Quartz Job 이 FAIL 처리되도록 전파
+				long roundStart = System.nanoTime();
 				RtaSynergyAggService.SynergyBatchApplyResult batch = synergyAggService.applySynergyBatch(rids);
 				int ok = batch.ok();
 				totalOk += ok;
 				totalFail += batch.fail();
 				rounds++;
+				log.info("[synergy-drain] round={} rids={} ok={} {}ms", rounds, rids.size(), ok, msSinceNanos(roundStart));
 
 				if (evictCachesEachRound && ok > 0) {
 					cacheEvictor.evictAllRtaCaches();

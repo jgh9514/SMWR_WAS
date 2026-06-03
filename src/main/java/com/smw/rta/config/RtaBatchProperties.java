@@ -77,6 +77,12 @@ public class RtaBatchProperties {
 	/** backlog catch-up 시 시너지 Job 당 라운드 절대 상한. {@code synergy-max-rounds-per-job} 기본(1)보다 커야 효과 있음. */
 	private int synergyMaxRoundsCap = 10;
 
+	/**
+	 * {@link com.smw.monster.batch.RtaSynergyOnlyAggJob} 1회 최대 벽시계 실행 시간(ms).
+	 * {@code 0} 이면 제한 없음. 초과 시 잔여 pending 은 다음 스케줄에서 이어 처리(장시간 점유 방지).
+	 */
+	private long synergyMaxWallClockMsPerJob = 0L;
+
 	/** pick-slot drain catch-up 시 Job 당 라운드 절대 상한. 0 이하면 drain-until-empty. */
 	private int pickSlotMaxRoundsCap = 10;
 

@@ -167,11 +167,13 @@ spec:
               value: "smw-redis"
             - name: SMW_CACHE_RTA_USE_REDIS
               value: "true"
-            # RTA backlog catch-up·청크 — docker yml 기본보다 우선 (OOM 시 더 낮출 것)
+            # 시너지: 예전 운영(≈1000경기·1라운드/Job) — 5000×3라운드 catch-up 은 Job 5~12h 원인
             - name: SMW_RTA_SYNERGY_BATCH_SIZE
-              value: "5000"
+              value: "1000"
             - name: SMW_RTA_SYNERGY_MAX_ROUNDS_CAP
-              value: "3"
+              value: "1"
+            - name: SMW_RTA_BATCH_BACKLOG_SCALING
+              value: "false"
             - name: SMW_RTA_PICK_SLOT_MAX_ROUNDS_CAP
               value: "3"
             - name: SMW_RTA_PICK_SLOT_DRAIN_BATCH_SIZE
@@ -184,8 +186,15 @@ spec:
               value: "100000"
             - name: SMW_RTA_COUNTER_AGG_COPY_STAGING_CHUNK_ROWS
               value: "80000"
+            - name: SMW_RTA_COUNTER_AGG_ANALYZE_AFTER_MERGE
+              value: "false"
             - name: SMW_RTA_SYNERGY_PAUSE_MS
               value: "150"
+            # 단일 Job 10h+ 점유 방지 — docker yml 3h 상한과 동일
+            - name: SMW_RTA_SYNERGY_MAX_WALL_CLOCK_MS
+              value: "10800000"
+            - name: SMW_RTA_SYNERGY_APPLY_SUB_BATCH_SIZE
+              value: "800"
           resources:
             requests:
               memory: "512Mi"

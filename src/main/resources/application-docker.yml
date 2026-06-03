@@ -213,9 +213,11 @@ smw:
       max-batches-cap: 5
       apply-chunk-size: 500
     batch:
-      synergy-batch-size: 5000
+      synergy-batch-size: 1000
       synergy-max-rounds-per-job: 1
-      synergy-max-rounds-cap: 3
+      synergy-max-rounds-cap: 1
+      backlog-scaling-enabled: false
+      synergy-max-wall-clock-ms-per-job: 10800000
       pick-slot-drain-batch-size: 1000
       pick-slot-max-rounds-cap: 3
       backlog-scaling-enabled: true
@@ -223,8 +225,10 @@ smw:
       synergy-pause-ms-between-rounds: 150
     synergy-agg:
       copy-staging-chunk-rows: 100000
+      apply-sub-batch-size: 800
     counter-agg:
       copy-staging-chunk-rows: 80000
+      analyze-target-after-merge: false
   mybatis:
     log:
       # "파라미터까지 합쳐진 완성된 SQL" 로그 (MybatisInterceptor DEBUG에서 출력)

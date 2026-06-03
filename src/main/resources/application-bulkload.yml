@@ -7,6 +7,8 @@ smw:
       max-batches-per-job: 50
       max-batches-cap: 200
       fail-fast-on-error: false
+    counter-agg:
+      analyze-target-after-merge: true
     batch:
       synergy-max-rounds-per-job: 0
       synergy-pause-ms-between-rounds: 0

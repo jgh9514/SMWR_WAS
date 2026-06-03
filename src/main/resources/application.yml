@@ -259,14 +259,19 @@ smw:
       backlog-scaling-enabled: ${SMW_RTA_BATCH_BACKLOG_SCALING:true}
       backlog-high-watermark: ${SMW_RTA_BATCH_BACKLOG_HIGH_WATERMARK:10000}
       synergy-pause-ms-between-rounds: ${SMW_RTA_SYNERGY_PAUSE_MS:50}
+      synergy-max-wall-clock-ms-per-job: ${SMW_RTA_SYNERGY_MAX_WALL_CLOCK_MS:0}
       slack-token: ${SMW_BATCH_SLACK_TOKEN:}
       slack-channel-id: ${SMW_BATCH_SLACK_CHANNEL_ID:}
       rank-cut-missing-hours-per-run: ${SMW_RTA_RANK_CUT_MISSING_HOURS_PER_RUN:48}
       skip-season-rating-match-total-if-fresh: ${SMW_RTA_SKIP_MATCH_TOTAL_IF_FRESH:true}
     synergy-agg:
       copy-staging-chunk-rows: ${SMW_RTA_SYNERGY_AGG_COPY_STAGING_CHUNK_ROWS:600000}
+      # applySynergyBatch(라운드당 N rid) 를 더 짧은 TX 로 분할 — 단일 TX 수 시간·I/O 끊김 완화
+      apply-sub-batch-size: ${SMW_RTA_SYNERGY_APPLY_SUB_BATCH_SIZE:1000}
     counter-agg:
       copy-staging-chunk-rows: ${SMW_RTA_COUNTER_AGG_COPY_STAGING_CHUNK_ROWS:400000}
+      # true 시 merge 직후 counter 3테이블 FULL ANALYZE — 대형 DB에서 시너지 배치가 수 시간 늘어남
+      analyze-target-after-merge: ${SMW_RTA_COUNTER_AGG_ANALYZE_AFTER_MERGE:false}
     # rank-cut-validation · counter/synergy-agg · staging-merge → Java @ConfigurationProperties / @Value 기본값
     # 대시보드 API: rta_agg_* / rta_rank_cutoff_anchor_snap 등 집계·스냅만 (라이브 풀스캔 없음).
   ops:

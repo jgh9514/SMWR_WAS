@@ -71,8 +71,13 @@ public class RtaSynergyAggServiceImpl implements RtaSynergyAggService {
 	@Value("${smw.rta.synergy-agg.use-copy-staging:true}")
 	private boolean synergyUseCopyStaging;
 
+	/** {@link #applySynergyBatch} 라운드 내 rid 를 이 크기마다 별도 TX(COPY·merge·완료표시)로 분할. */
+	@Value("${smw.rta.synergy-agg.apply-sub-batch-size:1000}")
+	private int synergyApplySubBatchSize;
+
 	private final RtaMapper rtaMapper;
 	private final TransactionTemplate synergyOneRidTx;
+	private final TransactionTemplate synergySubBatchTx;
 	private final RtaCounterMatchupCopyStagingService counterCopyStagingService;
 	private final RtaSynergyAggCopyStagingService synergyCopyStagingService;
 	private final RtaBulkRidLookupService bulkRidLookupService;
@@ -91,6 +96,8 @@ public class RtaSynergyAggServiceImpl implements RtaSynergyAggService {
 		this.rtaMapper = rtaMapper;
 		this.synergyOneRidTx = new TransactionTemplate(transactionManager);
 		this.synergyOneRidTx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+		this.synergySubBatchTx = new TransactionTemplate(transactionManager);
+		this.synergySubBatchTx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
 		this.counterCopyStagingService = counterCopyStagingService;
 		this.synergyCopyStagingService = synergyCopyStagingService;
 		this.bulkRidLookupService = bulkRidLookupService;
@@ -107,9 +114,7 @@ public class RtaSynergyAggServiceImpl implements RtaSynergyAggService {
 	}
 
 	@Override
-	@Transactional(transactionManager = "rtaJdbcTransactionManager", rollbackFor = Exception.class)
 	public SynergyBatchApplyResult applySynergyBatch(List<Long> rids) {
-		int ok = 0;
 		if (rids == null || rids.isEmpty()) {
 			return new SynergyBatchApplyResult(0, 0);
 		}
@@ -119,20 +124,42 @@ public class RtaSynergyAggServiceImpl implements RtaSynergyAggService {
 				ordered.add(rid);
 			}
 		}
+		if (ordered.isEmpty()) {
+			return new SynergyBatchApplyResult(0, 0);
+		}
+		int subSize = Math.max(100, synergyApplySubBatchSize);
+		int totalOk = 0;
+		for (int from = 0; from < ordered.size(); from += subSize) {
+			int to = Math.min(from + subSize, ordered.size());
+			List<Long> slice = ordered.subList(from, to);
+			final int[] ok = { 0 };
+			synergySubBatchTx.executeWithoutResult(status -> ok[0] = applySynergySubBatch(slice).ok());
+			totalOk += ok[0];
+		}
+		if (ordered.size() > subSize) {
+			log.info("[rta-synergy] applySynergyBatch rids={} → subBatch={}×{}회 TX", ordered.size(), subSize,
+					(ordered.size() + subSize - 1) / subSize);
+		}
+		return new SynergyBatchApplyResult(totalOk, 0);
+	}
+
+	/**
+	 * 라운드에서 가져온 rid 목록 중 한 서브배치 — COPY·merge·완료 표시까지 단일 TX.
+	 */
+	private SynergyBatchApplyResult applySynergySubBatch(List<Long> ordered) {
 		int n = ordered.size();
-		// 초기 용량 사전 설정 → 리해시 제거 (기본 16에서 수백만 항목 → 20회+ 리해시 발생)
 		Map<Long, Map<String, Object>> replayByRid = new HashMap<>(n * 4 / 3 + 1);
 		Map<Long, List<Map<String, Object>>> unitsByRid = new HashMap<>(n * 4 / 3 + 1);
 		Map<Long, List<Map<String, Object>>> ratingsByRid = new HashMap<>(n * 4 / 3 + 1);
 		prefetchSynergyLookup(ordered, replayByRid, unitsByRid, ratingsByRid);
 
-		// 경기당 고유 시너지 키 ~15개, 카운터 키 ~50개 추정 (4/3 = load factor 역수)
 		Map<SynergyMergeKey, long[]> synAcc = new HashMap<>(n * 15 * 4 / 3 + 1);
 		Map<SynergyMergeKey, Integer> synComboSizes = new HashMap<>(n * 15 * 4 / 3 + 1);
 		Map<CounterMergeKey, long[]> cntAcc = new HashMap<>(n * 50 * 4 / 3 + 1);
 		Map<CounterMergeKey, Integer> cntOppSizes = new HashMap<>(n * 50 * 4 / 3 + 1);
 
 		List<Long> processed = new ArrayList<>(ordered.size());
+		int ok = 0;
 		for (Long rid : ordered) {
 			try {
 				Map<String, Object> replay = replayByRid.get(rid);
@@ -150,7 +177,7 @@ public class RtaSynergyAggServiceImpl implements RtaSynergyAggService {
 				} catch (Exception markEx) {
 					log.warn("[rta-synergy] rid={} 실패 표시 중 오류: {}", rid, markEx.getMessage());
 				}
-				log.error("[rta-synergy] rid={} 시너지 집계 실패 — 통합 배치 중단", rid, e);
+				log.error("[rta-synergy] rid={} 시너지 집계 실패 — 배치 중단", rid, e);
 				throw new IllegalStateException("시너지 집계 실패 rid=" + rid + ": " + e.getMessage(), e);
 			}
 		}
@@ -164,7 +191,6 @@ public class RtaSynergyAggServiceImpl implements RtaSynergyAggService {
 			throw new IllegalStateException(
 					"카운터 집계 행이 비어 있는데 처리된 rid 가 있음(버그·데이터 불일치) — 완료 표시 금지, processed=" + processed.size());
 		}
-		// COPY 전 인덱스 키 순 정렬 → B-tree 순차 프로브 → 버퍼 캐시 히트율 향상
 		mergedSyn.sort(Comparator.comparingLong(RtaSynergyAggUpsertRow::getSeasonId)
 				.thenComparingInt(RtaSynergyAggUpsertRow::getRatingId)
 				.thenComparing(RtaSynergyAggUpsertRow::getComboKey));
@@ -172,8 +198,6 @@ public class RtaSynergyAggServiceImpl implements RtaSynergyAggService {
 				.thenComparingInt(RtaCounterMatchupUpsertRow::getRatingId)
 				.thenComparingLong(RtaCounterMatchupUpsertRow::getSubjectUnitId)
 				.thenComparing(RtaCounterMatchupUpsertRow::getOpponentComboKey));
-		// 병렬: staging 테이블은 분리됐으나, 동시 MERGE+ANALYZE+다른 세션(다른 Pod/로컬)과 rta_agg_* 락이 겹치면
-		// lock_timeout 이 날 수 있음 — smw.rta.batch.parallel-synergy-counter-staging-flush=false 로 순차 flush.
 		if (rtaBatchProperties.isParallelSynergyCounterStagingFlush()) {
 			CompletableFuture<Void> synFlush = CompletableFuture.runAsync(() -> flushSynergyInChunks(mergedSyn));
 			CompletableFuture<Void> cntFlush = CompletableFuture.runAsync(() -> flushCounterMatchupInChunks(mergedCnt));
@@ -193,7 +217,6 @@ public class RtaSynergyAggServiceImpl implements RtaSynergyAggService {
 		if (marked >= 0 && markedRows != processed.size()) {
 			log.warn("[rta-synergy] mark done expected={} actual={}", processed.size(), markedRows);
 		} else if (marked < 0) {
-			// PG JDBC 영향 행 수가 int 범위를 넘으면 음수로 보일 수 있음 — 실제 UPDATE 는 정상일 수 있음
 			log.debug("[rta-synergy] mark done affected raw int overflow (logged as unsigned={}), rid count={}",
 					markedRows, processed.size());
 		}

@@ -58,6 +58,13 @@ public class RtaSynergyOnlyAggJob extends BaseBatchJob {
 		if (synPause > 0) {
 			addLog("· 라운드 간 대기: %dms", synPause);
 		}
+		long wallMs = rtaBatchProperties.getSynergyMaxWallClockMsPerJob();
+		if (wallMs > 0) {
+			addLog("· Job 벽시계 상한: %d분", wallMs / 60_000L);
+		}
+
+		long pendingAfter = backlog.synergyPending();
+		long jobStart = System.currentTimeMillis();
 
 		RtaBatchAggregationService.SynergyDrainResult syn = aggregationService.drainSynergyPending(
 				rtaMapper,
@@ -66,13 +73,29 @@ public class RtaSynergyOnlyAggJob extends BaseBatchJob {
 				synergyBatch,
 				evictEachRound,
 				synPause,
-				maxRounds);
+				maxRounds,
+				wallMs);
+
+		long pendingRemain = backlogScaler.snapshot().synergyPending();
+		long elapsedMs = System.currentTimeMillis() - jobStart;
+		double ridsPerHour = elapsedMs > 0 && syn.totalOk() > 0
+				? syn.totalOk() * 3_600_000.0 / elapsedMs
+				: 0.0;
 
 		addLog("· 완료 — 라운드 %d, ok %d, fail %d, %s",
 				syn.rounds(),
 				syn.totalOk(),
 				syn.totalFail(),
 				syn.stopReason());
+		addLog("· pending %,d → %,d (처리 %,d경기, %.0f경기/시간, Job %d분)",
+				pendingAfter,
+				pendingRemain,
+				syn.totalOk(),
+				ridsPerHour,
+				elapsedMs / 60_000L);
+		if (pendingRemain > pendingAfter && syn.totalOk() > 0) {
+			addLog("· 주의: pending 이 줄지 않음 — raw 유입이 drain 보다 빠르거나 다른 Job 이 겹칠 수 있음");
+		}
 
 		if (!evictEachRound) {
 			rtaCacheEvictor.evictAllRtaCaches();

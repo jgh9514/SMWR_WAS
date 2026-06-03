@@ -49,8 +49,11 @@ public class RtaCounterMatchupCopyStagingService {
 	private final DataSource dataSource;
 	private final RtaStagingMergeProperties stagingMergeProperties;
 
-	/** merge 직후 ANALYZE — 대량 적재 후 플래너 통계 갱신(플랜 품질). */
-	@Value("${smw.rta.counter-agg.analyze-target-after-merge:true}")
+	/**
+	 * merge 직후 {@code rta_agg_counter_solo/duo/trio} 전체 ANALYZE.
+	 * trio 수천만 행(10GB+)이면 라운드마다 수십 분 — 시너지 Job 장시간의 주요 원인. 평시 false, 야간 백필만 true.
+	 */
+	@Value("${smw.rta.counter-agg.analyze-target-after-merge:false}")
 	private boolean analyzeTargetAfterMerge;
 
 	/**
