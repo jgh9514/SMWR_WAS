@@ -257,6 +257,8 @@ smw:
       pick-slot-drain-batch-size: ${SMW_RTA_PICK_SLOT_DRAIN_BATCH_SIZE:2000}
       pick-slot-max-rounds-cap: ${SMW_RTA_PICK_SLOT_MAX_ROUNDS_CAP:10}
       backlog-scaling-enabled: ${SMW_RTA_BATCH_BACKLOG_SCALING:true}
+      exact-pending-count-in-batch-jobs: ${SMW_RTA_BATCH_EXACT_PENDING_COUNT_IN_JOBS:false}
+      pending-count-cache-ttl-seconds: ${SMW_RTA_BATCH_PENDING_COUNT_CACHE_TTL:300}
       backlog-high-watermark: ${SMW_RTA_BATCH_BACKLOG_HIGH_WATERMARK:10000}
       synergy-pause-ms-between-rounds: ${SMW_RTA_SYNERGY_PAUSE_MS:50}
       synergy-max-wall-clock-ms-per-job: ${SMW_RTA_SYNERGY_MAX_WALL_CLOCK_MS:0}

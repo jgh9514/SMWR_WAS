@@ -13,8 +13,8 @@ import lombok.extern.slf4j.Slf4j;
 /**
  * RTA 배치 미처리(backlog) 규모에 따라 Job 당 라운드·배치 상한을 동적으로 조정한다.
  * <p>
- * 평소({@code pending <= batchSize})에는 yml 기본값(예: synergy 1라운드, raw 1배치)을 유지하고,
- * 장애·지연으로 backlog 가 쌓이면 한 실행에서 더 많이 처리해 따라잡기(catch-up)한다.
+ * 시너지 pending 50만+ 일 때 {@code COUNT(*)} 는 partial index 전체 스캔으로 수십 초~수 분 —
+ * 배치 Job 핫패스에서는 {@link RtaMapper#existsPendingSynergyAgg()} 만 사용한다.
  */
 @Slf4j
 @Service
@@ -26,12 +26,55 @@ public class RtaBatchBacklogScaler {
 	private final RtaBatchProperties batchProperties;
 	private final RtaRawApplyProperties rawApplyProperties;
 
+	private volatile long synergyPendingCached = -1L;
+	private volatile long synergyPendingCachedAtMs = 0L;
+
+	/** 관리 API·모니터링 — synergy COUNT 는 TTL 캐시(기본 5분). */
 	public RtaBatchBacklogCounts snapshot() {
-		long synergy = safeCount(rtaMapper.countPendingSynergyAgg());
-		long pickSlot = safeCount(rtaMapper.countPendingPickSlotSnap());
-		long summonerRanking = safeCount(rtaMapper.countPendingSummonerRankingReplays());
-		long raw = safeCount(swMapper.countRtaReplayRawPending());
-		return new RtaBatchBacklogCounts(synergy, raw, pickSlot, summonerRanking);
+		return new RtaBatchBacklogCounts(
+				synergyPendingCachedOrCount(),
+				safeCount(swMapper.countRtaReplayRawPending()),
+				safeCount(rtaMapper.countPendingPickSlotSnap()),
+				safeCount(rtaMapper.countPendingSummonerRankingReplays()));
+	}
+
+	/**
+	 * {@link com.smw.monster.batch.RtaSynergyOnlyAggJob} — COUNT 없이 라운드·pause 결정(기본).
+	 */
+	public SynergyJobPlan planSynergyDrain(int batchSize, int configuredMaxRounds, int configuredPauseMs) {
+		boolean hasPending = Boolean.TRUE.equals(rtaMapper.existsPendingSynergyAgg());
+		Long exactPending = null;
+		int maxRounds;
+		int pauseMs;
+
+		if (batchProperties.isExactPendingCountInBatchJobs()) {
+			exactPending = safeCount(rtaMapper.countPendingSynergyAgg());
+			maxRounds = resolveSynergyMaxRounds(exactPending, batchSize, configuredMaxRounds);
+			pauseMs = resolveSynergyPauseMs(exactPending, configuredPauseMs, batchSize);
+		} else {
+			maxRounds = resolveSynergyMaxRoundsWithoutCount(hasPending, batchSize, configuredMaxRounds);
+			pauseMs = resolveSynergyPauseMsWithoutCount(hasPending, configuredPauseMs, batchSize);
+		}
+		return new SynergyJobPlan(hasPending, maxRounds, pauseMs, exactPending);
+	}
+
+	public long synergyPendingCachedOrCount() {
+		int ttlSec = batchProperties.getPendingCountCacheTtlSeconds();
+		long now = System.currentTimeMillis();
+		if (ttlSec > 0 && synergyPendingCached >= 0
+				&& now - synergyPendingCachedAtMs < ttlSec * 1000L) {
+			return synergyPendingCached;
+		}
+		long counted = safeCount(rtaMapper.countPendingSynergyAgg());
+		synergyPendingCached = counted;
+		synergyPendingCachedAtMs = now;
+		return counted;
+	}
+
+	/** 시너지 drain 후 API 캐시 무효화(선택). */
+	public void invalidateSynergyPendingCache() {
+		synergyPendingCached = -1L;
+		synergyPendingCachedAtMs = 0L;
 	}
 
 	/**
@@ -44,6 +87,25 @@ public class RtaBatchBacklogScaler {
 				configuredMaxRounds,
 				batchProperties.getSynergyMaxRoundsCap(),
 				"synergy");
+	}
+
+	int resolveSynergyMaxRoundsWithoutCount(boolean hasPending, int batchSize, int configuredMaxRounds) {
+		if (configuredMaxRounds <= 0) {
+			return 0;
+		}
+		int baseline = Math.max(1, configuredMaxRounds);
+		if (!batchProperties.isBacklogScalingEnabled()) {
+			return baseline;
+		}
+		if (!hasPending) {
+			return baseline;
+		}
+		int safeCap = Math.max(baseline, batchProperties.getSynergyMaxRoundsCap());
+		if (safeCap > baseline) {
+			log.info("[batch-backlog] synergy pending EXISTS — maxUnits {} (baseline={}, cap={}, COUNT 생략)",
+					safeCap, baseline, safeCap);
+		}
+		return safeCap;
 	}
 
 	public int resolveRawMaxBatches(long rawPending, int rowsPerBatch, int configuredMaxBatches) {
@@ -65,15 +127,23 @@ public class RtaBatchBacklogScaler {
 				"pick-slot");
 	}
 
-	/**
-	 * backlog 가 크면 라운드 간 대기를 줄여 catch-up 속도를 높인다.
-	 */
 	public int resolveSynergyPauseMs(long synergyPending, int configuredPauseMs, int batchSize) {
 		if (!batchProperties.isBacklogScalingEnabled() || configuredPauseMs <= 0) {
 			return configuredPauseMs;
 		}
 		long high = Math.max(batchSize, batchProperties.getBacklogHighWatermark());
 		return synergyPending >= high ? 0 : configuredPauseMs;
+	}
+
+	int resolveSynergyPauseMsWithoutCount(boolean hasPending, int configuredPauseMs, int batchSize) {
+		if (!batchProperties.isBacklogScalingEnabled() || configuredPauseMs <= 0) {
+			return configuredPauseMs;
+		}
+		if (!hasPending) {
+			return configuredPauseMs;
+		}
+		long high = Math.max(batchSize, batchProperties.getBacklogHighWatermark());
+		return high > 0 ? 0 : configuredPauseMs;
 	}
 
 	private int resolveMaxUnits(
@@ -112,6 +182,14 @@ public class RtaBatchBacklogScaler {
 			long rawPending,
 			long pickSlotPending,
 			long summonerRankingPending) {
+	}
+
+	public record SynergyJobPlan(
+			boolean hasPending,
+			int maxRounds,
+			int pauseMs,
+			/** {@code exactPendingCountInBatchJobs=true} 일 때만 채움. */
+			Long exactPendingCount) {
 	}
 
 	public record RtaBatchScaledPlan(

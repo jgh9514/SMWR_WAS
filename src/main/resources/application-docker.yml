@@ -217,6 +217,8 @@ smw:
       synergy-max-rounds-per-job: 1
       synergy-max-rounds-cap: 1
       backlog-scaling-enabled: false
+      exact-pending-count-in-batch-jobs: false
+      pending-count-cache-ttl-seconds: 300
       backlog-high-watermark: 15000
       synergy-max-wall-clock-ms-per-job: 10800000
       pick-slot-drain-batch-size: 1000

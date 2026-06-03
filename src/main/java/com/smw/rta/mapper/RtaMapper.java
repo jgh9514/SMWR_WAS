@@ -406,7 +406,10 @@ public interface RtaMapper {
     /** 시너지 미집계 rid ({@code rta_match.synergy_applied_at IS NULL}, rid 오름차순). 성공/실패는 {@code synergy_apply_result}. */
     List<Long> selectPendingSynergyAggRids(@Param("batchSize") int batchSize);
 
-    /** 시너지 미집계 건수 — backlog 스케일링·모니터링용 */
+    /** 시너지 미집계 1건 이상 여부 — partial index, COUNT 없음(배치 Job용). */
+    Boolean existsPendingSynergyAgg();
+
+    /** 시너지 미집계 건수 — 관리 API·캐시용. 대량 pending 시 풀 인덱스 스캔 비용 큼. */
     Long countPendingSynergyAgg();
 
     /** 파티션 배치용: 특정 rid 구간([minRid, maxRid]) 내 미집계 rid만 조회. */

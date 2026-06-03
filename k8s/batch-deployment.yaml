@@ -174,6 +174,10 @@ spec:
               value: "1"
             - name: SMW_RTA_BATCH_BACKLOG_SCALING
               value: "false"
+            - name: SMW_RTA_BATCH_EXACT_PENDING_COUNT_IN_JOBS
+              value: "false"
+            - name: SMW_RTA_BATCH_PENDING_COUNT_CACHE_TTL
+              value: "300"
             - name: SMW_RTA_PICK_SLOT_MAX_ROUNDS_CAP
               value: "3"
             - name: SMW_RTA_PICK_SLOT_DRAIN_BATCH_SIZE

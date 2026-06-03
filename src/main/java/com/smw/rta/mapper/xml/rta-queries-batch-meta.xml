@@ -16,6 +16,16 @@
         LIMIT #{batchSize}
     </select>
 
+    <!-- idx_rta_match_synergy_pending — EXISTS 는 첫 행만(배치 Job 핫패스). COUNT 는 관리 API·캐시용(대량 시 수십 초). -->
+    <select id="existsPendingSynergyAgg" resultType="boolean">
+        /* rta-queries-batch-meta.existsPendingSynergyAgg */
+        SELECT EXISTS (
+            SELECT 1
+            FROM public.rta_match m
+            WHERE m.synergy_applied_at IS NULL
+        )
+    </select>
+
     <select id="countPendingSynergyAgg" resultType="long">
         /* rta-queries-batch-meta.countPendingSynergyAgg */
         SELECT COUNT(*)::bigint

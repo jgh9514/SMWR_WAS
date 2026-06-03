@@ -74,6 +74,15 @@ public class RtaBatchProperties {
 	 */
 	private boolean backlogScalingEnabled = true;
 
+	/**
+	 * true 이면 배치 Job 로그·스케일링에 {@code countPendingSynergyAgg} 사용(대량 시 매우 느림).
+	 * false(권장) — EXISTS·캐치업 상한만 사용, 정확 건수는 {@link #pendingCountCacheTtlSeconds} 캐시 API.
+	 */
+	private boolean exactPendingCountInBatchJobs = false;
+
+	/** {@code countPendingSynergyAgg} API 캐시 TTL(초). 0 이면 매 요청 COUNT. */
+	private int pendingCountCacheTtlSeconds = 300;
+
 	/** backlog catch-up 시 시너지 Job 당 라운드 절대 상한. {@code synergy-max-rounds-per-job} 기본(1)보다 커야 효과 있음. */
 	private int synergyMaxRoundsCap = 10;
 

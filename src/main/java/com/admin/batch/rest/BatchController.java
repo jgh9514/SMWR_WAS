@@ -83,6 +83,8 @@ public class BatchController {
 
 		Map<String, Object> pending = new LinkedHashMap<>();
 		pending.put("synergy", counts.synergyPending());
+		pending.put("synergy_count_cached",
+				rtaBatchProperties.getPendingCountCacheTtlSeconds() > 0);
 		pending.put("raw", counts.rawPending());
 		pending.put("pick_slot", counts.pickSlotPending());
 		pending.put("summoner_ranking", counts.summonerRankingPending());
