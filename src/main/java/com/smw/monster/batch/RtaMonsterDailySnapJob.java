@@ -29,25 +29,21 @@ public class RtaMonsterDailySnapJob extends BaseBatchJob {
         RtaBatchBacklogScaler backlogScaler = applicationContext.getBean(RtaBatchBacklogScaler.class);
         int pickSlotDrainBatchSize = batchProps.getPickSlotDrainBatchSize();
 
-        addLog("--- rta_agg_monster_daily_snap 재적재 (시즌 시작일~오늘 누락분) ---");
-        long t0 = System.currentTimeMillis();
+        addLog("--- rta_agg_monster_daily_snap 재적재 ---");
         int inserted = aggregationService.rebuildMonsterDailySnap(rtaMapper);
-        addLog("daily snap 완료: insertedDates=%d, elapsed=%dms", inserted, System.currentTimeMillis() - t0);
+        addLog("daily snap 완료 — insertedDates=%d", inserted);
 
         RtaBatchBacklogScaler.RtaBatchBacklogCounts backlog = backlogScaler.snapshot();
         int pickSlotMaxRounds = backlogScaler.resolvePickSlotMaxRounds(
                 backlog.pickSlotPending(), pickSlotDrainBatchSize, 1);
 
-        addLog("--- rta_agg_monster_pick_slot_snap incremental drain (pending %,d → maxRounds=%d) ---",
-                backlog.pickSlotPending(), pickSlotMaxRounds);
-        long t1 = System.currentTimeMillis();
+        addLog("--- pick slot drain (pending %,d, maxRounds=%d) ---", backlog.pickSlotPending(), pickSlotMaxRounds);
         int slotRids = aggregationService.drainPickSlotSnap(rtaMapper, pickSlotDrainBatchSize, pickSlotMaxRounds);
-        addLog("pick slot snap 완료: processedRids=%d, elapsed=%dms", slotRids, System.currentTimeMillis() - t1);
+        addLog("pick slot snap 완료 — processedRids=%d", slotRids);
 
-        addLog("--- rta_agg_monster_top_summoner_snap 재적재 ---");
-        long t2 = System.currentTimeMillis();
+        addLog("--- monster top summoner snap ---");
         int topSummonerSeasons = aggregationService.rebuildMonsterTopSummonerSnap(rtaMapper, 5, 10);
-        addLog("top summoner snap 완료: seasonCount=%d, elapsed=%dms", topSummonerSeasons, System.currentTimeMillis() - t2);
+        addLog("top summoner snap 완료 — seasonCount=%d", topSummonerSeasons);
 
         rtaCacheEvictor.evictAllRtaCaches();
         addLog("RTA 조회 캐시 무효화 완료");

@@ -29,11 +29,11 @@ final class RtaAggStagingMergeSql {
 			    s.season_id,
 			    s.rating_id,
 			    s.combo_unit_key,
-			    s.match_cnt::bigint,
-			    COALESCE(s.ban_cnt, 0)::bigint,
-			    s.match_cnt::bigint,
-			    s.win_cnt::bigint,
-			    (s.match_cnt - s.win_cnt)::bigint
+			    s.match_cnt,
+			    COALESCE(s.ban_cnt, 0),
+			    s.match_cnt,
+			    s.win_cnt,
+			    (s.match_cnt - s.win_cnt)
 			FROM public.staging_synergy_agg s
 			WHERE s.combo_size = 1
 			ON CONFLICT (season_id, rating_id, combo_unit_key) DO UPDATE SET
@@ -52,9 +52,9 @@ final class RtaAggStagingMergeSql {
 			    s.season_id,
 			    s.rating_id,
 			    s.combo_unit_key,
-			    s.match_cnt::bigint,
-			    s.win_cnt::bigint,
-			    (s.match_cnt - s.win_cnt)::bigint
+			    s.match_cnt,
+			    s.win_cnt,
+			    (s.match_cnt - s.win_cnt)
 			FROM public.staging_synergy_agg s
 			WHERE s.combo_size = 2
 			ON CONFLICT (season_id, rating_id, combo_unit_key) DO UPDATE SET
@@ -71,8 +71,8 @@ final class RtaAggStagingMergeSql {
 			    s.season_id,
 			    s.rating_id,
 			    s.combo_unit_key,
-			    s.match_cnt::bigint,
-			    s.win_cnt::bigint
+			    s.match_cnt,
+			    s.win_cnt
 			FROM public.staging_synergy_agg s
 			WHERE s.combo_size = 3
 			ON CONFLICT (season_id, rating_id, combo_unit_key) DO UPDATE SET
@@ -92,13 +92,13 @@ final class RtaAggStagingMergeSql {
 			    s.season_id,
 			    s.rating_id,
 			    s.subject_unit_id,
-			    s.opponent_combo_key::bigint,
-			    s.win_cnt::bigint,
-			    s.lose_cnt::bigint,
+			    CAST(s.opponent_combo_key AS bigint),
+			    s.win_cnt,
+			    s.lose_cnt,
 			    CURRENT_TIMESTAMP
 		FROM public.staging_matchup_agg s
 		WHERE s.opponent_combo_size = 1
-		ORDER BY s.season_id, s.rating_id, s.subject_unit_id, s.opponent_combo_key::int8
+		ORDER BY s.season_id, s.rating_id, s.subject_unit_id, CAST(s.opponent_combo_key AS bigint)
 		ON CONFLICT (season_id, rating_id, subject_monster_id, opponent_monster_id) DO UPDATE SET
 			    win_cnt    = public.rta_agg_counter_solo.win_cnt   + EXCLUDED.win_cnt,
 			    lose_cnt   = public.rta_agg_counter_solo.lose_cnt  + EXCLUDED.lose_cnt,
@@ -118,8 +118,8 @@ final class RtaAggStagingMergeSql {
 			    s.rating_id,
 			    s.subject_unit_id,
 			    s.opponent_combo_key,
-			    s.win_cnt::bigint,
-			    s.lose_cnt::bigint,
+			    s.win_cnt,
+			    s.lose_cnt,
 			    CURRENT_TIMESTAMP
 			FROM public.staging_matchup_agg s
 			WHERE s.opponent_combo_size = 2
@@ -143,8 +143,8 @@ final class RtaAggStagingMergeSql {
 			    s.rating_id,
 			    s.subject_unit_id,
 			    s.opponent_combo_key,
-			    s.win_cnt::bigint,
-			    s.lose_cnt::bigint,
+			    s.win_cnt,
+			    s.lose_cnt,
 			    CURRENT_TIMESTAMP
 			FROM public.staging_matchup_agg s
 			WHERE s.opponent_combo_size = 3

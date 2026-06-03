@@ -1485,7 +1485,7 @@
 
 	<select id="countRtaReplayRawPending" resultType="long">
 		/* summonerswar.countRtaReplayRawPending */
-		SELECT COUNT(*)::bigint
+		SELECT COUNT(*)
 		FROM ranker_rtpvp_replay_raw
 		WHERE apply_status IN ('pending', 'failed')
 	</select>
@@ -1638,9 +1638,9 @@
 		SELECT
 			f.wizard_id,
 			f.wizard_name,
-			COUNT(*)::bigint AS total_count,
-			COUNT(*) FILTER (WHERE f.win_lose = '1')::bigint AS win_count,
-			COUNT(*) FILTER (WHERE f.win_lose = '2')::bigint AS lose_count,
+			COUNT(*) AS total_count,
+			COUNT(*) FILTER (WHERE f.win_lose = '1') AS win_count,
+			COUNT(*) FILTER (WHERE f.win_lose = '2') AS lose_count,
 			ROUND(
 				100.0 * COUNT(*) FILTER (WHERE f.win_lose = '1')::numeric
 					/ NULLIF(COUNT(*), 0)::numeric,

@@ -102,7 +102,7 @@ public class RtaBatchBacklogScaler {
 		}
 		int safeCap = Math.max(baseline, batchProperties.getSynergyMaxRoundsCap());
 		if (safeCap > baseline) {
-			log.info("[batch-backlog] synergy pending EXISTS — maxUnits {} (baseline={}, cap={}, COUNT 생략)",
+			log.debug("[batch-backlog] synergy pending EXISTS — maxUnits {} (baseline={}, cap={}, COUNT 생략)",
 					safeCap, baseline, safeCap);
 		}
 		return safeCap;
@@ -167,7 +167,7 @@ public class RtaBatchBacklogScaler {
 		int safeCap = Math.max(baseline, cap);
 		int scaled = (int) Math.min(safeCap, Math.max(baseline, needed));
 		if (scaled > baseline) {
-			log.info("[batch-backlog] {} pending={} batchSize={} → maxUnits {} (baseline={}, cap={})",
+			log.debug("[batch-backlog] {} pending={} batchSize={} → maxUnits {} (baseline={}, cap={})",
 					label, pending, safeBatch, scaled, baseline, safeCap);
 		}
 		return scaled;

@@ -49,17 +49,16 @@ public class RtaSynergyOnlyAggJob extends BaseBatchJob {
 			return;
 		}
 
-		addLog("[시작] RTA 시너지·카운터 단독 집계 — 배치 %d건/라운드, Job당 라운드상한=%s, 라운드별캐시무효화=%s",
+		addLog("[시작] RTA 시너지·카운터 — 배치 %d건/라운드, Job당 라운드상한=%s, 라운드별캐시무효화=%s",
 				synergyBatch,
 				plan.maxRounds() <= 0 ? "무제한(pending 소진까지)" : String.valueOf(plan.maxRounds()),
 				evictEachRound ? "Y" : "N");
 		if (plan.exactPendingCount() != null) {
-			addLog("· backlog: synergy pending %,d (COUNT) → 이번 Job %s",
+			addLog("· backlog: synergy pending %,d → 이번 Job %s",
 					plan.exactPendingCount(),
 					plan.maxRounds() <= 0 ? "무제한" : String.valueOf(plan.maxRounds()));
 		} else {
-			addLog("· backlog: synergy pending 있음 (COUNT 생략, 설정 라운드 %s → 이번 Job %s)",
-					maxRoundsConfigured <= 0 ? "무제한" : String.valueOf(maxRoundsConfigured),
+			addLog("· backlog: synergy pending 있음 (COUNT 생략) → 이번 Job %s",
 					plan.maxRounds() <= 0 ? "무제한" : String.valueOf(plan.maxRounds()));
 		}
 		if (plan.pauseMs() > 0) {
@@ -92,7 +91,7 @@ public class RtaSynergyOnlyAggJob extends BaseBatchJob {
 				syn.totalOk(),
 				syn.totalFail(),
 				syn.stopReason());
-		addLog("· 처리 %,d경기, %.0f경기/시간, Job %d분 (pending 정확 건수는 /api/v1/batch/backlog, 5분 캐시)",
+		addLog("· 처리 %,d경기, %.0f경기/시간, Job %d분",
 				syn.totalOk(),
 				ridsPerHour,
 				elapsedMs / 60_000L);

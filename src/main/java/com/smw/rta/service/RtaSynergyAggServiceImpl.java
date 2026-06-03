@@ -137,7 +137,7 @@ public class RtaSynergyAggServiceImpl implements RtaSynergyAggService {
 			totalOk += ok[0];
 		}
 		if (ordered.size() > subSize) {
-			log.info("[rta-synergy] applySynergyBatch rids={} → subBatch={}×{}회 TX", ordered.size(), subSize,
+			log.debug("[rta-synergy] applySynergyBatch rids={} → subBatch={}×{}회 TX", ordered.size(), subSize,
 					(ordered.size() + subSize - 1) / subSize);
 		}
 		return new SynergyBatchApplyResult(totalOk, 0);
@@ -240,7 +240,7 @@ public class RtaSynergyAggServiceImpl implements RtaSynergyAggService {
 			long t0 = System.currentTimeMillis();
 			rtaMapper.deleteRtaPickTurnAggBySeason(seasonId.longValue());
 			int rows = rtaMapper.insertRtaPickTurnAggForSeason(seasonId.longValue());
-			log.info("[rta-pick-turn] seasonId={} upserted={} {}ms", seasonId, rows, System.currentTimeMillis() - t0);
+			log.debug("[rta-pick-turn] seasonId={} upserted={} {}ms", seasonId, rows, System.currentTimeMillis() - t0);
 		}
 		return seasonIds.size();
 	}
@@ -604,7 +604,7 @@ public class RtaSynergyAggServiceImpl implements RtaSynergyAggService {
 			int total = rows.size();
 			if (total > chunk) {
 				int rounds = (total + chunk - 1) / chunk;
-				log.info("[rta-synergy] 시너지 staging: 총 {}행 → COPY·merge {}회 분할 (청크당 최대 {}행)", total, rounds, chunk);
+				log.debug("[rta-synergy] 시너지 staging: 총 {}행 → COPY·merge {}회 분할 (청크당 최대 {}행)", total, rounds, chunk);
 			}
 			for (int from = 0; from < total; from += chunk) {
 				int to = Math.min(from + chunk, total);
@@ -663,7 +663,7 @@ public class RtaSynergyAggServiceImpl implements RtaSynergyAggService {
 			int total = rows.size();
 			if (total > chunk) {
 				int rounds = (total + chunk - 1) / chunk;
-				log.info("[rta-synergy] 카운터 matchup staging: 총 {}행 → COPY·merge {}회 분할 (청크당 최대 {}행)",
+				log.debug("[rta-synergy] 카운터 matchup staging: 총 {}행 → COPY·merge {}회 분할 (청크당 최대 {}행)",
 						total, rounds, chunk);
 				for (int from = 0; from < total; from += chunk) {
 					int to = Math.min(from + chunk, total);
@@ -672,7 +672,7 @@ public class RtaSynergyAggServiceImpl implements RtaSynergyAggService {
 				}
 				return;
 			}
-			log.info("[rta-synergy] 카운터 matchup staging: 총 {}행 → 단일 COPY·merge", total);
+			log.debug("[rta-synergy] 카운터 matchup staging: 총 {}행 → 단일 COPY·merge", total);
 			counterCopyStagingService.flushCounterMatchupViaCopyStaging(rows);
 			return;
 		}

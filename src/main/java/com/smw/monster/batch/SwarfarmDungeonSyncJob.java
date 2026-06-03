@@ -13,14 +13,12 @@ public class SwarfarmDungeonSyncJob extends BaseBatchJob {
     @Override
     protected void executeBatch(JobExecutionContext context) throws Exception {
         SwarfarmDungeonService swarfarmDungeonService = applicationContext.getBean(SwarfarmDungeonService.class);
-        attachServiceLogCallback(swarfarmDungeonService);
-        
         addLog("===== Swarfarm 던전 동기화 시작 =====");
         addLog("API 조회 시작...");
         int syncedCount = swarfarmDungeonService.syncAllDungeons();
         
         addLog("===== Swarfarm 던전 동기화 완료 =====");
-        addLog("총 동기화된 던전 수: %d개", syncedCount);
+        addLog("동기화 %d개", syncedCount);
     }
     
     @Override

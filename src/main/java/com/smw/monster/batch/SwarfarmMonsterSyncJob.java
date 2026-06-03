@@ -17,15 +17,13 @@ public class SwarfarmMonsterSyncJob extends BaseBatchJob {
     protected void executeBatch(JobExecutionContext context) throws Exception {
         SwarfarmMonsterService swarfarmMonsterService = applicationContext.getBean(SwarfarmMonsterService.class);
         attachServiceLogCallback(swarfarmMonsterService);
-        
-        // 서비스 메서드 호출 (서비스 내부에서 로그를 남김)
         int syncedCount = swarfarmMonsterService.syncAllMonsters();
 
         addLog("===== Swarfarm 몬스터 동기화 완료 =====");
-        addLog("총 동기화된 몬스터 수: %d개", syncedCount);
+        addLog("동기화 %d개", syncedCount);
 
         if (syncedCount > 0) {
-            addLog("신규 몬스터 %d개 감지 — MonsterCache·monsterList 캐시 갱신", syncedCount);
+            addLog("신규 몬스터 %d개 — 캐시 갱신", syncedCount);
             applicationContext.getBean(MonsterCacheService.class).reload();
             CacheManager monsterListCacheManager = applicationContext.getBean("monsterListCacheManager", CacheManager.class);
             org.springframework.cache.Cache c = monsterListCacheManager.getCache("monsterList");

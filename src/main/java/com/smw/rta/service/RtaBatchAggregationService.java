@@ -83,7 +83,7 @@ public class RtaBatchAggregationService {
 		}
 		searchMs = msSinceNanos(t1);
 		long wallMs = msSinceNanos(wallStart);
-		log.info("랭킹 스냅 {}ms, 검색 스냅 {}ms, 전체 {}ms", rankingMs, searchMs, wallMs);
+		log.debug("랭킹 스냅 {}ms, 검색 스냅 {}ms, 전체 {}ms", rankingMs, searchMs, wallMs);
 		return new SummonerRankingRebuildResult(
 				(int) safeCount(rtaMapper.countRtaSummonerRankingSnapRows()),
 				(int) safeCount(rtaMapper.countRtaSummonerSearchSnapRows()),
@@ -96,10 +96,10 @@ public class RtaBatchAggregationService {
 			applyBatchTxSessionGuards(rtaMapper);
 			long t0 = System.nanoTime();
 			rtaMapper.acquireRtaSummonerSnapSeasonXactLock(seasonId);
-			log.info("ranking snap delete-phase lock seasonId={} {}ms", seasonId, msSinceNanos(t0));
+			log.debug("ranking snap delete-phase lock seasonId={} {}ms", seasonId, msSinceNanos(t0));
 			long t1 = System.nanoTime();
 			rtaMapper.deleteRtaSummonerRankingSnapBySeason(seasonId);
-			log.info("ranking snap delete seasonId={} {}ms", seasonId, msSinceNanos(t1));
+			log.debug("ranking snap delete seasonId={} {}ms", seasonId, msSinceNanos(t1));
 		});
 
 		int attempt = 0;
@@ -109,10 +109,10 @@ public class RtaBatchAggregationService {
 					applyBatchTxSessionGuards(rtaMapper);
 					long t0 = System.nanoTime();
 					rtaMapper.acquireRtaSummonerSnapSeasonXactLock(seasonId);
-					log.info("ranking snap insert-phase lock seasonId={} {}ms", seasonId, msSinceNanos(t0));
+					log.debug("ranking snap insert-phase lock seasonId={} {}ms", seasonId, msSinceNanos(t0));
 					long t1 = System.nanoTime();
 					rtaMapper.insertRtaSummonerRankingSnapForSeason(seasonId);
-					log.info("ranking snap insert seasonId={} {}ms", seasonId, msSinceNanos(t1));
+					log.debug("ranking snap insert seasonId={} {}ms", seasonId, msSinceNanos(t1));
 				});
 				return;
 			} catch (Exception e) {
@@ -135,10 +135,10 @@ public class RtaBatchAggregationService {
 					applyBatchTxSessionGuards(rtaMapper);
 					long t0 = System.nanoTime();
 					rtaMapper.acquireRtaSummonerSearchSnapGlobalXactLock();
-					log.info("search snap lock seasonId={} {}ms", seasonId, msSinceNanos(t0));
+					log.debug("search snap lock seasonId={} {}ms", seasonId, msSinceNanos(t0));
 					long t1 = System.nanoTime();
 					rtaMapper.upsertRtaSummonerSearchSnap(seasonId);
-					log.info("search snap upsert seasonId={} {}ms", seasonId, msSinceNanos(t1));
+					log.debug("search snap upsert seasonId={} {}ms", seasonId, msSinceNanos(t1));
 				});
 				return;
 			} catch (Exception e) {
@@ -198,7 +198,7 @@ public class RtaBatchAggregationService {
 			long tf = System.nanoTime();
 			Long lastFightMs = rtaMapper.selectFightSnapMaxComputedAtForSeason(sid);
 			if (lastFightMs != null) {
-				log.info("[fight-snap] seasonId={} 기존 스냅 존재(lastComputed={}ms) — 전체 재집계 생략, 청크 증분으로 갱신", sid, lastFightMs);
+				log.debug("[fight-snap] seasonId={} 기존 스냅 존재(lastComputed={}ms) — 전체 재집계 생략, 청크 증분으로 갱신", sid, lastFightMs);
 			} else {
 				// 행이 전혀 없는 경우에만 전체 재집계로 초기 seeding.
 				// 실패하면 warn 처리 — 청크 증분이 점진적으로 채워줌.
@@ -282,7 +282,7 @@ public class RtaBatchAggregationService {
 					applyBatchTxSessionGuards(rtaMapper);
 					long t0 = System.nanoTime();
 					int deleted = deleteOpponentH2hSnapBySeasonChunked(rtaMapper, seasonId);
-					log.info("h2h snap delete seasonId={} rows={} {}ms", seasonId, deleted, msSinceNanos(t0));
+					log.debug("h2h snap delete seasonId={} rows={} {}ms", seasonId, deleted, msSinceNanos(t0));
 				});
 				return;
 			} catch (Exception e) {
@@ -318,7 +318,7 @@ public class RtaBatchAggregationService {
 					applyBatchTxSessionGuards(rtaMapper);
 					long t0 = System.nanoTime();
 					rows[0] = rtaMapper.insertRtaSummonerOpponentH2hSnapForSeason(seasonId);
-					log.info("h2h snap insert seasonId={} rows={} {}ms", seasonId, rows[0], msSinceNanos(t0));
+					log.debug("h2h snap insert seasonId={} rows={} {}ms", seasonId, rows[0], msSinceNanos(t0));
 				});
 				return rows[0];
 			} catch (Exception e) {
@@ -564,7 +564,7 @@ public class RtaBatchAggregationService {
 				totalOk += ok;
 				totalFail += batch.fail();
 				rounds++;
-				log.info("[synergy-drain] round={} rids={} ok={} {}ms", rounds, rids.size(), ok, msSinceNanos(roundStart));
+				log.debug("[synergy-drain] round={} rids={} ok={} {}ms", rounds, rids.size(), ok, msSinceNanos(roundStart));
 
 				if (evictCachesEachRound && ok > 0) {
 					cacheEvictor.evictAllRtaCaches();
@@ -628,7 +628,7 @@ public class RtaBatchAggregationService {
 			matchTotalMs = rebuildSeasonRatingMatchTotalWithRetry(rtaMapper, sid);
 		} else {
 			matchTotalMs = 0L;
-			log.info("rebuildRankCutSnapshots: match_total 생략(participant 변경 없음) seasonId={}", sid);
+			log.debug("rebuildRankCutSnapshots: match_total 생략(participant 변경 없음) seasonId={}", sid);
 		}
 
 		RtaRankCutSnapValidator.RtaRankCutValidationReport validationReport =
@@ -638,16 +638,16 @@ public class RtaBatchAggregationService {
 		int hourLimit = Math.max(1, rtaBatchProperties.getRankCutMissingHoursPerRun());
 		long t0 = System.nanoTime();
 		List<Instant> missingHours = rtaMapper.selectMissingRankCutSnapHours(sid, hourLimit);
-		log.info("랭크컷 스냅 누락 시간대 seasonId={} count={} (1회 상한 {}시간)", sid, missingHours.size(), hourLimit);
+		log.debug("랭크컷 스냅 누락 시간대 seasonId={} count={} (1회 상한 {}시간)", sid, missingHours.size(), hourLimit);
 		for (Instant hour : missingHours) {
 			long matchCount = rtaMapper.countRtaMatchForHour(sid, hour);
 			if (matchCount == 0) {
-				log.info("랭크컷 스냅 스킵 (rta_match 경기 없음) seasonId={} hour={}", sid, hour);
+				log.debug("랭크컷 스냅 스킵 (rta_match 경기 없음) seasonId={} hour={}", sid, hour);
 				continue;
 			}
 			List<com.smw.rta.model.RtaRankCutSnapRow> rows = rtaMapper.selectRankCutSnapsForHour(sid, hour);
 			if (rows.isEmpty()) {
-				log.info("랭크컷 스냅 스킵 (경기 없음) seasonId={} hour={}", sid, hour);
+				log.debug("랭크컷 스냅 스킵 (경기 없음) seasonId={} hour={}", sid, hour);
 				continue;
 			}
 
@@ -663,7 +663,7 @@ public class RtaBatchAggregationService {
 						applyBatchTxSessionGuards(rtaMapper);
 						result[0] = rtaMapper.insertRtaRankCutHourlySnaps(sid, hour, r);
 					});
-					log.info("랭크컷 스냅 적재 완료 seasonId={} hour={} inserted={}", sid, hour, result[0]);
+					log.debug("랭크컷 스냅 적재 완료 seasonId={} hour={} inserted={}", sid, hour, result[0]);
 					break;
 				} catch (Exception e) {
 					if (!isInfraRetryable(e) || ++attempt >= 3) {
@@ -829,9 +829,9 @@ public class RtaBatchAggregationService {
 				}
 			}
 			totalInserted += filledDates;
-			log.info("rebuildMonsterDailySnap: seasonId={}, missingDates={}, filled={}", seasonId, missingDates.size(), filledDates);
+			log.debug("rebuildMonsterDailySnap: seasonId={}, missingDates={}, filled={}", seasonId, missingDates.size(), filledDates);
 		}
-		log.info("rebuildMonsterDailySnap done: totalInserted={}", totalInserted);
+		log.debug("rebuildMonsterDailySnap done: totalInserted={}", totalInserted);
 		return totalInserted;
 	}
 
@@ -874,10 +874,10 @@ public class RtaBatchAggregationService {
 				}
 			}
 			totalRuns += filled;
-			log.info("rebuildSummonerScoreDailySnap: seasonId={}, datesProcessed={} (missing={})",
+			log.debug("rebuildSummonerScoreDailySnap: seasonId={}, datesProcessed={} (missing={})",
 					seasonId, filled, missingDates != null ? missingDates.size() : 0);
 		}
-		log.info("rebuildSummonerScoreDailySnap done: totalDateRuns={}", totalRuns);
+		log.debug("rebuildSummonerScoreDailySnap done: totalDateRuns={}", totalRuns);
 		return totalRuns;
 	}
 
@@ -896,7 +896,7 @@ public class RtaBatchAggregationService {
 				mapper.insertRtaMonsterPickSlotSnapForSeason(seasonId, -1);
 			});
 		}
-		log.info("rebuildMonsterPickSlotSnap: seasonCount={}", seasonIds.size());
+		log.debug("rebuildMonsterPickSlotSnap: seasonCount={}", seasonIds.size());
 		return seasonIds.size();
 	}
 
@@ -929,7 +929,7 @@ public class RtaBatchAggregationService {
 				});
 				total += rids.size();
 				rounds++;
-				log.info("drainPickSlotSnap: chunk={}, totalSoFar={}, round={}", rids.size(), total, rounds);
+				log.debug("drainPickSlotSnap: chunk={}, totalSoFar={}, round={}", rids.size(), total, rounds);
 			} catch (Exception e) {
 				log.error("drainPickSlotSnap: chunk 처리 실패, 실패 마킹 후 중단. rids[0]={}", ridArr[0], e);
 				try {
@@ -941,7 +941,7 @@ public class RtaBatchAggregationService {
 			}
 
 			if (capped && rounds >= maxRoundsPerJob) {
-				log.info("drainPickSlotSnap: 라운드 상한 {} 도달 — 잔여는 다음 실행에서 처리", maxRoundsPerJob);
+				log.debug("drainPickSlotSnap: 라운드 상한 {} 도달 — 잔여는 다음 실행에서 처리", maxRoundsPerJob);
 				break;
 			}
 			if (rids.size() < chunkSize) break;
@@ -971,7 +971,7 @@ public class RtaBatchAggregationService {
 				log.error("rebuildMonsterTopSummonerSnap: 실패 — seasonId={}", sid, e);
 			}
 		}
-		log.info("rebuildMonsterTopSummonerSnap done: seasonCount={}", total);
+		log.debug("rebuildMonsterTopSummonerSnap done: seasonCount={}", total);
 		return total;
 	}
 

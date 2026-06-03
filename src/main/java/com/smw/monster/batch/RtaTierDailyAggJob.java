@@ -42,9 +42,9 @@ public class RtaTierDailyAggJob extends BaseBatchJob {
 			return;
 		}
 
-		addLog("--- rta_agg_tier_daily 재적재 (시즌별 DELETE+UPSERT) ---");
+		addLog("--- rta_agg_tier_daily 재적재 ---");
 		RtaBatchAggregationService.TierDailyAggRebuildResult tier = aggregationService.rebuildTierAggDaily(rtaMapper);
-		addLog("적재 행 합계: %d, 전체 소요: %dms, 최장 시즌: sid=%d (%dms)",
+		addLog("적재 합계 %d행, 소요 %dms (최장 시즌 sid=%d, %dms)",
 				tier.totalRows(), tier.wallMs(), tier.slowestSeasonId(), tier.maxSeasonMs());
 
 		rtaCacheEvictor.evictAllRtaCaches();

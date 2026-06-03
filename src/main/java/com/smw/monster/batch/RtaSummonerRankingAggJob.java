@@ -29,9 +29,9 @@ public class RtaSummonerRankingAggJob extends BaseBatchJob {
 		RtaBatchAggregationService aggregationService = applicationContext.getBean(RtaBatchAggregationService.class);
 		RtaCacheEvictor rtaCacheEvictor = applicationContext.getBean(RtaCacheEvictor.class);
 
-		addLog("--- 소환사×몬스터·시즌 전투 스냅(픽/밴/승·선첫비밴) — 미처리 매치 있는 시즌만 ---");
+		addLog("--- 소환사×몬스터·시즌 전투 스냅 — 미처리 매치 있는 시즌만 ---");
 		RtaBatchAggregationService.SummonerMonsterSnapRebuildResult monSnap = aggregationService.rebuildSummonerMonsterSnapAgg(rtaMapper);
-		addLog("대상 시즌 %s · 전투 분모 UPSERT 합계 %d행 · 몬스터 청크합 %d · 픽턴 청크합 %d · owned_box_snap MERGE 누적 영향 행 %d · H2H INSERT 합계 %d",
+		addLog("대상 시즌 %s · 전투 UPSERT %d행 · 몬스터 청크 %d · 픽턴 %d · owned_box %d · H2H INSERT %d",
 				monSnap.seasonsWithPendingWork().isEmpty() ? "(없음)" : monSnap.seasonsWithPendingWork().toString(),
 				monSnap.fightRows(), monSnap.monsterRows(), monSnap.pickTurnRows(), monSnap.ownedBoxUpsertRows(),
 				monSnap.opponentH2hInsertRows());
@@ -42,13 +42,9 @@ public class RtaSummonerRankingAggJob extends BaseBatchJob {
 			return;
 		}
 
-		Long h2hTotal = rtaMapper.countRtaSummonerOpponentH2hSnapRows();
-		addLog("H2H 스냅 현재 총 행: %d", h2hTotal);
-
-		Long boxTotal = null;
+		addLog("H2H 스냅 현재 총 %d행", rtaMapper.countRtaSummonerOpponentH2hSnapRows());
 		if (monSnap.ownedBoxUpsertRows() > 0) {
-			boxTotal = rtaMapper.countRtaSummonerOwnedBoxSnapRows();
-			addLog("--- owned_box_snap: 청크별 MERGE 완료 — 현재 스냅 총 %d행", boxTotal);
+			addLog("owned_box_snap MERGE 후 스냅 총 %d행", rtaMapper.countRtaSummonerOwnedBoxSnapRows());
 		}
 
 		rtaCacheEvictor.evictAllRtaCaches();

@@ -124,8 +124,10 @@ logging:
     org.hibernate.SQL: WARN
     org.hibernate.type.descriptor.sql.BasicBinder: WARN
     jdbc.sqlonly: OFF
-    jdbc.sqltiming: INFO
+    jdbc.sqltiming: WARN
+    jdbc.resultset: OFF
     jdbc.resultsettable: OFF
+    log4jdbc.log4j2: WARN
     com.smw.guild.mapper: INFO
     com.sysconf.interceptor: INFO
     org.apache.coyote: WARN

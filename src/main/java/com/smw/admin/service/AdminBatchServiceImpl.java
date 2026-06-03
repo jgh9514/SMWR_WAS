@@ -179,7 +179,11 @@ public class AdminBatchServiceImpl implements AdminBatchService {
         if (normalized.length() <= LOG_PREVIEW_LENGTH) {
             return normalized;
         }
-        return normalized.substring(0, LOG_PREVIEW_LENGTH) + "...";
+        int window = Math.min(LOG_PREVIEW_LENGTH + 50, normalized.length());
+        String chunk = normalized.substring(0, window);
+        int lastNl = chunk.lastIndexOf('\n');
+        String cut = lastNl > 0 ? chunk.substring(0, lastNl) : normalized.substring(0, LOG_PREVIEW_LENGTH);
+        return cut + "\n…(전문은 결과보기)";
     }
 
     private int getInt(Object value, int defaultValue) {

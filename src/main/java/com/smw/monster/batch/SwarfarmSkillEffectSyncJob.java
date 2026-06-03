@@ -13,14 +13,12 @@ public class SwarfarmSkillEffectSyncJob extends BaseBatchJob {
     @Override
     protected void executeBatch(JobExecutionContext context) throws Exception {
         SwarfarmSkillEffectService swarfarmSkillEffectService = applicationContext.getBean(SwarfarmSkillEffectService.class);
-        attachServiceLogCallback(swarfarmSkillEffectService);
-        
         addLog("===== Swarfarm 스킬 이펙트 동기화 시작 =====");
         addLog("API 조회 시작...");
         int syncedCount = swarfarmSkillEffectService.syncAllSkillEffects();
         
         addLog("===== Swarfarm 스킬 이펙트 동기화 완료 =====");
-        addLog("총 동기화된 스킬 이펙트 수: %d개", syncedCount);
+        addLog("동기화 %d개", syncedCount);
     }
     
     @Override

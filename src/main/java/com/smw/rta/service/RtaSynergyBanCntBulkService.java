@@ -65,7 +65,7 @@ public class RtaSynergyBanCntBulkService {
 						SET ban_cnt  = t.ban_cnt  + s.delta_sum,
 						    pick_cnt = t.pick_cnt + s.delta_sum
 						FROM (
-						    SELECT season_id, rating_id, combo_unit_key, SUM(delta)::bigint AS delta_sum
+						    SELECT season_id, rating_id, combo_unit_key, SUM(delta) AS delta_sum
 						    FROM tmp_synergy_ban_delta
 						    GROUP BY season_id, rating_id, combo_unit_key
 						) s

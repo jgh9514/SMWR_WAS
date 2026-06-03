@@ -102,7 +102,7 @@ public class RtaCounterMatchupCopyStagingService {
 			});
 			long copied = copyManager.copyIn(COPY_SQL, tsvStream);
 			RtaAggStagingMergeTune.prepareAfterCopyBeforeMerge(conn, stagingMergeProperties, STAGING_QUALIFIED);
-			log.info("[rta-counter-staging] COPY 완료 rows={}, counter solo/duo/trio 로 merge 시작", copied);
+			log.debug("[rta-counter-staging] COPY 완료 rows={}, counter solo/duo/trio 로 merge 시작", copied);
 			long tMerge = System.currentTimeMillis();
 			long merged = 0L;
 			merged += RtaAggStagingJdbc.executeInsertMergeReturningRows(conn,
@@ -111,7 +111,7 @@ public class RtaCounterMatchupCopyStagingService {
 					RtaAggStagingMergeSql.MERGE_MATCHUP_STAGING_INTO_COUNTER_DUO);
 			merged += RtaAggStagingJdbc.executeInsertMergeReturningRows(conn,
 					RtaAggStagingMergeSql.MERGE_MATCHUP_STAGING_INTO_COUNTER_TRIO);
-			log.info("[rta-counter-staging] merge 완료 affected={}, {} ms", merged, System.currentTimeMillis() - tMerge);
+			log.debug("[rta-counter-staging] merge 완료 affected={}, {} ms", merged, System.currentTimeMillis() - tMerge);
 			if (analyzeAfterMerge && analyzeTargetAfterMerge) {
 				try (Statement st = conn.createStatement()) {
 					st.execute("ANALYZE public.rta_agg_counter_solo");

@@ -83,7 +83,7 @@ public class RtaSynergyAggCopyStagingService {
 			});
 			long copied = copyManager.copyIn(COPY_SQL, tsvStream);
 			RtaAggStagingMergeTune.prepareAfterCopyBeforeMerge(conn, stagingMergeProperties, STAGING_QUALIFIED);
-			log.info("[rta-synergy-staging] COPY 완료 rows={}, 분리 시너지 테이블로 merge 시작", copied);
+			log.debug("[rta-synergy-staging] COPY 완료 rows={}, 분리 시너지 테이블로 merge 시작", copied);
 			long tMerge = System.currentTimeMillis();
 			long merged = 0L;
 			merged += RtaAggStagingJdbc.executeInsertMergeReturningRows(conn,
@@ -92,7 +92,7 @@ public class RtaSynergyAggCopyStagingService {
 					RtaAggStagingMergeSql.MERGE_SYNERGY_STAGING_INTO_DUO);
 			merged += RtaAggStagingJdbc.executeInsertMergeReturningRows(conn,
 					RtaAggStagingMergeSql.MERGE_SYNERGY_STAGING_INTO_TRIO);
-			log.info("[rta-synergy-staging] merge 완료 affected={}, {} ms", merged, System.currentTimeMillis() - tMerge);
+			log.debug("[rta-synergy-staging] merge 완료 affected={}, {} ms", merged, System.currentTimeMillis() - tMerge);
 			try (Statement st = conn.createStatement()) {
 				st.execute(TRUNCATE_STAGING);
 			}

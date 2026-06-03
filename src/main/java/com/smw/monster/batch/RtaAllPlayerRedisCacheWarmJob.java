@@ -5,8 +5,6 @@ import org.quartz.JobExecutionContext;
 
 import com.smw.rta.cache.RtaRedisCacheWarmup;
 import com.smw.rta.mapper.RtaMapper;
-import com.smw.rta.service.RtaBatchAggregationService;
-
 /**
  * 전체 소환사(약 17만 명) 시즌 summary 를 Redis 에 사전 적재.
  * <p>
@@ -21,7 +19,6 @@ public class RtaAllPlayerRedisCacheWarmJob extends BaseBatchJob {
     @Override
     protected void executeBatch(JobExecutionContext context) throws Exception {
         RtaMapper rtaMapper = applicationContext.getBean(RtaMapper.class);
-        RtaBatchAggregationService aggregationService = applicationContext.getBean(RtaBatchAggregationService.class);
         RtaRedisCacheWarmup warmup = applicationContext.getBean(RtaRedisCacheWarmup.class);
 
         Long seasonId = rtaMapper.selectDefaultSeasonIdForNow();
@@ -29,22 +26,17 @@ public class RtaAllPlayerRedisCacheWarmJob extends BaseBatchJob {
             addLog("현재 시즌 없음 — 스킵");
             return;
         }
-        addLog("시즌 %d — fight_snap 전체 재집계 시작", seasonId);
+        addLog("fight_snap 전체 재집계 시작");
+        rtaMapper.insertRtaSummonerSeasonFightSnapForSeason(seasonId);
+        addLog("fight_snap 재집계 완료");
 
-        long t0 = System.currentTimeMillis();
-        int fightRows = rtaMapper.insertRtaSummonerSeasonFightSnapForSeason(seasonId);
-        long fightMs = System.currentTimeMillis() - t0;
-        addLog("fight_snap 재집계 완료: %d행 %dms", fightRows, fightMs);
-
-        addLog("Redis 전체 소환사 summary 워밍 시작 (seasonId=%d)", seasonId);
-        t0 = System.currentTimeMillis();
+        addLog("Redis summary 워밍 시작");
         warmup.warmAllPlayerSummaries(seasonId);
-        addLog("Redis summary 워밍 완료: %dms", System.currentTimeMillis() - t0);
+        addLog("Redis summary 워밍 완료");
 
-        addLog("Redis 랭킹 상위 page-data(ppd_) 워밍 시작");
-        t0 = System.currentTimeMillis();
+        addLog("Redis 랭킹 page-data 워밍 시작");
         warmup.warmTopPlayerPageData(seasonId, 500);
-        addLog("Redis page-data 워밍 완료: %dms", System.currentTimeMillis() - t0);
+        addLog("Redis page-data 워밍 완료");
     }
 
     @Override

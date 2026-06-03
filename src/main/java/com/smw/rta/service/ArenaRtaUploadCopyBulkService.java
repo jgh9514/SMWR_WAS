@@ -162,7 +162,7 @@ public class ArenaRtaUploadCopyBulkService {
 				  u.replay_id
 				, convert_from(decode(u.wz_hex, 'hex'), 'UTF8')::varchar
 				, u.pick_slot_no
-				, public.rta_canonical_unit_master_id(trim(convert_from(decode(u.um_hex, 'hex'), 'UTF8'))::bigint)
+				, public.rta_canonical_unit_master_id(CAST(trim(convert_from(decode(u.um_hex, 'hex'), 'UTF8')) AS bigint))
 				, COALESCE(u.is_banned, false)
 			FROM tmp_arena_copy_unit u
 			ON CONFLICT (replay_id, wizard_id, pick_slot_no) DO NOTHING

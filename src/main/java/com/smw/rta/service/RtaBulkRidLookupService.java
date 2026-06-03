@@ -127,7 +127,7 @@ public class RtaBulkRidLookupService {
 			loadSynergyUnitRows(conn, unitsByRid);
 			loadSynergyRatingRows(conn, ratingsByRid);
 			conn.rollback();
-			log.info("[rta-bulk-rid] synergy prefetch JOIN rids={} {}ms", rids.size(), System.currentTimeMillis() - t0);
+			log.debug("[rta-bulk-rid] synergy prefetch JOIN rids={} {}ms", rids.size(), System.currentTimeMillis() - t0);
 		} catch (Exception e) {
 			log.error("[rta-bulk-rid] synergy prefetch 실패: {}", e.getMessage(), e);
 			throw new IllegalStateException("prefetchSynergyLookupMaps failed", e);
@@ -193,7 +193,7 @@ public class RtaBulkRidLookupService {
 					SELECT m.season_id,
 					       p.rating_id,
 					       COALESCE(mcm.original_monster_id, u.unit_master_id::text) AS combo_unit_key,
-					       COUNT(*)::bigint AS delta
+					       COUNT(*) AS delta
 					FROM unorm u
 					INNER JOIN public.rta_match m ON m.replay_id = u.replay_id
 					INNER JOIN pnorm p

@@ -48,7 +48,7 @@
 		<if test="bat_id != null and bat_id != ''">
 			AND bat_id = #{bat_id}
 		</if>
-		ORDER BY sort_sn ASC, bat_id ASC
+		ORDER BY CAST(bat_id AS BIGINT) ASC
 	</select>
 
 	<!-- 배치 오류 비활성화 -->
@@ -123,9 +123,15 @@
 			rslt_cd,
 			CASE
 				WHEN rslt_txt IS NULL OR rslt_txt = '' THEN NULL
-				ELSE LEFT(rslt_txt, 512)
+				WHEN char_length(rslt_txt) &lt;= 400 THEN rslt_txt
+				ELSE
+					CASE
+						WHEN regexp_replace(substring(rslt_txt FROM 1 FOR 450), E'\\n[^\\n]*$', '') = '' THEN substring(rslt_txt FROM 1 FOR 400)
+						ELSE regexp_replace(substring(rslt_txt FROM 1 FOR 450), E'\\n[^\\n]*$', '')
+							|| E'\\n…(전문은 결과보기·/batch/run-his/detail)'
+					END
 			END AS rslt_txt,
-			(SUBSTRING(rslt_txt FROM 513 FOR 1) IS NOT NULL) AS rslt_txt_truncated,
+			(char_length(rslt_txt) &gt; 400) AS rslt_txt_truncated,
 			(rslt_txt IS NOT NULL AND rslt_txt &lt;&gt; '') AS has_rslt_txt,
 			crt_user_id,
 			crt_date

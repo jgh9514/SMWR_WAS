@@ -122,10 +122,13 @@ logging:
     org.hibernate.type.descriptor.sql.BasicBinder: WARN
     jdbc.sqlonly: OFF
     jdbc.sqltiming: WARN
+    jdbc.resultset: OFF
     jdbc.resultsettable: OFF
+    log4jdbc.log4j2: WARN
     # MyBatis "==> Preparing/Parameters/Total" 로그 억제
     com.smw.guild.mapper: INFO
-    com.sysconf.interceptor: INFO
+    com.sysconf.interceptor: WARN
+    com.sysconf.interceptor.MybatisInterceptor: WARN
     # Tomcat HTTP 파싱 에러 로그 레벨 조정 (HTTPS 요청이 HTTP 포트로 들어올 때 발생하는 에러)
     org.apache.coyote: WARN
     org.apache.catalina: WARN

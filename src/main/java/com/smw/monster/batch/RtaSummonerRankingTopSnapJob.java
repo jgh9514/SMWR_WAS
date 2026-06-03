@@ -21,9 +21,9 @@ public class RtaSummonerRankingTopSnapJob extends BaseBatchJob {
 		RtaBatchAggregationService aggregationService = applicationContext.getBean(RtaBatchAggregationService.class);
 		RtaCacheEvictor rtaCacheEvictor = applicationContext.getBean(RtaCacheEvictor.class);
 
-		addLog("--- rta 랭킹·검색 스냅 재적재 (시즌별 상위 500 + 시즌 전체 wizard 검색용) ---");
+		addLog("--- rta 랭킹·검색 스냅 재적재 ---");
 		RtaBatchAggregationService.SummonerRankingRebuildResult ranking = aggregationService.rebuildSummonerRankingAgg(rtaMapper);
-		addLog("랭킹 스냅 %d행(%dms), 검색 스냅 %d행(%dms), 전체 %dms",
+		addLog("랭킹 %d행(%dms), 검색 %d행(%dms), 전체 %dms",
 				ranking.rankingRows(), ranking.rankingMs(), ranking.searchRows(), ranking.searchMs(), ranking.wallMs());
 
 		rtaCacheEvictor.evictAllRtaCaches();

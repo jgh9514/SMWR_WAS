@@ -13,14 +13,12 @@ public class SwarfarmLevelSyncJob extends BaseBatchJob {
     @Override
     protected void executeBatch(JobExecutionContext context) throws Exception {
         SwarfarmLevelService swarfarmLevelService = applicationContext.getBean(SwarfarmLevelService.class);
-        attachServiceLogCallback(swarfarmLevelService);
-        
         addLog("===== Swarfarm 레벨 동기화 시작 =====");
         addLog("API 조회 시작...");
         int syncedCount = swarfarmLevelService.syncAllLevels();
         
         addLog("===== Swarfarm 레벨 동기화 완료 =====");
-        addLog("총 동기화된 레벨 수: %d개", syncedCount);
+        addLog("동기화 %d개", syncedCount);
     }
     
     @Override

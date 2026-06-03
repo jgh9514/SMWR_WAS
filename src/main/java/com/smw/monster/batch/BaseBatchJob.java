@@ -1,6 +1,7 @@
 package com.smw.monster.batch;
 
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 import org.quartz.Job;
 import org.quartz.JobExecutionContext;
@@ -28,6 +29,10 @@ import lombok.extern.slf4j.Slf4j;
  * 배치 Job의 기본 클래스
  * - 로그 수집 및 이력 관리
  * - 실행 이력은 짧은 트랜잭션으로 기록, 본문 배치는 서비스/매퍼 단위로 커밋
+ * <p>
+ * {@link #addLog} 규칙: 처리 <b>건수·행 수·affected 합계</b> 등 집계 수치는 기록한다.
+ * SELECT 결과 <b>row 내용</b>(컬럼 값·ResultSet 테이블 덤프·Map row 직렬화)는 기록하지 않는다.
+ * {@link #addLogPlain} 은 SQL·예외 원문 등 동적 문자열용.
  */
 @Slf4j
 public abstract class BaseBatchJob implements Job {
@@ -258,32 +263,57 @@ public abstract class BaseBatchJob implements Job {
     }
     
     /**
-     * 로그 추가
-     * %d, %s, %f 등 String.format 형식 지원
+     * 배치 이력({@code sys_batch_run_his.rslt_txt})에만 남기고, 앱 로그(stdout)에는 남기지 않는다.
+     * SQL·예외 메시지 등 {@code %} 가 포함된 문자열용.
+     */
+    protected void addLogPlain(String message) {
+        appendBatchLogLine(message, false);
+    }
+
+    /**
+     * 로그 추가 — {@code sys_batch_run_his} 전문 + SSE(수동 실행 시).
+     * <p>
+     * {@code %} 포맷은 템플릿(첫 인자)에만 사용한다. 동적 문자열은 {@link #addLogPlain} 을 쓴다.
      */
     protected void addLog(String message, Object... args) {
-        String logMessage;
-        if (args != null && args.length > 0) {
-            try {
-                // String.format 형식 (%d, %s, %f 등) 직접 지원
-                logMessage = String.format(message, args);
-            } catch (Exception e) {
-                // 형식 오류 시 단순 치환 시도
-                logMessage = message;
-                for (Object arg : args) {
-                    logMessage = logMessage.replaceFirst("\\{\\}", String.valueOf(arg));
-                }
-                log.warn("로그 형식 오류, 단순 치환 사용: {}", message);
-            }
-        } else {
-            logMessage = message;
+        String logMessage = formatBatchLogMessage(message, args);
+        boolean milestone = message != null && message.startsWith("=====");
+        appendBatchLogLine(logMessage, milestone);
+    }
+
+    private static String formatBatchLogMessage(String message, Object... args) {
+        if (args == null || args.length == 0) {
+            return message;
         }
-        
+        try {
+            return String.format(Locale.ROOT, message, args);
+        } catch (Exception e) {
+            StringBuilder sb = new StringBuilder(message != null ? message.length() + 64 : 64);
+            if (message != null) {
+                sb.append(message);
+            }
+            sb.append(" [fmt:");
+            for (int i = 0; i < args.length; i++) {
+                if (i > 0) {
+                    sb.append(", ");
+                }
+                sb.append(String.valueOf(args[i]));
+            }
+            sb.append(']');
+            return sb.toString();
+        }
+    }
+
+    private void appendBatchLogLine(String logMessage, boolean mirrorToAppLogInfo) {
         String timestamp = java.time.LocalDateTime.now().format(
-            java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+                java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
         logContent.append("[").append(timestamp).append("] ").append(logMessage).append("\n");
         String safeForExternal = LogPayloadTrimmer.truncateUtf8(logMessage, LogPayloadTrimmer.DEFAULT_MAX_MESSAGE_BYTES);
-        log.info(safeForExternal);
+        if (mirrorToAppLogInfo) {
+            log.info(safeForExternal);
+        } else if (log.isDebugEnabled()) {
+            log.debug(safeForExternal);
+        }
         pushStreamLine("[" + timestamp + "] " + safeForExternal);
     }
     
@@ -294,6 +324,7 @@ public abstract class BaseBatchJob implements Job {
         return logContent.toString();
     }
 
+    /** Swarfarm 동기화 진행(페이지·건수 요약). API row 원문은 서비스에서 넣지 않는다. */
     protected void attachServiceLogCallback(SwarfarmSyncService service) {
         if (service == null) {
             return;
@@ -375,10 +406,35 @@ public abstract class BaseBatchJob implements Job {
         msg = msg.replaceAll("(?i)(redis|jdbc|mongodb|amqp|http|https)://[^\\s]*", "[REDACTED_URL]");
         msg = msg.replaceAll("(?i)(password|passwd|pwd)[=:\\s]+\\S+", "password=[REDACTED]");
         msg = msg.replaceAll("(?i)(token|secret|key)[=:\\s]+\\S+", "token=[REDACTED]");
+        msg = stripSqlAndTabularNoiseFromBatchError(msg);
         if (msg.length() > 200) {
             msg = msg.substring(0, 197) + "...";
         }
         return type + ": " + msg;
+    }
+
+    /** 배치 이력·알림용 — SQL 전문·psql 형태 컬럼 꼬리 제거 */
+    private static String stripSqlAndTabularNoiseFromBatchError(String msg) {
+        if (msg == null || msg.isEmpty()) {
+            return msg;
+        }
+        String lower = msg.toLowerCase(java.util.Locale.ROOT);
+        String[] sqlStarts = {"insert into", "update ", "delete from", "select ", "merge into", "copy "};
+        int cut = -1;
+        for (String s : sqlStarts) {
+            int i = lower.indexOf(s);
+            if (i >= 0 && (cut < 0 || i < cut)) {
+                cut = i;
+            }
+        }
+        if (cut >= 0) {
+            msg = msg.substring(0, cut).trim();
+            if (msg.isEmpty()) {
+                return "(DB operation failed)";
+            }
+            msg = msg + " [SQL omitted]";
+        }
+        return msg.replaceAll("\\|true\\s*\\|true\\s*\\|null\\s*\\|[^|\\n]*\\|?\\s*$", "").trim();
     }
 
     /**

@@ -37,9 +37,6 @@ import com.smw.rta.service.RtaBatchBacklogScaler;
 @DisallowConcurrentExecution
 public class RtaUnifiedPipelineAggJob extends BaseBatchJob {
 
-	/**
-	 * 로그 상 고정 단계: ① raw ② 부가(레거시 몬스터·티어일별, 설정 시만).
-	 */
 	private static final int PIPELINE_STEPS = 2;
 
 	@Override
@@ -77,8 +74,6 @@ public class RtaUnifiedPipelineAggJob extends BaseBatchJob {
 				raw.totalApplied(),
 				raw.stopReason());
 
-		// 시너지 집계는 RtaSynergyOnlyAggJob 에서 별도로 수행 — 통합 Job 에서는 생략.
-		// 소환사 무거운 스냅·H2H 는 RtaSummonerRankingAggJob 전용(rebuildSummonerMonsterSnapAgg).
 		step++;
 
 		boolean runMonster = !rtaBatchProperties.isSkipMonsterStatsInUnifiedJob();
@@ -89,21 +84,20 @@ public class RtaUnifiedPipelineAggJob extends BaseBatchJob {
 				runTier ? "Y" : "N");
 
 		if (runMonster) {
-			addLog("[%d/%d] · 몬스터 통계 집계(no-op — API는 rta_agg_synergy_solo/duo/trio 직접 조회)", step, PIPELINE_STEPS);
 			RtaBatchAggregationService.MonsterStatsRebuildResult mon = aggregationService.rebuildMonsterStatsAgg(rtaMapper);
 			addLog("[%d/%d] · 몬스터 통계 완료 — meta=%d, pick=%d", step, PIPELINE_STEPS, mon.metaRows(), mon.pickRows());
 		}
 		if (runTier) {
-			addLog("[%d/%d] · 티어 일별(rta_agg_tier_daily) participant 풀스캔", step, PIPELINE_STEPS);
 			RtaBatchAggregationService.TierDailyAggRebuildResult tier = aggregationService.rebuildTierAggDaily(rtaMapper);
 			addLog("[%d/%d] · 티어 일별 완료 — %d행", step, PIPELINE_STEPS, tier.totalRows());
 		}
 		if (!runMonster && !runTier) {
-			addLog("[%d/%d] · 부가 실행 없음 — 티어 일별은 RtaTierDailyAggJob, 랭킹·검색 스냅은 RtaSummonerRankingTopSnapJob, 무거운 소환사 스냅+H2H는 RtaSummonerRankingAggJob, 랭크컷 스냅샷은 RtaRankCutSnapshotAggJob 등 별도 스케줄에서 처리하는 구성이 일반적입니다.",
+			addLog("[%d/%d] · 부가 스킵 — 별도 Job(티어일별·랭킹·소환사스냅·H2H·랭크컷 등)",
 					step, PIPELINE_STEPS);
 		}
+		addLog("[%d/%d] · 부가 완료", step, PIPELINE_STEPS);
 
-		addLog("[종료] (%d/%d) RTA 조회 캐시 무효화", PIPELINE_STEPS, PIPELINE_STEPS);
+		addLog("[종료] RTA 조회 캐시 무효화");
 		rtaCacheEvictor.evictAllRtaCaches();
 	}
 

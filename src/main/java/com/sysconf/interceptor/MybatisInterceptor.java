@@ -60,7 +60,10 @@ public class MybatisInterceptor implements Interceptor {
 	@Value("${smw.mybatis.log.inline-sql:false}")
 	private boolean inlineSqlLogEnabled;
 	
+	/** @deprecated 조회 total·update affected 는 로그에 남기지 않음(정책). 설정 무시. */
+	@Deprecated
 	@Value("${smw.mybatis.log.result-total:false}")
+	@SuppressWarnings("unused")
 	private boolean resultTotalLogEnabled;
 
 	/** true: 관리 배치 API(/api/v1/batch) 처리 중에는 intercept start/end·siege 관련 DEBUG 생략 */
@@ -164,12 +167,9 @@ public class MybatisInterceptor implements Interceptor {
             }
         }
 
-        long startedAt = System.currentTimeMillis();
-
         logInlinedSql(ms, parameter);
 
         Object result = invocation.proceed();
-        logResultTotalIfNeeded(invocation, ms, startedAt, result);
         if (emitInterceptorTraceDebug() && !skipSiegeInjection) {
             log.debug("MybatisInterceptor.intercept() end. mapperId={}", mapperId);
         }
@@ -211,7 +211,7 @@ public class MybatisInterceptor implements Interceptor {
             BoundSql boundSql = ms.getBoundSql(parameter);
             String inlined = buildInlinedSql(ms, boundSql, parameter);
             String safe = LogPayloadTrimmer.truncateUtf8(inlined, LogPayloadTrimmer.DEFAULT_MAX_MESSAGE_BYTES);
-            log.info("SQL(inlined) mapperId={}\n{}", ms.getId(), safe);
+            log.debug("SQL(inlined) mapperId={}\n{}", ms.getId(), safe);
         } catch (Exception e) {
             log.warn("SQL(inlined) build failed. mapperId={}", ms.getId(), e);
         }
@@ -390,33 +390,6 @@ public class MybatisInterceptor implements Interceptor {
     	return sb.toString();
     }
     
-    @SuppressWarnings({ "rawtypes" })
-    private void logResultTotalIfNeeded(Invocation invocation, MappedStatement ms, long startedAt, Object result) {
-    	if (!resultTotalLogEnabled) return;
-    	if (ms == null) return;
-    	
-    	String method = invocation != null && invocation.getMethod() != null ? invocation.getMethod().getName() : "";
-    	long elapsedMs = Math.max(0, System.currentTimeMillis() - startedAt);
-    	
-    	try {
-    		if ("query".equals(method)) {
-    			int total = -1;
-    			if (result instanceof List) total = ((List) result).size();
-    			// 조회 결과(total) 로그는 기본적으로 출력하지 않음 (필요 시 DEBUG + 설정으로만 확인)
-    			if (emitInterceptorTraceDebug()) {
-    				log.debug("MyBatis Total mapperId={}, total={}, elapsedMs={}", ms.getId(), total, elapsedMs);
-    			}
-    		} else if ("update".equals(method)) {
-    			// update 요약도 DEBUG로만 출력 (노이즈 억제)
-    			if (emitInterceptorTraceDebug()) {
-    				log.debug("MyBatis Update mapperId={}, affected={}, elapsedMs={}", ms.getId(), result, elapsedMs);
-    			}
-    		}
-    	} catch (Exception ignore) {
-    		// no-op
-    	}
-    }
-
 }
 
 

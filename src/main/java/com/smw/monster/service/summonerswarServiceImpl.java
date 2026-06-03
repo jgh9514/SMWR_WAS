@@ -1721,7 +1721,7 @@ public class summonerswarServiceImpl implements summonerswarService {
 			Long rid = normalizeLong(row.get("rid"));
 			Object payloadObj = row.get("payload");
 			if (rid == null || payloadObj == null) {
-				log.warn("[rta-raw-apply] rid/payload 없음 row={}", row);
+				log.warn("[rta-raw-apply] rid/payload 없음 rid={}", rid);
 				if (rid != null) {
 					updateRankerRtpvpReplayRawFailedOnTxConnection(Collections.singletonList(rid), "payload 없음");
 					if (rtaRawApplyProperties.isFailFastOnError()) {

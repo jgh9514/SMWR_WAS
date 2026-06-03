@@ -5,7 +5,7 @@
         <Property name="LOG_PATTERN">%d{yyyy-MM-dd HH:mm:ss.SSS} [%t] %-5level %logger{36} [%X{traceId}] - %msg%n</Property>
         <Property name="LOG_FILE_PATH">${sys:user.dir}/log/test.log</Property>
         <!-- SQL 로그: log4jdbc → SLF4J → Log4j2. 기본은 application.yml jdbc.sqltiming(INFO)과 맞춤. 필요 시 -DSQL_LOG_LEVEL=DEBUG -->
-        <Property name="SQL_LOG_LEVEL">${sys:SQL_LOG_LEVEL:-INFO}</Property>
+        <Property name="SQL_LOG_LEVEL">${sys:SQL_LOG_LEVEL:-WARN}</Property>
     </Properties>
     
     <Appenders>
@@ -98,7 +98,7 @@
             <AppenderRef ref="FileAppender"/>
         </Logger>
 
-        <Logger name="com.sysconf.interceptor.MybatisInterceptor" level="INFO" additivity="false">
+        <Logger name="com.sysconf.interceptor.MybatisInterceptor" level="WARN" additivity="false">
             <OtelExportSizeCapFilter maxBytes="204800" onMatch="DENY" onMismatch="NEUTRAL"/>
             <AppenderRef ref="Console"/>
             <AppenderRef ref="FileAppender"/>
@@ -130,7 +130,7 @@
         <Logger name="jdbc.audit" level="warn" additivity="false">
             <AppenderRef ref="SqlAppender"/>
         </Logger>
-        <Logger name="jdbc.resultset" level="warn" additivity="false">
+        <Logger name="jdbc.resultset" level="OFF" additivity="false">
             <AppenderRef ref="SqlAppender"/>
         </Logger>
         <Logger name="jdbc.resultsettable" level="OFF" additivity="false" />

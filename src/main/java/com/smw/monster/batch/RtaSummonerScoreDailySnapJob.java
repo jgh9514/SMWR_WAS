@@ -27,9 +27,8 @@ public class RtaSummonerScoreDailySnapJob extends BaseBatchJob {
 		RtaCacheEvictor rtaCacheEvictor = applicationContext.getBean(RtaCacheEvictor.class);
 
 		addLog("--- rta_agg_summoner_score_daily_snap (누락 일자 소급 + 오늘/어제 KST 재적재) ---");
-		long t0 = System.currentTimeMillis();
 		int dateRuns = aggregationService.rebuildSummonerScoreDailySnap(rtaMapper);
-		addLog("score daily snap 완료: dateProcessRuns=%d, elapsed=%dms", dateRuns, System.currentTimeMillis() - t0);
+		addLog("score daily snap 완료 — dateProcessRuns=%d", dateRuns);
 
 		if (dateRuns > 0) {
 			rtaCacheEvictor.evictAllRtaCaches();

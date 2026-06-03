@@ -381,7 +381,7 @@
 	</insert>
 
 	<select id="countUserMonsterOwnedAgg" resultType="long">
-		SELECT COUNT(*)::bigint FROM public.user_monster_owned_agg
+		SELECT COUNT(*) FROM public.user_monster_owned_agg
 	</select>
 
 	<!-- 청크 처리용: swex_account_import 에서 wizard_id 키셋 페이징 -->

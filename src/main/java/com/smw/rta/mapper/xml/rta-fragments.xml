@@ -27,7 +27,7 @@
 tier_official AS (
     SELECT
         rg.grade_slot,
-        rgs.min_win_points::bigint AS min_pts
+        rgs.min_win_points AS min_pts
     FROM public.rta_rating_grade rg
     LEFT JOIN public.rta_rating_grade_season rgs
         ON rgs.rating_id = rg.rating_id AND rgs.season_id = #{seasonId}
@@ -102,7 +102,7 @@ by_day AS (
 SELECT
     bucket_date,
     grade_slot,
-    COUNT(*)::bigint AS player_count,
+    COUNT(*) AS player_count,
     MIN(sort_order)::int AS sort_order
 FROM (
     SELECT
@@ -145,8 +145,8 @@ GROUP BY bucket_date, grade_slot
 		win_agg AS (
 			SELECT
 				u.wizard_id,
-				COUNT(*)::bigint AS match_count,
-				SUM(CASE WHEN u.is_winner THEN 1 ELSE 0 END)::bigint AS win_count
+				COUNT(*) AS match_count,
+				SUM(CASE WHEN u.is_winner THEN 1 ELSE 0 END) AS win_count
 			FROM public.rta_match_participant u
 			INNER JOIN rta_match_in_season r ON u.replay_id = r.rid
 			WHERE u.ladder_score &gt; 0
@@ -224,8 +224,8 @@ GROUP BY bucket_date, grade_slot
 			SELECT
 				wizard_id,
 				MAX(ladder_score)::int AS max_score,
-				COUNT(*)::bigint AS match_count,
-				SUM(CASE WHEN is_winner THEN 1 ELSE 0 END)::bigint AS win_count
+				COUNT(*) AS match_count,
+				SUM(CASE WHEN is_winner THEN 1 ELSE 0 END) AS win_count
 			FROM participant_base
 			GROUP BY wizard_id
 		)

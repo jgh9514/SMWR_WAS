@@ -19,7 +19,7 @@ public class ArenaRtaOrphanCleanupBatchJob extends BaseBatchJob {
 		summonerswarService service = applicationContext.getBean(summonerswarService.class);
 		addLog("rta_match 부모 없는 unit → participant 순 고아 행 삭제 시작");
 		int n = service.deleteArenaRtaOrphanChildrenGlobal();
-		addLog("고아 행 삭제 완료: %d건", n);
+		addLog("고아 행 삭제 완료 — %d건", n);
 	}
 
 	@Override

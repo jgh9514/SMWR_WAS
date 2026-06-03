@@ -25,17 +25,12 @@ public class RtaRankCutSnapshotAggJob extends BaseBatchJob {
 
 		RtaBatchAggregationService.RankCutSnapshotRebuildResult r = aggregationService.rebuildRankCutSnapshots(rtaMapper);
 		if (r.matchTotalMs() <= 0) {
-			addLog("시즌×티어 총경기 %d행 — match_total 재집계 생략(변경 없음), 시간별 랭크컷 스냅 적재(%dms)",
-					r.matchTotalRows(), r.hourlyMs());
+			addLog("match_total 생략 — 총경기 %d행, 시간별 스냅 %dms", r.matchTotalRows(), r.hourlyMs());
 		} else {
-			addLog("시즌×티어 총경기 %d행(%dms), 시간별 랭크컷 스냅 적재(%dms)",
-					r.matchTotalRows(), r.matchTotalMs(), r.hourlyMs());
+			addLog("match_total %d행(%dms), 시간별 스냅 %dms", r.matchTotalRows(), r.matchTotalMs(), r.hourlyMs());
 		}
 		if (r.validationAnomalyCount() > 0) {
-			addLog("· [검증] 집계 이상 징후 %d건 — 샘플:", r.validationAnomalyCount());
-			for (String sample : r.validationSamples()) {
-				addLog("  · %s", sample);
-			}
+			addLog("· [검증] 이상 징후 %d건", r.validationAnomalyCount());
 		} else {
 			addLog("· [검증] 이상 징후 없음");
 		}

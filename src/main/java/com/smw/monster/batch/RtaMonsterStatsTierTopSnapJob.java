@@ -22,8 +22,9 @@ public class RtaMonsterStatsTierTopSnapJob extends BaseBatchJob {
 		RtaCacheEvictor rtaCacheEvictor = applicationContext.getBean(RtaCacheEvictor.class);
 
 		addLog("--- RTA 몬스터 솔/듀/트 티어별 상위 100 스냅 재적재 ---");
-		RtaBatchAggregationService.MonsterStatsTierTopSnapRebuildResult tierTop = aggregationService.rebuildMonsterStatsTierTopSnap(rtaMapper);
-		addLog("티어 top 스냅 INSERT 합계(솔+듀+트): %d", tierTop.totalInserts());
+		RtaBatchAggregationService.MonsterStatsTierTopSnapRebuildResult tierTop =
+				aggregationService.rebuildMonsterStatsTierTopSnap(rtaMapper);
+		addLog("티어 top 스냅 INSERT 합계 %d", tierTop.totalInserts());
 
 		rtaCacheEvictor.evictRtaMonsterReadCache();
 		addLog("RTA rtaMonster 캐시 무효화(몬스터 전용 매니저)");

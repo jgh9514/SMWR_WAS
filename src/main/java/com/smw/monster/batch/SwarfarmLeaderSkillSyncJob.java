@@ -13,14 +13,12 @@ public class SwarfarmLeaderSkillSyncJob extends BaseBatchJob {
     @Override
     protected void executeBatch(JobExecutionContext context) throws Exception {
         SwarfarmLeaderSkillService swarfarmLeaderSkillService = applicationContext.getBean(SwarfarmLeaderSkillService.class);
-        attachServiceLogCallback(swarfarmLeaderSkillService);
-        
         addLog("===== Swarfarm 리더 스킬 동기화 시작 =====");
         addLog("API 조회 시작...");
         int syncedCount = swarfarmLeaderSkillService.syncAllLeaderSkills();
         
         addLog("===== Swarfarm 리더 스킬 동기화 완료 =====");
-        addLog("총 동기화된 리더 스킬 수: %d개", syncedCount);
+        addLog("동기화 %d개", syncedCount);
     }
     
     @Override
