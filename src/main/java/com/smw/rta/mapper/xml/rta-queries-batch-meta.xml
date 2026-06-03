@@ -2009,16 +2009,16 @@
             GROUP BY u.replay_id, u.wizard_id
         )
         SELECT
-            m.replay_id, m.season_id, m.played_at, m.winner_wizard_id,
+            m.replay_id, m.season_id, m.played_at, m.winner_wizard_id::bigint,
             COALESCE(p1.rating_id, p2.rating_id) AS rating_id,
-            p1.wizard_id, p1.wizard_name, p1.channel_uid, p1.country_code,
+            p1.wizard_id::bigint, p1.wizard_name, p1.channel_uid, p1.country_code,
             p1.rating_id, p1.ladder_score, p1.ladder_rank,
             p1.is_winner, p1.is_first_pick, p1.alive_count::smallint, p1.leader_pick_slot::smallint,
             b1.banned_slot,
             COALESCE(u1.units,      ARRAY[]::bigint[]),
             COALESCE(u1.unit_banned, ARRAY[]::bool[]),
             COALESCE(u1.pick_slots,  ARRAY[]::smallint[]),
-            p2.wizard_id, p2.wizard_name, p2.channel_uid, p2.country_code,
+            p2.wizard_id::bigint, p2.wizard_name, p2.channel_uid, p2.country_code,
             p2.rating_id, p2.ladder_score, p2.ladder_rank,
             p2.is_winner, p2.is_first_pick, p2.alive_count::smallint, p2.leader_pick_slot::smallint,
             b2.banned_slot,
