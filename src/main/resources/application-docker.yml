@@ -209,18 +209,18 @@ smw:
       api-slow-rate-critical-percent: ${SMW_OPS_API_SLOW_RATE_CRITICAL_PERCENT:15}
   swarfarm:
     image-download-concurrency: ${SMW_SWARFARM_IMAGE_DOWNLOAD_CONCURRENCY:4}
-  # t4g.medium 배치 Pod — backlog catch-up·청크 상한 보수적 (OOM 방지). bulkload 프로필은 별도 상향.
+  # t4g.medium 배치 Pod — raw backlog catch-up 시 라운드 자동 상향(backlog-scaling). bulkload 프로필은 별도.
   rta:
     raw-apply:
-      max-rows-per-run: 500
-      max-batches-per-job: 1
-      max-batches-cap: 5
-      apply-chunk-size: 500
+      max-rows-per-run: 1000
+      max-batches-per-job: 5
+      max-batches-cap: 40
+      apply-chunk-size: 1000
     batch:
       synergy-batch-size: 1000
       synergy-max-rounds-per-job: 1
       synergy-max-rounds-cap: 1
-      backlog-scaling-enabled: false
+      backlog-scaling-enabled: true
       exact-pending-count-in-batch-jobs: false
       pending-count-cache-ttl-seconds: 300
       backlog-high-watermark: 15000

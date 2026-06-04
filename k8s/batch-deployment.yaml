@@ -175,7 +175,7 @@ spec:
             - name: SMW_RTA_SYNERGY_MAX_ROUNDS_CAP
               value: "1"
             - name: SMW_RTA_BATCH_BACKLOG_SCALING
-              value: "false"
+              value: "true"
             - name: SMW_RTA_BATCH_EXACT_PENDING_COUNT_IN_JOBS
               value: "false"
             - name: SMW_RTA_BATCH_PENDING_COUNT_CACHE_TTL
@@ -184,10 +184,15 @@ spec:
               value: "3"
             - name: SMW_RTA_PICK_SLOT_DRAIN_BATCH_SIZE
               value: "1000"
+            # raw 정규화 — backlog 多 시 최대 40회×1000행/Job (scaling). 평시 baseline 5회.
             - name: SMW_RTA_RAW_APPLY_MAX_ROWS
-              value: "500"
-            - name: SMW_RTA_RAW_APPLY_MAX_BATCHES_CAP
+              value: "1000"
+            - name: SMW_RTA_RAW_APPLY_MAX_BATCHES
               value: "5"
+            - name: SMW_RTA_RAW_APPLY_MAX_BATCHES_CAP
+              value: "40"
+            - name: SMW_RTA_RAW_APPLY_CHUNK_SIZE
+              value: "1000"
             - name: SMW_RTA_SYNERGY_AGG_COPY_STAGING_CHUNK_ROWS
               value: "100000"
             - name: SMW_RTA_COUNTER_AGG_COPY_STAGING_CHUNK_ROWS
