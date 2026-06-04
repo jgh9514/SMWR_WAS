@@ -74,8 +74,12 @@ jobs:
         push: true
         tags: ${{ steps.meta-api.outputs.tags }}
         labels: ${{ steps.meta-api.outputs.labels }}
-        cache-from: type=registry,ref=${{ env.DOCKER_API_IMAGE }}:latest
-        cache-to: type=inline
+        # latest 캐시 참조 시 Hub에 blob 없으면 push 실패(blob unknown to registry) — 전용 buildcache 태그 사용
+        cache-from: type=registry,ref=${{ env.DOCKER_API_IMAGE }}:buildcache
+        cache-to: type=registry,ref=${{ env.DOCKER_API_IMAGE }}:buildcache,mode=max
+        # Docker Hub: attestation manifest 가 blob unknown 오류 유발 가능
+        provenance: false
+        sbom: false
         build-args: |
           BUILDKIT_INLINE_CACHE=1
 
