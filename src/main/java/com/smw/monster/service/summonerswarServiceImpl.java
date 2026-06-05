@@ -23,6 +23,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.Locale;
 import java.util.TreeSet;
 import java.util.concurrent.CompletableFuture;
 
@@ -38,7 +39,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import jakarta.annotation.PostConstruct;
@@ -56,7 +56,6 @@ import com.smw.monster.util.MonsterDetailContextBuilder;
 import com.smw.rta.cache.RtaCacheEvictor;
 import com.smw.rta.config.RtaRawApplyProperties;
 import com.smw.rta.service.ArenaRtaUploadCopyBulkService;
-import com.smw.rta.service.RtaBulkRidTempTable;
 import com.smw.monster.util.MonsterIdEvolutionUtil;
 import com.sysconf.config.MybatisBatchConfig;
 import com.sysconf.exception.GuildBattleRecordAccessException;
@@ -538,77 +537,114 @@ public class summonerswarServiceImpl implements summonerswarService {
 	}
 
 	/**
-	 * 업로드 트랜잭션과 동일 커넥션 — {@code tmp_bulk_rids} COPY 후 JOIN UPDATE.
-	 * 활성 Spring 트랜잭션이 있으면 해당 커넥션 재사용, 없으면 독립 커넥션으로 직접 커밋.
-	 * (배치 raw-apply 플로우는 트랜잭션 없이 호출하므로 독립 커넥션 경로 필수)
+	 * raw 정규화 상태 갱신 — MyBatis {@code unnest(bigint[])} JOIN UPDATE.
+	 * 활성 Spring 트랜잭션이 있으면 동일 커넥션·커밋 경계를 따른다(업로드 REQUIRES_NEW 등).
 	 */
 	private void updateRankerRtpvpReplayRawAppliedOnTxConnection(Collection<Long> rids) {
-		if (rids == null || rids.isEmpty()) {
-			return;
-		}
-		if (TransactionSynchronizationManager.isActualTransactionActive()) {
-			Connection conn = DataSourceUtils.getConnection(dataSource);
-			try {
-				RtaBulkRidTempTable.updateRankerRtpvpReplayRawApplied(conn, rids);
-			} catch (SQLException | IOException e) {
-				throw new IllegalStateException("ranker_rtpvp_replay_raw applied marking failed", e);
-			} finally {
-				DataSourceUtils.releaseConnection(conn, dataSource);
-			}
-			return;
-		}
-		try (Connection conn = dataSource.getConnection()) {
-			conn.setAutoCommit(false);
-			try {
-				RtaBulkRidTempTable.updateRankerRtpvpReplayRawApplied(conn, rids);
-				conn.commit();
-			} catch (SQLException | IOException e) {
-				try { conn.rollback(); } catch (SQLException re) { log.warn("applied marking rollback 실패", re); }
-				throw new IllegalStateException("ranker_rtpvp_replay_raw applied marking failed", e);
-			}
-		} catch (IllegalStateException e) {
-			throw e;
-		} catch (SQLException e) {
-			throw new IllegalStateException("ranker_rtpvp_replay_raw applied marking failed", e);
-		}
+		markRtaReplayRawStatusByRids(rids, null, true);
 	}
 
 	private void updateRankerRtpvpReplayRawFailedOnTxConnection(Collection<Long> rids, String message) {
+		markRtaReplayRawStatusByRids(rids, message, false);
+	}
+
+	private void markRtaReplayRawStatusByRids(Collection<Long> rids, String failMessage, boolean applied) {
 		if (rids == null || rids.isEmpty()) {
 			return;
 		}
-		if (TransactionSynchronizationManager.isActualTransactionActive()) {
-			Connection conn = DataSourceUtils.getConnection(dataSource);
+		List<Long> sorted = new ArrayList<>(new LinkedHashSet<>(rids));
+		Collections.sort(sorted);
+		int chunk = Math.max(1, rtaRawApplyProperties.getApplyChunkSize());
+		String action = applied ? "applied" : "failed";
+		int attempt = 0;
+		while (true) {
 			try {
-				RtaBulkRidTempTable.updateRankerRtpvpReplayRawFailed(conn, rids, message);
-			} catch (SQLException | IOException e) {
-				throw new IllegalStateException("ranker_rtpvp_replay_raw failed marking failed", e);
-			} finally {
-				DataSourceUtils.releaseConnection(conn, dataSource);
+				for (int from = 0; from < sorted.size(); from += chunk) {
+					List<Long> sub = sorted.subList(from, Math.min(from + chunk, sorted.size()));
+					if (applied) {
+						swMapper.markRtaReplayRawAppliedByRids(sub);
+					} else {
+						swMapper.markRtaReplayRawFailedByRids(sub, failMessage);
+					}
+				}
+				return;
+			} catch (Exception e) {
+				if (!isRawMarkInfraRetryable(e) || ++attempt >= 3) {
+					log.error("[rta-raw-apply] {} marking 실패 rids={} attempt={}",
+							action, sorted.size(), attempt, e);
+					throw new IllegalStateException(
+							"ranker_rtpvp_replay_raw " + action + " marking failed (rids="
+									+ sorted.size() + "): " + e.getMessage(),
+							e);
+				}
+				log.warn("[rta-raw-apply] {} marking 재시도 {}/3 rids={}: {}",
+						action, attempt, sorted.size(), e.getMessage());
+				sleepQuietMs(500L * attempt);
 			}
-			return;
-		}
-		try (Connection conn = dataSource.getConnection()) {
-			conn.setAutoCommit(false);
-			try {
-				RtaBulkRidTempTable.updateRankerRtpvpReplayRawFailed(conn, rids, message);
-				conn.commit();
-			} catch (SQLException | IOException e) {
-				try { conn.rollback(); } catch (SQLException re) { log.warn("failed marking rollback 실패", re); }
-				throw new IllegalStateException("ranker_rtpvp_replay_raw failed marking failed", e);
-			}
-		} catch (IllegalStateException e) {
-			throw e;
-		} catch (SQLException e) {
-			throw new IllegalStateException("ranker_rtpvp_replay_raw failed marking failed", e);
 		}
 	}
 
+	private static boolean isRawMarkInfraRetryable(Throwable t) {
+		for (Throwable c = t; c != null; c = c.getCause()) {
+			if (c instanceof SQLException sql) {
+				String state = sql.getSQLState();
+				if ("55P03".equals(state) || "40P01".equals(state)) {
+					return true;
+				}
+			}
+			String msg = c.getMessage();
+			if (msg != null) {
+				String lower = msg.toLowerCase(Locale.ROOT);
+				if (lower.contains("lock timeout")
+						|| lower.contains("deadlock")
+						|| lower.contains("could not obtain lock")
+						|| lower.contains("canceling statement due to lock")
+						|| lower.contains("connection closed")
+						|| lower.contains("i/o error")
+						|| lower.contains("sending to the backend")
+						|| lower.contains("socket closed")
+						|| lower.contains("broken pipe")) {
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
+	private static void sleepQuietMs(long ms) {
+		try {
+			Thread.sleep(ms);
+		} catch (InterruptedException ie) {
+			Thread.currentThread().interrupt();
+		}
+	}
+
+	private static final int ORPHAN_CLEANUP_REPLAY_ID_BATCH = 2_000;
+
 	@Override
-	public int deleteArenaRtaOrphanChildrenGlobal() {
-		int n = swMapper.deleteArenaRtaOrphanUnitsGlobal();
-		n += swMapper.deleteArenaRtaOrphanUsersGlobal();
-		return n;
+	public ArenaRtaOrphanCleanupResult deleteArenaRtaOrphanChildrenGlobal() {
+		int unitsDeleted = 0;
+		int participantsDeleted = 0;
+		int batches = 0;
+		long t0 = System.currentTimeMillis();
+		for (int round = 1; round <= 50; round++) {
+			List<Long> orphanRids = swMapper.selectOrphanArenaReplayIds(ORPHAN_CLEANUP_REPLAY_ID_BATCH);
+			if (orphanRids == null || orphanRids.isEmpty()) {
+				break;
+			}
+			batches++;
+			unitsDeleted += swMapper.deleteArenaRtaOrphanUnitsByReplayIds(orphanRids);
+			participantsDeleted += swMapper.deleteArenaRtaOrphanUsersByReplayIds(orphanRids);
+			log.info("[orphan-cleanup] 라운드#{} replayIds={} 누적 unit={} participant={}",
+					round, orphanRids.size(), unitsDeleted, participantsDeleted);
+			if (orphanRids.size() < ORPHAN_CLEANUP_REPLAY_ID_BATCH) {
+				break;
+			}
+		}
+		log.info("[orphan-cleanup] 완료 batches={} unit={} participant={} total={} {}ms",
+				batches, unitsDeleted, participantsDeleted, unitsDeleted + participantsDeleted,
+				System.currentTimeMillis() - t0);
+		return new ArenaRtaOrphanCleanupResult(unitsDeleted, participantsDeleted, batches);
 	}
 
 	private static Long normalizeLong(Object o) {
@@ -1763,7 +1799,9 @@ public class summonerswarServiceImpl implements summonerswarService {
 				continue;
 			}
 			try {
-				parsed.add(parseReplayPayloadToMap(payloadObj));
+				Map<String, Object> parsedMap = parseReplayPayloadToMap(payloadObj);
+				parsedMap.put("rid", rid);
+				parsed.add(parsedMap);
 			} catch (Exception e) {
 				log.warn("[rta-raw-apply] rid={} payload 파싱 실패", rid, e);
 				updateRankerRtpvpReplayRawFailedOnTxConnection(Collections.singletonList(rid), String.valueOf(e.getMessage()));

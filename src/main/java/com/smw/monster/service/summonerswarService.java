@@ -78,7 +78,7 @@ public interface summonerswarService {
 	 * 부모 {@code rta_match} 행이 없는 user/pick/unit 고아 행 전수 삭제.
 	 * 통합 파이프라인에서는 호출하지 않으며, {@link com.smw.monster.batch.ArenaRtaOrphanCleanupBatchJob} 등 별도 스케줄로 실행한다.
 	 */
-	int deleteArenaRtaOrphanChildrenGlobal();
+	ArenaRtaOrphanCleanupResult deleteArenaRtaOrphanChildrenGlobal();
 	
 	public int insertArenaInfo(Map<String, ?> param);
 	

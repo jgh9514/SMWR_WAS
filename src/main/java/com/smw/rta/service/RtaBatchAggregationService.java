@@ -272,7 +272,7 @@ public class RtaBatchAggregationService {
 
 	/**
 	 * {@code rta_agg_summoner_opponent_h2h_snap} 시즌별 DELETE 후 INSERT 반환 행 합계.
-	 * DELETE·INSERT 를 분리 TX + 세션 가드 + 인프라 재시도로 적용한다.
+	 * DELETE·INSERT 를 <b>동일 TX</b>에서 실행해 DELETE 커밋 후 INSERT 실패·재시도 시 PK 충돌을 막는다.
 	 */
 	private int replaceOpponentH2hSnapForSeasons(RtaMapper rtaMapper, Collection<Long> seasonIds) {
 		if (seasonIds == null || seasonIds.isEmpty()) {
@@ -280,32 +280,9 @@ public class RtaBatchAggregationService {
 		}
 		int inserted = 0;
 		for (long sid : new TreeSet<>(seasonIds)) {
-			deleteOpponentH2hSnapBySeasonWithRetry(rtaMapper, sid);
-			inserted += insertOpponentH2hSnapForSeasonWithRetry(rtaMapper, sid);
+			inserted += replaceOpponentH2hSnapForSeasonWithRetry(rtaMapper, sid);
 		}
 		return inserted;
-	}
-
-	private void deleteOpponentH2hSnapBySeasonWithRetry(RtaMapper rtaMapper, long seasonId) {
-		int attempt = 0;
-		while (true) {
-			try {
-				transactionTemplate.executeWithoutResult(status -> {
-					applyBatchTxSessionGuards(rtaMapper);
-					long t0 = System.nanoTime();
-					int deleted = deleteOpponentH2hSnapBySeasonChunked(rtaMapper, seasonId);
-					log.debug("h2h snap delete seasonId={} rows={} {}ms", seasonId, deleted, msSinceNanos(t0));
-				});
-				return;
-			} catch (Exception e) {
-				if (!isInfraRetryable(e) || ++attempt >= 3) {
-					log.error("deleteOpponentH2hSnap 실패 seasonId={} attempt={}", seasonId, attempt, e);
-					throw e;
-				}
-				log.warn("deleteOpponentH2hSnap 재시도 {}/3 seasonId={}: {}", attempt, seasonId, e.getMessage());
-				sleepQuiet(3_000 * attempt);
-			}
-		}
 	}
 
 	private static int deleteOpponentH2hSnapBySeasonChunked(RtaMapper rtaMapper, long seasonId) {
@@ -329,24 +306,27 @@ public class RtaBatchAggregationService {
 		return total;
 	}
 
-	private int insertOpponentH2hSnapForSeasonWithRetry(RtaMapper rtaMapper, long seasonId) {
+	private int replaceOpponentH2hSnapForSeasonWithRetry(RtaMapper rtaMapper, long seasonId) {
 		int attempt = 0;
 		while (true) {
 			try {
 				final int[] rows = { 0 };
 				transactionTemplate.executeWithoutResult(status -> {
 					applyBatchTxSessionGuards(rtaMapper);
-					long t0 = System.nanoTime();
+					long tDel = System.nanoTime();
+					int deleted = deleteOpponentH2hSnapBySeasonChunked(rtaMapper, seasonId);
+					long tIns = System.nanoTime();
 					rows[0] = rtaMapper.insertRtaSummonerOpponentH2hSnapForSeason(seasonId);
-					log.debug("h2h snap insert seasonId={} rows={} {}ms", seasonId, rows[0], msSinceNanos(t0));
+					log.debug("h2h snap replace seasonId={} deleted={} inserted={} delMs={} insMs={}",
+							seasonId, deleted, rows[0], msSinceNanos(tDel), msSinceNanos(tIns));
 				});
 				return rows[0];
 			} catch (Exception e) {
-				if (!isInfraRetryable(e) || ++attempt >= 3) {
-					log.error("insertOpponentH2hSnap 실패 seasonId={} attempt={}", seasonId, attempt, e);
+				if (!isH2hReplaceRetryable(e) || ++attempt >= 3) {
+					log.error("replaceOpponentH2hSnap 실패 seasonId={} attempt={}", seasonId, attempt, e);
 					throw e;
 				}
-				log.warn("insertOpponentH2hSnap 재시도 {}/3 seasonId={}: {}", attempt, seasonId, e.getMessage());
+				log.warn("replaceOpponentH2hSnap 재시도 {}/3 seasonId={}: {}", attempt, seasonId, e.getMessage());
 				sleepQuiet(3_000 * attempt);
 			}
 		}
@@ -824,6 +804,32 @@ public class RtaBatchAggregationService {
 				sleepQuiet(3_000 * attempt);
 			}
 		}
+	}
+
+	/** H2H DELETE+INSERT 재시도 — 인프라 오류·PK 중복(잔여 행·INSERT 내 중복 키) 포함. */
+	private static boolean isH2hReplaceRetryable(Throwable t) {
+		if (isInfraRetryable(t)) {
+			return true;
+		}
+		for (Throwable c = t; c != null; c = c.getCause()) {
+			String cn = c.getClass().getName();
+			if (cn.contains("DuplicateKeyException")) {
+				return true;
+			}
+			if (c instanceof java.sql.SQLException sql && "23505".equals(sql.getSQLState())) {
+				return true;
+			}
+			String msg = c.getMessage();
+			if (msg != null) {
+				String lower = msg.toLowerCase();
+				if (lower.contains("duplicate key")
+						|| lower.contains("unique constraint")
+						|| lower.contains("cannot affect row a second time")) {
+					return true;
+				}
+			}
+		}
+		return false;
 	}
 
 	/** 락·커넥션 종료·idle-in-tx 타임아웃 등 인프라 일시 오류(재시도 대상). */

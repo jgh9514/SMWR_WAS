@@ -1382,12 +1382,57 @@
 		</foreach>
 	</insert>
 	
+	<select id="selectOrphanArenaReplayIds" resultType="long">
+		/* summonerswar.selectOrphanArenaReplayIds
+		   rta_match 없는 replay_id — 행 단위 NOT EXISTS(2400만) 대신 DISTINCT+EXCEPT Hash 차집합. */
+		SELECT o.replay_id
+		FROM (
+			SELECT child.replay_id
+			FROM (
+				SELECT u.replay_id
+				FROM public.rta_match_unit_pick u
+				GROUP BY u.replay_id
+				UNION
+				SELECT p.replay_id
+				FROM public.rta_match_participant p
+				GROUP BY p.replay_id
+			) child
+			EXCEPT
+			SELECT m.replay_id
+			FROM public.rta_match m
+		) o
+		ORDER BY o.replay_id
+		LIMIT #{limit}
+	</select>
+
+	<delete id="deleteArenaRtaOrphanUnitsByReplayIds">
+		/* summonerswar.deleteArenaRtaOrphanUnitsByReplayIds */
+		DELETE FROM public.rta_match_unit_pick u
+		WHERE u.replay_id IN (
+		<foreach collection="replayIds" item="rid" separator=",">
+			#{rid}
+		</foreach>
+		)
+	</delete>
+
+	<delete id="deleteArenaRtaOrphanUsersByReplayIds">
+		/* summonerswar.deleteArenaRtaOrphanUsersByReplayIds */
+		DELETE FROM public.rta_match_participant ul
+		WHERE ul.replay_id IN (
+		<foreach collection="replayIds" item="rid" separator=",">
+			#{rid}
+		</foreach>
+		)
+	</delete>
+
 	<delete id="deleteArenaRtaOrphanUnitsGlobal">
+		/* summonerswar.deleteArenaRtaOrphanUnitsGlobal */
 		DELETE FROM public.rta_match_unit_pick u
 		WHERE NOT EXISTS (SELECT 1 FROM public.rta_match r WHERE r.replay_id = u.replay_id)
 	</delete>
 
 	<delete id="deleteArenaRtaOrphanUsersGlobal">
+		/* summonerswar.deleteArenaRtaOrphanUsersGlobal */
 		DELETE FROM public.rta_match_participant ul
 		WHERE NOT EXISTS (SELECT 1 FROM public.rta_match r WHERE r.replay_id = ul.replay_id)
 	</delete>
@@ -1482,22 +1527,32 @@
 	</insert>
 
 	<insert id="insertArenaUnitInfoBulk">
+		/* insertArenaUnitInfoBulk — participant 와 동일하게 rta_match 존재 시에만 적재(고아 unit 방지) */
 		INSERT INTO public.rta_match_unit_pick (
 			replay_id,
 			wizard_id,
 			pick_slot_no,
 			unit_master_id,
 			is_banned
-		) VALUES
+		)
+		SELECT
+			v.rid,
+			v.wizard_id,
+			v.pick_slot_no,
+			public.rta_canonical_unit_master_id(v.unit_master_id),
+			v.is_banned
+		FROM (VALUES
 		<foreach collection="rows" item="m" separator=",">
 		(
-			#{m.rid}
-			, #{m.wizard_id}
+			#{m.rid}::bigint
+			, #{m.wizard_id}::varchar
 			, #{m.pick_slot_id}::smallint
-			, public.rta_canonical_unit_master_id(#{m.unit_master_id}::bigint)
+			, #{m.unit_master_id}::bigint
 			, COALESCE(#{m.is_banned}::boolean, false)
 		)
 		</foreach>
+		) AS v(rid, wizard_id, pick_slot_no, unit_master_id, is_banned)
+		INNER JOIN public.rta_match m ON m.replay_id = v.rid
 		ON CONFLICT (replay_id, wizard_id, pick_slot_no) DO NOTHING
 	</insert>
 
@@ -1550,6 +1605,34 @@
 		FROM ranker_rtpvp_replay_raw
 		WHERE apply_status IN ('pending', 'failed')
 	</select>
+
+	<update id="markRtaReplayRawAppliedByRids">
+		/* summonerswar.markRtaReplayRawAppliedByRids */
+		UPDATE ranker_rtpvp_replay_raw r
+		SET apply_status = 'applied',
+		    applied_at = CURRENT_TIMESTAMP,
+		    last_error = NULL
+		FROM unnest(ARRAY[
+		<foreach collection="rids" item="rid" separator=",">
+			#{rid}
+		</foreach>
+		]::bigint[]) AS t(rid)
+		WHERE r.rid = t.rid
+	</update>
+
+	<update id="markRtaReplayRawFailedByRids">
+		/* summonerswar.markRtaReplayRawFailedByRids */
+		UPDATE ranker_rtpvp_replay_raw r
+		SET apply_status = 'failed',
+		    last_error = SUBSTRING(COALESCE(#{message}, '') FROM 1 FOR 4000),
+		    retry_count = retry_count + 1
+		FROM unnest(ARRAY[
+		<foreach collection="rids" item="rid" separator=",">
+			#{rid}
+		</foreach>
+		]::bigint[]) AS t(rid)
+		WHERE r.rid = t.rid
+	</update>
 		
 	<select id="selectRecommendedAttackDeckList" parameterType="sqlMap" resultType="sqlMap">
 		/* selectRecommendedAttackDeckList */

@@ -18,8 +18,13 @@ public class ArenaRtaOrphanCleanupBatchJob extends BaseBatchJob {
 	protected void executeBatch(JobExecutionContext context) throws Exception {
 		summonerswarService service = applicationContext.getBean(summonerswarService.class);
 		addLog("rta_match 부모 없는 unit → participant 순 고아 행 삭제 시작");
-		int n = service.deleteArenaRtaOrphanChildrenGlobal();
-		addLog("고아 행 삭제 완료 — %d건", n);
+		com.smw.monster.service.ArenaRtaOrphanCleanupResult result = service.deleteArenaRtaOrphanChildrenGlobal();
+		addLog("고아 행 삭제 완료 — unit %d건 · participant %d건 · 합계 %d건 (replay 배치 %d회)",
+				result.unitsDeleted(), result.participantsDeleted(), result.totalDeleted(),
+				result.orphanReplayIdBatches());
+		if (result.totalDeleted() > 0) {
+			addLog("※ 동일 건수가 반복되면 RTA 정규화가 match 없이 unit 을 재적재하는지 점검(배포 후 unit INSERT 는 match JOIN)");
+		}
 	}
 
 	@Override

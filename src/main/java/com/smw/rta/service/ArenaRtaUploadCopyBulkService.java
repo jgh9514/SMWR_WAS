@@ -165,6 +165,7 @@ public class ArenaRtaUploadCopyBulkService {
 				, public.rta_canonical_unit_master_id(CAST(trim(convert_from(decode(u.um_hex, 'hex'), 'UTF8')) AS bigint))
 				, COALESCE(u.is_banned, false)
 			FROM tmp_arena_copy_unit u
+			INNER JOIN public.rta_match m ON m.replay_id = u.replay_id
 			ON CONFLICT (replay_id, wizard_id, pick_slot_no) DO NOTHING
 			""";
 

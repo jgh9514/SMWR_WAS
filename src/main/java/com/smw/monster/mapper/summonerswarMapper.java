@@ -89,7 +89,20 @@ public interface summonerswarMapper {
 
 	Long countRtaReplayRawPending();
 
-	/** rta_match 부모 없는 고아 행 전수 삭제 (배치용, unit → user 순) */
+	/** raw 정규화 반영 완료 — {@code unnest(bigint[])} JOIN UPDATE (COPY 임시테이블 대안) */
+	int markRtaReplayRawAppliedByRids(@Param("rids") List<Long> rids);
+
+	/** raw 정규화 실패 표기 — 동일 메시지를 대상 rid 전체에 적용 */
+	int markRtaReplayRawFailedByRids(@Param("rids") List<Long> rids, @Param("message") String message);
+
+	/** rta_match 없는 replay_id 상한 조회 — 고아 정리 배치 청크용 */
+	List<Long> selectOrphanArenaReplayIds(@Param("limit") int limit);
+
+	int deleteArenaRtaOrphanUnitsByReplayIds(@Param("replayIds") List<Long> replayIds);
+
+	int deleteArenaRtaOrphanUsersByReplayIds(@Param("replayIds") List<Long> replayIds);
+
+	/** rta_match 부모 없는 고아 행 전수 삭제 (배치용, unit → user 순) — 레거시·비상용 */
 	int deleteArenaRtaOrphanUnitsGlobal();
 
 	int deleteArenaRtaOrphanUsersGlobal();

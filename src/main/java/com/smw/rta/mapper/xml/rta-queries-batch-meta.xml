@@ -1058,7 +1058,8 @@
             computed_at
         )
         WITH season_part AS MATERIALIZED (
-            SELECT
+            /* replay×wizard 당 1행 — 중복 participant 적재 시 duel·집계 키 중복 방지 */
+            SELECT DISTINCT ON (replay_id, wizard_id)
                 replay_id,
                 season_id,
                 wizard_id,
@@ -1068,6 +1069,7 @@
                 is_winner
             FROM public.rta_match_participant
             WHERE season_id = #{seasonId}
+            ORDER BY replay_id, wizard_id, played_at DESC NULLS LAST
         ),
         duel AS (
             SELECT DISTINCT ON (me.replay_id, me.wizard_id, o.wizard_id)
@@ -1083,21 +1085,34 @@
                 ON o.replay_id = me.replay_id
                AND o.wizard_id &lt;&gt; me.wizard_id
             ORDER BY me.replay_id, me.wizard_id, o.wizard_id
+        ),
+        h2h_agg AS (
+            SELECT
+                d.season_id,
+                d.wizard_id,
+                d.opponent_wizard_id,
+                MAX(d.opponent_wizard_name) AS opponent_wizard_name,
+                MAX(d.opponent_channel_uid) AS opponent_channel_uid,
+                MAX(d.opponent_country_code) AS opponent_country_code,
+                COUNT(*) AS match_cnt,
+                SUM(CASE WHEN d.is_winner IS TRUE THEN 1 ELSE 0 END) AS win_cnt,
+                SUM(CASE WHEN d.is_winner IS FALSE THEN 1 ELSE 0 END) AS lose_cnt
+            FROM duel d
+            GROUP BY d.season_id, d.wizard_id, d.opponent_wizard_id
         )
         SELECT
-            d.season_id,
-            d.wizard_id,
-            d.opponent_wizard_id,
-            MAX(d.opponent_wizard_name),
-            MAX(d.opponent_channel_uid),
-            MAX(d.opponent_country_code),
-            COUNT(*),
-            SUM(CASE WHEN d.is_winner IS TRUE THEN 1 ELSE 0 END),
-            SUM(CASE WHEN d.is_winner IS FALSE THEN 1 ELSE 0 END),
+            h.season_id,
+            h.wizard_id,
+            h.opponent_wizard_id,
+            h.opponent_wizard_name,
+            h.opponent_channel_uid,
+            h.opponent_country_code,
+            h.match_cnt,
+            h.win_cnt,
+            h.lose_cnt,
             CURRENT_TIMESTAMP
-        FROM duel d
-        GROUP BY d.season_id, d.wizard_id, d.opponent_wizard_id
-        ON CONFLICT ON CONSTRAINT rta_agg_summoner_opponent_h2h_snap_pkey DO UPDATE SET
+        FROM h2h_agg h
+        ON CONFLICT (season_id, wizard_id, opponent_wizard_id) DO UPDATE SET
             opponent_wizard_name  = EXCLUDED.opponent_wizard_name,
             opponent_channel_uid  = EXCLUDED.opponent_channel_uid,
             opponent_country_code = EXCLUDED.opponent_country_code,
