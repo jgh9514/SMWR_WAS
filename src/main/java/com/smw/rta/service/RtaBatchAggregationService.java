@@ -267,8 +267,8 @@ public class RtaBatchAggregationService {
 				last);
 	}
 
-	/** H2H 스냅 DELETE 시 wizard_id 배치 크기 — 단일 DELETE·장시간 커넥션 I/O 오류 완화. */
-	private static final int OPPONENT_H2H_DELETE_WIZARD_BATCH = 2_000;
+	/** H2H 스냅 DELETE 시 ctid 배치 크기 — 단일 DELETE·장시간 커넥션 I/O 오류 완화. */
+	private static final int OPPONENT_H2H_DELETE_ROW_BATCH = 5_000;
 
 	/**
 	 * {@code rta_agg_summoner_opponent_h2h_snap} 시즌별 DELETE 후 INSERT 반환 행 합계.
@@ -312,11 +312,19 @@ public class RtaBatchAggregationService {
 		int total = 0;
 		for (;;) {
 			int n = rtaMapper.deleteRtaSummonerOpponentH2hSnapBySeasonWizardBatch(
-					seasonId, OPPONENT_H2H_DELETE_WIZARD_BATCH);
-			if (n <= 0) {
+					seasonId, OPPONENT_H2H_DELETE_ROW_BATCH);
+			if (n > 0) {
+				total += n;
+				continue;
+			}
+			long remaining = safeCount(rtaMapper.countRtaSummonerOpponentH2hSnapBySeason(seasonId));
+			if (remaining <= 0L) {
 				break;
 			}
-			total += n;
+			log.warn("h2h snap ctid batch delete returned 0 but seasonId={} remaining={} — season DELETE fallback",
+					seasonId, remaining);
+			total += rtaMapper.deleteRtaSummonerOpponentH2hSnapBySeason(seasonId);
+			break;
 		}
 		return total;
 	}

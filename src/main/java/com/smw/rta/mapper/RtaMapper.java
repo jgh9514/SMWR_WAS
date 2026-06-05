@@ -264,12 +264,14 @@ public interface RtaMapper {
     int deleteRtaSummonerOpponentH2hSnapBySeason(@Param("seasonId") long seasonId);
 
     /**
-     * 시즌 H2H 스냅을 wizard_id 배치로 삭제 — 단일 DELETE 장시간·I/O 오류 완화.
-     * {@code idx_rta_agg_summoner_opp_h2h_season_wizard} 활용.
+     * 시즌 H2H 스냅을 ctid LIMIT 배치로 삭제 — 단일 DELETE 장시간·I/O 오류 완화.
      */
     int deleteRtaSummonerOpponentH2hSnapBySeasonWizardBatch(
             @Param("seasonId") long seasonId,
             @Param("wizardBatchSize") int wizardBatchSize);
+
+    /** 시즌 H2H 스냅 잔여 행 수 — DELETE 배치 후 검증용. */
+    Long countRtaSummonerOpponentH2hSnapBySeason(@Param("seasonId") long seasonId);
 
     /**
      * 시즌×participant 기준 1:1 H2H 전량 INSERT — {@code rta_match_participant} me/o 조인 집계.

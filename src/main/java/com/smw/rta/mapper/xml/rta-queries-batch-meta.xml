@@ -1031,18 +1031,15 @@
     </delete>
 
     <delete id="deleteRtaSummonerOpponentH2hSnapBySeasonWizardBatch">
-        /* rta-queries-batch-meta.deleteRtaSummonerOpponentH2hSnapBySeasonWizardBatch */
+        /* rta-queries-batch-meta.deleteRtaSummonerOpponentH2hSnapBySeasonWizardBatch
+           시즌 H2H 행을 ctid LIMIT 배치로 삭제 — wizard_id IN 방식은 n=0 조기 종료 시 잔여 행 가능. */
         DELETE FROM public.rta_agg_summoner_opponent_h2h_snap h
-        WHERE h.season_id = #{seasonId}
-          AND h.wizard_id IN (
-            SELECT w.wizard_id
-            FROM (
-                SELECT DISTINCT wizard_id
-                FROM public.rta_agg_summoner_opponent_h2h_snap
-                WHERE season_id = #{seasonId}
-                LIMIT #{wizardBatchSize}
-            ) w
-          )
+        WHERE h.ctid IN (
+            SELECT s.ctid
+            FROM public.rta_agg_summoner_opponent_h2h_snap s
+            WHERE s.season_id = #{seasonId}
+            LIMIT #{wizardBatchSize}
+        )
     </delete>
 
     <insert id="insertRtaSummonerOpponentH2hSnapForSeason">
@@ -1100,7 +1097,22 @@
             CURRENT_TIMESTAMP
         FROM duel d
         GROUP BY d.season_id, d.wizard_id, d.opponent_wizard_id
+        ON CONFLICT ON CONSTRAINT rta_agg_summoner_opponent_h2h_snap_pkey DO UPDATE SET
+            opponent_wizard_name  = EXCLUDED.opponent_wizard_name,
+            opponent_channel_uid  = EXCLUDED.opponent_channel_uid,
+            opponent_country_code = EXCLUDED.opponent_country_code,
+            match_cnt             = EXCLUDED.match_cnt,
+            win_cnt               = EXCLUDED.win_cnt,
+            lose_cnt              = EXCLUDED.lose_cnt,
+            computed_at           = EXCLUDED.computed_at
     </insert>
+
+    <select id="countRtaSummonerOpponentH2hSnapBySeason" resultType="long">
+        /* rta-queries-batch-meta.countRtaSummonerOpponentH2hSnapBySeason */
+        SELECT COUNT(*)
+        FROM public.rta_agg_summoner_opponent_h2h_snap
+        WHERE season_id = #{seasonId}
+    </select>
 
     <select id="countRtaSummonerOpponentH2hSnapRows" resultType="long">
         /* rta-queries-batch-meta.countRtaSummonerOpponentH2hSnapRows */
