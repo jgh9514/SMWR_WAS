@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,9 +22,12 @@ import org.springframework.web.bind.annotation.RestController;
 import com.admin.user.service.UserService;
 import com.sysconf.annotation.RequireAdmin;
 import com.sysconf.annotation.RequireLogin;
+import com.sysconf.constants.Constant;
 import com.sysconf.security.AuthCredentialsValidator;
 import com.sysconf.security.SHA256;
+import com.sysconf.util.CookieUtil;
 import com.sysconf.util.StringUtil;
+import com.sysconf.util.TokenUtil;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -44,6 +48,12 @@ public class UserController {
 
 	@Autowired
 	private UserService service;
+
+	@Autowired
+	private CookieUtil cookieUtil;
+
+	@Autowired
+	private TokenUtil tokenUtil;
 
 	@SuppressWarnings("unchecked")
 	private static Map<String, Object> getSessUserInfo(HttpServletRequest request) {
@@ -181,15 +191,30 @@ public class UserController {
 	@Operation(summary = "점령전 조회 범위 업데이트", description = "사용자의 점령전 조회 범위를 업데이트합니다.")
 	@PostMapping("/update-siege-scope")
 	@Transactional
-	public ResponseEntity<?> updateSiegeViewScope(@RequestBody Map<String, Object> param, HttpSession session, HttpServletRequest request) {
+	public ResponseEntity<?> updateSiegeViewScope(
+			@RequestBody Map<String, Object> param,
+			HttpSession session,
+			HttpServletRequest request,
+			HttpServletResponse response) {
 		ResponseEntity<?> forbidden = enforceSelfOnly(param, request);
 		if (forbidden != null) {
 			return forbidden;
 		}
 		Map<String, String> result = new HashMap<>();
 
+		String token = cookieUtil.getCookieValue(request, Constant.LOGIN_TOKEN_NAME);
 		service.updateSiegeViewScope(param);
-		
+		tokenUtil.evictTokenUserInfoCache(token);
+
+		try {
+			Map<String, Object> userInfo = tokenUtil.getToken(token);
+			if (userInfo != null) {
+				cookieUtil.refreshtoken(request, response, userInfo, Constant.LOGIN_TOKEN_NAME);
+			}
+		} catch (Exception e) {
+			// scope DB 반영은 완료 — JWT 갱신 실패 시 다음 요청에서 재조회
+		}
+
 		result.put("result", "SUCCESS");
 		return ResponseEntity.ok(result);
 	}

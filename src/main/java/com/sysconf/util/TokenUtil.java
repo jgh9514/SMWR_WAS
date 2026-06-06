@@ -122,11 +122,19 @@ public class TokenUtil {
 	}
 
 	/**
-	 * 토큰 삭제 (JWT 기반이므로 별도 처리 불필요)
-	 * 실제 토큰 삭제는 쿠키에서 처리됩니다.
+	 * DB 갱신 후 JWT userInfo 캐시 무효화 (siege_view_scope 등 설정 변경 시)
+	 */
+	public void evictTokenUserInfoCache(String token) {
+		if (token != null && !token.isEmpty()) {
+			tokenUserInfoCache.invalidate(token);
+		}
+	}
+
+	/**
+	 * 토큰 삭제 — 쿠키 제거와 함께 userInfo 캐시도 무효화
 	 */
 	public void deleteToken(String token) {
-		// JWT 기반이므로 메모리에서 삭제할 필요 없음
+		evictTokenUserInfoCache(token);
 		log.debug("토큰 삭제 요청 (JWT 기반이므로 쿠키에서만 삭제됨)");
 	}
 }

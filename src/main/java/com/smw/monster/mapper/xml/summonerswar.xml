@@ -2,8 +2,105 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.smw.monster.mapper.summonerswarMapper">
 
+	<!-- siege_view_scope C: CurrentSeasonCache 주입값(current_season_yyyymm) 기준. A: 시즌 필터 없음 -->
+	<sql id="siegeSeasonFilterYyyymm">
+		<if test='siege_view_scope == null or siege_view_scope != "A"'>
+			<if test="current_season_yyyymm != null and current_season_yyyymm != '' and current_season_yyyymm != '000000'">
+				AND ${col} &gt;= #{current_season_yyyymm}
+			</if>
+		</if>
+	</sql>
+
+	<sql id="siegeSeasonFilterMatchIdPrefix">
+		<if test='siege_view_scope == null or siege_view_scope != "A"'>
+			<if test="current_season_yyyymm != null and current_season_yyyymm != '' and current_season_yyyymm != '000000'">
+				AND SUBSTRING(${matchIdCol}, 1, 6) &gt;= #{current_season_yyyymm}
+			</if>
+		</if>
+	</sql>
+
+	<sql id="siegeGuildFilter">
+		<choose>
+			<when test='view_all_guilds != null and (view_all_guilds == true or view_all_guilds == "true" or view_all_guilds == "Y")'>
+			</when>
+			<when test="view_guild_id != null and view_guild_id != ''">
+				AND ${col} = #{view_guild_id}::text
+			</when>
+			<otherwise>
+				AND ${col} = #{sess_guild_id}::text
+			</otherwise>
+		</choose>
+	</sql>
+
+	<!-- view_battle_deck_info 방덱 행 — stats 적재·집계와 동일한 콜라보 정규화 + m2/m3 슬롯 정렬 -->
+	<sql id="siegeDefenseDeckFilterVbdiNorm">
+		<if test="dm1 != null and dm1 != ''">
+			AND COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = ${defAlias}.monster_id_1 LIMIT 1), ${defAlias}.monster_id_1) = #{dm1}
+		</if>
+		<if test="dm2 != null and dm2 != ''">
+			AND LEAST(
+				COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = ${defAlias}.monster_id_2 LIMIT 1), ${defAlias}.monster_id_2),
+				COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = ${defAlias}.monster_id_3 LIMIT 1), ${defAlias}.monster_id_3)
+			) = #{dm2}
+		</if>
+		<if test="dm3 != null and dm3 != ''">
+			AND GREATEST(
+				COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = ${defAlias}.monster_id_2 LIMIT 1), ${defAlias}.monster_id_2),
+				COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = ${defAlias}.monster_id_3 LIMIT 1), ${defAlias}.monster_id_3)
+			) = #{dm3}
+		</if>
+	</sql>
+
+	<sql id="siegeMonsterFilterM1">
+		<if test="monster_id1_ids != null and monster_id1_ids.size() > 0">
+			AND ${col1} IN <foreach collection="monster_id1_ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+		</if>
+		<if test="(monster_id2_ids != null and monster_id2_ids.size() > 0) or (monster_id3_ids != null and monster_id3_ids.size() > 0)">
+			<choose>
+				<when test="monster_id2_ids != null and monster_id2_ids.size() > 0 and monster_id3_ids != null and monster_id3_ids.size() > 0">
+			AND ${col2} IN <foreach collection="monster_id2_ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+			AND ${col3} IN <foreach collection="monster_id3_ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+				</when>
+				<when test="monster_id2_ids != null and monster_id2_ids.size() > 0">
+			AND (${col2} IN <foreach collection="monster_id2_ids" item="id" open="(" separator="," close=")">#{id}</foreach> OR ${col3} IN <foreach collection="monster_id2_ids" item="id" open="(" separator="," close=")">#{id}</foreach>)
+				</when>
+				<otherwise>
+			AND (${col2} IN <foreach collection="monster_id3_ids" item="id" open="(" separator="," close=")">#{id}</foreach> OR ${col3} IN <foreach collection="monster_id3_ids" item="id" open="(" separator="," close=")">#{id}</foreach>)
+				</otherwise>
+			</choose>
+		</if>
+	</sql>
+
 	<select id="selectMonsterList" parameterType="sqlMap" resultType="sqlMap">
 		/* selectMonsterList */
+		<if test="siegeDedupeSecondAwakening != null and (siegeDedupeSecondAwakening == true or siegeDedupeSecondAwakening == 'true')">
+		WITH m2_family AS (
+		    SELECT DISTINCT family_id, monster_elemental
+		      FROM monster
+		     WHERE usg_yn = 'Y'
+		       AND obtainable IS TRUE
+		       AND NOT (
+		         transforms_to_id IS NOT NULL
+		         AND awakens_from_id IS NULL
+		         AND awakens_to_id IS NULL
+		       )
+		       AND awaken_level &gt;= 2
+		       AND family_id IS NOT NULL
+		),
+		m2_com2us AS (
+		    SELECT DISTINCT com2us_id
+		      FROM monster
+		     WHERE usg_yn = 'Y'
+		       AND obtainable IS TRUE
+		       AND NOT (
+		         transforms_to_id IS NOT NULL
+		         AND awakens_from_id IS NULL
+		         AND awakens_to_id IS NULL
+		       )
+		       AND awaken_level &gt;= 2
+		       AND com2us_id IS NOT NULL
+		)
+		</if>
 	    SELECT m.monster_id
 		     , m.kr_name
 		     , m.un_name
@@ -28,6 +125,13 @@
 		  LEFT JOIN monster_collaboration_mapping mcm
 		         ON mcm.collaboration_monster_id = m.monster_id
 		  LEFT JOIN monster m2 ON m2.monster_id = SUBSTR(m.monster_id, 1, 3) || '0' || SUBSTR(m.monster_id, 5)
+		  <if test="siegeDedupeSecondAwakening != null and (siegeDedupeSecondAwakening == true or siegeDedupeSecondAwakening == 'true')">
+		  LEFT JOIN m2_family fam2
+		         ON m.family_id = fam2.family_id
+		        AND m.monster_elemental = fam2.monster_elemental
+		  LEFT JOIN m2_com2us c2
+		         ON m.awakens_to_id = c2.com2us_id
+		  </if>
 		 WHERE m.usg_yn = 'Y'
 		   AND m.obtainable IS TRUE
 		   -- 변신 전용 행 제외: transforms_to_id만 있고 깨우침 연결(awakens_*)이 없는 레코드(예: 유니콘 변신체).
@@ -36,39 +140,11 @@
 		     AND m.awakens_from_id IS NULL
 		     AND m.awakens_to_id IS NULL
 		   )
-		   <!-- 점령전 등: 같은 패밀리·속성에 2각(awaken_level>=2)이 있으면 1각 행 제외. family_id 불일치 시 awakens_to_id→com2us 로 연결 -->
+		   <!-- 점령전 등: 같은 패밀리·속성에 2각(awaken_level>=2)이 있으면 1각 행 제외 -->
 		   <if test="siegeDedupeSecondAwakening != null and (siegeDedupeSecondAwakening == true or siegeDedupeSecondAwakening == 'true')">
 		   AND NOT (
 		     COALESCE(m.awaken_level, 0) = 1
-		     AND (
-		       EXISTS (
-		         SELECT 1 FROM monster m2
-		          WHERE m2.usg_yn = 'Y'
-		            AND m2.obtainable IS TRUE
-		            AND NOT (
-		              m2.transforms_to_id IS NOT NULL
-		              AND m2.awakens_from_id IS NULL
-		              AND m2.awakens_to_id IS NULL
-		            )
-		            AND m2.awaken_level &gt;= 2
-		            AND m.family_id IS NOT NULL
-		            AND m2.family_id = m.family_id
-		            AND m2.monster_elemental = m.monster_elemental
-		       )
-		       OR EXISTS (
-		         SELECT 1 FROM monster m2
-		          WHERE m2.usg_yn = 'Y'
-		            AND m2.obtainable IS TRUE
-		            AND NOT (
-		              m2.transforms_to_id IS NOT NULL
-		              AND m2.awakens_from_id IS NULL
-		              AND m2.awakens_to_id IS NULL
-		            )
-		            AND m2.awaken_level &gt;= 2
-		            AND m.awakens_to_id IS NOT NULL
-		            AND m2.com2us_id = m.awakens_to_id
-		       )
-		     )
+		     AND (fam2.family_id IS NOT NULL OR c2.com2us_id IS NOT NULL)
 		   )
 		   </if>
 		 <choose>
@@ -152,20 +228,18 @@
 		 LIMIT CAST(#{paging} AS bigint) OFFSET (CAST(#{paging} AS bigint) * (CAST(#{offset} AS bigint) - 1))
 		</when>
 		<otherwise>
-		<!-- match_id 없음: siege_defense_deck_stats 집계 경로 + 수동 등록 방덱 -->
-				SELECT * FROM (
-				SELECT DISTINCT ON (monster_id_1, monster_id_2, monster_id_3)
-				       key, monster_id_1, monster_id_2, monster_id_3
-				     , image_url1, image_url2, image_url3
-				     , total_count, total_rate, win_count, lose_count
-				     , leader_id, leader_type, leader_stat, leader_increase_by, leader_icon, leader_skill_description
+		<!-- match_id 없음: siege_defense_deck_guild_agg 마트 + 수동 등록 방덱 -->
+				SELECT u.key
+				     , u.monster_id_1, u.monster_id_2, u.monster_id_3
+				     , u.image_url1, u.image_url2, u.image_url3
+				     , u.total_count, u.total_rate, u.win_count, u.lose_count
+				     , u.leader_id, u.leader_type, u.leader_stat, u.leader_increase_by, u.leader_icon, u.leader_skill_description
 				  FROM (
 				SELECT monster_id_1 || '-' || monster_id_2 || '-' || monster_id_3 AS key
 				     , monster_id_1, monster_id_2, monster_id_3
 				     , image_url_1 AS image_url1, image_url_2 AS image_url2, image_url_3 AS image_url3
 				     , total_count, total_rate, win_count, lose_count
 				     , leader_id, leader_type, leader_stat, leader_increase_by, leader_icon, leader_skill_desc AS leader_skill_description
-				     , 1 AS _deck_src
 				  FROM (
 					SELECT monster_id_1, monster_id_2, monster_id_3
 					     , SUM(total_count) AS total_count
@@ -175,50 +249,11 @@
 					     , MAX(leader_id) AS leader_id, MAX(leader_type) AS leader_type
 					     , MAX(leader_stat) AS leader_stat, MAX(leader_increase_by) AS leader_increase_by
 					     , MAX(leader_icon) AS leader_icon, MAX(leader_skill_desc) AS leader_skill_desc
-					  FROM siege_defense_deck_stats
+					  FROM siege_defense_deck_guild_agg
 					 WHERE 1=1
-					   <choose>
-					     <when test='view_all_guilds != null and (view_all_guilds == true or view_all_guilds == "true" or view_all_guilds == "Y")'>
-					       <!-- 전체 길드: guild_id 제한 없음 -->
-					     </when>
-					     <when test="view_guild_id != null and view_guild_id != ''">
-					       AND guild_id = #{view_guild_id}::text
-					     </when>
-					     <otherwise>
-					       AND guild_id = #{sess_guild_id}::text
-					     </otherwise>
-					   </choose>
-					   <!-- 시즌: A=전체(생략), C=현재 시즌만 (legacy 와 동일: 진행 중 시즌 없으면 제한 없음) -->
-					   <choose>
-					     <when test='siege_view_scope != null and siege_view_scope == "A"'></when>
-					     <otherwise>
-					       AND (
-					         (SELECT COUNT(*) FROM guild_siege_season WHERE end_date IS NULL) = 0
-					         OR season_yyyymm >= COALESCE(
-					           #{current_season_yyyymm},
-					           (SELECT TO_CHAR(DATE_TRUNC('month', gss.start_date), 'YYYYMM') FROM guild_siege_season gss WHERE gss.end_date IS NULL ORDER BY gss.season_no DESC LIMIT 1),
-					           '000000'
-					         )
-					       )
-					     </otherwise>
-					   </choose>
-					   <if test="monster_id1_ids != null and monster_id1_ids.size() > 0">
-					     AND monster_id_1 IN <foreach collection="monster_id1_ids" item="id" open="(" separator="," close=")">#{id}</foreach>
-					   </if>
-					   <if test="(monster_id2_ids != null and monster_id2_ids.size() > 0) or (monster_id3_ids != null and monster_id3_ids.size() > 0)">
-					     <choose>
-					       <when test="monster_id2_ids != null and monster_id2_ids.size() > 0 and monster_id3_ids != null and monster_id3_ids.size() > 0">
-					     AND monster_id_2 IN <foreach collection="monster_id2_ids" item="id" open="(" separator="," close=")">#{id}</foreach>
-					     AND monster_id_3 IN <foreach collection="monster_id3_ids" item="id" open="(" separator="," close=")">#{id}</foreach>
-					       </when>
-					       <when test="monster_id2_ids != null and monster_id2_ids.size() > 0">
-					     AND (monster_id_2 IN <foreach collection="monster_id2_ids" item="id" open="(" separator="," close=")">#{id}</foreach> OR monster_id_3 IN <foreach collection="monster_id2_ids" item="id" open="(" separator="," close=")">#{id}</foreach>)
-					       </when>
-					       <otherwise>
-					     AND (monster_id_2 IN <foreach collection="monster_id3_ids" item="id" open="(" separator="," close=")">#{id}</foreach> OR monster_id_3 IN <foreach collection="monster_id3_ids" item="id" open="(" separator="," close=")">#{id}</foreach>)
-					       </otherwise>
-					     </choose>
-					   </if>
+					   <include refid="siegeGuildFilter"><property name="col" value="guild_id"/></include>
+					   <include refid="siegeSeasonFilterYyyymm"><property name="col" value="season_yyyymm"/></include>
+					   <include refid="siegeMonsterFilterM1"><property name="col1" value="monster_id_1"/><property name="col2" value="monster_id_2"/><property name="col3" value="monster_id_3"/></include>
 					 GROUP BY monster_id_1, monster_id_2, monster_id_3
 					 <if test="min_lose_count != null and min_lose_count != ''">
 					   HAVING SUM(lose_count) >= #{min_lose_count}::int
@@ -233,81 +268,29 @@
 				     , m1.leader_id AS leader_id, ml1.type AS leader_type, ml1.stat AS leader_stat
 				     , ml1.increase_by AS leader_increase_by, ml1.icon_path AS leader_icon
 				     , get_leader_skill_desc(ml1.type, ml1.stat, ml1.increase_by) AS leader_skill_description
-				     , 2 AS _deck_src
 				  FROM siege_defense_deck_manual d
 				  INNER JOIN monster m1 ON d.monster_id_1 = m1.monster_id
 				  INNER JOIN monster m2 ON d.monster_id_2 = m2.monster_id
 				  INNER JOIN monster m3 ON d.monster_id_3 = m3.monster_id
 				  LEFT JOIN monster_leaders ml1 ON m1.leader_id = ml1.leader_id
 				 WHERE 1=1
-				   <choose>
-				     <when test='view_all_guilds != null and (view_all_guilds == true or view_all_guilds == "true" or view_all_guilds == "Y")'>
-				     </when>
-				     <when test="view_guild_id != null and view_guild_id != ''">
-				       AND d.guild_id = #{view_guild_id}::text
-				     </when>
-				     <otherwise>
-				       AND d.guild_id = #{sess_guild_id}::text
-				     </otherwise>
-				   </choose>
-				   <choose>
-				     <when test='siege_view_scope != null and siege_view_scope == "A"'></when>
-				     <otherwise>
-				       AND (
-				         (SELECT COUNT(*) FROM guild_siege_season WHERE end_date IS NULL) = 0
-				         OR d.season_yyyymm >= COALESCE(
-				           #{current_season_yyyymm},
-				           (SELECT TO_CHAR(DATE_TRUNC('month', gss.start_date), 'YYYYMM') FROM guild_siege_season gss WHERE gss.end_date IS NULL ORDER BY gss.season_no DESC LIMIT 1),
-				           '000000'
-				         )
-				       )
-				     </otherwise>
-				   </choose>
-				   <if test="monster_id1_ids != null and monster_id1_ids.size() > 0">
-				     AND d.monster_id_1 IN <foreach collection="monster_id1_ids" item="id" open="(" separator="," close=")">#{id}</foreach>
-				   </if>
-				   <if test="(monster_id2_ids != null and monster_id2_ids.size() > 0) or (monster_id3_ids != null and monster_id3_ids.size() > 0)">
-				     <choose>
-				       <when test="monster_id2_ids != null and monster_id2_ids.size() > 0 and monster_id3_ids != null and monster_id3_ids.size() > 0">
-				     AND d.monster_id_2 IN <foreach collection="monster_id2_ids" item="id" open="(" separator="," close=")">#{id}</foreach>
-				     AND d.monster_id_3 IN <foreach collection="monster_id3_ids" item="id" open="(" separator="," close=")">#{id}</foreach>
-				       </when>
-				       <when test="monster_id2_ids != null and monster_id2_ids.size() > 0">
-				     AND (d.monster_id_2 IN <foreach collection="monster_id2_ids" item="id" open="(" separator="," close=")">#{id}</foreach> OR d.monster_id_3 IN <foreach collection="monster_id2_ids" item="id" open="(" separator="," close=")">#{id}</foreach>)
-				       </when>
-				       <otherwise>
-				     AND (d.monster_id_2 IN <foreach collection="monster_id3_ids" item="id" open="(" separator="," close=")">#{id}</foreach> OR d.monster_id_3 IN <foreach collection="monster_id3_ids" item="id" open="(" separator="," close=")">#{id}</foreach>)
-				       </otherwise>
-				     </choose>
-				   </if>
+				   <include refid="siegeGuildFilter"><property name="col" value="d.guild_id"/></include>
+				   <include refid="siegeSeasonFilterYyyymm"><property name="col" value="d.season_yyyymm"/></include>
+				   <include refid="siegeMonsterFilterM1"><property name="col1" value="d.monster_id_1"/><property name="col2" value="d.monster_id_2"/><property name="col3" value="d.monster_id_3"/></include>
 				   <if test="min_lose_count != null and min_lose_count != ''">
 				   AND 1=0
 				   </if>
 				   AND NOT EXISTS (
 				    SELECT 1
-				      FROM siege_defense_deck_stats s
+				      FROM siege_defense_deck_guild_agg s
 				     WHERE s.guild_id = d.guild_id
 				       AND s.monster_id_1 = d.monster_id_1
 				       AND s.monster_id_2 = d.monster_id_2
 				       AND s.monster_id_3 = d.monster_id_3
-				       <choose>
-				         <when test='siege_view_scope != null and siege_view_scope == "A"'></when>
-				         <otherwise>
-				           AND (
-				             (SELECT COUNT(*) FROM guild_siege_season WHERE end_date IS NULL) = 0
-				             OR s.season_yyyymm >= COALESCE(
-				               #{current_season_yyyymm},
-				               (SELECT TO_CHAR(DATE_TRUNC('month', gss.start_date), 'YYYYMM') FROM guild_siege_season gss WHERE gss.end_date IS NULL ORDER BY gss.season_no DESC LIMIT 1),
-				               '000000'
-				             )
-				           )
-				         </otherwise>
-				       </choose>
+				       <include refid="siegeSeasonFilterYyyymm"><property name="col" value="s.season_yyyymm"/></include>
 				   )
 				) u
-				ORDER BY monster_id_1, monster_id_2, monster_id_3, total_count DESC NULLS LAST, _deck_src ASC
-				) combined
-				ORDER BY total_count DESC
+				ORDER BY u.total_count DESC
 				LIMIT CAST(#{paging} AS bigint) OFFSET (CAST(#{paging} AS bigint) * (CAST(#{offset} AS bigint) - 1))
 		</otherwise>
 		</choose>
@@ -368,43 +351,11 @@
 					SELECT DISTINCT monster_id_1, monster_id_2, monster_id_3
 					  FROM (
 					SELECT monster_id_1, monster_id_2, monster_id_3
-					  FROM siege_defense_deck_stats
+					  FROM siege_defense_deck_guild_agg
 					 WHERE 1=1
-					   <choose>
-					     <when test='view_all_guilds != null and (view_all_guilds == true or view_all_guilds == "true" or view_all_guilds == "Y")'></when>
-					     <when test="view_guild_id != null and view_guild_id != ''">AND guild_id = #{view_guild_id}::text</when>
-					     <otherwise>AND guild_id = #{sess_guild_id}::text</otherwise>
-					   </choose>
-					   <choose>
-					     <when test='siege_view_scope != null and siege_view_scope == "A"'></when>
-					     <otherwise>
-					       AND (
-					         (SELECT COUNT(*) FROM guild_siege_season WHERE end_date IS NULL) = 0
-					         OR season_yyyymm >= COALESCE(
-					           #{current_season_yyyymm},
-					           (SELECT TO_CHAR(DATE_TRUNC('month', gss.start_date), 'YYYYMM') FROM guild_siege_season gss WHERE gss.end_date IS NULL ORDER BY gss.season_no DESC LIMIT 1),
-					           '000000'
-					         )
-					       )
-					     </otherwise>
-					   </choose>
-					   <if test="monster_id1_ids != null and monster_id1_ids.size() > 0">
-					     AND monster_id_1 IN <foreach collection="monster_id1_ids" item="id" open="(" separator="," close=")">#{id}</foreach>
-					   </if>
-					   <if test="(monster_id2_ids != null and monster_id2_ids.size() > 0) or (monster_id3_ids != null and monster_id3_ids.size() > 0)">
-					     <choose>
-					       <when test="monster_id2_ids != null and monster_id2_ids.size() > 0 and monster_id3_ids != null and monster_id3_ids.size() > 0">
-					     AND monster_id_2 IN <foreach collection="monster_id2_ids" item="id" open="(" separator="," close=")">#{id}</foreach>
-					     AND monster_id_3 IN <foreach collection="monster_id3_ids" item="id" open="(" separator="," close=")">#{id}</foreach>
-					       </when>
-					       <when test="monster_id2_ids != null and monster_id2_ids.size() > 0">
-					     AND (monster_id_2 IN <foreach collection="monster_id2_ids" item="id" open="(" separator="," close=")">#{id}</foreach> OR monster_id_3 IN <foreach collection="monster_id2_ids" item="id" open="(" separator="," close=")">#{id}</foreach>)
-					       </when>
-					       <otherwise>
-					     AND (monster_id_2 IN <foreach collection="monster_id3_ids" item="id" open="(" separator="," close=")">#{id}</foreach> OR monster_id_3 IN <foreach collection="monster_id3_ids" item="id" open="(" separator="," close=")">#{id}</foreach>)
-					       </otherwise>
-					     </choose>
-					   </if>
+					   <include refid="siegeGuildFilter"><property name="col" value="guild_id"/></include>
+					   <include refid="siegeSeasonFilterYyyymm"><property name="col" value="season_yyyymm"/></include>
+					   <include refid="siegeMonsterFilterM1"><property name="col1" value="monster_id_1"/><property name="col2" value="monster_id_2"/><property name="col3" value="monster_id_3"/></include>
 					 GROUP BY monster_id_1, monster_id_2, monster_id_3
 					 <if test="min_lose_count != null and min_lose_count != ''">
 					   HAVING SUM(lose_count) >= #{min_lose_count}::int
@@ -413,64 +364,20 @@
 					SELECT d.monster_id_1, d.monster_id_2, d.monster_id_3
 					  FROM siege_defense_deck_manual d
 					 WHERE 1=1
-					   <choose>
-					     <when test='view_all_guilds != null and (view_all_guilds == true or view_all_guilds == "true" or view_all_guilds == "Y")'></when>
-					     <when test="view_guild_id != null and view_guild_id != ''">AND d.guild_id = #{view_guild_id}::text</when>
-					     <otherwise>AND d.guild_id = #{sess_guild_id}::text</otherwise>
-					   </choose>
-					   <choose>
-					     <when test='siege_view_scope != null and siege_view_scope == "A"'></when>
-					     <otherwise>
-					       AND (
-					         (SELECT COUNT(*) FROM guild_siege_season WHERE end_date IS NULL) = 0
-					         OR d.season_yyyymm >= COALESCE(
-					           #{current_season_yyyymm},
-					           (SELECT TO_CHAR(DATE_TRUNC('month', gss.start_date), 'YYYYMM') FROM guild_siege_season gss WHERE gss.end_date IS NULL ORDER BY gss.season_no DESC LIMIT 1),
-					           '000000'
-					         )
-					       )
-					     </otherwise>
-					   </choose>
-					   <if test="monster_id1_ids != null and monster_id1_ids.size() > 0">
-					     AND d.monster_id_1 IN <foreach collection="monster_id1_ids" item="id" open="(" separator="," close=")">#{id}</foreach>
-					   </if>
-					   <if test="(monster_id2_ids != null and monster_id2_ids.size() > 0) or (monster_id3_ids != null and monster_id3_ids.size() > 0)">
-					     <choose>
-					       <when test="monster_id2_ids != null and monster_id2_ids.size() > 0 and monster_id3_ids != null and monster_id3_ids.size() > 0">
-					     AND d.monster_id_2 IN <foreach collection="monster_id2_ids" item="id" open="(" separator="," close=")">#{id}</foreach>
-					     AND d.monster_id_3 IN <foreach collection="monster_id3_ids" item="id" open="(" separator="," close=")">#{id}</foreach>
-					       </when>
-					       <when test="monster_id2_ids != null and monster_id2_ids.size() > 0">
-					     AND (d.monster_id_2 IN <foreach collection="monster_id2_ids" item="id" open="(" separator="," close=")">#{id}</foreach> OR d.monster_id_3 IN <foreach collection="monster_id2_ids" item="id" open="(" separator="," close=")">#{id}</foreach>)
-					       </when>
-					       <otherwise>
-					     AND (d.monster_id_2 IN <foreach collection="monster_id3_ids" item="id" open="(" separator="," close=")">#{id}</foreach> OR d.monster_id_3 IN <foreach collection="monster_id3_ids" item="id" open="(" separator="," close=")">#{id}</foreach>)
-					       </otherwise>
-					     </choose>
-					   </if>
+					   <include refid="siegeGuildFilter"><property name="col" value="d.guild_id"/></include>
+					   <include refid="siegeSeasonFilterYyyymm"><property name="col" value="d.season_yyyymm"/></include>
+					   <include refid="siegeMonsterFilterM1"><property name="col1" value="d.monster_id_1"/><property name="col2" value="d.monster_id_2"/><property name="col3" value="d.monster_id_3"/></include>
 					   <if test="min_lose_count != null and min_lose_count != ''">
 					   AND 1=0
 					   </if>
 					   AND NOT EXISTS (
 					    SELECT 1
-					      FROM siege_defense_deck_stats s
+					      FROM siege_defense_deck_guild_agg s
 					     WHERE s.guild_id = d.guild_id
 					       AND s.monster_id_1 = d.monster_id_1
 					       AND s.monster_id_2 = d.monster_id_2
 					       AND s.monster_id_3 = d.monster_id_3
-					       <choose>
-					         <when test='siege_view_scope != null and siege_view_scope == "A"'></when>
-					         <otherwise>
-					           AND (
-					             (SELECT COUNT(*) FROM guild_siege_season WHERE end_date IS NULL) = 0
-					             OR s.season_yyyymm >= COALESCE(
-					               #{current_season_yyyymm},
-					               (SELECT TO_CHAR(DATE_TRUNC('month', gss.start_date), 'YYYYMM') FROM guild_siege_season gss WHERE gss.end_date IS NULL ORDER BY gss.season_no DESC LIMIT 1),
-					               '000000'
-					             )
-					           )
-					         </otherwise>
-					       </choose>
+					       <include refid="siegeSeasonFilterYyyymm"><property name="col" value="s.season_yyyymm"/></include>
 					   )
 				) u
 				) t
@@ -526,7 +433,7 @@
 			#{sess_guild_id}::text,
 			COALESCE(
 				NULLIF(#{season_yyyymm}::text, ''),
-				(SELECT TO_CHAR(DATE_TRUNC('month', gss.start_date), 'YYYYMM') FROM guild_siege_season gss WHERE gss.end_date IS NULL ORDER BY gss.season_no DESC LIMIT 1),
+				NULLIF(#{current_season_yyyymm}::text, ''),
 				TO_CHAR(DATE_TRUNC('month', CURRENT_TIMESTAMP), 'YYYYMM')
 			),
 			n.m1,
@@ -560,7 +467,7 @@
 		/* selectMonsterDetailList */
 		<choose>
 			<when test='(match_id == null or match_id == "" or match_id == "null") and (guild_ids == null or guild_ids.size() == 0)'>
-			<!-- siege_defense_deck_stats 집계 경로 -->
+			<!-- siege_defense_deck_stats 집계 경로 (공덱 이력·헤더 동일 소스) -->
 			SELECT MAX(m1.kr_name) AS m1_kr_name
 			     , MAX(stats.image_url_1) AS image_url1
 			     , MAX(m2.kr_name) AS m2_kr_name
@@ -584,29 +491,8 @@
 			 WHERE stats.monster_id_1 IN (${dm1_list})
 			   <if test="dm2_list != null and dm2_list != ''">AND stats.monster_id_2 IN (${dm2_list})</if>
 			   <if test="dm3_list != null and dm3_list != ''">AND stats.monster_id_3 IN (${dm3_list})</if>
-			   <choose>
-			     <when test='view_all_guilds != null and (view_all_guilds == true or view_all_guilds == "true" or view_all_guilds == "Y")'>
-			     </when>
-			     <when test="view_guild_id != null and view_guild_id != ''">
-			       AND stats.guild_id = #{view_guild_id}::text
-			     </when>
-			     <otherwise>
-			       AND stats.guild_id = #{sess_guild_id}::text
-			     </otherwise>
-			   </choose>
-			   <choose>
-			     <when test='siege_view_scope != null and siege_view_scope == "A"'></when>
-			     <otherwise>
-			       AND (
-			         (SELECT COUNT(*) FROM guild_siege_season WHERE end_date IS NULL) = 0
-			         OR season_yyyymm >= COALESCE(
-			           #{current_season_yyyymm},
-			           (SELECT TO_CHAR(DATE_TRUNC('month', gss.start_date), 'YYYYMM') FROM guild_siege_season gss WHERE gss.end_date IS NULL ORDER BY gss.season_no DESC LIMIT 1),
-			           '000000'
-			         )
-			       )
-			     </otherwise>
-			   </choose>
+			   <include refid="siegeGuildFilter"><property name="col" value="stats.guild_id"/></include>
+			   <include refid="siegeSeasonFilterYyyymm"><property name="col" value="stats.season_yyyymm"/></include>
 			 GROUP BY stats.monster_id_1, stats.monster_id_2, stats.monster_id_3
 			 ORDER BY total_count DESC, total_rate DESC
 			</when>
@@ -676,12 +562,7 @@
 	       			)
 	       		</otherwise>
 	       	</choose>
-	       	<if test='siege_view_scope != "A"'>
-	       	AND (
-	       	  (SELECT COUNT(*) FROM guild_siege_season WHERE end_date IS NULL) = 0
-	       	  OR SUBSTRING(bll.match_id, 1, 6) >= (SELECT TO_CHAR(DATE_TRUNC('month', gss.start_date), 'YYYYMM') FROM guild_siege_season gss WHERE gss.end_date IS NULL ORDER BY gss.season_no DESC LIMIT 1)
-	       	)
-	       	</if>
+	       	<include refid="siegeSeasonFilterMatchIdPrefix"><property name="matchIdCol" value="bll.match_id"/></include>
 	       	<if test="guild_ids != null and guild_ids.size() > 0">
 	       	   AND bll.opp_guild_id IN
 	       	   <foreach collection="guild_ids" item="guild_id" open="(" separator="," close=")">#{guild_id}</foreach>
@@ -797,24 +678,8 @@
 		     WHERE monster_id_1 IN (${dm1_list})
 		       <if test="dm2_list != null and dm2_list != ''">AND monster_id_2 IN (${dm2_list})</if>
 		       <if test="dm3_list != null and dm3_list != ''">AND monster_id_3 IN (${dm3_list})</if>
-		       <choose>
-		         <when test='view_all_guilds != null and (view_all_guilds == true or view_all_guilds == "true" or view_all_guilds == "Y")'></when>
-		         <when test="view_guild_id != null and view_guild_id != ''">AND guild_id = #{view_guild_id}::text</when>
-		         <otherwise>AND guild_id = #{sess_guild_id}::text</otherwise>
-		       </choose>
-		       <choose>
-		         <when test='siege_view_scope != null and siege_view_scope == "A"'></when>
-		         <otherwise>
-		           AND (
-		             (SELECT COUNT(*) FROM guild_siege_season WHERE end_date IS NULL) = 0
-		             OR season_yyyymm >= COALESCE(
-		               #{current_season_yyyymm},
-		               (SELECT TO_CHAR(DATE_TRUNC('month', gss.start_date), 'YYYYMM') FROM guild_siege_season gss WHERE gss.end_date IS NULL ORDER BY gss.season_no DESC LIMIT 1),
-		               '000000'
-		             )
-		           )
-		         </otherwise>
-		       </choose>
+		       <include refid="siegeGuildFilter"><property name="col" value="guild_id"/></include>
+		       <include refid="siegeSeasonFilterYyyymm"><property name="col" value="season_yyyymm"/></include>
 		     GROUP BY attack_monster_id_1, attack_monster_id_2, attack_monster_id_3
 		     ORDER BY total_count DESC, total_rate DESC
 		     <if test="historyLimit != null and historyLimit != ''">LIMIT #{historyLimit}::bigint</if>
@@ -1003,12 +868,7 @@
 				   <if test="dm2_list != null and dm2_list != ''">and LEAST(vbdi1.monster_id_2, vbdi1.monster_id_3) IN (${dm2_list})</if>
 				   <if test="dm3_list != null and dm3_list != ''">and GREATEST(vbdi1.monster_id_2, vbdi1.monster_id_3) IN (${dm3_list})</if>
 				   <!-- 시즌: A=전체(생략), C=현재 시즌만 -->
-				   <if test='siege_view_scope != "A"'>
-				   AND (
-				     (SELECT COUNT(*) FROM guild_siege_season WHERE end_date IS NULL) = 0
-				     OR SUBSTRING(bll.match_id, 1, 6) >= (SELECT TO_CHAR(DATE_TRUNC('month', gss.start_date), 'YYYYMM') FROM guild_siege_season gss WHERE gss.end_date IS NULL ORDER BY gss.season_no DESC LIMIT 1)
-				   )
-				   </if>
+				   <include refid="siegeSeasonFilterMatchIdPrefix"><property name="matchIdCol" value="bll.match_id"/></include>
 				   <if test='match_id != null and match_id != "" and match_id != "null"'>
 				   and vbdi1.match_id = #{match_id}
 				   </if>
@@ -1107,24 +967,8 @@
 		 WHERE monster_id_1 IN (${dm1_list})
 		   <if test="dm2_list != null and dm2_list != ''">AND monster_id_2 IN (${dm2_list})</if>
 		   <if test="dm3_list != null and dm3_list != ''">AND monster_id_3 IN (${dm3_list})</if>
-		   <choose>
-		     <when test='view_all_guilds != null and (view_all_guilds == true or view_all_guilds == "true" or view_all_guilds == "Y")'></when>
-		     <when test="view_guild_id != null and view_guild_id != ''">AND guild_id = #{view_guild_id}::text</when>
-		     <otherwise>AND guild_id = #{sess_guild_id}::text</otherwise>
-		   </choose>
-		   <choose>
-		     <when test='siege_view_scope != null and siege_view_scope == "A"'></when>
-		     <otherwise>
-		       AND (
-		         (SELECT COUNT(*) FROM guild_siege_season WHERE end_date IS NULL) = 0
-		         OR season_yyyymm >= COALESCE(
-		           #{current_season_yyyymm},
-		           (SELECT TO_CHAR(DATE_TRUNC('month', gss.start_date), 'YYYYMM') FROM guild_siege_season gss WHERE gss.end_date IS NULL ORDER BY gss.season_no DESC LIMIT 1),
-		           '000000'
-		         )
-		       )
-		     </otherwise>
-		   </choose>
+		   <include refid="siegeGuildFilter"><property name="col" value="guild_id"/></include>
+		   <include refid="siegeSeasonFilterYyyymm"><property name="col" value="season_yyyymm"/></include>
 		</when>
 		<otherwise>
 		<!-- 레거시 경로: view_battle_deck_info 직접 조회 -->
@@ -1161,12 +1005,7 @@
 				   and vbdi1.monster_id_1 IN (${dm1_list})
 				   <if test="dm2_list != null and dm2_list != ''">and LEAST(vbdi1.monster_id_2, vbdi1.monster_id_3) IN (${dm2_list})</if>
 				   <if test="dm3_list != null and dm3_list != ''">and GREATEST(vbdi1.monster_id_2, vbdi1.monster_id_3) IN (${dm3_list})</if>
-				   <if test='siege_view_scope != "A"'>
-				   AND (
-				     (SELECT COUNT(*) FROM guild_siege_season WHERE end_date IS NULL) = 0
-				     OR SUBSTRING(bll.match_id, 1, 6) >= (SELECT TO_CHAR(DATE_TRUNC('month', gss.start_date), 'YYYYMM') FROM guild_siege_season gss WHERE gss.end_date IS NULL ORDER BY gss.season_no DESC LIMIT 1)
-				   )
-				   </if>
+				   <include refid="siegeSeasonFilterMatchIdPrefix"><property name="matchIdCol" value="bll.match_id"/></include>
 				   <if test='match_id != null and match_id != "" and match_id != "null"'>and vbdi1.match_id = #{match_id}</if>
 				   <if test="guild_ids != null and guild_ids.size() > 0">
 				   and bll.opp_guild_id IN
@@ -1208,18 +1047,9 @@
 		  LEFT JOIN monster m2 ON COALESCE(mcm2.original_monster_id, atk_d.monster_id_2) = m2.monster_id
 		  LEFT JOIN monster m3 ON COALESCE(mcm3.original_monster_id, atk_d.monster_id_3) = m3.monster_id
 		 WHERE def_d.type = 'defense'
-		   AND def_d.monster_id_1 IN (${dm1_list})
-		   <if test="dm2_list != null and dm2_list != ''">AND LEAST(def_d.monster_id_2, def_d.monster_id_3) IN (${dm2_list})</if>
-		   <if test="dm3_list != null and dm3_list != ''">AND GREATEST(def_d.monster_id_2, def_d.monster_id_3) IN (${dm3_list})</if>
-		   <choose>
-		     <when test='view_all_guilds != null and (view_all_guilds == true or view_all_guilds == "true" or view_all_guilds == "Y")'></when>
-		     <when test="view_guild_id != null and view_guild_id != ''">
-		       AND EXISTS (SELECT 1 FROM guild_siege_battle_log g WHERE g.match_id = bll.match_id AND g.guild_id = #{view_guild_id}::text)
-		     </when>
-		     <otherwise>
-		       AND EXISTS (SELECT 1 FROM guild_siege_battle_log g WHERE g.match_id = bll.match_id AND g.guild_id = #{sess_guild_id}::text)
-		     </otherwise>
-		   </choose>
+		   <include refid="siegeDefenseDeckFilterVbdiNorm"><property name="defAlias" value="def_d"/></include>
+		   <include refid="siegeGuildFilter"><property name="col" value="bll.guild_id"/></include>
+		   <include refid="siegeSeasonFilterMatchIdPrefix"><property name="matchIdCol" value="bll.match_id"/></include>
 		   <if test='match_id != null and match_id != "" and match_id != "null"'>
 		     AND def_d.match_id = #{match_id}
 		   </if>
@@ -1239,18 +1069,9 @@
 		  JOIN battle_log_list bll ON def_d.match_id = bll.match_id
 		                          AND def_d.log_timestamp = bll.log_timestamp
 		 WHERE def_d.type = 'defense'
-		   AND def_d.monster_id_1 IN (${dm1_list})
-		   <if test="dm2_list != null and dm2_list != ''">AND LEAST(def_d.monster_id_2, def_d.monster_id_3) IN (${dm2_list})</if>
-		   <if test="dm3_list != null and dm3_list != ''">AND GREATEST(def_d.monster_id_2, def_d.monster_id_3) IN (${dm3_list})</if>
-		   <choose>
-		     <when test='view_all_guilds != null and (view_all_guilds == true or view_all_guilds == "true" or view_all_guilds == "Y")'></when>
-		     <when test="view_guild_id != null and view_guild_id != ''">
-		       AND EXISTS (SELECT 1 FROM guild_siege_battle_log g WHERE g.match_id = bll.match_id AND g.guild_id = #{view_guild_id}::text)
-		     </when>
-		     <otherwise>
-		       AND EXISTS (SELECT 1 FROM guild_siege_battle_log g WHERE g.match_id = bll.match_id AND g.guild_id = #{sess_guild_id}::text)
-		     </otherwise>
-		   </choose>
+		   <include refid="siegeDefenseDeckFilterVbdiNorm"><property name="defAlias" value="def_d"/></include>
+		   <include refid="siegeGuildFilter"><property name="col" value="bll.guild_id"/></include>
+		   <include refid="siegeSeasonFilterMatchIdPrefix"><property name="matchIdCol" value="bll.match_id"/></include>
 		   <if test='match_id != null and match_id != "" and match_id != "null"'>
 		     AND def_d.match_id = #{match_id}
 		   </if>
@@ -1361,6 +1182,47 @@
 		 WHERE guild_id = #{guild_id}::text
 		   AND season_yyyymm = #{season_yyyymm}::text
 	</delete>
+
+	<delete id="deleteSiegeDefenseDeckGuildAggByGuildSeason" parameterType="sqlMap">
+		/* deleteSiegeDefenseDeckGuildAggByGuildSeason */
+		DELETE FROM siege_defense_deck_guild_agg
+		 WHERE guild_id = #{guild_id}::text
+		   AND season_yyyymm = #{season_yyyymm}::text
+	</delete>
+
+	<insert id="insertSiegeDefenseDeckGuildAggFromStats" parameterType="sqlMap">
+		/* insertSiegeDefenseDeckGuildAggFromStats */
+		INSERT INTO siege_defense_deck_guild_agg (
+		       season_yyyymm, guild_id, deck_key,
+		       monster_id_1, monster_id_2, monster_id_3,
+		       total_count, win_count, lose_count,
+		       image_url_1, image_url_2, image_url_3,
+		       leader_id, leader_type, leader_stat, leader_increase_by, leader_icon, leader_skill_desc
+		)
+		SELECT s.season_yyyymm
+		     , s.guild_id
+		     , s.deck_key
+		     , s.monster_id_1
+		     , s.monster_id_2
+		     , s.monster_id_3
+		     , SUM(s.total_count)::int
+		     , SUM(s.win_count)::int
+		     , SUM(s.lose_count)::int
+		     , MAX(s.image_url_1)
+		     , MAX(s.image_url_2)
+		     , MAX(s.image_url_3)
+		     , MAX(s.leader_id)
+		     , MAX(s.leader_type)
+		     , MAX(s.leader_stat)
+		     , MAX(s.leader_increase_by)
+		     , MAX(s.leader_icon)
+		     , MAX(s.leader_skill_desc)
+		  FROM siege_defense_deck_stats s
+		 WHERE s.guild_id = #{guild_id}::text
+		   AND s.season_yyyymm = #{season_yyyymm}::text
+		 GROUP BY s.season_yyyymm, s.guild_id, s.deck_key,
+		          s.monster_id_1, s.monster_id_2, s.monster_id_3
+	</insert>
 
 	<insert id="insertSiegeDefenseDeckStatsFromBattleLogs" parameterType="sqlMap">
 		/* insertSiegeDefenseDeckStatsFromBattleLogs */
@@ -1919,7 +1781,7 @@
 	</select>
 		
 	<select id="selectRecordList" parameterType="sqlMap" resultType="sqlMap">
-		/* summonerswar.selectRecordList — 길드 인원별 승패 집계, 시즌은 match_id YYYYMM 범위(SARGable) */
+		/* summonerswar.selectRecordList — 길드 인원별 승패 집계, wizard_id 기준 그룹핑 + 최신 이름 사용 */
 		<if test="season_no != null and season_no != ''">
 		WITH season_bounds AS (
 			SELECT
@@ -1935,7 +1797,8 @@
 				bll.wizard_id,
 				bll.wizard_name,
 				bll.win_lose,
-				bll.channel_uid
+				bll.channel_uid,
+				ROW_NUMBER() OVER (PARTITION BY bll.wizard_id ORDER BY bll.match_id DESC) AS rn
 			FROM public.battle_log_list bll
 			<if test="season_no != null and season_no != ''">
 			CROSS JOIN season_bounds sb
@@ -1946,13 +1809,21 @@
 			  AND substring(bll.match_id, 1, 6) &gt;= sb.start_yyyymm
 			  AND substring(bll.match_id, 1, 6) &lt;= sb.end_yyyymm
 			</if>
+			  AND EXISTS (
+			      SELECT 1 FROM public.view_battle_deck_info vbdi
+			       WHERE vbdi.match_id = bll.match_id
+			         AND vbdi.log_id = bll.log_id
+			  )
+		),
+		latest AS (
+			SELECT wizard_id, wizard_name, channel_uid
+			FROM filtered
+			WHERE rn = 1
 		)
 		SELECT
 			f.wizard_id,
-			f.wizard_name,
-			MAX(f.channel_uid) FILTER (
-				WHERE f.channel_uid IS NOT NULL AND f.channel_uid &lt;&gt; ''
-			) AS channel_uid,
+			l.wizard_name,
+			l.channel_uid,
 			COUNT(*) AS total_count,
 			COUNT(*) FILTER (WHERE f.win_lose = '1') AS win_count,
 			COUNT(*) FILTER (WHERE f.win_lose = '2') AS lose_count,
@@ -1962,8 +1833,9 @@
 				2
 			) AS total_rate
 		FROM filtered f
-		GROUP BY f.wizard_id, f.wizard_name
-		ORDER BY win_count DESC, f.wizard_name ASC
+		JOIN latest l ON l.wizard_id = f.wizard_id
+		GROUP BY f.wizard_id, l.wizard_name, l.channel_uid
+		ORDER BY win_count DESC, l.wizard_name ASC
 	</select>
 	
 		
@@ -2016,7 +1888,10 @@
 				COALESCE(gsbl.guild_name, bll.guild_name) AS guild_name,
 				bll.wizard_name,
 				COALESCE(gsbl2.guild_name, bll.opp_guild_name) AS opp_guild_name,
-				bll.opp_wizard_name
+				bll.opp_wizard_name,
+			COUNT(*) OVER () AS full_total_count,
+			COUNT(*) FILTER (WHERE bll.win_lose = '1') OVER () AS full_win_count,
+			COUNT(*) FILTER (WHERE bll.win_lose = '2') OVER () AS full_lose_count
 			FROM public.battle_log_list bll
 			<if test="season_no != null and season_no != ''">
 			CROSS JOIN season_bounds sb
@@ -2033,6 +1908,11 @@
 			  AND substring(bll.match_id, 1, 6) &gt;= sb.start_yyyymm
 			  AND substring(bll.match_id, 1, 6) &lt;= sb.end_yyyymm
 			</if>
+			  AND EXISTS (
+			      SELECT 1 FROM public.view_battle_deck_info vbdi
+			       WHERE vbdi.match_id = bll.match_id
+			         AND vbdi.log_id = bll.log_id
+			  )
 			ORDER BY bll.log_timestamp DESC
 			LIMIT #{limit}
 			OFFSET #{sql_offset}
@@ -2048,6 +1928,9 @@
 				bll.wizard_name,
 				bll.opp_guild_name,
 				bll.opp_wizard_name,
+				bll.full_total_count,
+				bll.full_win_count,
+				bll.full_lose_count,
 				CASE WHEN mcm1.original_monster_id IS NULL THEN vbdi.monster_id_1 ELSE mcm1.original_monster_id END AS monster_id_1,
 				CASE WHEN mcm2.original_monster_id IS NULL THEN vbdi.monster_id_2 ELSE mcm2.original_monster_id END AS monster_id_2,
 				CASE WHEN mcm3.original_monster_id IS NULL THEN vbdi.monster_id_3 ELSE mcm3.original_monster_id END AS monster_id_3
@@ -2088,7 +1971,10 @@
 			MAX(CASE WHEN a.type = 'attack' THEN ml1.stat END) AS attack_leader_stat,
 			MAX(CASE WHEN a.type = 'attack' THEN ml1.increase_by END) AS attack_leader_increase_by,
 			MAX(CASE WHEN a.type = 'attack' THEN ml1.icon_path END) AS attack_leader_icon,
-			MAX(CASE WHEN a.type = 'attack' THEN get_leader_skill_desc(ml1.type, ml1.stat, ml1.increase_by) END) AS attack_leader_skill_description
+			MAX(CASE WHEN a.type = 'attack' THEN get_leader_skill_desc(ml1.type, ml1.stat, ml1.increase_by) END) AS attack_leader_skill_description,
+			MAX(a.full_total_count) AS full_total_count,
+			MAX(a.full_win_count) AS full_win_count,
+			MAX(a.full_lose_count) AS full_lose_count
 		FROM deck_rows a
 		LEFT JOIN public.monster m1 ON a.monster_id_1 = m1.monster_id
 		LEFT JOIN public.monster m2 ON a.monster_id_2 = m2.monster_id
@@ -2126,13 +2012,8 @@
 					  )
 			  	</otherwise>
 			  </choose>
-			  <!-- 시즌: A=전체(생략), C=현재 시즌만 -->
-			  <if test='siege_view_scope != "A"'>
-			  AND (
-			    (SELECT COUNT(*) FROM guild_siege_season WHERE end_date IS NULL) = 0
-			    OR TO_DATE(SUBSTRING(match_id, 1, 6), 'YYYYMM') >= (SELECT start_date FROM guild_siege_season WHERE end_date IS NULL ORDER BY season_no DESC LIMIT 1)
-			  )
-			  </if>
+			  <!-- 시즌: A=전체(생략), C=CurrentSeasonCache 기준 -->
+			  <include refid="siegeSeasonFilterMatchIdPrefix"><property name="matchIdCol" value="match_id"/></include>
 			GROUP BY match_id
 			HAVING (COUNT(DISTINCT guild_id) = 2 AND COUNT(DISTINCT match_rank) = 2)   /* 1대1 레전드 토너먼트 */
 			    OR (COUNT(DISTINCT guild_id) = 3 AND COUNT(DISTINCT match_rank) = 3)   /* 3파전 일반 점령전 */
@@ -2278,12 +2159,7 @@
 					  )
 			  	</otherwise>
 			  </choose>
-			  <if test='siege_view_scope != "A"'>
-			  AND (
-			    (SELECT COUNT(*) FROM guild_siege_season WHERE end_date IS NULL) = 0
-			    OR TO_DATE(SUBSTRING(match_id, 1, 6), 'YYYYMM') >= (SELECT start_date FROM guild_siege_season WHERE end_date IS NULL ORDER BY season_no DESC LIMIT 1)
-			  )
-			  </if>
+			  <include refid="siegeSeasonFilterMatchIdPrefix"><property name="matchIdCol" value="match_id"/></include>
 			 GROUP BY match_id
 			 HAVING (COUNT(DISTINCT guild_id) = 2 AND COUNT(DISTINCT match_rank) = 2)   /* 1대1 레전드 토너먼트 */
 			     OR (COUNT(DISTINCT guild_id) = 3 AND COUNT(DISTINCT match_rank) = 3)   /* 3파전 일반 점령전 */

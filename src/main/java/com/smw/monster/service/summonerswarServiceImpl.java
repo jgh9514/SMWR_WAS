@@ -33,6 +33,7 @@ import javax.sql.DataSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.context.annotation.Primary;
 import org.springframework.jdbc.datasource.DataSourceUtils;
@@ -291,6 +292,8 @@ public class summonerswarServiceImpl implements summonerswarService {
 		param.put("season_yyyymm", seasonYyyymm.trim());
 		swMapper.deleteSiegeDefenseDeckStatsByGuildSeason(param);
 		swMapper.insertSiegeDefenseDeckStatsFromBattleLogs(param);
+		swMapper.deleteSiegeDefenseDeckGuildAggByGuildSeason(param);
+		swMapper.insertSiegeDefenseDeckGuildAggFromStats(param);
 	}
 	
 	@Override
@@ -505,7 +508,7 @@ public class summonerswarServiceImpl implements summonerswarService {
 	}
 
 	@Override
-	@Cacheable(cacheNames = "monsterDetailBasic", cacheManager = "monsterDetailCacheManager", keyGenerator = "stableMapKeyGenerator")
+	@Cacheable(cacheNames = "monsterDetailBasic", cacheManager = "monsterDetailCacheManager", keyGenerator = "monsterDetailKeyGenerator")
 	public Map<String, ?> selectMonsterDetailBasic(Map<String, Object> param) {
 		expandMonsterIdsToIncludeCollaborations(param);
 		if (missingDmIdLists(param)) {
@@ -521,7 +524,7 @@ public class summonerswarServiceImpl implements summonerswarService {
 	}
 
 	@Override
-	@Cacheable(cacheNames = "monsterDetailRecommended", cacheManager = "monsterDetailCacheManager", keyGenerator = "stableMapKeyGenerator")
+	@Cacheable(cacheNames = "monsterDetailRecommended", cacheManager = "monsterDetailCacheManager", keyGenerator = "monsterDetailKeyGenerator")
 	public Map<String, ?> selectMonsterDetailRecommended(Map<String, Object> param) {
 		expandMonsterIdsToIncludeCollaborations(param);
 		CompletableFuture<List<Map<String, ?>>> listFuture = CompletableFuture.supplyAsync(
@@ -537,7 +540,7 @@ public class summonerswarServiceImpl implements summonerswarService {
 	}
 
 	@Override
-	@Cacheable(cacheNames = "monsterDetailHistory", cacheManager = "monsterDetailCacheManager", keyGenerator = "stableMapKeyGenerator")
+	@Cacheable(cacheNames = "monsterDetailHistory", cacheManager = "monsterDetailCacheManager", keyGenerator = "monsterDetailKeyGenerator")
 	public Map<String, ?> selectMonsterDetailHistory(Map<String, Object> param) {
 		expandMonsterIdsToIncludeCollaborations(param);
 		if (missingDmIdLists(param)) {
@@ -2230,6 +2233,10 @@ public class summonerswarServiceImpl implements summonerswarService {
 	}
 	
 	@Override
+	@CacheEvict(
+			cacheNames = { "monsterDetailRecommended", "monsterDetailHistory", "monsterDetailBasic" },
+			cacheManager = "monsterDetailCacheManager",
+			allEntries = true)
 	public int deleteDeckDetail(Map<String, Object> param) {
 		return swMapper.deleteDeckDetail(param);
 	}

@@ -138,7 +138,7 @@ public class MybatisInterceptor implements Interceptor {
             if (!skipSiegeInjection && shouldInject(parameters, "global_dblink_nm")) {
                 parameters.put("global_dblink_nm", globalDblinkNm);
             }
-            // siege_defense_deck_stats 조회 시 guild_siege_season 서브쿼리 제거 (조회 성능 개선)
+            // siege_defense_deck_stats·guild_agg 조회 시 guild_siege_season 서브쿼리 제거 (CurrentSeasonCache → current_season_yyyymm)
             if (!skipSiegeInjection && currentSeasonCache != null && ms.getId().contains("summonerswarMapper")
                     && shouldInject(parameters, "current_season_yyyymm")) {
                 Object scope = parameters.get("siege_view_scope");
