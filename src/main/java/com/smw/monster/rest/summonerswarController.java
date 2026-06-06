@@ -295,6 +295,23 @@ public class summonerswarController {
 		return new ResponseEntity<>(list, HttpStatus.OK);
 	}
 	
+	@Operation(summary = "몬스터 상세 - 최근 전적", description = "개별 전투 로그(recentBattleList)를 시간 역순으로 조회합니다.")
+	@PostMapping("/monster-detail-recent-battles")
+	public ResponseEntity<?> selectMonsterDetailRecentBattles(@RequestBody Map<String, Object> param, HttpSession session, HttpServletRequest request) {
+		ResponseEntity<?> guard = requireLoginAndGuild(request, param);
+		if (guard != null) return guard;
+		ResponseEntity<?> adminGuard = requireAdminForGuildOverride(request, param);
+		if (adminGuard != null) return adminGuard;
+		if (!param.containsKey("recentLimit") || param.get("recentLimit") == null) {
+			param.put("recentLimit", 10);
+		}
+		if (!param.containsKey("recentOffset") || param.get("recentOffset") == null) {
+			param.put("recentOffset", 1);
+		}
+		Map<String, ?> result = swService.selectMonsterDetailRecentBattles(param);
+		return new ResponseEntity<>(result, HttpStatus.OK);
+	}
+
     @Operation(summary = "길드 공성 JSON 검증", description = "길드 공성전 로그 데이터의 중복 여부를 확인합니다.")
     @SuppressWarnings("unchecked")
 	@PostMapping("/siege-validate")
@@ -818,6 +835,12 @@ public class summonerswarController {
         return new ResponseEntity<>(count, HttpStatus.OK);
     }
     
+    @Operation(summary = "룬 세트 마스터 목록", description = "추천 공덱 룬 선택용 마스터 목록을 조회합니다.")
+    @PostMapping("/rune-master/list")
+    public ResponseEntity<?> selectRuneMasterList(@RequestBody(required = false) Map<String, Object> param, HttpSession session, HttpServletRequest request) {
+    	return new ResponseEntity<>(swService.selectRuneMasterList(), HttpStatus.OK);
+    }
+
     @Operation(summary = "공덱 상세 정보 조회", description = "공덱의 상세 정보를 조회합니다.")
     @PostMapping("/deck-detail")
     public ResponseEntity<?> selectDeckDetail(@RequestBody Map<String, Object> param, HttpSession session, HttpServletRequest request) {

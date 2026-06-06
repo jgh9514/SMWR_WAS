@@ -23,12 +23,19 @@ public class SwarfarmMonsterSyncJob extends BaseBatchJob {
         addLog("동기화 %d개", syncedCount);
 
         if (syncedCount > 0) {
-            addLog("신규 몬스터 %d개 — 캐시 갱신", syncedCount);
+            addLog("몬스터 %d건 반영 — 캐시 갱신", syncedCount);
             applicationContext.getBean(MonsterCacheService.class).reload();
             CacheManager monsterListCacheManager = applicationContext.getBean("monsterListCacheManager", CacheManager.class);
-            org.springframework.cache.Cache c = monsterListCacheManager.getCache("monsterList");
-            if (c != null) c.clear();
-            addLog("MonsterCache·monsterList 캐시 갱신 완료");
+            org.springframework.cache.Cache monsterListCache = monsterListCacheManager.getCache("monsterList");
+            if (monsterListCache != null) {
+                monsterListCache.clear();
+            }
+            CacheManager monsterInfoCacheManager = applicationContext.getBean("monsterInfoCacheManager", CacheManager.class);
+            org.springframework.cache.Cache monsterInfoCache = monsterInfoCacheManager.getCache("monsterInfo");
+            if (monsterInfoCache != null) {
+                monsterInfoCache.clear();
+            }
+            addLog("MonsterCache·monsterList·monsterInfo 캐시 갱신 완료");
         }
     }
     

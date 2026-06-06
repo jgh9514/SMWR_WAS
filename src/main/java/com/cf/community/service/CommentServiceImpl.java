@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.cf.community.mapper.CommentMapper;
+import com.sysconf.interceptor.SessionThread;
 import com.sysconf.security.AdminPrivilegeResolver;
 
 @Service
@@ -112,6 +113,66 @@ public class CommentServiceImpl implements CommentService {
 		}
 
 		return result;
+	}
+
+	@Override
+	@Transactional
+	public Map<String, Object> voteComment(Map<String, Object> param) {
+		Map<String, Object> result = new HashMap<>();
+
+		try {
+			String sessUserId = resolveSessUserId();
+			if (sessUserId == null) {
+				result.put("result", "FAIL");
+				result.put("message", "로그인이 필요합니다.");
+				return result;
+			}
+			param.put("sess_user_id", sessUserId);
+
+			Object commentIdObj = param.get("comment_id");
+			String commentId = commentIdObj != null ? String.valueOf(commentIdObj).trim() : "";
+			if (commentId.isEmpty()) {
+				result.put("result", "FAIL");
+				result.put("message", "댓글 ID가 필요합니다.");
+				return result;
+			}
+			param.put("comment_id", commentId);
+
+			Object voteObj = param.get("vote");
+			String vote = voteObj != null ? String.valueOf(voteObj).trim().toUpperCase() : "";
+			if ("CLEAR".equals(vote) || vote.isEmpty()) {
+				mapper.deleteCommentVote(param);
+				result.put("result", "SUCCESS");
+				return result;
+			}
+			if (!"UP".equals(vote) && !"DOWN".equals(vote)) {
+				result.put("result", "FAIL");
+				result.put("message", "vote는 UP, DOWN, CLEAR만 허용됩니다.");
+				return result;
+			}
+
+			param.put("vote_type", vote);
+			mapper.deleteCommentVote(param);
+			mapper.insertCommentVote(param);
+			result.put("result", "SUCCESS");
+		} catch (Exception e) {
+			result.put("result", "FAIL");
+			result.put("message", "댓글 투표 중 오류가 발생했습니다: " + e.getMessage());
+		}
+
+		return result;
+	}
+
+	private String resolveSessUserId() {
+		Map<String, Object> userInfo = SessionThread.SESSION_USER_INFO.get();
+		if (userInfo == null || userInfo.get("sess_user_id") == null) {
+			return null;
+		}
+		String uid = String.valueOf(userInfo.get("sess_user_id")).trim();
+		if (uid.isEmpty() || "ANONYMOUS".equals(uid)) {
+			return null;
+		}
+		return uid;
 	}
 }
 

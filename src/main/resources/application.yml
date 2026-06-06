@@ -177,6 +177,10 @@ smw:
     log:
       redis-bridge-enabled: ${SMW_BATCH_LOG_REDIS_BRIDGE:true}
       sse-timeout-ms: ${SMW_BATCH_LOG_SSE_TIMEOUT_MS:7200000}
+    manual-run:
+      wait-timeout-ms: ${SMW_BATCH_MANUAL_RUN_WAIT_TIMEOUT_MS:7200000}
+      appear-timeout-ms: ${SMW_BATCH_MANUAL_RUN_APPEAR_TIMEOUT_MS:120000}
+      poll-interval-ms: ${SMW_BATCH_MANUAL_RUN_POLL_INTERVAL_MS:2000}
     run-his:
       stale-cleanup-enabled: ${SMW_BATCH_RUN_HIS_STALE_CLEANUP:true}
       stale-running-hours: ${SMW_BATCH_RUN_HIS_STALE_HOURS:6}
@@ -251,6 +255,11 @@ smw:
   # Summoners War Exporter full_log (로그 수집 PC에서만 enabled=true)
   # 대량 백필·처리량 상향: spring.profiles.active 에 bulkload 추가 → application-bulkload.yml
   rta:
+    orphan-cleanup:
+      lookback-hours: ${SMW_RTA_ORPHAN_CLEANUP_LOOKBACK_HOURS:48}
+      replay-id-padding: ${SMW_RTA_ORPHAN_CLEANUP_REPLAY_ID_PADDING:100000}
+      # 0=일요일 전수 스캔(레거시 점검), 월~토는 최근 replay_id 구간만. -1=전수 스캔 끔
+      full-scan-day-of-week: ${SMW_RTA_ORPHAN_CLEANUP_FULL_SCAN_DOW:0}
     exporter:
       enabled: ${SMW_RTA_EXPORTER_ENABLED:false}
       watch-directory: ${SMW_RTA_EXPORTER_WATCH_DIR:}

@@ -168,6 +168,20 @@
 		</choose>
 	</select>
 
+	<select id="selectMaxRunSnByBatId" resultType="long">
+		/* batch.selectMaxRunSnByBatId */
+		SELECT COALESCE(MAX(run_sn), 0)
+		FROM sys_batch_run_his
+		WHERE bat_id = #{batId}
+	</select>
+
+	<select id="selectBatchRunHisResultCode" resultType="string">
+		/* batch.selectBatchRunHisResultCode */
+		SELECT rslt_cd
+		FROM sys_batch_run_his
+		WHERE run_sn = #{runSn}
+	</select>
+
 	<!-- 배치 실행 이력 상세 조회 -->
 	<select id="selectBatchRunHisDetail" parameterType="long" resultType="sqlMap">
 		/* selectBatchRunHisDetail */

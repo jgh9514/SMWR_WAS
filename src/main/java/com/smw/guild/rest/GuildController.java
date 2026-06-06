@@ -106,17 +106,50 @@ public class GuildController {
 	@Transactional
 	public ResponseEntity<?> saveGuild(@RequestBody Map<String, Object> param, HttpSession session, HttpServletRequest request) {
 		Map<String, Object> result = new HashMap<>();
-		
-		if (param.get("guild_id") == null || "".equals(param.get("guild_id"))) {
-			service.insertGuild(param);
+		Map<String, Object> safeParam = param != null ? param : new HashMap<>();
+
+		if (safeParam.get("guild_id") == null || "".equals(safeParam.get("guild_id"))) {
+			service.insertGuild(safeParam);
 			result.put("result", "SUCCESS");
-			result.put("guild_id", param.get("guild_id"));
-		} else {
-			service.updateGuild(param);
-			result.put("result", "SUCCESS");
-			result.put("guild_id", param.get("guild_id"));
+			result.put("guild_id", safeParam.get("guild_id"));
+			return ResponseEntity.ok(result);
 		}
-		
+
+		String sessUserId = getSessUserId(request);
+		String sessGuildId = getSessGuildId(request);
+		String sessGuildRole = getSessGuildRole(request);
+		if (sessUserId == null || sessUserId.isEmpty()) {
+			result.put("result", "FAIL");
+			result.put("message", "로그인이 필요합니다.");
+			return ResponseEntity.status(401).body(result);
+		}
+		boolean isLeader = "LEADER".equals(sessGuildRole);
+		boolean isManager = "MANAGER".equals(sessGuildRole);
+		if (!isLeader && !isManager) {
+			result.put("result", "FAIL");
+			result.put("message", "권한이 없습니다.");
+			return ResponseEntity.status(403).body(result);
+		}
+		if (sessGuildId == null || sessGuildId.isEmpty()) {
+			result.put("result", "FAIL");
+			result.put("message", "길드에 소속되어 있지 않습니다.");
+			return ResponseEntity.ok(result);
+		}
+		if (!sessGuildId.equals(String.valueOf(safeParam.get("guild_id")).trim())) {
+			result.put("result", "FAIL");
+			result.put("message", "소속 길드만 수정할 수 있습니다.");
+			return ResponseEntity.ok(result);
+		}
+
+		safeParam.put("guild_id", sessGuildId);
+		safeParam.put("sess_user_id", sessUserId);
+		if (safeParam.get("guild_description") == null && safeParam.get("description") != null) {
+			safeParam.put("guild_description", safeParam.get("description"));
+		}
+
+		service.updateGuild(safeParam);
+		result.put("result", "SUCCESS");
+		result.put("guild_id", sessGuildId);
 		return ResponseEntity.ok(result);
 	}
 
@@ -605,6 +638,97 @@ public class GuildController {
 			result.put("message", "추방에 실패했습니다.");
 		}
 		
+		return ResponseEntity.ok(result);
+	}
+
+	/**
+	 * 길드 멤버 표시명 수정 (길드장/매니저)
+	 */
+	@Operation(summary = "길드 멤버 이름 수정", description = "길드장/매니저가 같은 길드 멤버의 표시명(user_nm)을 수정합니다.")
+	@PostMapping("/member/name/update")
+	@Transactional
+	public ResponseEntity<?> updateGuildMemberName(@RequestBody Map<String, Object> param, HttpSession session, HttpServletRequest request) {
+		Map<String, Object> result = new HashMap<>();
+
+		String sessUserId = getSessUserId(request);
+		String sessGuildId = getSessGuildId(request);
+		String sessGuildRole = getSessGuildRole(request);
+		if (sessUserId == null || sessUserId.isEmpty()) {
+			result.put("result", "FAIL");
+			result.put("message", "로그인이 필요합니다.");
+			return ResponseEntity.status(401).body(result);
+		}
+		if (sessGuildId == null || sessGuildId.isEmpty()) {
+			result.put("result", "FAIL");
+			result.put("message", "길드에 소속되어 있지 않습니다.");
+			return ResponseEntity.ok(result);
+		}
+		boolean isLeader = "LEADER".equals(sessGuildRole);
+		boolean isManager = "MANAGER".equals(sessGuildRole);
+		if (!isLeader && !isManager) {
+			result.put("result", "FAIL");
+			result.put("message", "권한이 없습니다.");
+			return ResponseEntity.status(403).body(result);
+		}
+
+		Object targetObj = param.get("user_id");
+		String targetUserId = targetObj != null ? targetObj.toString().trim() : "";
+		if (targetUserId.isEmpty()) {
+			result.put("result", "FAIL");
+			result.put("message", "user_id가 필요합니다.");
+			return ResponseEntity.ok(result);
+		}
+
+		Object nameObj = param.get("user_nm") != null ? param.get("user_nm") : param.get("user_name");
+		String userNm = nameObj != null ? nameObj.toString().trim() : "";
+		if (userNm.isEmpty()) {
+			result.put("result", "FAIL");
+			result.put("message", "이름을 입력해주세요.");
+			return ResponseEntity.ok(result);
+		}
+		if (userNm.length() > 100) {
+			result.put("result", "FAIL");
+			result.put("message", "이름은 100자 이내로 입력해주세요.");
+			return ResponseEntity.ok(result);
+		}
+
+		Map<String, Object> targetGuildParam = new HashMap<>();
+		targetGuildParam.put("user_id", targetUserId);
+		Map<String, ?> targetGuild = service.selectUserGuild(targetGuildParam);
+		if (targetGuild == null || targetGuild.get("guild_id") == null) {
+			result.put("result", "FAIL");
+			result.put("message", "대상 유저가 길드에 소속되어 있지 않습니다.");
+			return ResponseEntity.ok(result);
+		}
+		if (!sessGuildId.equals(String.valueOf(targetGuild.get("guild_id")).trim())) {
+			result.put("result", "FAIL");
+			result.put("message", "같은 길드 멤버만 수정할 수 있습니다.");
+			return ResponseEntity.ok(result);
+		}
+
+		String targetRole = targetGuild.get("role") != null ? targetGuild.get("role").toString() : null;
+		if (isManager && !"MEMBER".equals(targetRole)) {
+			result.put("result", "FAIL");
+			result.put("message", "매니저는 일반 길드원의 이름만 변경할 수 있습니다.");
+			return ResponseEntity.ok(result);
+		}
+		if (isLeader && "LEADER".equals(targetRole) && !sessUserId.equals(targetUserId)) {
+			result.put("result", "FAIL");
+			result.put("message", "다른 길드장의 이름은 변경할 수 없습니다.");
+			return ResponseEntity.ok(result);
+		}
+
+		Map<String, Object> updateParam = new HashMap<>();
+		updateParam.put("user_id", targetUserId);
+		updateParam.put("user_nm", userNm);
+		updateParam.put("sess_user_id", sessUserId);
+		int count = service.updateGuildMemberDisplayName(updateParam);
+		if (count > 0) {
+			result.put("result", "SUCCESS");
+		} else {
+			result.put("result", "FAIL");
+			result.put("message", "이름 변경에 실패했습니다.");
+		}
 		return ResponseEntity.ok(result);
 	}
 

@@ -171,7 +171,18 @@
     
     <!-- 모든 Swarfarm ID 목록 조회 (성능 최적화용) -->
     <select id="selectAllSwarfarmIds" resultType="Integer">
+        /* swarfarmMonster.selectAllSwarfarmIds */
         SELECT swarfarm_id
+        FROM public.monster
+        WHERE swarfarm_id IS NOT NULL
+    </select>
+
+    <!-- Swarfarm ID별 이미지 스냅샷 (갱신 시 S3 재업로드 생략 판단용) -->
+    <select id="selectSwarfarmImageSnapshots" resultType="map">
+        /* swarfarmMonster.selectSwarfarmImageSnapshots */
+        SELECT swarfarm_id AS "swarfarm_id",
+               image_filename AS "image_filename",
+               image_url AS "image_url"
         FROM public.monster
         WHERE swarfarm_id IS NOT NULL
     </select>

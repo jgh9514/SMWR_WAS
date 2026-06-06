@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.cf.community.service.InquiryService;
+import com.sysconf.annotation.RequireLogin;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -30,6 +31,7 @@ public class InquiryController {
 	 * 1대1문의 목록 조회
 	 */
 	@Operation(summary = "1대1문의 목록 조회", description = "1대1문의 목록을 조회합니다.")
+	@RequireLogin
 	@PostMapping("/list")
 	public ResponseEntity<?> getInquiryList(@RequestBody Map<String, Object> param, HttpSession session, HttpServletRequest request) {
 		return ResponseEntity.ok(service.getInquiryList(param));
@@ -39,6 +41,7 @@ public class InquiryController {
 	 * 1대1문의 상세 조회
 	 */
 	@Operation(summary = "1대1문의 상세 조회", description = "1대1문의 상세 정보를 조회합니다.")
+	@RequireLogin
 	@PostMapping("/detail")
 	public ResponseEntity<?> getInquiryDetail(@RequestBody Map<String, Object> param, HttpSession session, HttpServletRequest request) {
 		return ResponseEntity.ok(service.getInquiryDetail(param));
@@ -48,6 +51,7 @@ public class InquiryController {
 	 * 1대1문의 등록
 	 */
 	@Operation(summary = "1대1문의 등록", description = "1대1문의를 등록합니다.")
+	@RequireLogin
 	@PostMapping("/save")
 	@Transactional
 	public ResponseEntity<?> saveInquiry(@RequestBody Map<String, Object> param, HttpSession session, HttpServletRequest request) {
@@ -58,6 +62,7 @@ public class InquiryController {
 	 * 1대1문의 답변
 	 */
 	@Operation(summary = "1대1문의 답변", description = "1대1문의에 답변을 등록합니다.")
+	@RequireLogin
 	@PostMapping("/answer")
 	@Transactional
 	public ResponseEntity<?> answerInquiry(@RequestBody Map<String, Object> param, HttpSession session, HttpServletRequest request) {
@@ -68,6 +73,7 @@ public class InquiryController {
 	 * 1대1문의 삭제
 	 */
 	@Operation(summary = "1대1문의 삭제", description = "1대1문의를 삭제합니다.")
+	@RequireLogin
 	@PostMapping("/delete")
 	@Transactional
 	public ResponseEntity<?> deleteInquiry(@RequestBody Map<String, Object> param, HttpSession session, HttpServletRequest request) {

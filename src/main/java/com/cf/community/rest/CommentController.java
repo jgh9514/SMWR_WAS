@@ -69,5 +69,15 @@ public class CommentController {
 	public ResponseEntity<?> deleteComment(@RequestBody Map<String, Object> param, HttpSession session, HttpServletRequest request) {
 		return ResponseEntity.ok(service.deleteComment(param));
 	}
+
+	/**
+	 * 댓글 추천/비추천
+	 */
+	@Operation(summary = "댓글 추천/비추천", description = "vote: UP, DOWN, CLEAR — 댓글당 사용자 1건")
+	@PostMapping("/vote")
+	@Transactional
+	public ResponseEntity<?> voteComment(@RequestBody Map<String, Object> param, HttpSession session, HttpServletRequest request) {
+		return ResponseEntity.ok(service.voteComment(param));
+	}
 }
 

@@ -41,8 +41,12 @@ public interface summonerswarMapper {
 	public int selectRecommendedAttackDeckListCount(Map<String, Object> param);
 
 	public List<Map<String, ?>> selectMonsterDetailTeamList(Map<String, Object> param);
-	
+
 	public int selectMonsterDetailTeamListCount(Map<String, Object> param);
+
+	public List<Map<String, ?>> selectMonsterDetailRecentBattles(Map<String, Object> param);
+
+	public int selectMonsterDetailRecentBattlesCount(Map<String, Object> param);
 	
 	public Map<String, ?> selectGuildMatchCheck(Map<String, ?> param);
 	
@@ -95,8 +99,15 @@ public interface summonerswarMapper {
 	/** raw 정규화 실패 표기 — 동일 메시지를 대상 rid 전체에 적용 */
 	int markRtaReplayRawFailedByRids(@Param("rids") List<Long> rids, @Param("message") String message);
 
-	/** rta_match 없는 replay_id 상한 조회 — 고아 정리 배치 청크용 */
+	/** rta_match 없는 replay_id 상한 조회 — 고아 정리 배치 전수 스캔용 */
 	List<Long> selectOrphanArenaReplayIds(@Param("limit") int limit);
+
+	/** 증분 점검 replay_id 바닥 — 최근 played_at 구간 MIN(replay_id), 없으면 MAX−padding */
+	Long selectOrphanCheckFloorReplayId(@Param("lookbackHours") int lookbackHours,
+			@Param("replayIdPadding") long replayIdPadding);
+
+	/** replay_id >= floor 구간만 고아 replay_id 조회 — 일일 점검용 */
+	List<Long> selectOrphanArenaReplayIdsSince(@Param("floorReplayId") long floorReplayId, @Param("limit") int limit);
 
 	int deleteArenaRtaOrphanUnitsByReplayIds(@Param("replayIds") List<Long> replayIds);
 
@@ -178,4 +189,7 @@ public interface summonerswarMapper {
 	 * 같은 별(star) + 같은 각성 단계(monster_id 끝에서 두 번째 숫자) 몬스터 집단에서 스탯별 MIN/MAX (상세 Max 막대용)
 	 */
 	Map<String, ?> selectMonsterStatCohortBounds(@Param("star") int star, @Param("awaken_digit") int awakenDigit);
+
+	/** 룬 세트 마스터 목록 (usg_yn=Y) */
+	List<Map<String, ?>> selectRuneMasterList(Map<String, Object> param);
 }

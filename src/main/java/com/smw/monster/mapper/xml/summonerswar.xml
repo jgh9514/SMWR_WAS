@@ -139,6 +139,10 @@
 		       </otherwise>
 		     </choose>
 		   </if>
+		   <if test="guild_ids != null and guild_ids.size() > 0">
+		   AND bll.opp_guild_id IN
+		   <foreach collection="guild_ids" item="guild_id" open="(" separator="," close=")">#{guild_id}</foreach>
+		   </if>
 		 GROUP BY deck.m1_id, deck.m2_id, deck.m3_id, m1.image_url, m2.image_url, m3.image_url
 		        , m1.leader_id, ml1.type, ml1.stat, ml1.increase_by, ml1.icon_path
 		 <if test="min_lose_count != null and min_lose_count != ''">
@@ -312,6 +316,54 @@
 
 	<select id="selectTotalPageCount" parameterType="sqlMap" resultType="Int">
 		/* selectTotalPageCount */
+		<choose>
+		<when test='match_id != null and match_id != "" and match_id != "null"'>
+		SELECT COUNT(*)::int AS rowCount FROM (
+		  SELECT deck.m1_id, deck.m2_id, deck.m3_id
+		    FROM (
+		      SELECT vbdi.match_id, vbdi.log_timestamp
+		           , COALESCE(mcm1.original_monster_id, vbdi.monster_id_1) AS m1_id
+		           , LEAST(COALESCE(mcm2.original_monster_id, vbdi.monster_id_2),
+		                  COALESCE(mcm3.original_monster_id, vbdi.monster_id_3)) AS m2_id
+		           , GREATEST(COALESCE(mcm2.original_monster_id, vbdi.monster_id_2),
+		                      COALESCE(mcm3.original_monster_id, vbdi.monster_id_3)) AS m3_id
+		        FROM view_battle_deck_info vbdi
+		        LEFT JOIN monster_collaboration_mapping mcm1 ON vbdi.monster_id_1 = mcm1.collaboration_monster_id
+		        LEFT JOIN monster_collaboration_mapping mcm2 ON vbdi.monster_id_2 = mcm2.collaboration_monster_id
+		        LEFT JOIN monster_collaboration_mapping mcm3 ON vbdi.monster_id_3 = mcm3.collaboration_monster_id
+		       WHERE vbdi.type = 'defense'
+		         AND vbdi.match_id = #{match_id}
+		    ) deck
+		    LEFT JOIN battle_log_list bll ON deck.match_id = bll.match_id AND deck.log_timestamp = bll.log_timestamp
+		   WHERE 1=1
+		   <if test="monster_id1_ids != null and monster_id1_ids.size() > 0">
+		   AND deck.m1_id IN <foreach collection="monster_id1_ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+		   </if>
+		   <if test="(monster_id2_ids != null and monster_id2_ids.size() > 0) or (monster_id3_ids != null and monster_id3_ids.size() > 0)">
+		     <choose>
+		       <when test="monster_id2_ids != null and monster_id2_ids.size() > 0 and monster_id3_ids != null and monster_id3_ids.size() > 0">
+		   AND deck.m2_id IN <foreach collection="monster_id2_ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+		   AND deck.m3_id IN <foreach collection="monster_id3_ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+		       </when>
+		       <when test="monster_id2_ids != null and monster_id2_ids.size() > 0">
+		   AND (deck.m2_id IN <foreach collection="monster_id2_ids" item="id" open="(" separator="," close=")">#{id}</foreach> OR deck.m3_id IN <foreach collection="monster_id2_ids" item="id" open="(" separator="," close=")">#{id}</foreach>)
+		       </when>
+		       <otherwise>
+		   AND (deck.m2_id IN <foreach collection="monster_id3_ids" item="id" open="(" separator="," close=")">#{id}</foreach> OR deck.m3_id IN <foreach collection="monster_id3_ids" item="id" open="(" separator="," close=")">#{id}</foreach>)
+		       </otherwise>
+		     </choose>
+		   </if>
+		   <if test="guild_ids != null and guild_ids.size() > 0">
+		   AND bll.opp_guild_id IN
+		   <foreach collection="guild_ids" item="guild_id" open="(" separator="," close=")">#{guild_id}</foreach>
+		   </if>
+		   GROUP BY deck.m1_id, deck.m2_id, deck.m3_id
+		   <if test="min_lose_count != null and min_lose_count != ''">
+		   HAVING SUM(CASE WHEN bll.win_lose = '2' THEN 1 ELSE 0 END) >= #{min_lose_count}::int
+		   </if>
+		) t
+		</when>
+		<otherwise>
 				SELECT COUNT(*)::int AS rowCount FROM (
 					SELECT DISTINCT monster_id_1, monster_id_2, monster_id_3
 					  FROM (
@@ -422,6 +474,8 @@
 					   )
 				) u
 				) t
+		</otherwise>
+		</choose>
 	</select>
 
 	<insert id="insertEnemyTeamSave" parameterType="sqlMap">
@@ -1126,6 +1180,82 @@
 		</choose>
 	</select>
 	
+	<select id="selectMonsterDetailRecentBattles" parameterType="sqlMap" resultType="sqlMap">
+		/* selectMonsterDetailRecentBattles */
+		SELECT bll.log_timestamp
+		     , bll.wizard_name
+		     , bll.opp_wizard_name
+		     , bll.win_lose
+		     , gsbl_atk.guild_name AS atk_guild_name
+		     , COALESCE(bll.opp_guild_name, gsbl_def.guild_name) AS opp_guild_name
+		     , m1.image_url AS atk_image_url1
+		     , m2.image_url AS atk_image_url2
+		     , m3.image_url AS atk_image_url3
+		  FROM view_battle_deck_info def_d
+		  JOIN view_battle_deck_info atk_d ON def_d.match_id = atk_d.match_id
+		                                  AND def_d.log_timestamp = atk_d.log_timestamp
+		                                  AND atk_d.type = 'attack'
+		  JOIN battle_log_list bll ON def_d.match_id = bll.match_id
+		                          AND def_d.log_timestamp = bll.log_timestamp
+		  LEFT JOIN guild_siege_battle_log gsbl_atk ON bll.match_id = gsbl_atk.match_id
+		                                           AND bll.guild_id = gsbl_atk.guild_id
+		  LEFT JOIN guild_siege_battle_log gsbl_def ON bll.match_id = gsbl_def.match_id
+		                                           AND bll.opp_guild_id = gsbl_def.guild_id
+		  LEFT JOIN monster_collaboration_mapping mcm1 ON atk_d.monster_id_1 = mcm1.collaboration_monster_id
+		  LEFT JOIN monster_collaboration_mapping mcm2 ON atk_d.monster_id_2 = mcm2.collaboration_monster_id
+		  LEFT JOIN monster_collaboration_mapping mcm3 ON atk_d.monster_id_3 = mcm3.collaboration_monster_id
+		  LEFT JOIN monster m1 ON COALESCE(mcm1.original_monster_id, atk_d.monster_id_1) = m1.monster_id
+		  LEFT JOIN monster m2 ON COALESCE(mcm2.original_monster_id, atk_d.monster_id_2) = m2.monster_id
+		  LEFT JOIN monster m3 ON COALESCE(mcm3.original_monster_id, atk_d.monster_id_3) = m3.monster_id
+		 WHERE def_d.type = 'defense'
+		   AND def_d.monster_id_1 IN (${dm1_list})
+		   <if test="dm2_list != null and dm2_list != ''">AND LEAST(def_d.monster_id_2, def_d.monster_id_3) IN (${dm2_list})</if>
+		   <if test="dm3_list != null and dm3_list != ''">AND GREATEST(def_d.monster_id_2, def_d.monster_id_3) IN (${dm3_list})</if>
+		   <choose>
+		     <when test='view_all_guilds != null and (view_all_guilds == true or view_all_guilds == "true" or view_all_guilds == "Y")'></when>
+		     <when test="view_guild_id != null and view_guild_id != ''">
+		       AND EXISTS (SELECT 1 FROM guild_siege_battle_log g WHERE g.match_id = bll.match_id AND g.guild_id = #{view_guild_id}::text)
+		     </when>
+		     <otherwise>
+		       AND EXISTS (SELECT 1 FROM guild_siege_battle_log g WHERE g.match_id = bll.match_id AND g.guild_id = #{sess_guild_id}::text)
+		     </otherwise>
+		   </choose>
+		   <if test='match_id != null and match_id != "" and match_id != "null"'>
+		     AND def_d.match_id = #{match_id}
+		   </if>
+		 ORDER BY bll.log_timestamp DESC
+		 <if test="recentLimit != null and recentLimit != ''">LIMIT #{recentLimit}::bigint</if>
+		 <if test="recentLimit == null or recentLimit == ''">LIMIT 10</if>
+		 <if test="recentOffset != null and recentOffset != '' and recentLimit != null and recentLimit != ''">OFFSET (#{recentOffset}::bigint - 1) * #{recentLimit}::bigint</if>
+	</select>
+
+	<select id="selectMonsterDetailRecentBattlesCount" parameterType="sqlMap" resultType="Int">
+		/* selectMonsterDetailRecentBattlesCount */
+		SELECT COUNT(*)
+		  FROM view_battle_deck_info def_d
+		  JOIN view_battle_deck_info atk_d ON def_d.match_id = atk_d.match_id
+		                                  AND def_d.log_timestamp = atk_d.log_timestamp
+		                                  AND atk_d.type = 'attack'
+		  JOIN battle_log_list bll ON def_d.match_id = bll.match_id
+		                          AND def_d.log_timestamp = bll.log_timestamp
+		 WHERE def_d.type = 'defense'
+		   AND def_d.monster_id_1 IN (${dm1_list})
+		   <if test="dm2_list != null and dm2_list != ''">AND LEAST(def_d.monster_id_2, def_d.monster_id_3) IN (${dm2_list})</if>
+		   <if test="dm3_list != null and dm3_list != ''">AND GREATEST(def_d.monster_id_2, def_d.monster_id_3) IN (${dm3_list})</if>
+		   <choose>
+		     <when test='view_all_guilds != null and (view_all_guilds == true or view_all_guilds == "true" or view_all_guilds == "Y")'></when>
+		     <when test="view_guild_id != null and view_guild_id != ''">
+		       AND EXISTS (SELECT 1 FROM guild_siege_battle_log g WHERE g.match_id = bll.match_id AND g.guild_id = #{view_guild_id}::text)
+		     </when>
+		     <otherwise>
+		       AND EXISTS (SELECT 1 FROM guild_siege_battle_log g WHERE g.match_id = bll.match_id AND g.guild_id = #{sess_guild_id}::text)
+		     </otherwise>
+		   </choose>
+		   <if test='match_id != null and match_id != "" and match_id != "null"'>
+		     AND def_d.match_id = #{match_id}
+		   </if>
+	</select>
+
 	<select id="selectGuildMatchCheck" parameterType="sqlMap" resultType="sqlMap">
 		/* selectGuildMatchCheck */
 		select case when count(*) > 0 then 1 else 0 end count
@@ -1382,9 +1512,48 @@
 		</foreach>
 	</insert>
 	
+	<select id="selectOrphanCheckFloorReplayId" resultType="long">
+		/* summonerswar.selectOrphanCheckFloorReplayId — 일일 증분 점검 replay_id 바닥 */
+		SELECT COALESCE(
+			(
+				SELECT MIN(m.replay_id)
+				FROM public.rta_match m
+				WHERE m.played_at &gt;= CURRENT_TIMESTAMP - (CAST(#{lookbackHours} AS text) || ' hours')::interval
+			),
+			GREATEST(
+				0::bigint,
+				(SELECT COALESCE(MAX(m2.replay_id), 0) FROM public.rta_match m2) - #{replayIdPadding}
+			)
+		)
+	</select>
+
+	<select id="selectOrphanArenaReplayIdsSince" resultType="long">
+		/* summonerswar.selectOrphanArenaReplayIdsSince — replay_id 바닥 이상 구간만 EXCEPT (일일 점검) */
+		SELECT o.replay_id
+		FROM (
+			SELECT child.replay_id
+			FROM (
+				SELECT u.replay_id
+				FROM public.rta_match_unit_pick u
+				WHERE u.replay_id &gt;= #{floorReplayId}
+				GROUP BY u.replay_id
+				UNION
+				SELECT p.replay_id
+				FROM public.rta_match_participant p
+				WHERE p.replay_id &gt;= #{floorReplayId}
+				GROUP BY p.replay_id
+			) child
+			EXCEPT
+			SELECT m.replay_id
+			FROM public.rta_match m
+			WHERE m.replay_id &gt;= #{floorReplayId}
+		) o
+		ORDER BY o.replay_id
+		LIMIT #{limit}
+	</select>
+
 	<select id="selectOrphanArenaReplayIds" resultType="long">
-		/* summonerswar.selectOrphanArenaReplayIds
-		   rta_match 없는 replay_id — 행 단위 NOT EXISTS(2400만) 대신 DISTINCT+EXCEPT Hash 차집합. */
+		/* summonerswar.selectOrphanArenaReplayIds — 전수 DISTINCT+EXCEPT (주간·레거시 점검) */
 		SELECT o.replay_id
 		FROM (
 			SELECT child.replay_id
@@ -1765,7 +1934,8 @@
 			SELECT
 				bll.wizard_id,
 				bll.wizard_name,
-				bll.win_lose
+				bll.win_lose,
+				bll.channel_uid
 			FROM public.battle_log_list bll
 			<if test="season_no != null and season_no != ''">
 			CROSS JOIN season_bounds sb
@@ -1780,6 +1950,9 @@
 		SELECT
 			f.wizard_id,
 			f.wizard_name,
+			MAX(f.channel_uid) FILTER (
+				WHERE f.channel_uid IS NOT NULL AND f.channel_uid &lt;&gt; ''
+			) AS channel_uid,
 			COUNT(*) AS total_count,
 			COUNT(*) FILTER (WHERE f.win_lose = '1') AS win_count,
 			COUNT(*) FILTER (WHERE f.win_lose = '2') AS lose_count,
@@ -2236,6 +2409,18 @@
 			COALESCE(stats1.crit_dmg, 0) as m1_crit_dmg,
 			COALESCE(stats1.resistance, 0) as m1_resistance,
 			COALESCE(stats1.accuracy, 0) as m1_accuracy,
+			stats1.rune_id_1 as m1_rune_id_1,
+			stats1.rune_id_2 as m1_rune_id_2,
+			stats1.rune_id_3 as m1_rune_id_3,
+			rm1_1.image_url as m1_rune_image_url_1,
+			rm1_1.name_ko as m1_rune_name_ko_1,
+			rm1_1.required_pieces as m1_rune_required_pieces_1,
+			rm1_2.image_url as m1_rune_image_url_2,
+			rm1_2.name_ko as m1_rune_name_ko_2,
+			rm1_2.required_pieces as m1_rune_required_pieces_2,
+			rm1_3.image_url as m1_rune_image_url_3,
+			rm1_3.name_ko as m1_rune_name_ko_3,
+			rm1_3.required_pieces as m1_rune_required_pieces_3,
 			-- 몬스터2 정보
 			m2.kr_name as m2_kr_name,
 			m2.image_url as image_url2,
@@ -2247,6 +2432,18 @@
 			COALESCE(stats2.crit_dmg, 0) as m2_crit_dmg,
 			COALESCE(stats2.resistance, 0) as m2_resistance,
 			COALESCE(stats2.accuracy, 0) as m2_accuracy,
+			stats2.rune_id_1 as m2_rune_id_1,
+			stats2.rune_id_2 as m2_rune_id_2,
+			stats2.rune_id_3 as m2_rune_id_3,
+			rm2_1.image_url as m2_rune_image_url_1,
+			rm2_1.name_ko as m2_rune_name_ko_1,
+			rm2_1.required_pieces as m2_rune_required_pieces_1,
+			rm2_2.image_url as m2_rune_image_url_2,
+			rm2_2.name_ko as m2_rune_name_ko_2,
+			rm2_2.required_pieces as m2_rune_required_pieces_2,
+			rm2_3.image_url as m2_rune_image_url_3,
+			rm2_3.name_ko as m2_rune_name_ko_3,
+			rm2_3.required_pieces as m2_rune_required_pieces_3,
 			-- 몬스터3 정보
 			m3.kr_name as m3_kr_name,
 			m3.image_url as image_url3,
@@ -2257,7 +2454,19 @@
 			COALESCE(stats3.crit_rate, 0) as m3_crit_rate,
 			COALESCE(stats3.crit_dmg, 0) as m3_crit_dmg,
 			COALESCE(stats3.resistance, 0) as m3_resistance,
-			COALESCE(stats3.accuracy, 0) as m3_accuracy
+			COALESCE(stats3.accuracy, 0) as m3_accuracy,
+			stats3.rune_id_1 as m3_rune_id_1,
+			stats3.rune_id_2 as m3_rune_id_2,
+			stats3.rune_id_3 as m3_rune_id_3,
+			rm3_1.image_url as m3_rune_image_url_1,
+			rm3_1.name_ko as m3_rune_name_ko_1,
+			rm3_1.required_pieces as m3_rune_required_pieces_1,
+			rm3_2.image_url as m3_rune_image_url_2,
+			rm3_2.name_ko as m3_rune_name_ko_2,
+			rm3_2.required_pieces as m3_rune_required_pieces_2,
+			rm3_3.image_url as m3_rune_image_url_3,
+			rm3_3.name_ko as m3_rune_name_ko_3,
+			rm3_3.required_pieces as m3_rune_required_pieces_3
 		FROM siege_recommended_attack_deck srad
 		LEFT JOIN monster m1 ON srad.atk_monster_1 = m1.monster_id
 		LEFT JOIN monster m2 ON srad.atk_monster_2 = m2.monster_id
@@ -2268,6 +2477,15 @@
 			ON srad.id = stats2.deck_id AND srad.atk_monster_2 = stats2.monster_id
 		LEFT JOIN siege_recommended_attack_deck_stats stats3 
 			ON srad.id = stats3.deck_id AND srad.atk_monster_3 = stats3.monster_id
+		LEFT JOIN rune_master rm1_1 ON stats1.rune_id_1 = rm1_1.rune_id
+		LEFT JOIN rune_master rm1_2 ON stats1.rune_id_2 = rm1_2.rune_id
+		LEFT JOIN rune_master rm1_3 ON stats1.rune_id_3 = rm1_3.rune_id
+		LEFT JOIN rune_master rm2_1 ON stats2.rune_id_1 = rm2_1.rune_id
+		LEFT JOIN rune_master rm2_2 ON stats2.rune_id_2 = rm2_2.rune_id
+		LEFT JOIN rune_master rm2_3 ON stats2.rune_id_3 = rm2_3.rune_id
+		LEFT JOIN rune_master rm3_1 ON stats3.rune_id_1 = rm3_1.rune_id
+		LEFT JOIN rune_master rm3_2 ON stats3.rune_id_2 = rm3_2.rune_id
+		LEFT JOIN rune_master rm3_3 ON stats3.rune_id_3 = rm3_3.rune_id
 		WHERE 1=1
 		<if test="deck_id != null and deck_id != ''">
 			AND srad.id = #{deck_id}::int
@@ -2365,6 +2583,9 @@
 			crit_dmg,
 			resistance,
 			accuracy,
+			rune_id_1,
+			rune_id_2,
+			rune_id_3,
 			crt_user_id,
 			upt_user_id
 		) VALUES (
@@ -2378,6 +2599,9 @@
 			#{crit_dmg}::int,
 			#{resistance}::int,
 			#{accuracy}::int,
+			#{rune_id_1}::int2,
+			#{rune_id_2}::int2,
+			#{rune_id_3}::int2,
 			#{sess_user_id}::text,
 			#{sess_user_id}::text
 		)
@@ -2390,9 +2614,26 @@
 		       crit_dmg = EXCLUDED.crit_dmg,
 		       resistance = EXCLUDED.resistance,
 		       accuracy = EXCLUDED.accuracy,
+		       rune_id_1 = EXCLUDED.rune_id_1,
+		       rune_id_2 = EXCLUDED.rune_id_2,
+		       rune_id_3 = EXCLUDED.rune_id_3,
 		       upt_user_id = EXCLUDED.upt_user_id,
 		       upt_date = CURRENT_TIMESTAMP
 	</insert>
+
+	<select id="selectRuneMasterList" parameterType="sqlMap" resultType="sqlMap">
+		/* summonerswarMapper.selectRuneMasterList */
+		SELECT rune_id
+		      ,name_ko
+		      ,name_en
+		      ,required_pieces
+		      ,set_effect
+		      ,image_url
+		  FROM rune_master
+		 WHERE usg_yn = 'Y'
+		 ORDER BY rune_id ASC
+		 LIMIT 21
+	</select>
 	
 	<select id="selectCurrentSeason" parameterType="sqlMap" resultType="sqlMap">
 		/* selectCurrentSeason - 시작일~종료일(종료일 없으면 금일) 사이에 오늘 포함되는 시즌, 없으면 최신 시즌 */

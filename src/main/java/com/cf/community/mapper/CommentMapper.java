@@ -31,5 +31,15 @@ public interface CommentMapper {
 	 * 댓글 삭제
 	 */
 	int deleteComment(Map<String, Object> param);
+
+	/**
+	 * 댓글 추천/비추천 등록
+	 */
+	int insertCommentVote(Map<String, Object> param);
+
+	/**
+	 * 댓글 추천/비추천 취소
+	 */
+	int deleteCommentVote(Map<String, Object> param);
 }
 

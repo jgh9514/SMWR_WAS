@@ -2,15 +2,12 @@ package com.smw.monster.service;
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.Consumer;
-import java.util.stream.Collectors;
 
 import jakarta.annotation.PreDestroy;
 
@@ -34,6 +31,16 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
     private static final String SWARFARM_IMAGE_BASE_URL = "https://swarfarm.com/static/herders/images/monsters/";
     private static final int DEFAULT_PAGE_SIZE = 100; // Swarfarm API 기본 페이지 크기
     private static final int DEFAULT_IMAGE_DOWNLOAD_CONCURRENCY = 4;
+
+    private static final class ExistingMonsterSnapshot {
+        private final String imageFilename;
+        private final String imageUrl;
+
+        private ExistingMonsterSnapshot(String imageFilename, String imageUrl) {
+            this.imageFilename = imageFilename;
+            this.imageUrl = imageUrl;
+        }
+    }
     @Autowired
     private SwarfarmMonsterMapper swarfarmMonsterMapper;
     
@@ -102,23 +109,29 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
             
             addBatchLog("전체 몬스터 수: %d개, 예상 페이지 수: %d페이지", totalCount, totalPages);
             
-            // 이미 존재하는 몬스터 ID 목록을 한번에 조회 (성능 최적화)
+            // 기존 몬스터 스냅샷 (신규/갱신 구분·이미지 재업로드 생략용)
             addBatchLog("기존 몬스터 데이터 조회 시작...");
-            Set<Integer> existingSwarfarmIds = loadExistingSwarfarmIds();
-            addBatchLog("기존 몬스터 수: %d개 (건너뛸 몬스터)", existingSwarfarmIds.size());
+            Map<Integer, ExistingMonsterSnapshot> existingSnapshots = loadExistingMonsterSnapshots();
+            addBatchLog("기존 몬스터 수: %d개 (갱신 대상 포함)", existingSnapshots.size());
+            
+            int insertedCount = 0;
+            int updatedCount = 0;
             
             // 모든 페이지 순차 처리 (에러 발생 시 즉시 중단 및 롤백)
-            addBatchLog("페이지 순차 처리 시작 (에러 발생 시 즉시 중단)...");
+            addBatchLog("페이지 순차 처리 시작 (신규·갱신 모두 반영)...");
             for (int page = 1; page <= totalPages; page++) {
                 addBatchLog("페이지 %d 처리 시작...", page);
-                int synced = syncMonstersByPage(page, existingSwarfarmIds, stats);
-                totalSynced += synced;
-                addBatchLog("페이지 %d 처리 완료: %d개 저장", page, synced);
+                PageSyncResult pageResult = syncMonstersByPage(page, existingSnapshots, stats);
+                totalSynced += pageResult.savedCount();
+                insertedCount += pageResult.insertedCount();
+                updatedCount += pageResult.updatedCount();
+                addBatchLog("페이지 %d 처리 완료: 저장=%d (신규=%d, 갱신=%d)",
+                        page, pageResult.savedCount(), pageResult.insertedCount(), pageResult.updatedCount());
             }
             
             long elapsedTime = System.currentTimeMillis() - startTime;
             addBatchLog("===== Swarfarm 몬스터 동기화 완료 =====");
-            addBatchLog("총 동기화된 몬스터 수: %d개", totalSynced);
+            addBatchLog("총 저장: %d개 (신규 %d, 갱신 %d)", totalSynced, insertedCount, updatedCount);
             addBatchLog("처리=%d, 저장=%d, 스킵=%d, 실패=%d",
                     stats.getProcessed(), stats.getSaved(), stats.getSkipped(), stats.getFailed());
             addBatchLog("소요 시간: %.2f초", elapsedTime / 1000.0);
@@ -135,57 +148,79 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
     }
     
     /**
-     * 이미 존재하는 Swarfarm ID 목록을 한번에 조회 (성능 최적화)
+     * 기존 몬스터 Swarfarm ID별 스냅샷 (갱신·이미지 재업로드 생략 판단용)
      */
-    private Set<Integer> loadExistingSwarfarmIds() {
-        List<Integer> existingIds = swarfarmMonsterMapper.selectAllSwarfarmIds();
-        return new HashSet<>(existingIds);
+    private Map<Integer, ExistingMonsterSnapshot> loadExistingMonsterSnapshots() {
+        List<Map<String, Object>> rows = swarfarmMonsterMapper.selectSwarfarmImageSnapshots();
+        Map<Integer, ExistingMonsterSnapshot> snapshots = new HashMap<>();
+        for (Map<String, Object> row : rows) {
+            Integer swarfarmId = toInteger(row.get("swarfarm_id"));
+            if (swarfarmId == null) {
+                continue;
+            }
+            snapshots.put(swarfarmId, new ExistingMonsterSnapshot(
+                    row.get("image_filename") != null ? String.valueOf(row.get("image_filename")) : null,
+                    row.get("image_url") != null ? String.valueOf(row.get("image_url")) : null));
+        }
+        return snapshots;
     }
+
+    private Integer toInteger(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number) {
+            return ((Number) value).intValue();
+        }
+        try {
+            return Integer.parseInt(String.valueOf(value).trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private record PageSyncResult(int savedCount, int insertedCount, int updatedCount) {}
     
     @Override
     public int syncMonstersByPage(int page) {
-        return syncMonstersByPage(page, new HashSet<>(), swarfarmSyncMetrics.newStats());
+        return syncMonstersByPage(page, loadExistingMonsterSnapshots(), swarfarmSyncMetrics.newStats()).savedCount();
     }
     
-    private int syncMonstersByPage(int page, Set<Integer> existingSwarfarmIds, SwarfarmSyncMetrics.SyncStats stats) {
+    private PageSyncResult syncMonstersByPage(int page, Map<Integer, ExistingMonsterSnapshot> existingSnapshots,
+            SwarfarmSyncMetrics.SyncStats stats) {
         try {
             String apiUrl = SWARFARM_API_BASE_URL + "?format=json&page=" + page;
             SwarfarmMonsterResponse response = fetchMonsterData(apiUrl);
             
             if (response == null || response.getResults() == null) {
                 log.warn("페이지 {} 데이터가 없습니다.", page);
-                return 0;
+                return new PageSyncResult(0, 0, 0);
             }
             
-            // 새로 추가할 몬스터만 필터링
             stats.addProcessed(response.getResults().size());
-            List<SwarfarmMonsterResponse.MonsterData> newMonsters = response.getResults().stream()
-                    .filter(monster -> !existingSwarfarmIds.contains(monster.getId()))
-                    .collect(Collectors.toList());
-            stats.addSkipped(response.getResults().size() - newMonsters.size());
+            List<SwarfarmMonsterResponse.MonsterData> monsters = response.getResults();
             
-            if (newMonsters.isEmpty()) {
-                log.debug("페이지 {}: 모든 몬스터가 이미 존재합니다.", page);
-                return 0;
+            if (monsters.isEmpty()) {
+                return new PageSyncResult(0, 0, 0);
             }
             
-            log.info("페이지 {}: {}개 중 {}개 새 몬스터 발견", page, response.getResults().size(), newMonsters.size());
+            log.info("페이지 {}: {}개 몬스터 동기화 (신규·갱신)", page, monsters.size());
             
-            List<Map<String, Object>> monsterDataList = buildMonsterDataList(newMonsters);
-            int skippedCount = newMonsters.size() - monsterDataList.size();
+            List<Map<String, Object>> monsterDataList = buildMonsterDataList(monsters, existingSnapshots);
+            int skippedCount = monsters.size() - monsterDataList.size();
             
             if (skippedCount > 0) {
                 addBatchLog("이미지 없음 또는 오류로 인해 %d개 몬스터 패스됨", skippedCount);
                 stats.addSkipped(skippedCount);
             }
             
-            // 배치로 DB 저장
-            int syncedCount = saveMonstersBatch(monsterDataList);
-            stats.addSaved(syncedCount);
+            SaveBatchResult batchResult = saveMonstersBatch(monsterDataList, existingSnapshots);
+            stats.addSaved(batchResult.savedCount());
             
-            addBatchLog("페이지 %d 처리 요약: 저장=%d, 누적 처리=%d, 누적 스킵=%d, 누적 실패=%d",
-                    page, syncedCount, stats.getProcessed(), stats.getSkipped(), stats.getFailed());
-            return syncedCount;
+            addBatchLog("페이지 %d 처리 요약: 저장=%d (신규=%d, 갱신=%d), 누적 처리=%d, 누적 스킵=%d, 누적 실패=%d",
+                    page, batchResult.savedCount(), batchResult.insertedCount(), batchResult.updatedCount(),
+                    stats.getProcessed(), stats.getSkipped(), stats.getFailed());
+            return new PageSyncResult(batchResult.savedCount(), batchResult.insertedCount(), batchResult.updatedCount());
             
         } catch (Exception e) {
             stats.addFailed(1);
@@ -194,12 +229,16 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
         }
     }
 
-    private List<Map<String, Object>> buildMonsterDataList(List<SwarfarmMonsterResponse.MonsterData> newMonsters) {
+    private record SaveBatchResult(int savedCount, int insertedCount, int updatedCount) {}
+
+    private List<Map<String, Object>> buildMonsterDataList(List<SwarfarmMonsterResponse.MonsterData> monsters,
+            Map<Integer, ExistingMonsterSnapshot> existingSnapshots) {
         List<CompletableFuture<Map<String, Object>>> futures = new ArrayList<>();
         ExecutorService executor = getImageDownloadExecutor();
 
-        for (SwarfarmMonsterResponse.MonsterData monster : newMonsters) {
-            futures.add(CompletableFuture.supplyAsync(() -> prepareMonsterData(monster), executor));
+        for (SwarfarmMonsterResponse.MonsterData monster : monsters) {
+            futures.add(CompletableFuture.supplyAsync(
+                    () -> prepareMonsterData(monster, existingSnapshots), executor));
         }
 
         List<Map<String, Object>> monsterDataList = new ArrayList<>();
@@ -216,7 +255,8 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
         return monsterDataList;
     }
 
-    private Map<String, Object> prepareMonsterData(SwarfarmMonsterResponse.MonsterData monster) {
+    private Map<String, Object> prepareMonsterData(SwarfarmMonsterResponse.MonsterData monster,
+            Map<Integer, ExistingMonsterSnapshot> existingSnapshots) {
         try {
             if (monster.getCom2usId() == null) {
                 addBatchLog("com2us_id 없음으로 패스: swarfarm_id=%d, name=%s", monster.getId(), monster.getName());
@@ -228,8 +268,11 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
                 return null;
             }
 
+            ExistingMonsterSnapshot existing = existingSnapshots.get(monster.getId());
+            boolean isNew = existing == null;
+
             Map<String, Object> monsterData = convertToMap(monster);
-            String imageUrl = downloadMonsterImage(monster.getImageFilename(), monster.getElement());
+            String imageUrl = resolveMonsterImageUrl(monster, existing);
             if (imageUrl == null || imageUrl.isEmpty()) {
                 addBatchLog("이미지 다운로드 실패로 패스: swarfarm_id=%d, name=%s, image_filename=%s",
                         monster.getId(), monster.getName(), monster.getImageFilename());
@@ -240,37 +283,65 @@ public class SwarfarmMonsterServiceImpl implements SwarfarmMonsterService {
             monsterData.put("_skills", monster.getSkills());
             monsterData.put("_sources", monster.getSource());
             monsterData.put("_swarfarm_id", monster.getId());
+            monsterData.put("_is_new", isNew);
             return monsterData;
         } catch (Exception e) {
             addBatchLog("몬스터 데이터 변환/이미지 처리 실패: swarfarm_id=%d, name=%s", monster.getId(), monster.getName());
             throw new RuntimeException("몬스터 데이터 준비 실패: swarfarm_id=" + monster.getId(), e);
         }
     }
+
+    /**
+     * 이미지 파일명이 같으면 기존 URL 재사용(S3 재업로드 생략), 변경·신규만 S3 업로드
+     */
+    private String resolveMonsterImageUrl(SwarfarmMonsterResponse.MonsterData monster,
+            ExistingMonsterSnapshot existing) {
+        if (existing != null
+                && existing.imageFilename != null
+                && existing.imageFilename.equals(monster.getImageFilename())
+                && existing.imageUrl != null
+                && !existing.imageUrl.isEmpty()) {
+            return existing.imageUrl;
+        }
+        return downloadMonsterImage(monster.getImageFilename(), monster.getElement());
+    }
     
     /**
      * 여러 몬스터를 배치로 저장 (성능 최적화)
      * 커넥션 풀 부족 방지를 위해 각 저장 작업 후 커넥션을 즉시 반환하도록 처리
      */
-    private int saveMonstersBatch(List<Map<String, Object>> monsterDataList) {
+    private SaveBatchResult saveMonstersBatch(List<Map<String, Object>> monsterDataList,
+            Map<Integer, ExistingMonsterSnapshot> existingSnapshots) {
         int savedCount = 0;
+        int insertedCount = 0;
+        int updatedCount = 0;
         for (Map<String, Object> monsterData : monsterDataList) {
+            boolean isNew = Boolean.TRUE.equals(monsterData.get("_is_new"));
             String monsterId = saveMonsterInternal(monsterData);
             savedCount++;
+            if (isNew) {
+                insertedCount++;
+            } else {
+                updatedCount++;
+            }
+
+            Integer swarfarmId = (Integer) monsterData.get("swarfarm_id");
+            if (swarfarmId != null && isNew) {
+                existingSnapshots.put(swarfarmId, new ExistingMonsterSnapshot(
+                        (String) monsterData.get("image_filename"),
+                        (String) monsterData.get("image_url")));
+            }
 
             @SuppressWarnings("unchecked")
             List<Integer> skills = (List<Integer>) monsterData.get("_skills");
-            if (skills != null && !skills.isEmpty()) {
-                saveMonsterSkills(monsterId, skills);
-            }
+            saveMonsterSkills(monsterId, skills != null ? skills : List.of());
 
             @SuppressWarnings("unchecked")
             List<SwarfarmMonsterResponse.SourceData> sources =
                     (List<SwarfarmMonsterResponse.SourceData>) monsterData.get("_sources");
-            if (sources != null && !sources.isEmpty()) {
-                saveMonsterSources(monsterId, sources);
-            }
+            saveMonsterSources(monsterId, sources != null ? sources : List.of());
         }
-        return savedCount;
+        return new SaveBatchResult(savedCount, insertedCount, updatedCount);
     }
     
     @Override

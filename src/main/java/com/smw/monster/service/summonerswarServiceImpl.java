@@ -8,6 +8,7 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -54,6 +55,7 @@ import lombok.extern.slf4j.Slf4j;
 import com.smw.monster.mapper.summonerswarMapper;
 import com.smw.monster.util.MonsterDetailContextBuilder;
 import com.smw.rta.cache.RtaCacheEvictor;
+import com.smw.rta.config.RtaOrphanCleanupProperties;
 import com.smw.rta.config.RtaRawApplyProperties;
 import com.smw.rta.service.ArenaRtaUploadCopyBulkService;
 import com.smw.monster.util.MonsterIdEvolutionUtil;
@@ -96,6 +98,9 @@ public class summonerswarServiceImpl implements summonerswarService {
 	private RtaRawApplyProperties rtaRawApplyProperties;
 
 	@Autowired
+	private RtaOrphanCleanupProperties rtaOrphanCleanupProperties;
+
+	@Autowired
 	private DataSource dataSource;
 
 	@Autowired
@@ -125,6 +130,7 @@ public class summonerswarServiceImpl implements summonerswarService {
 	@Override
 	public List<Map<String, ?>> selectEnemyTeamList(Map<String, Object> param) {
 		expandMonsterIdsToIncludeCollaborations(param);
+		normalizeGuildIds(param);
 		ensurePagingOffset(param);
 		return swMapper.selectEnemyTeamList(param);
 	}
@@ -197,6 +203,47 @@ public class summonerswarServiceImpl implements summonerswarService {
 		}
 	}
 
+	/** guild_ids — JSON 배열·단일 문자열을 MyBatis foreach용 List로 정규화 */
+	@SuppressWarnings("unchecked")
+	private void normalizeGuildIds(Map<String, Object> param) {
+		Object raw = param.get("guild_ids");
+		if (raw == null) {
+			return;
+		}
+		java.util.List<String> normalized = new java.util.ArrayList<>();
+		if (raw instanceof java.util.List) {
+			for (Object item : (java.util.List<?>) raw) {
+				if (item == null) {
+					continue;
+				}
+				String s = item.toString().trim();
+				if (!s.isEmpty()) {
+					normalized.add(s);
+				}
+			}
+		} else if (raw instanceof String) {
+			String s = ((String) raw).trim();
+			if (!s.isEmpty()) {
+				for (String part : s.split(",")) {
+					String t = part.trim();
+					if (!t.isEmpty()) {
+						normalized.add(t);
+					}
+				}
+			}
+		} else {
+			String s = raw.toString().trim();
+			if (!s.isEmpty()) {
+				normalized.add(s);
+			}
+		}
+		if (normalized.isEmpty()) {
+			param.remove("guild_ids");
+		} else {
+			param.put("guild_ids", normalized);
+		}
+	}
+
 	/**
 	 * 점령 상세 SQL은 {@code IN (${dm1_list})} 형태 문자열 치환이라 dm1_list 없으면 {@code IN ()} 로 깨져 500이 난다.
 	 * dm2_list/dm3_list 는 XML에서 {@code <if>} 로 선택적 처리하므로 여기서는 dm1_list 만 체크.
@@ -219,6 +266,7 @@ public class summonerswarServiceImpl implements summonerswarService {
 	@Override
 	public int selectTotalPageCount(Map<String, Object> param) {
 		expandMonsterIdsToIncludeCollaborations(param);
+		normalizeGuildIds(param);
 		return swMapper.selectTotalPageCount(param);
 	}
 	
@@ -248,6 +296,9 @@ public class summonerswarServiceImpl implements summonerswarService {
 	@Override
 	public int insertFriendlyteamTeamSave(Map<String, Object> param) {
 		if (param == null) return 0;
+		if (!validateDeckStatsRunesInParam(param)) {
+			return -1;
+		}
 		int n = swMapper.insertFriendlyteamTeamSave(param);
 		if (n <= 0) return n;
 
@@ -301,9 +352,77 @@ public class summonerswarServiceImpl implements summonerswarService {
 		p.put("crit_dmg", intOrZero(firstNonNull(stats.get("critDmg"), stats.get("crit_dmg"))));
 		p.put("resistance", intOrZero(stats.get("resistance")));
 		p.put("accuracy", intOrZero(stats.get("accuracy")));
+		putRuneIdsFromStats(stats, p);
 		p.put("sess_user_id", root != null ? root.get("sess_user_id") : null);
 		
 		swMapper.upsertRecommendedAttackDeckStats(p);
+	}
+
+	@SuppressWarnings("unchecked")
+	private boolean validateDeckStatsRunesInParam(Map<String, Object> param) {
+		for (String statsKey : new String[] { "monster_1_stats", "monster_2_stats", "monster_3_stats" }) {
+			Object raw = param.get(statsKey);
+			if (!(raw instanceof Map)) continue;
+			if (!validateMonsterRuneStats((Map<String, Object>) raw)) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	private boolean validateMonsterRuneStats(Map<String, Object> stats) {
+		Map<Integer, Integer> piecesMap = getRuneRequiredPiecesMap();
+		int sum = 0;
+		for (int slot = 1; slot <= 3; slot++) {
+			Integer runeId = parseRuneIdOrNull(firstNonNull(
+				stats.get("runeId" + slot),
+				stats.get("rune_id_" + slot)));
+			if (runeId == null) continue;
+			Integer pieces = piecesMap.get(runeId);
+			if (pieces == null) return false;
+			sum += pieces;
+		}
+		return sum <= 6;
+	}
+
+	private void putRuneIdsFromStats(Map<String, Object> stats, Map<String, Object> target) {
+		for (int slot = 1; slot <= 3; slot++) {
+			Integer runeId = parseRuneIdOrNull(firstNonNull(
+				stats.get("runeId" + slot),
+				stats.get("rune_id_" + slot)));
+			target.put("rune_id_" + slot, runeId);
+		}
+	}
+
+	private Integer parseRuneIdOrNull(Object raw) {
+		if (raw == null) return null;
+		String s = String.valueOf(raw).trim();
+		if (s.isEmpty() || "null".equalsIgnoreCase(s)) return null;
+		try {
+			int id = (int) Double.parseDouble(s);
+			return id > 0 ? id : null;
+		} catch (Exception e) {
+			return null;
+		}
+	}
+
+	private Map<Integer, Integer> runeRequiredPiecesCache;
+
+	private Map<Integer, Integer> getRuneRequiredPiecesMap() {
+		if (runeRequiredPiecesCache == null) {
+			Map<Integer, Integer> map = new HashMap<>();
+			List<Map<String, ?>> rows = swMapper.selectRuneMasterList(new HashMap<>());
+			if (rows != null) {
+				for (Map<String, ?> row : rows) {
+					Object idObj = row.get("rune_id");
+					Object piecesObj = row.get("required_pieces");
+					if (idObj == null || piecesObj == null) continue;
+					map.put(((Number) idObj).intValue(), ((Number) piecesObj).intValue());
+				}
+			}
+			runeRequiredPiecesCache = map;
+		}
+		return runeRequiredPiecesCache;
 	}
 	
 	private Object firstNonNull(Object a, Object b) {
@@ -325,6 +444,9 @@ public class summonerswarServiceImpl implements summonerswarService {
 	@Override
 	public int updateRecommendedAttackDeckStats(Map<String, Object> param) {
 		if (param == null || param.get("deck_id") == null) return 0;
+		if (!validateDeckStatsRunesInParam(param)) {
+			return 0;
+		}
 		
 		// 몬스터 변경은 허용하지 않음: DB에서 공격 몬스터 ID를 가져와 그 몬스터에만 적용
 		Map<String, Object> q = new HashMap<>();
@@ -444,6 +566,27 @@ public class summonerswarServiceImpl implements summonerswarService {
 			return 0;
 		}
 		return swMapper.selectMonsterDetailTeamListCount(param);
+	}
+
+	@Override
+	public Map<String, ?> selectMonsterDetailRecentBattles(Map<String, Object> param) {
+		expandMonsterIdsToIncludeCollaborations(param);
+		if (missingDmIdLists(param)) {
+			Map<String, Object> map = new HashMap<>();
+			map.put("recentBattleList", Collections.emptyList());
+			map.put("recentBattleTotalCount", 0);
+			return map;
+		}
+		CompletableFuture<List<Map<String, ?>>> listFuture = CompletableFuture.supplyAsync(
+				() -> swMapper.selectMonsterDetailRecentBattles(param));
+		CompletableFuture<Integer> countFuture = CompletableFuture.supplyAsync(
+				() -> swMapper.selectMonsterDetailRecentBattlesCount(param));
+		List<Map<String, ?>> list = listFuture.join();
+		int totalCount = countFuture.join();
+		Map<String, Object> map = new HashMap<>();
+		map.put("recentBattleList", list);
+		map.put("recentBattleTotalCount", totalCount);
+		return map;
 	}
 	
 	@Override
@@ -623,28 +766,54 @@ public class summonerswarServiceImpl implements summonerswarService {
 
 	@Override
 	public ArenaRtaOrphanCleanupResult deleteArenaRtaOrphanChildrenGlobal() {
+		boolean fullScan = shouldRunOrphanFullScanToday();
+		String checkMode = fullScan ? "FULL" : "INCREMENTAL";
+		Long floorReplayId = null;
+		if (!fullScan) {
+			floorReplayId = swMapper.selectOrphanCheckFloorReplayId(
+					rtaOrphanCleanupProperties.getLookbackHours(),
+					rtaOrphanCleanupProperties.getReplayIdPadding());
+			if (floorReplayId == null) {
+				floorReplayId = 0L;
+			}
+		}
+		log.info("[orphan-cleanup] 점검 시작 mode={} floorReplayId={} lookbackHours={}",
+				checkMode, floorReplayId, rtaOrphanCleanupProperties.getLookbackHours());
+
 		int unitsDeleted = 0;
 		int participantsDeleted = 0;
 		int batches = 0;
 		long t0 = System.currentTimeMillis();
+		final long floor = floorReplayId != null ? floorReplayId : 0L;
 		for (int round = 1; round <= 50; round++) {
-			List<Long> orphanRids = swMapper.selectOrphanArenaReplayIds(ORPHAN_CLEANUP_REPLAY_ID_BATCH);
+			List<Long> orphanRids = fullScan
+					? swMapper.selectOrphanArenaReplayIds(ORPHAN_CLEANUP_REPLAY_ID_BATCH)
+					: swMapper.selectOrphanArenaReplayIdsSince(floor, ORPHAN_CLEANUP_REPLAY_ID_BATCH);
 			if (orphanRids == null || orphanRids.isEmpty()) {
 				break;
 			}
 			batches++;
 			unitsDeleted += swMapper.deleteArenaRtaOrphanUnitsByReplayIds(orphanRids);
 			participantsDeleted += swMapper.deleteArenaRtaOrphanUsersByReplayIds(orphanRids);
-			log.info("[orphan-cleanup] 라운드#{} replayIds={} 누적 unit={} participant={}",
-					round, orphanRids.size(), unitsDeleted, participantsDeleted);
+			log.info("[orphan-cleanup] 라운드#{} mode={} replayIds={} 누적 unit={} participant={}",
+					round, checkMode, orphanRids.size(), unitsDeleted, participantsDeleted);
 			if (orphanRids.size() < ORPHAN_CLEANUP_REPLAY_ID_BATCH) {
 				break;
 			}
 		}
-		log.info("[orphan-cleanup] 완료 batches={} unit={} participant={} total={} {}ms",
-				batches, unitsDeleted, participantsDeleted, unitsDeleted + participantsDeleted,
-				System.currentTimeMillis() - t0);
-		return new ArenaRtaOrphanCleanupResult(unitsDeleted, participantsDeleted, batches);
+		log.info("[orphan-cleanup] 완료 mode={} floorReplayId={} batches={} unit={} participant={} total={} {}ms",
+				checkMode, floorReplayId, batches, unitsDeleted, participantsDeleted,
+				unitsDeleted + participantsDeleted, System.currentTimeMillis() - t0);
+		return new ArenaRtaOrphanCleanupResult(unitsDeleted, participantsDeleted, batches, checkMode, floorReplayId);
+	}
+
+	private boolean shouldRunOrphanFullScanToday() {
+		int configuredDow = rtaOrphanCleanupProperties.getFullScanDayOfWeek();
+		if (configuredDow < 0) {
+			return false;
+		}
+		int todayDow = LocalDate.now(ZoneId.of("Asia/Seoul")).getDayOfWeek().getValue() % 7;
+		return todayDow == configuredDow;
 	}
 
 	private static Long normalizeLong(Object o) {
@@ -2222,6 +2391,12 @@ public class summonerswarServiceImpl implements summonerswarService {
 		return swMapper.deleteGuildSiegeInfoByMatchId(matchId);
 	}
 	
+	@Override
+	@Transactional(readOnly = true)
+	public List<Map<String, ?>> selectRuneMasterList() {
+		return swMapper.selectRuneMasterList(new HashMap<>());
+	}
+
 	@Override
 	@Cacheable(cacheNames = "monsterInfo", cacheManager = "monsterInfoCacheManager", key = "#monsterId")
 	public Map<String, ?> selectMonsterInfo(String monsterId) {

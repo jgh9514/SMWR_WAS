@@ -464,6 +464,16 @@
 		   end
 		   ,ugh.join_date asc
 	</select>
+
+	<update id="updateGuildMemberDisplayName" parameterType="sqlMap">
+		/* updateGuildMemberDisplayName */
+		UPDATE sys_user
+		   SET user_nm = #{user_nm}
+		      ,upt_user_id = #{sess_user_id}
+		      ,upt_date = CURRENT_TIMESTAMP
+		 WHERE user_id = #{user_id}
+		   AND del_yn = 'N'
+	</update>
 	
 	<!-- 첨부파일 목록 조회 -->
 	<select id="selectFileAttachmentList" parameterType="sqlMap" resultType="sqlMap">

@@ -131,5 +131,10 @@ public interface GuildService {
 	 * 사용자의 현재 길드 ID 업데이트
 	 */
 	public int updateUserCurrentGuildId(Map<String, Object> param);
+
+	/**
+	 * 길드 멤버 표시명 수정 (길드장/매니저)
+	 */
+	public int updateGuildMemberDisplayName(Map<String, Object> param);
 }
 

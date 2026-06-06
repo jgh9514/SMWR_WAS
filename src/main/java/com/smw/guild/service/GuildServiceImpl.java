@@ -728,5 +728,11 @@ public class GuildServiceImpl implements GuildService {
 	public int updateUserCurrentGuildId(Map<String, Object> param) {
 		return mapper.updateUserCurrentGuildId(param);
 	}
+
+	@Override
+	@Transactional
+	public int updateGuildMemberDisplayName(Map<String, Object> param) {
+		return mapper.updateGuildMemberDisplayName(param);
+	}
 }
 

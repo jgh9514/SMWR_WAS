@@ -23,5 +23,10 @@ public interface CommentService {
 	 * 댓글 삭제
 	 */
 	Map<String, Object> deleteComment(Map<String, Object> param);
+
+	/**
+	 * 댓글 추천/비추천
+	 */
+	Map<String, Object> voteComment(Map<String, Object> param);
 }
 

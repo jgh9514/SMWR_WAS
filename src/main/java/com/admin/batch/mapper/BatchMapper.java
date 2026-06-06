@@ -31,4 +31,8 @@ public interface BatchMapper {
 	/** RUNNING 고착 행을 ABORTED 로 정리. @return 갱신 건수 */
 	int abortStaleBatchRunHis(@Param("staleHours") int staleHours);
 
+	Long selectMaxRunSnByBatId(@Param("batId") Long batId);
+
+	String selectBatchRunHisResultCode(@Param("runSn") Long runSn);
+
 }

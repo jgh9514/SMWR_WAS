@@ -11,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.cf.community.mapper.InquiryMapper;
 import com.cf.notification.service.NotificationService;
+import com.sysconf.interceptor.SessionThread;
 import com.sysconf.security.AdminPrivilegeResolver;
 
 @Service
@@ -36,16 +37,7 @@ public class InquiryServiceImpl implements InquiryService {
 		int offset = (page - 1) * limit;
 		param.put("offset", offset);
 		
-		// 세션에서 사용자 정보 가져오기 (관리자 체크 및 자신의 문의만 조회)
-		// MyBatis interceptor에서 sess_user_id를 설정하므로, 여기서는 관리자 여부만 체크
-		// 관리자가 아니면 자신의 문의만 조회하도록 param에 user_id 설정
-		// TODO: 세션에서 관리자 여부 확인 로직 추가 필요 (role_id가 'RL0001'인지 확인)
-		// 현재는 관리자가 아닌 경우만 user_id를 설정하여 자신의 문의만 조회하도록 함
-		// param에 is_admin이 없거나 "N"이면 user_id를 sess_user_id로 설정
-		if (param.get("is_admin") == null || !"Y".equals(param.get("is_admin"))) {
-			// sess_user_id는 MyBatis interceptor에서 설정되므로, 여기서는 user_id만 설정
-			// param에 user_id가 없으면 sess_user_id를 사용 (XML에서 처리)
-		}
+		applySessionScope(param);
 		
 		List<Map<String, ?>> list = mapper.selectInquiryList(param);
 		int total = mapper.selectInquiryCount(param);
@@ -60,13 +52,23 @@ public class InquiryServiceImpl implements InquiryService {
 
 	@Override
 	public Map<String, ?> getInquiryDetail(Map<String, Object> param) {
-		return mapper.selectInquiryDtl(param);
+		Map<String, ?> detail = mapper.selectInquiryDtl(param);
+		if (detail == null || !canAccessInquiry(detail)) {
+			return null;
+		}
+		return detail;
 	}
 
 	@Override
 	@Transactional
 	public Map<String, Object> saveInquiry(Map<String, Object> param) {
 		Map<String, Object> result = new HashMap<>();
+
+		if (resolveSessUserId(SessionThread.SESSION_USER_INFO.get()) == null) {
+			result.put("result", "FAIL");
+			result.put("message", "로그인이 필요합니다.");
+			return result;
+		}
 		
 		mapper.insertInquiry(param);
 		result.put("result", "SUCCESS");
@@ -97,6 +99,12 @@ public class InquiryServiceImpl implements InquiryService {
 	@Transactional
 	public Map<String, Object> answerInquiry(Map<String, Object> param) {
 		Map<String, Object> result = new HashMap<>();
+
+		if (!isAdminSession()) {
+			result.put("result", "FAIL");
+			result.put("message", "답변 권한이 없습니다.");
+			return result;
+		}
 		
 		// 문의 상세 조회 (작성자 ID 확인용)
 		Map<String, ?> inquiry = mapper.selectInquiryDtl(param);
@@ -139,6 +147,8 @@ public class InquiryServiceImpl implements InquiryService {
 	@Transactional
 	public Map<String, Object> deleteInquiry(Map<String, Object> param) {
 		Map<String, Object> result = new HashMap<>();
+
+		applySessionScope(param);
 		
 		int count = mapper.deleteInquiry(param);
 		if (count > 0) {
@@ -149,6 +159,47 @@ public class InquiryServiceImpl implements InquiryService {
 		}
 		
 		return result;
+	}
+
+	private void applySessionScope(Map<String, Object> param) {
+		param.put("is_admin", isAdminSession() ? "Y" : "N");
+	}
+
+	private boolean isAdminSession() {
+		return adminPrivilegeResolver.isAdminUser(buildAdminCheckMap(SessionThread.SESSION_USER_INFO.get()));
+	}
+
+	private boolean canAccessInquiry(Map<String, ?> inquiry) {
+		if (isAdminSession()) {
+			return true;
+		}
+		String sessUserId = resolveSessUserId(SessionThread.SESSION_USER_INFO.get());
+		if (sessUserId == null) {
+			return false;
+		}
+		Object ownerId = inquiry.get("user_id");
+		return ownerId != null && sessUserId.equals(String.valueOf(ownerId));
+	}
+
+	private Map<String, Object> buildAdminCheckMap(Map<String, Object> userInfo) {
+		Map<String, Object> adminCheck = new HashMap<>();
+		if (userInfo == null) {
+			return adminCheck;
+		}
+		adminCheck.put("sess_user_id", userInfo.get("sess_user_id"));
+		adminCheck.put("roles", userInfo.get("sess_role"));
+		return adminCheck;
+	}
+
+	private String resolveSessUserId(Map<String, Object> userInfo) {
+		if (userInfo == null || userInfo.get("sess_user_id") == null) {
+			return null;
+		}
+		String uid = String.valueOf(userInfo.get("sess_user_id")).trim();
+		if (uid.isEmpty() || "ANONYMOUS".equals(uid)) {
+			return null;
+		}
+		return uid;
 	}
 }
 

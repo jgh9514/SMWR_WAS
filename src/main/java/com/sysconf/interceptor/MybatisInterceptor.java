@@ -66,7 +66,7 @@ public class MybatisInterceptor implements Interceptor {
 	@SuppressWarnings("unused")
 	private boolean resultTotalLogEnabled;
 
-	/** true: 관리 배치 API(/api/v1/batch) 처리 중에는 intercept start/end·siege 관련 DEBUG 생략 */
+	/** true: 관리 배치 API(/api/v1/batch) 처리 중 MybatisInterceptor DEBUG·SQL(inlined) 생략 */
 	@Value("${smw.mybatis.interceptor.silent-trace-on-batch-api:true}")
 	private boolean silentTraceOnBatchApi;
 
@@ -176,15 +176,16 @@ public class MybatisInterceptor implements Interceptor {
         return result;
     }
 
-	/** 배치 관리 API 요청 스레드에서는 DEBUG 노이즈 억제(로거 레벨은 그대로). */
+	/** 배치 관리 API 요청 스레드에서는 DEBUG·SQL(inlined) 노이즈 억제(로거 레벨은 그대로). */
+	private boolean suppressBatchManagementApiNoise() {
+		return silentTraceOnBatchApi && isBatchManagementApiRequest();
+	}
+
 	private boolean emitInterceptorTraceDebug() {
 		if (!log.isDebugEnabled()) {
 			return false;
 		}
-		if (silentTraceOnBatchApi && isBatchManagementApiRequest()) {
-			return false;
-		}
-		return true;
+		return !suppressBatchManagementApiNoise();
 	}
 
 	private static boolean isBatchManagementApiRequest() {
@@ -204,7 +205,7 @@ public class MybatisInterceptor implements Interceptor {
      * smw.mybatis.log.inline-sql=true 이면 ? 를 리터럴로 치환한 SQL 을 INFO 로 출력 (별도 로거 DEBUG 불필요).
      */
     private void logInlinedSql(MappedStatement ms, Object parameter) {
-        if (!inlineSqlLogEnabled) {
+        if (!inlineSqlLogEnabled || suppressBatchManagementApiNoise()) {
             return;
         }
         try {

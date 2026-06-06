@@ -32,6 +32,9 @@ public interface summonerswarService {
 	
 	/** 몬스터 상세 - 공성률 이력만 */
 	public Map<String, ?> selectMonsterDetailHistory(Map<String, Object> param);
+
+	/** 몬스터 상세 - 최근 전적 (개별 전투 로그) */
+	public Map<String, ?> selectMonsterDetailRecentBattles(Map<String, Object> param);
 	
 	public int selectMonsterDetailTeamListCount(Map<String, Object> param);
 	
@@ -180,5 +183,8 @@ public interface summonerswarService {
 	 * 몬스터 기본 정보 조회 (스탯, 스킬, 리더 포함)
 	 */
 	public Map<String, ?> selectMonsterInfo(String monsterId);
+
+	/** 룬 세트 마스터 목록 */
+	List<Map<String, ?>> selectRuneMasterList();
 	
 }

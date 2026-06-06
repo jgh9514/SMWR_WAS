@@ -30,6 +30,11 @@ public interface SwarfarmMonsterMapper {
     List<Integer> selectAllSwarfarmIds();
 
     /**
+     * Swarfarm ID별 이미지 스냅샷 (갱신 시 S3 재업로드 생략 판단용)
+     */
+    List<Map<String, Object>> selectSwarfarmImageSnapshots();
+
+    /**
      * 몬스터 캐시용 전체 조회 (monster_id, kr_name, image_url, monster_elemental)
      */
     List<Map<String, Object>> selectAllForCache();

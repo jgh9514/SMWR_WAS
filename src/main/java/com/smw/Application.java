@@ -19,6 +19,7 @@ import com.smw.monster.config.RtaExporterProperties;
 import com.smw.rta.config.BatchLogProperties;
 import com.smw.rta.config.RtaBatchProperties;
 import com.smw.rta.config.RtaDashboardProperties;
+import com.smw.rta.config.RtaOrphanCleanupProperties;
 import com.smw.rta.config.RtaRankCutValidationProperties;
 import com.smw.rta.config.RtaRawApplyProperties;
 import com.smw.rta.config.RtaStagingMergeProperties;
@@ -29,7 +30,7 @@ import com.sysconf.config.SessionListener;
 @EnableScheduling
 @EnableConfigurationProperties({ RtaExporterProperties.class, RtaBatchProperties.class, RtaRawApplyProperties.class,
 		RtaDashboardProperties.class, RtaStagingMergeProperties.class, RtaRankCutValidationProperties.class,
-		BatchLogProperties.class })
+		RtaOrphanCleanupProperties.class, BatchLogProperties.class })
 @MapperScan({
 		"com.smw.monster.mapper",
 		"com.smw.rta.mapper",

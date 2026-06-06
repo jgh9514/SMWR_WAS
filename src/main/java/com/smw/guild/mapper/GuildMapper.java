@@ -133,5 +133,10 @@ public interface GuildMapper {
 	 */
 	public int updateUserCurrentGuildId(Map<String, Object> param);
 
+	/**
+	 * 길드 멤버 표시명(user_nm) 수정
+	 */
+	public int updateGuildMemberDisplayName(Map<String, Object> param);
+
 }
 

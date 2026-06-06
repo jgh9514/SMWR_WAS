@@ -183,7 +183,7 @@ public class BatchController {
 		return new ResponseEntity<>(Constant.SUCCESS, HttpStatus.OK);
 	}
 
-	@Operation(summary = "배치 수동 실행", description = "선택한 배치 작업을 즉시 한 번 실행합니다.")
+	@Operation(summary = "배치 수동 실행", description = "선택한 배치를 트리거하고 Job 완료까지 동기 대기한 뒤 실행 로그를 반환합니다.")
 	@PostMapping("/run")
 	public ResponseEntity<?> runBatch(@RequestBody Map<String, Object> param) {
 		Map<String, Object> requestBody = param != null ? param : new HashMap<>();
@@ -206,14 +206,6 @@ public class BatchController {
 			jobData = parsedJobData;
 		}
 
-		Object rawStreamId = requestBody.get("stream_id");
-		if (rawStreamId != null && !String.valueOf(rawStreamId).isBlank()) {
-			if (jobData == null) {
-				jobData = new HashMap<>();
-			}
-			jobData.put("stream_id", String.valueOf(rawStreamId).trim());
-		}
-
 		if (!applicationContext.containsBean("batchConfig")) {
 			Map<String, Object> error = new HashMap<>();
 			error.put("result", Constant.FAIL);
@@ -222,16 +214,33 @@ public class BatchController {
 		}
 
 		BatchConfig batchConfig = (BatchConfig) applicationContext.getBean("batchConfig");
-		boolean executed = batchConfig.runOnce(jobKey, jobData);
+		com.admin.batch.ManualBatchRunOutcome outcome = batchConfig.runOnceAndWait(jobKey, jobData);
 
 		Map<String, Object> result = new HashMap<>();
-		result.put("result", executed ? Constant.SUCCESS : Constant.FAIL);
-		if (executed) {
-			result.put("message", "배치가 백그라운드에서 시작되었습니다. 완료 후 아래 실행 이력에서 결과(로그)를 확인하세요.");
-		} else {
+		if (!outcome.triggered()) {
+			result.put("result", Constant.FAIL);
 			result.put("message", "배치 트리거에 실패했습니다. job_key·배치 설정(job_class)을 확인하세요.");
+			return new ResponseEntity<>(result, HttpStatus.BAD_REQUEST);
 		}
-		return new ResponseEntity<>(result, executed ? HttpStatus.OK : HttpStatus.BAD_REQUEST);
+		if (outcome.runSn() != null) {
+			result.put("run_sn", outcome.runSn());
+		}
+		if (outcome.rsltCd() != null) {
+			result.put("rslt_cd", outcome.rsltCd());
+		}
+		if (outcome.rsltTxt() != null) {
+			result.put("rslt_txt", outcome.rsltTxt());
+		}
+		result.put("elapsed_ms", outcome.elapsedMs());
+		if (outcome.timedOut()) {
+			result.put("result", Constant.FAIL);
+			result.put("message", "배치 완료 대기 시간을 초과했습니다. 실행 이력(run_sn)에서 진행 상태를 확인하세요.");
+			return new ResponseEntity<>(result, HttpStatus.GATEWAY_TIMEOUT);
+		}
+		boolean success = "SUCCESS".equals(outcome.rsltCd());
+		result.put("result", success ? Constant.SUCCESS : Constant.FAIL);
+		result.put("message", success ? "배치가 완료되었습니다." : "배치가 실패했습니다.");
+		return new ResponseEntity<>(result, HttpStatus.OK);
 	}
 
 	@Operation(summary = "배치 실행 이력 목록", description = "배치 실행 이력을 조회합니다. 로그 본문은 미리보기(512자)만 포함하며, 전문은 /run-his/detail 을 사용합니다.")

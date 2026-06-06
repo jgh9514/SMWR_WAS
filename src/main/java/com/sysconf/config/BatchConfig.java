@@ -25,7 +25,9 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.event.EventListener;
 
+import com.admin.batch.ManualBatchRunOutcome;
 import com.admin.batch.mapper.BatchMapper;
+import com.smw.rta.config.BatchLogProperties;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -52,6 +54,9 @@ public class BatchConfig {
 	
 	@Autowired
 	private ApplicationContext applicationContext;
+
+	@Autowired
+	private BatchLogProperties batchLogProperties;
 	
 	@Value("${spring.profiles.active:}")
 	String profilesValue;
@@ -349,6 +354,93 @@ public class BatchConfig {
 			log.error("배치 수동 실행 중 오류가 발생했습니다. jobKey={}", jobKey, e);
 		}
 		return false;
+	}
+
+	/**
+	 * 수동 배치를 트리거한 뒤 {@code sys_batch_run_his} 가 종료 상태가 될 때까지 동기 대기한다.
+	 * (Quartz Job 은 기존과 같이 워커 Pod 에서 실행되며, API 스레드는 DB 이력만 폴링한다.)
+	 */
+	public ManualBatchRunOutcome runOnceAndWait(String jobKey, Map<String, Object> jobData) {
+		Long batId = parseBatId(jobKey);
+		if (batId == null) {
+			return ManualBatchRunOutcome.notTriggered();
+		}
+		long waitTimeoutMs = Math.max(60_000L, batchLogProperties.getManualRun().getWaitTimeoutMs());
+		long appearTimeoutMs = Math.max(5_000L, batchLogProperties.getManualRun().getAppearTimeoutMs());
+		long pollIntervalMs = Math.max(500L, batchLogProperties.getManualRun().getPollIntervalMs());
+
+		Long maxRunSnBefore = mapper.selectMaxRunSnByBatId(batId);
+		if (maxRunSnBefore == null) {
+			maxRunSnBefore = 0L;
+		}
+
+		Map<String, Object> triggerData = jobData == null ? null : new HashMap<>(jobData);
+		if (triggerData != null) {
+			triggerData.remove("stream_id");
+		}
+
+		long t0 = System.currentTimeMillis();
+		if (!runOnce(jobKey, triggerData)) {
+			return ManualBatchRunOutcome.notTriggered();
+		}
+
+		Long runSn = waitForNewRunSn(batId, maxRunSnBefore, appearTimeoutMs, pollIntervalMs);
+		if (runSn == null) {
+			log.warn("수동 배치 RUNNING 이력 미등록. batId={}, maxRunSnBefore={}", batId, maxRunSnBefore);
+			return new ManualBatchRunOutcome(true, false, true, null, null,
+					"배치 트리거 후 실행 이력(RUNNING)을 확인하지 못했습니다.", System.currentTimeMillis() - t0);
+		}
+
+		boolean completed = waitUntilRunFinished(runSn, waitTimeoutMs, pollIntervalMs);
+		Map<String, ?> detail = mapper.selectBatchRunHisDetail(runSn);
+		String rsltCd = detail != null && detail.get("rslt_cd") != null ? String.valueOf(detail.get("rslt_cd")) : null;
+		String rsltTxt = detail != null && detail.get("rslt_txt") != null ? String.valueOf(detail.get("rslt_txt")) : null;
+		long elapsedMs = System.currentTimeMillis() - t0;
+		if (!completed) {
+			log.warn("수동 배치 완료 대기 시간 초과. batId={}, runSn={}, rsltCd={}", batId, runSn, rsltCd);
+		} else {
+			log.info("수동 배치 동기 완료. batId={}, runSn={}, rsltCd={}, elapsedMs={}", batId, runSn, rsltCd, elapsedMs);
+		}
+		return new ManualBatchRunOutcome(true, completed, !completed, runSn, rsltCd, rsltTxt, elapsedMs);
+	}
+
+	private Long waitForNewRunSn(Long batId, long maxRunSnBefore, long appearTimeoutMs, long pollIntervalMs) {
+		long deadline = System.currentTimeMillis() + appearTimeoutMs;
+		while (System.currentTimeMillis() < deadline) {
+			Long currentMax = mapper.selectMaxRunSnByBatId(batId);
+			if (currentMax != null && currentMax > maxRunSnBefore) {
+				String rsltCd = mapper.selectBatchRunHisResultCode(currentMax);
+				if (rsltCd != null && !rsltCd.isBlank()) {
+					return currentMax;
+				}
+			}
+			sleepForPoll(pollIntervalMs);
+		}
+		return null;
+	}
+
+	private boolean waitUntilRunFinished(Long runSn, long waitTimeoutMs, long pollIntervalMs) {
+		long deadline = System.currentTimeMillis() + waitTimeoutMs;
+		while (System.currentTimeMillis() < deadline) {
+			String rsltCd = mapper.selectBatchRunHisResultCode(runSn);
+			if (rsltCd == null) {
+				return false;
+			}
+			if (!"RUNNING".equals(rsltCd)) {
+				return true;
+			}
+			sleepForPoll(pollIntervalMs);
+		}
+		return false;
+	}
+
+	private static void sleepForPoll(long pollIntervalMs) {
+		try {
+			Thread.sleep(pollIntervalMs);
+		} catch (InterruptedException ie) {
+			Thread.currentThread().interrupt();
+			throw new IllegalStateException("수동 배치 대기 중단", ie);
+		}
 	}
 
 	private Long parseBatId(String jobKey) {

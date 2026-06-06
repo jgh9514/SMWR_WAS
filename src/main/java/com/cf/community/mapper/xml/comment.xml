@@ -5,6 +5,7 @@
 
 	<!-- 댓글 목록 조회 -->
 	<select id="selectCommentList" resultType="map">
+		/* comment.selectCommentList */
 		SELECT 
 			c.comment_id,
 			c.board_type,
@@ -17,8 +18,27 @@
 			c.crt_date,
 			c.mdf_date,
 			c.crt_user_id,
-			c.mdf_user_id
+			c.mdf_user_id,
+			COALESCE(up.cnt, 0) AS recommend_count,
+			COALESCE(dn.cnt, 0) AS not_recommend_count,
+			mv.vote_type AS my_vote
 		FROM board_comment c
+		LEFT JOIN (
+			SELECT comment_id, COUNT(*) AS cnt
+			  FROM board_comment_vote
+			 WHERE vote_type = 'UP'
+			 GROUP BY comment_id
+		) up ON up.comment_id = c.comment_id
+		LEFT JOIN (
+			SELECT comment_id, COUNT(*) AS cnt
+			  FROM board_comment_vote
+			 WHERE vote_type = 'DOWN'
+			 GROUP BY comment_id
+		) dn ON dn.comment_id = c.comment_id
+		LEFT JOIN board_comment_vote mv
+		  ON mv.comment_id = c.comment_id
+		 AND #{sess_user_id} IS NOT NULL
+		 AND mv.user_id = #{sess_user_id}
 		WHERE c.board_type = #{board_type}
 		  AND c.board_id = cast(#{board_id} as varchar)
 		  AND c.del_yn = 'N'
@@ -104,6 +124,30 @@
 		  	OR #{sess_is_admin} = 'Y'
 		  )
 	</update>
+
+	<insert id="insertCommentVote">
+		/* comment.insertCommentVote */
+		INSERT INTO board_comment_vote (
+			comment_id,
+			user_id,
+			vote_type,
+			crt_date,
+			upt_date
+		) VALUES (
+			#{comment_id},
+			#{sess_user_id},
+			#{vote_type},
+			CURRENT_TIMESTAMP,
+			CURRENT_TIMESTAMP
+		)
+	</insert>
+
+	<delete id="deleteCommentVote">
+		/* comment.deleteCommentVote */
+		DELETE FROM board_comment_vote
+		 WHERE comment_id = #{comment_id}
+		   AND user_id = #{sess_user_id}
+	</delete>
 
 </mapper>
 

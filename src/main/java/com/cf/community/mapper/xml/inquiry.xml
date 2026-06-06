@@ -21,9 +21,16 @@
 		  left outer join SYS_USER tu on i.user_id = tu.user_id
 		  left outer join SYS_USER tu2 on i.answer_user_id = tu2.user_id
 		 where i.del_yn = 'N'
-		<if test='user_id != null and user_id != "" and is_admin != "Y"'>
-		   and i.user_id = #{user_id}
-		</if>
+		<choose>
+			<when test='is_admin == "Y"'>
+			</when>
+			<when test='sess_user_id != null and sess_user_id != ""'>
+		   and i.user_id = #{sess_user_id}
+			</when>
+			<otherwise>
+		   and 1 = 0
+			</otherwise>
+		</choose>
 		<if test='status != null and status != "" and status != "ALL"'>
 		   and i.status = #{status}
 		</if>
@@ -41,9 +48,16 @@
 		select count(1)
 		  from INQUIRY i
 		 where i.del_yn = 'N'
-		<if test='user_id != null and user_id != "" and is_admin != "Y"'>
-		   and i.user_id = #{user_id}
-		</if>
+		<choose>
+			<when test='is_admin == "Y"'>
+			</when>
+			<when test='sess_user_id != null and sess_user_id != ""'>
+		   and i.user_id = #{sess_user_id}
+			</when>
+			<otherwise>
+		   and 1 = 0
+			</otherwise>
+		</choose>
 		<if test='status != null and status != "" and status != "ALL"'>
 		   and i.status = #{status}
 		</if>
@@ -121,6 +135,9 @@
 			,upt_date = CURRENT_TIMESTAMP
 		where inquiry_id = #{inquiry_id}
 		  and del_yn = 'N'
+		<if test='is_admin != "Y"'>
+		  and user_id = #{sess_user_id}
+		</if>
 	</update>
 	
 </mapper>
