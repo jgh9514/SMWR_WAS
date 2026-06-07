@@ -129,6 +129,11 @@ public class summonerswarServiceImpl implements summonerswarService {
 	}
 	
 	@Override
+	@Transactional(readOnly = true)
+	@Cacheable(
+			cacheNames = "enemyTeamList",
+			cacheManager = "monsterDetailCacheManager",
+			keyGenerator = "monsterDetailKeyGenerator")
 	public List<Map<String, ?>> selectEnemyTeamList(Map<String, Object> param) {
 		expandMonsterIdsToIncludeCollaborations(param);
 		normalizeGuildIds(param);
@@ -153,6 +158,28 @@ public class summonerswarServiceImpl implements summonerswarService {
 		} catch (NumberFormatException e) {
 			return defaultVal;
 		}
+	}
+
+	private record PageSlice(List<Map<String, ?>> items, boolean hasNext) {}
+
+	/** COUNT 없이 limit+1 조회로 다음 페이지 존재 여부만 판별 */
+	private PageSlice fetchPageWithHasNext(
+			Map<String, Object> param,
+			String limitKey,
+			java.util.function.Function<Map<String, Object>, List<Map<String, ?>>> fetcher,
+			int defaultLimit) {
+		int limit = parsePositiveInt(param.get(limitKey), defaultLimit);
+		Map<String, Object> queryParam = new HashMap<>(param);
+		queryParam.put(limitKey, limit + 1);
+		List<Map<String, ?>> fetched = fetcher.apply(queryParam);
+		if (fetched == null || fetched.isEmpty()) {
+			return new PageSlice(Collections.emptyList(), false);
+		}
+		boolean hasNext = fetched.size() > limit;
+		List<Map<String, ?>> items = hasNext
+				? new ArrayList<>(fetched.subList(0, limit))
+				: fetched;
+		return new PageSlice(items, hasNext);
 	}
 	
 	/**
@@ -277,6 +304,10 @@ public class summonerswarServiceImpl implements summonerswarService {
 	}
 
 	@Override
+	@CacheEvict(
+			cacheNames = { "enemyTeamList", "monsterDetailBasic", "monsterDetailRecommended", "monsterDetailHistory", "monsterDetailRecentBattles" },
+			cacheManager = "monsterDetailCacheManager",
+			allEntries = true)
 	public int upsertSiegeDefenseDeckManual(Map<String, Object> param) {
 		return swMapper.upsertSiegeDefenseDeckManual(param);
 	}
@@ -527,15 +558,17 @@ public class summonerswarServiceImpl implements summonerswarService {
 	@Cacheable(cacheNames = "monsterDetailRecommended", cacheManager = "monsterDetailCacheManager", keyGenerator = "monsterDetailKeyGenerator")
 	public Map<String, ?> selectMonsterDetailRecommended(Map<String, Object> param) {
 		expandMonsterIdsToIncludeCollaborations(param);
-		CompletableFuture<List<Map<String, ?>>> listFuture = CompletableFuture.supplyAsync(
-				() -> swMapper.selectRecommendedAttackDeckList(param));
-		CompletableFuture<Integer> countFuture = CompletableFuture.supplyAsync(
-				() -> swMapper.selectRecommendedAttackDeckListCount(param));
-		List<Map<String, ?>> recommendedList = listFuture.join();
-		int recommendedTotalCount = countFuture.join();
+		if (missingDmIdLists(param)) {
+			Map<String, Object> map = new HashMap<>();
+			map.put("recommendedList", Collections.emptyList());
+			map.put("recommendedHasNext", false);
+			return map;
+		}
+		PageSlice slice = fetchPageWithHasNext(
+				param, "recommendedLimit", swMapper::selectRecommendedAttackDeckList, 5);
 		Map<String, Object> map = new HashMap<>();
-		map.put("recommendedList", recommendedList);
-		map.put("recommendedTotalCount", recommendedTotalCount);
+		map.put("recommendedList", slice.items());
+		map.put("recommendedHasNext", slice.hasNext());
 		return map;
 	}
 
@@ -546,19 +579,15 @@ public class summonerswarServiceImpl implements summonerswarService {
 		if (missingDmIdLists(param)) {
 			Map<String, Object> map = new HashMap<>();
 			map.put("historyList", Collections.emptyList());
-			map.put("historyTotalCount", 0);
+			map.put("historyHasNext", false);
 			return map;
 		}
 
-		CompletableFuture<List<Map<String, ?>>> listFuture = CompletableFuture.supplyAsync(
-				() -> swMapper.selectMonsterDetailTeamList(param));
-		CompletableFuture<Integer> countFuture = CompletableFuture.supplyAsync(
-				() -> swMapper.selectMonsterDetailTeamListCount(param));
-		List<Map<String, ?>> historyList = listFuture.join();
-		int historyTotalCount = countFuture.join();
+		PageSlice slice = fetchPageWithHasNext(
+				param, "historyLimit", swMapper::selectMonsterDetailTeamList, 10);
 		Map<String, Object> map = new HashMap<>();
-		map.put("historyList", historyList);
-		map.put("historyTotalCount", historyTotalCount);
+		map.put("historyList", slice.items());
+		map.put("historyHasNext", slice.hasNext());
 		return map;
 	}
 	
@@ -582,14 +611,14 @@ public class summonerswarServiceImpl implements summonerswarService {
 		if (missingDmIdLists(param)) {
 			Map<String, Object> map = new HashMap<>();
 			map.put("recentBattleList", Collections.emptyList());
-			map.put("recentBattleTotalCount", 0);
+			map.put("recentBattleHasNext", false);
 			return map;
 		}
-		List<Map<String, ?>> list = swMapper.selectMonsterDetailRecentBattles(param);
-		int totalCount = swMapper.selectMonsterDetailRecentBattlesCount(param);
+		PageSlice slice = fetchPageWithHasNext(
+				param, "recentLimit", swMapper::selectMonsterDetailRecentBattles, 10);
 		Map<String, Object> map = new HashMap<>();
-		map.put("recentBattleList", list);
-		map.put("recentBattleTotalCount", totalCount);
+		map.put("recentBattleList", slice.items());
+		map.put("recentBattleHasNext", slice.hasNext());
 		return map;
 	}
 	

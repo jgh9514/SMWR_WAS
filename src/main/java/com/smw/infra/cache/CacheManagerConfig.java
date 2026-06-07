@@ -79,7 +79,7 @@ public class CacheManagerConfig {
         return cacheManager;
     }
 
-    /** 몬스터 상세(상성·추천·히스토리) — view_battle_deck_info 풀스캔 비용이 크므로 10분 캐시. */
+    /** 몬스터 상세(상성·추천·히스토리) + 점령 목록 — view_battle_deck_info·agg 비용이 크므로 10분 캐시. */
     @Bean("monsterDetailCacheManager")
     public CacheManager monsterDetailCacheManager() {
         CaffeineCacheManager cacheManager = new CaffeineCacheManager();
@@ -87,10 +87,11 @@ public class CacheManagerConfig {
                 "monsterDetailBasic",
                 "monsterDetailRecommended",
                 "monsterDetailHistory",
-                "monsterDetailRecentBattles"
+                "monsterDetailRecentBattles",
+                "enemyTeamList"
         ));
         cacheManager.setCaffeine(Caffeine.newBuilder()
-                .maximumSize(300)
+                .maximumSize(500)
                 .expireAfterWrite(java.time.Duration.ofMinutes(10))
                 .recordStats());
         return cacheManager;

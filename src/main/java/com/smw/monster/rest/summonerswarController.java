@@ -14,6 +14,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -374,9 +375,14 @@ public class summonerswarController {
     @SuppressWarnings("unchecked")
 	@PostMapping("/siege-upload")
     @Transactional
-    @CacheEvict(cacheNames = {
-            "guildSiegeHistory", "guildSiegeHistoryCount", "battleRecordList", "battleRecordDetail"
-    }, cacheManager = "shortLivedCacheManager", allEntries = true)
+    @Caching(evict = {
+            @CacheEvict(cacheNames = {
+                    "guildSiegeHistory", "guildSiegeHistoryCount", "battleRecordList", "battleRecordDetail"
+            }, cacheManager = "shortLivedCacheManager", allEntries = true),
+            @CacheEvict(cacheNames = {
+                    "enemyTeamList", "monsterDetailBasic", "monsterDetailRecommended", "monsterDetailHistory", "monsterDetailRecentBattles"
+            }, cacheManager = "monsterDetailCacheManager", allEntries = true)
+    })
     public ResponseEntity<?> saveSiegeData(@RequestBody Map<String, Object> param, HttpSession session, HttpServletRequest request) {
     	Map<String, Object> p = param != null ? param : new HashMap<>();
     	ResponseEntity<?> guard = requireLoginAndGuild(request, p);
