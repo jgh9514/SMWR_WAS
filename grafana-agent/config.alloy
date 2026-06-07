@@ -16,7 +16,7 @@ prometheus.remote_write "grafana_cloud" {
     url = "https://prometheus-prod-ap-northeast-0-prod-ap-northeast-0.grafana.net/api/prom/push"
 
     basic_auth {
-      username = "2489437"                          // Grafana Cloud stack 의 Prometheus username
+      username = "2489437"                          // Prometheus 인스턴스 ID (Grafana UI https://sjrtjr3150.grafana.net 과 별개)
       password = env("GRAFANA_CLOUD_TOKEN")         // glc_... 토큰 — 환경변수로만 주입
     }
   }

@@ -316,7 +316,7 @@ smw:
   grafana:
     cloud:
       enabled: ${SMW_GRAFANA_CLOUD_ENABLED:false}
-      base-url: ${SMW_GRAFANA_CLOUD_BASE_URL:https://2489437.grafana.net}
+      base-url: ${SMW_GRAFANA_CLOUD_BASE_URL:https://sjrtjr3150.grafana.net}
       access-token: ${SMW_GRAFANA_CLOUD_ACCESS_TOKEN:}
       dashboards:
         - id: smwr

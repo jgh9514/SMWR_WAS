@@ -162,17 +162,17 @@ spec:
           value: "8192"
         - name: OTEL_RESOURCE_ATTRIBUTES
           value: "deployment.environment=production,service.namespace=smwr"
-        # Grafana Cloud iframe 프록시 (Cloud Access Policy glsa — Secret만)
+        # Grafana Cloud iframe 프록시 (Service Account glsa — Secret만)
         - name: SMW_GRAFANA_CLOUD_ENABLED
           value: "true"
         - name: SMW_GRAFANA_CLOUD_BASE_URL
-          value: "https://2489437.grafana.net"
+          value: "https://sjrtjr3150.grafana.net"
         - name: SMW_GRAFANA_CLOUD_ACCESS_TOKEN
           valueFrom:
             secretKeyRef:
               name: smw-grafana-secret
               key: access-token
-              optional: true
+              optional: false
         # API Pod: Quartz 크론은 smw-batch에서만. JDBC 클러스터 trigger-only로 수동 실행 → batch Pod 실행.
         - name: SMW_BATCH_QUARTZ_ENABLED
           value: "false"

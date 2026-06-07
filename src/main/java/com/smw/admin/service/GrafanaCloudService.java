@@ -63,6 +63,11 @@ public class GrafanaCloudService {
 				.connectTimeout(Duration.ofMillis(Math.max(1_000, properties.getConnectTimeoutMs())))
 				.followRedirects(HttpClient.Redirect.NEVER)
 				.build();
+		if (properties.isConfigured()) {
+			log.info("[grafana] embed enabled baseUrl={}", properties.normalizedBaseUrl());
+		} else {
+			log.info("[grafana] embed disabled: {}", properties.configureStatusHint());
+		}
 	}
 
 	public GrafanaEmbedConfigResponse getEmbedConfig() {
@@ -82,7 +87,7 @@ public class GrafanaCloudService {
 		if (!properties.isConfigured()) {
 			return GrafanaEmbedConfigResponse.builder()
 					.enabled(false)
-					.message("Grafana Cloud가 비활성화되었거나 base-url·access-token이 설정되지 않았습니다.")
+					.message(properties.configureStatusHint())
 					.dashboards(Collections.emptyList())
 					.build();
 		}

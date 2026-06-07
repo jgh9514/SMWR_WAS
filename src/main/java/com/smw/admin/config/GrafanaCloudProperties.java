@@ -15,7 +15,7 @@ public class GrafanaCloudProperties {
 
 	private boolean enabled = false;
 
-	/** Grafana Cloud 스택 URL (예: https://yourstack.grafana.net) */
+	/** Grafana Cloud 스택 UI URL (예: https://sjrtjr3150.grafana.net). Prometheus instance ID(2489437 등)와 혼동 금지 */
 	private String baseUrl = "";
 
 	/** Grafana 스택 Service Account 토큰 (glsa_...) — HTTP API·대시보드 프록시. Cloud Access Policy(otel/metrics) 토큰과 다름 */
@@ -42,6 +42,20 @@ public class GrafanaCloudProperties {
 		return enabled
 				&& baseUrl != null && !baseUrl.isBlank()
 				&& accessToken != null && !accessToken.isBlank();
+	}
+
+	/** 비활성 원인 — 토큰 값은 노출하지 않음 */
+	public String configureStatusHint() {
+		if (!enabled) {
+			return "SMW_GRAFANA_CLOUD_ENABLED=false (true 로 설정 필요)";
+		}
+		if (baseUrl == null || baseUrl.isBlank()) {
+			return "SMW_GRAFANA_CLOUD_BASE_URL 미설정";
+		}
+		if (accessToken == null || accessToken.isBlank()) {
+			return "SMW_GRAFANA_CLOUD_ACCESS_TOKEN 미설정 — K8s: smw-grafana-secret/access-token + rollout restart, 로컬: IDE 환경변수 또는 SMWR_WAS/.env";
+		}
+		return "";
 	}
 
 	public String normalizedBaseUrl() {
