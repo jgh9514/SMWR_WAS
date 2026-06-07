@@ -572,6 +572,11 @@ public class summonerswarServiceImpl implements summonerswarService {
 	}
 
 	@Override
+	@Transactional(readOnly = true)
+	@Cacheable(
+			cacheNames = "monsterDetailRecentBattles",
+			cacheManager = "monsterDetailCacheManager",
+			keyGenerator = "monsterDetailKeyGenerator")
 	public Map<String, ?> selectMonsterDetailRecentBattles(Map<String, Object> param) {
 		expandMonsterIdsToIncludeCollaborations(param);
 		if (missingDmIdLists(param)) {
@@ -580,12 +585,8 @@ public class summonerswarServiceImpl implements summonerswarService {
 			map.put("recentBattleTotalCount", 0);
 			return map;
 		}
-		CompletableFuture<List<Map<String, ?>>> listFuture = CompletableFuture.supplyAsync(
-				() -> swMapper.selectMonsterDetailRecentBattles(param));
-		CompletableFuture<Integer> countFuture = CompletableFuture.supplyAsync(
-				() -> swMapper.selectMonsterDetailRecentBattlesCount(param));
-		List<Map<String, ?>> list = listFuture.join();
-		int totalCount = countFuture.join();
+		List<Map<String, ?>> list = swMapper.selectMonsterDetailRecentBattles(param);
+		int totalCount = swMapper.selectMonsterDetailRecentBattlesCount(param);
 		Map<String, Object> map = new HashMap<>();
 		map.put("recentBattleList", list);
 		map.put("recentBattleTotalCount", totalCount);

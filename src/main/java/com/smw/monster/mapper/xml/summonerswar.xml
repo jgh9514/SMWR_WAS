@@ -1019,6 +1019,30 @@
 		</choose>
 	</select>
 	
+	<!-- 최근 전적 공통 FROM·WHERE (dm*_list — vbdi 인덱스 활용) -->
+	<sql id="siegeMonsterDetailRecentBattlesFrom">
+		  FROM view_battle_deck_info def_d
+		  INNER JOIN view_battle_deck_info atk_d
+		          ON def_d.match_id = atk_d.match_id
+		         AND def_d.log_timestamp = atk_d.log_timestamp
+		         AND atk_d.type = 'attack'
+		  INNER JOIN battle_log_list bll
+		          ON def_d.match_id = bll.match_id
+		         AND def_d.log_timestamp = bll.log_timestamp
+	</sql>
+
+	<sql id="siegeMonsterDetailRecentBattlesWhere">
+		 WHERE def_d.type = 'defense'
+		   AND def_d.monster_id_1 IN (${dm1_list})
+		   <if test="dm2_list != null and dm2_list != ''">AND LEAST(def_d.monster_id_2, def_d.monster_id_3) IN (${dm2_list})</if>
+		   <if test="dm3_list != null and dm3_list != ''">AND GREATEST(def_d.monster_id_2, def_d.monster_id_3) IN (${dm3_list})</if>
+		   <include refid="siegeGuildFilter"><property name="col" value="bll.guild_id"/></include>
+		   <include refid="siegeSeasonFilterMatchIdPrefix"><property name="matchIdCol" value="bll.match_id"/></include>
+		   <if test='match_id != null and match_id != "" and match_id != "null"'>
+		     AND def_d.match_id = #{match_id}
+		   </if>
+	</sql>
+
 	<select id="selectMonsterDetailRecentBattles" parameterType="sqlMap" resultType="sqlMap">
 		/* selectMonsterDetailRecentBattles */
 		SELECT bll.log_timestamp
@@ -1030,29 +1054,15 @@
 		     , m1.image_url AS atk_image_url1
 		     , m2.image_url AS atk_image_url2
 		     , m3.image_url AS atk_image_url3
-		  FROM view_battle_deck_info def_d
-		  JOIN view_battle_deck_info atk_d ON def_d.match_id = atk_d.match_id
-		                                  AND def_d.log_timestamp = atk_d.log_timestamp
-		                                  AND atk_d.type = 'attack'
-		  JOIN battle_log_list bll ON def_d.match_id = bll.match_id
-		                          AND def_d.log_timestamp = bll.log_timestamp
+		<include refid="siegeMonsterDetailRecentBattlesFrom"/>
 		  LEFT JOIN guild_siege_battle_log gsbl_atk ON bll.match_id = gsbl_atk.match_id
 		                                           AND bll.guild_id = gsbl_atk.guild_id
 		  LEFT JOIN guild_siege_battle_log gsbl_def ON bll.match_id = gsbl_def.match_id
 		                                           AND bll.opp_guild_id = gsbl_def.guild_id
-		  LEFT JOIN monster_collaboration_mapping mcm1 ON atk_d.monster_id_1 = mcm1.collaboration_monster_id
-		  LEFT JOIN monster_collaboration_mapping mcm2 ON atk_d.monster_id_2 = mcm2.collaboration_monster_id
-		  LEFT JOIN monster_collaboration_mapping mcm3 ON atk_d.monster_id_3 = mcm3.collaboration_monster_id
-		  LEFT JOIN monster m1 ON COALESCE(mcm1.original_monster_id, atk_d.monster_id_1) = m1.monster_id
-		  LEFT JOIN monster m2 ON COALESCE(mcm2.original_monster_id, atk_d.monster_id_2) = m2.monster_id
-		  LEFT JOIN monster m3 ON COALESCE(mcm3.original_monster_id, atk_d.monster_id_3) = m3.monster_id
-		 WHERE def_d.type = 'defense'
-		   <include refid="siegeDefenseDeckFilterVbdiNorm"><property name="defAlias" value="def_d"/></include>
-		   <include refid="siegeGuildFilter"><property name="col" value="bll.guild_id"/></include>
-		   <include refid="siegeSeasonFilterMatchIdPrefix"><property name="matchIdCol" value="bll.match_id"/></include>
-		   <if test='match_id != null and match_id != "" and match_id != "null"'>
-		     AND def_d.match_id = #{match_id}
-		   </if>
+		  LEFT JOIN monster m1 ON atk_d.monster_id_1 = m1.monster_id
+		  LEFT JOIN monster m2 ON atk_d.monster_id_2 = m2.monster_id
+		  LEFT JOIN monster m3 ON atk_d.monster_id_3 = m3.monster_id
+		<include refid="siegeMonsterDetailRecentBattlesWhere"/>
 		 ORDER BY bll.log_timestamp DESC
 		 <if test="recentLimit != null and recentLimit != ''">LIMIT #{recentLimit}::bigint</if>
 		 <if test="recentLimit == null or recentLimit == ''">LIMIT 10</if>
@@ -1062,19 +1072,8 @@
 	<select id="selectMonsterDetailRecentBattlesCount" parameterType="sqlMap" resultType="Int">
 		/* selectMonsterDetailRecentBattlesCount */
 		SELECT COUNT(*)
-		  FROM view_battle_deck_info def_d
-		  JOIN view_battle_deck_info atk_d ON def_d.match_id = atk_d.match_id
-		                                  AND def_d.log_timestamp = atk_d.log_timestamp
-		                                  AND atk_d.type = 'attack'
-		  JOIN battle_log_list bll ON def_d.match_id = bll.match_id
-		                          AND def_d.log_timestamp = bll.log_timestamp
-		 WHERE def_d.type = 'defense'
-		   <include refid="siegeDefenseDeckFilterVbdiNorm"><property name="defAlias" value="def_d"/></include>
-		   <include refid="siegeGuildFilter"><property name="col" value="bll.guild_id"/></include>
-		   <include refid="siegeSeasonFilterMatchIdPrefix"><property name="matchIdCol" value="bll.match_id"/></include>
-		   <if test='match_id != null and match_id != "" and match_id != "null"'>
-		     AND def_d.match_id = #{match_id}
-		   </if>
+		<include refid="siegeMonsterDetailRecentBattlesFrom"/>
+		<include refid="siegeMonsterDetailRecentBattlesWhere"/>
 	</select>
 
 	<select id="selectGuildMatchCheck" parameterType="sqlMap" resultType="sqlMap">

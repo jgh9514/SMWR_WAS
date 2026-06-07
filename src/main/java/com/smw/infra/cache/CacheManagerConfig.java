@@ -86,7 +86,8 @@ public class CacheManagerConfig {
         cacheManager.setCacheNames(List.of(
                 "monsterDetailBasic",
                 "monsterDetailRecommended",
-                "monsterDetailHistory"
+                "monsterDetailHistory",
+                "monsterDetailRecentBattles"
         ));
         cacheManager.setCaffeine(Caffeine.newBuilder()
                 .maximumSize(300)

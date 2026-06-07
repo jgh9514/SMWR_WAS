@@ -18,7 +18,7 @@ public class GrafanaCloudProperties {
 	/** Grafana Cloud 스택 URL (예: https://yourstack.grafana.net) */
 	private String baseUrl = "";
 
-	/** Cloud Access Policy 토큰 (glsa_...) — 환경변수·Secret만 */
+	/** Grafana 스택 Service Account 토큰 (glsa_...) — HTTP API·대시보드 프록시. Cloud Access Policy(otel/metrics) 토큰과 다름 */
 	private String accessToken = "";
 
 	private int connectTimeoutMs = 10_000;
