@@ -315,7 +315,7 @@ smw:
       api-slow-rate-critical-percent: ${SMW_OPS_API_SLOW_RATE_CRITICAL_PERCENT:15}
   grafana:
     cloud:
-      enabled: ${SMW_GRAFANA_CLOUD_ENABLED:false}
+      enabled: ${SMW_GRAFANA_CLOUD_ENABLED:true}
       base-url: ${SMW_GRAFANA_CLOUD_BASE_URL:https://sjrtjr3150.grafana.net}
       access-token: ${SMW_GRAFANA_CLOUD_ACCESS_TOKEN:}
       dashboards:
