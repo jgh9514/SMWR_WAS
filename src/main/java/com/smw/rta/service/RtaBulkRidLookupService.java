@@ -1,6 +1,7 @@
 package com.smw.rta.service;
 
 import java.sql.Connection;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -69,9 +70,64 @@ public class RtaBulkRidLookupService {
 					rids.size(), result.size(), System.currentTimeMillis() - t0);
 			return result;
 		} catch (Exception e) {
+			if (isTempTableStorageFailure(e)) {
+				log.warn("[rta-bulk-rid] selectExistingReplayIds temp-table 경로 실패, ANY fallback 시도: {}",
+						e.getMessage());
+				return selectExistingReplayIdsFallback(rids, t0);
+			}
 			log.error("[rta-bulk-rid] selectExistingReplayIds 실패: {}", e.getMessage(), e);
 			throw new IllegalStateException("selectExistingReplayIds via temp table failed", e);
 		}
+	}
+
+	private Set<Long> selectExistingReplayIdsFallback(Collection<Long> rids, long t0) {
+		List<Long> sorted = new ArrayList<>(new HashSet<>(rids));
+		Collections.sort(sorted);
+		final int chunkSize = 2_000;
+		Set<Long> result = new HashSet<>();
+		try (Connection conn = dataSource.getConnection()) {
+			for (int from = 0; from < sorted.size(); from += chunkSize) {
+				List<Long> sub = sorted.subList(from, Math.min(from + chunkSize, sorted.size()));
+				Long[] arr = sub.toArray(new Long[0]);
+				try (PreparedStatement ps = conn.prepareStatement(
+						"SELECT m.replay_id FROM public.rta_match m WHERE m.replay_id = ANY (?::bigint[])")) {
+					ps.setArray(1, conn.createArrayOf("bigint", arr));
+					try (ResultSet rs = ps.executeQuery()) {
+						while (rs.next()) {
+							result.add(rs.getLong(1));
+						}
+					}
+				}
+			}
+			log.warn("[rta-bulk-rid] selectExistingReplayIds fallback 성공 rids={} found={} {}ms",
+					rids.size(), result.size(), System.currentTimeMillis() - t0);
+			return result;
+		} catch (Exception fallbackError) {
+			log.error("[rta-bulk-rid] selectExistingReplayIds fallback 실패: {}",
+					fallbackError.getMessage(), fallbackError);
+			throw new IllegalStateException("selectExistingReplayIds fallback failed", fallbackError);
+		}
+	}
+
+	private static boolean isTempTableStorageFailure(Throwable t) {
+		for (Throwable c = t; c != null; c = c.getCause()) {
+			if (c instanceof SQLException sql) {
+				String state = sql.getSQLState();
+				if ("53100".equals(state) || "53200".equals(state)) {
+					return true;
+				}
+			}
+			String msg = c.getMessage();
+			if (msg != null) {
+				String lower = msg.toLowerCase();
+				if (lower.contains("could not extend file")
+						|| lower.contains("no space left on device")
+						|| lower.contains("disk full")) {
+					return true;
+				}
+			}
+		}
+		return false;
 	}
 
 	/**

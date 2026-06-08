@@ -27,6 +27,7 @@ import java.util.Set;
 import java.util.Locale;
 import java.util.TreeSet;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Supplier;
 
 import javax.sql.DataSource;
 
@@ -796,6 +797,7 @@ public class summonerswarServiceImpl implements summonerswarService {
 	}
 
 	private static final int ORPHAN_CLEANUP_REPLAY_ID_BATCH = 2_000;
+	private static final int ORPHAN_CLEANUP_INFRA_RETRY_MAX = 3;
 
 	@Override
 	public ArenaRtaOrphanCleanupResult deleteArenaRtaOrphanChildrenGlobal() {
@@ -817,17 +819,33 @@ public class summonerswarServiceImpl implements summonerswarService {
 		int participantsDeleted = 0;
 		int batches = 0;
 		long t0 = System.currentTimeMillis();
-		final long floor = floorReplayId != null ? floorReplayId : 0L;
+		long scanFloorReplayId = floorReplayId != null ? floorReplayId : 0L;
 		for (int round = 1; round <= 50; round++) {
-			List<Long> orphanRids = fullScan
-					? swMapper.selectOrphanArenaReplayIds(ORPHAN_CLEANUP_REPLAY_ID_BATCH)
-					: swMapper.selectOrphanArenaReplayIdsSince(floor, ORPHAN_CLEANUP_REPLAY_ID_BATCH);
+			List<Long> orphanRids;
+			if (fullScan) {
+				orphanRids = executeOrphanCleanupInfraRetry(
+						"selectOrphanArenaReplayIds",
+						() -> swMapper.selectOrphanArenaReplayIds(ORPHAN_CLEANUP_REPLAY_ID_BATCH));
+			} else {
+				final long queryFloor = scanFloorReplayId;
+				orphanRids = executeOrphanCleanupInfraRetry(
+						"selectOrphanArenaReplayIdsSince",
+						() -> swMapper.selectOrphanArenaReplayIdsSince(queryFloor, ORPHAN_CLEANUP_REPLAY_ID_BATCH));
+			}
 			if (orphanRids == null || orphanRids.isEmpty()) {
 				break;
 			}
 			batches++;
-			unitsDeleted += swMapper.deleteArenaRtaOrphanUnitsByReplayIds(orphanRids);
-			participantsDeleted += swMapper.deleteArenaRtaOrphanUsersByReplayIds(orphanRids);
+			unitsDeleted += executeOrphanCleanupInfraRetry(
+					"deleteArenaRtaOrphanUnitsByReplayIds",
+					() -> swMapper.deleteArenaRtaOrphanUnitsByReplayIds(orphanRids));
+			participantsDeleted += executeOrphanCleanupInfraRetry(
+					"deleteArenaRtaOrphanUsersByReplayIds",
+					() -> swMapper.deleteArenaRtaOrphanUsersByReplayIds(orphanRids));
+			long maxReplayIdInBatch = orphanRids.get(orphanRids.size() - 1);
+			if (maxReplayIdInBatch < Long.MAX_VALUE) {
+				scanFloorReplayId = Math.max(scanFloorReplayId, maxReplayIdInBatch + 1L);
+			}
 			log.info("[orphan-cleanup] 라운드#{} mode={} replayIds={} 누적 unit={} participant={}",
 					round, checkMode, orphanRids.size(), unitsDeleted, participantsDeleted);
 			if (orphanRids.size() < ORPHAN_CLEANUP_REPLAY_ID_BATCH) {
@@ -838,6 +856,22 @@ public class summonerswarServiceImpl implements summonerswarService {
 				checkMode, floorReplayId, batches, unitsDeleted, participantsDeleted,
 				unitsDeleted + participantsDeleted, System.currentTimeMillis() - t0);
 		return new ArenaRtaOrphanCleanupResult(unitsDeleted, participantsDeleted, batches, checkMode, floorReplayId);
+	}
+
+	private <T> T executeOrphanCleanupInfraRetry(String action, Supplier<T> callback) {
+		int attempt = 0;
+		while (true) {
+			try {
+				return callback.get();
+			} catch (Exception e) {
+				if (!isRawMarkInfraRetryable(e) || ++attempt >= ORPHAN_CLEANUP_INFRA_RETRY_MAX) {
+					throw e;
+				}
+				log.warn("[orphan-cleanup] {} 재시도 {}/{}: {}",
+						action, attempt, ORPHAN_CLEANUP_INFRA_RETRY_MAX, e.getMessage());
+				sleepQuietMs(500L * attempt);
+			}
+		}
 	}
 
 	private boolean shouldRunOrphanFullScanToday() {

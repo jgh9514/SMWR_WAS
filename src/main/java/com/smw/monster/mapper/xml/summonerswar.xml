@@ -1461,47 +1461,50 @@
 	</select>
 
 	<select id="selectOrphanArenaReplayIdsSince" resultType="long">
-		/* summonerswar.selectOrphanArenaReplayIdsSince — replay_id 바닥 이상 구간만 EXCEPT (일일 점검) */
-		SELECT o.replay_id
+		/* summonerswar.selectOrphanArenaReplayIdsSince — replay_id 바닥 이상 구간 anti-join (일일 점검) */
+		SELECT DISTINCT o.replay_id
 		FROM (
-			SELECT child.replay_id
-			FROM (
-				SELECT u.replay_id
-				FROM public.rta_match_unit_pick u
-				WHERE u.replay_id &gt;= #{floorReplayId}
-				GROUP BY u.replay_id
-				UNION
-				SELECT p.replay_id
-				FROM public.rta_match_participant p
-				WHERE p.replay_id &gt;= #{floorReplayId}
-				GROUP BY p.replay_id
-			) child
-			EXCEPT
-			SELECT m.replay_id
-			FROM public.rta_match m
-			WHERE m.replay_id &gt;= #{floorReplayId}
+			SELECT u.replay_id
+			FROM public.rta_match_unit_pick u
+			WHERE u.replay_id &gt;= #{floorReplayId}
+			  AND NOT EXISTS (
+					SELECT 1
+					FROM public.rta_match m
+					WHERE m.replay_id = u.replay_id
+				)
+			UNION ALL
+			SELECT p.replay_id
+			FROM public.rta_match_participant p
+			WHERE p.replay_id &gt;= #{floorReplayId}
+			  AND NOT EXISTS (
+					SELECT 1
+					FROM public.rta_match m
+					WHERE m.replay_id = p.replay_id
+				)
 		) o
 		ORDER BY o.replay_id
 		LIMIT #{limit}
 	</select>
 
 	<select id="selectOrphanArenaReplayIds" resultType="long">
-		/* summonerswar.selectOrphanArenaReplayIds — 전수 DISTINCT+EXCEPT (주간·레거시 점검) */
-		SELECT o.replay_id
+		/* summonerswar.selectOrphanArenaReplayIds — 전수 anti-join (주간·레거시 점검) */
+		SELECT DISTINCT o.replay_id
 		FROM (
-			SELECT child.replay_id
-			FROM (
-				SELECT u.replay_id
-				FROM public.rta_match_unit_pick u
-				GROUP BY u.replay_id
-				UNION
-				SELECT p.replay_id
-				FROM public.rta_match_participant p
-				GROUP BY p.replay_id
-			) child
-			EXCEPT
-			SELECT m.replay_id
-			FROM public.rta_match m
+			SELECT u.replay_id
+			FROM public.rta_match_unit_pick u
+			WHERE NOT EXISTS (
+				SELECT 1
+				FROM public.rta_match m
+				WHERE m.replay_id = u.replay_id
+			)
+			UNION ALL
+			SELECT p.replay_id
+			FROM public.rta_match_participant p
+			WHERE NOT EXISTS (
+				SELECT 1
+				FROM public.rta_match m
+				WHERE m.replay_id = p.replay_id
+			)
 		) o
 		ORDER BY o.replay_id
 		LIMIT #{limit}

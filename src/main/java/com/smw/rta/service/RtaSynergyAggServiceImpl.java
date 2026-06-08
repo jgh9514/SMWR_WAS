@@ -668,12 +668,38 @@ public class RtaSynergyAggServiceImpl implements RtaSynergyAggService {
 				for (int from = 0; from < total; from += chunk) {
 					int to = Math.min(from + chunk, total);
 					boolean analyzeAfterMerge = to == total;
-					counterCopyStagingService.flushCounterMatchupViaCopyStaging(rows.subList(from, to), analyzeAfterMerge);
+					List<RtaCounterMatchupUpsertRow> sub = rows.subList(from, to);
+					try {
+						counterCopyStagingService.flushCounterMatchupViaCopyStaging(sub, analyzeAfterMerge);
+					} catch (IllegalStateException e) {
+						if (!isStorageExhausted(e)) {
+							throw e;
+						}
+						log.warn("[rta-synergy] 카운터 matchup staging 디스크 부족 감지, direct upsert fallback 전환: chunkRows={} msg={}",
+								sub.size(), e.getMessage());
+						flushCounterDirectUpserts(sub);
+					}
 				}
 				return;
 			}
 			log.debug("[rta-synergy] 카운터 matchup staging: 총 {}행 → 단일 COPY·merge", total);
-			counterCopyStagingService.flushCounterMatchupViaCopyStaging(rows);
+			try {
+				counterCopyStagingService.flushCounterMatchupViaCopyStaging(rows);
+			} catch (IllegalStateException e) {
+				if (!isStorageExhausted(e)) {
+					throw e;
+				}
+				log.warn("[rta-synergy] 카운터 matchup staging 디스크 부족 감지, direct upsert fallback 전환: rows={} msg={}",
+						rows.size(), e.getMessage());
+				flushCounterDirectUpserts(rows);
+			}
+			return;
+		}
+		flushCounterDirectUpserts(rows);
+	}
+
+	private void flushCounterDirectUpserts(List<RtaCounterMatchupUpsertRow> rows) {
+		if (rows == null || rows.isEmpty()) {
 			return;
 		}
 		// 소량 직접 upsert: solo(1)/duo(2)/trio(3) 테이블로 분리 후 청크 단위 적재
@@ -707,6 +733,28 @@ public class RtaSynergyAggServiceImpl implements RtaSynergyAggService {
 		for (int i = 0; i < trioRows.size(); i += AGG_UPSERT_FLUSH_CHUNK) {
 			rtaMapper.upsertRtaCounterTrioAgg(trioRows.subList(i, Math.min(i + AGG_UPSERT_FLUSH_CHUNK, trioRows.size())));
 		}
+	}
+
+	private static boolean isStorageExhausted(Throwable t) {
+		for (Throwable c = t; c != null; c = c.getCause()) {
+			if (c instanceof java.sql.SQLException sql) {
+				String state = sql.getSQLState();
+				if ("53100".equals(state) || "53200".equals(state)) {
+					return true;
+				}
+			}
+			String msg = c.getMessage();
+			if (msg == null) {
+				continue;
+			}
+			String lower = msg.toLowerCase();
+			if (lower.contains("no space left on device")
+					|| lower.contains("could not extend file")
+					|| lower.contains("disk full")) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	private static final class SynergyRidContext {
