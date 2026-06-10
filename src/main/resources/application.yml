@@ -288,11 +288,13 @@ smw:
       rank-cut-missing-hours-per-run: ${SMW_RTA_RANK_CUT_MISSING_HOURS_PER_RUN:48}
       skip-season-rating-match-total-if-fresh: ${SMW_RTA_SKIP_MATCH_TOTAL_IF_FRESH:true}
     synergy-agg:
-      copy-staging-chunk-rows: ${SMW_RTA_SYNERGY_AGG_COPY_STAGING_CHUNK_ROWS:600000}
+      # 디스크 여유가 작은 환경에서 staging 파일 급증 방지(기존 600k)
+      copy-staging-chunk-rows: ${SMW_RTA_SYNERGY_AGG_COPY_STAGING_CHUNK_ROWS:200000}
       # applySynergyBatch(라운드당 N rid) 를 더 짧은 TX 로 분할 — 단일 TX 수 시간·I/O 끊김 완화
       apply-sub-batch-size: ${SMW_RTA_SYNERGY_APPLY_SUB_BATCH_SIZE:1000}
     counter-agg:
-      copy-staging-chunk-rows: ${SMW_RTA_COUNTER_AGG_COPY_STAGING_CHUNK_ROWS:400000}
+      # 디스크 여유가 작은 환경에서 staging 파일 급증 방지(기존 400k)
+      copy-staging-chunk-rows: ${SMW_RTA_COUNTER_AGG_COPY_STAGING_CHUNK_ROWS:120000}
       # true 시 merge 직후 counter 3테이블 FULL ANALYZE — 대형 DB에서 시너지 배치가 수 시간 늘어남
       analyze-target-after-merge: ${SMW_RTA_COUNTER_AGG_ANALYZE_AFTER_MERGE:false}
     # rank-cut-validation · counter/synergy-agg · staging-merge → Java @ConfigurationProperties / @Value 기본값

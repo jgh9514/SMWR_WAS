@@ -170,14 +170,26 @@ public class summonerswarServiceImpl implements summonerswarService {
 			java.util.function.Function<Map<String, Object>, List<Map<String, ?>>> fetcher,
 			int defaultLimit) {
 		int limit = parsePositiveInt(param.get(limitKey), defaultLimit);
-		Map<String, Object> queryParam = new HashMap<>(param);
-		queryParam.put(limitKey, limit + 1);
-		List<Map<String, ?>> fetched = fetcher.apply(queryParam);
+		String offsetKey = limitKey.endsWith("Limit")
+				? limitKey.substring(0, limitKey.length() - "Limit".length()) + "Offset"
+				: "offset";
+		int currentPage = parsePositiveInt(param.get(offsetKey), 1);
+
+		Map<String, Object> currentParam = new HashMap<>(param);
+		currentParam.put(limitKey, limit);
+		currentParam.put(offsetKey, currentPage);
+		List<Map<String, ?>> fetched = fetcher.apply(currentParam);
 		if (fetched == null || fetched.isEmpty()) {
 			return new PageSlice(Collections.emptyList(), false);
 		}
-		boolean hasNext = fetched.size() > limit;
-		List<Map<String, ?>> items = hasNext
+
+		Map<String, Object> nextParam = new HashMap<>(param);
+		nextParam.put(limitKey, limit);
+		nextParam.put(offsetKey, currentPage + 1);
+		List<Map<String, ?>> nextFetched = fetcher.apply(nextParam);
+		boolean hasNext = nextFetched != null && !nextFetched.isEmpty();
+
+		List<Map<String, ?>> items = fetched.size() > limit
 				? new ArrayList<>(fetched.subList(0, limit))
 				: fetched;
 		return new PageSlice(items, hasNext);
