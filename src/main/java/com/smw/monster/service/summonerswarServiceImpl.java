@@ -343,6 +343,7 @@ public class summonerswarServiceImpl implements summonerswarService {
 	@Override
 	public int insertFriendlyteamTeamSave(Map<String, Object> param) {
 		if (param == null) return 0;
+		normalizeDeckMetaParams(param);
 		if (!validateDeckStatsRunesInParam(param)) {
 			return -1;
 		}
@@ -368,10 +369,10 @@ public class summonerswarServiceImpl implements summonerswarService {
 		String m2 = param.get("atk_monster_2") != null ? String.valueOf(param.get("atk_monster_2")) : null;
 		String m3 = param.get("atk_monster_3") != null ? String.valueOf(param.get("atk_monster_3")) : null;
 		
-		// 스탯 저장 (없으면 0으로 upsert)
-		upsertDeckStatsFromPayload(param, deckId, m1, "monster_1_stats");
-		upsertDeckStatsFromPayload(param, deckId, m2, "monster_2_stats");
-		upsertDeckStatsFromPayload(param, deckId, m3, "monster_3_stats");
+		// 스탯 저장 (기본 + OR 다중 옵션)
+		upsertDeckStatsVariants(param, deckId, m1, "monster_1_stats");
+		upsertDeckStatsVariants(param, deckId, m2, "monster_2_stats");
+		upsertDeckStatsVariants(param, deckId, m3, "monster_3_stats");
 		
 		// 수정일 갱신
 		Map<String, Object> touch = new HashMap<>();
@@ -383,14 +384,16 @@ public class summonerswarServiceImpl implements summonerswarService {
 	}
 
 	@SuppressWarnings("unchecked")
-	private void upsertDeckStatsFromPayload(Map<String, Object> root, String deckId, String monsterId, String statsKey) {
+	private void upsertDeckStatsFromPayload(Map<String, Object> root, String deckId, String monsterId, String statsKey, int optionNo) {
 		if (deckId == null || monsterId == null || monsterId.isEmpty()) return;
 		Object raw = root != null ? root.get(statsKey) : null;
 		Map<String, Object> stats = (raw instanceof Map) ? (Map<String, Object>) raw : java.util.Collections.emptyMap();
+		if (optionNo > 1 && stats.isEmpty()) return;
 		
 		Map<String, Object> p = new HashMap<>();
 		p.put("deck_id", deckId);
 		p.put("monster_id", monsterId);
+		p.put("option_no", optionNo);
 		p.put("hp", intOrZero(stats.get("hp")));
 		p.put("atk", intOrZero(stats.get("atk")));
 		p.put("def", intOrZero(stats.get("def")));
@@ -406,11 +409,76 @@ public class summonerswarServiceImpl implements summonerswarService {
 	}
 
 	@SuppressWarnings("unchecked")
+	private void upsertDeckStatsVariants(Map<String, Object> root, String deckId, String monsterId, String statsKey) {
+		if (deckId == null || monsterId == null || monsterId.isEmpty()) return;
+
+		// OR 옵션은 저장 전에 전부 비우고 payload 기준으로 다시 채운다.
+		Map<String, Object> del = new HashMap<>();
+		del.put("deck_id", deckId);
+		del.put("monster_id", monsterId);
+		swMapper.deleteRecommendedAttackDeckStatsOrOptions(del);
+
+		// option_no=1 (기본)
+		upsertDeckStatsFromPayload(root, deckId, monsterId, statsKey, 1);
+
+		// option_no>=2 (OR 다중)
+		Object listRaw = root != null ? root.get(statsKey + "_or_list") : null;
+		if (listRaw instanceof List<?> list) {
+			int optionNo = 2;
+			for (Object item : list) {
+				if (!(item instanceof Map)) continue;
+				Map<String, Object> itemMap = (Map<String, Object>) item;
+				if (isEmptyMonsterStats(itemMap)) continue;
+				Map<String, Object> wrapped = new HashMap<>();
+				wrapped.put(statsKey, itemMap);
+				wrapped.put("sess_user_id", root != null ? root.get("sess_user_id") : null);
+				upsertDeckStatsFromPayload(wrapped, deckId, monsterId, statsKey, optionNo++);
+			}
+			return;
+		}
+
+		// 하위 호환: 단일 OR 키(monster_?_stats_or)
+		Object singleOr = root != null ? root.get(statsKey + "_or") : null;
+		if (singleOr instanceof Map) {
+			Map<String, Object> wrapped = new HashMap<>();
+			wrapped.put(statsKey, singleOr);
+			wrapped.put("sess_user_id", root != null ? root.get("sess_user_id") : null);
+			upsertDeckStatsFromPayload(wrapped, deckId, monsterId, statsKey, 2);
+		}
+	}
+
+	private boolean isEmptyMonsterStats(Map<String, Object> stats) {
+		if (stats == null || stats.isEmpty()) return true;
+		return intOrZero(stats.get("hp")) == 0
+			&& intOrZero(stats.get("atk")) == 0
+			&& intOrZero(stats.get("def")) == 0
+			&& intOrZero(stats.get("spd")) == 0
+			&& intOrZero(firstNonNull(stats.get("critRate"), stats.get("crit_rate"))) == 0
+			&& intOrZero(firstNonNull(stats.get("critDmg"), stats.get("crit_dmg"))) == 0
+			&& intOrZero(stats.get("resistance")) == 0
+			&& intOrZero(stats.get("accuracy")) == 0
+			&& parseRuneIdOrNull(firstNonNull(stats.get("runeId1"), stats.get("rune_id_1"))) == null
+			&& parseRuneIdOrNull(firstNonNull(stats.get("runeId2"), stats.get("rune_id_2"))) == null
+			&& parseRuneIdOrNull(firstNonNull(stats.get("runeId3"), stats.get("rune_id_3"))) == null;
+	}
+
+	@SuppressWarnings("unchecked")
 	private boolean validateDeckStatsRunesInParam(Map<String, Object> param) {
 		for (String statsKey : new String[] { "monster_1_stats", "monster_2_stats", "monster_3_stats" }) {
 			Object raw = param.get(statsKey);
 			if (!(raw instanceof Map)) continue;
 			if (!validateMonsterRuneStats((Map<String, Object>) raw)) {
+				return false;
+			}
+			Object listRaw = param.get(statsKey + "_or_list");
+			if (listRaw instanceof List<?> list) {
+				for (Object item : list) {
+					if (!(item instanceof Map)) continue;
+					if (!validateMonsterRuneStats((Map<String, Object>) item)) return false;
+				}
+			}
+			Object singleOr = param.get(statsKey + "_or");
+			if (singleOr instanceof Map && !validateMonsterRuneStats((Map<String, Object>) singleOr)) {
 				return false;
 			}
 		}
@@ -488,9 +556,28 @@ public class summonerswarServiceImpl implements summonerswarService {
 		}
 	}
 
+	private void normalizeDeckMetaParams(Map<String, Object> param) {
+		if (param == null) return;
+		if (param.get("targeting_order") == null && param.get("targetingOrder") != null) {
+			param.put("targeting_order", param.get("targetingOrder"));
+		}
+		if (param.get("deck_comment") == null && param.get("deckComment") != null) {
+			param.put("deck_comment", param.get("deckComment"));
+		}
+		param.put("targeting_order", normalizeNullableText(param.get("targeting_order")));
+		param.put("deck_comment", normalizeNullableText(param.get("deck_comment")));
+	}
+
+	private String normalizeNullableText(Object raw) {
+		if (raw == null) return null;
+		String s = String.valueOf(raw).trim();
+		return s.isEmpty() ? null : s;
+	}
+
 	@Override
 	public int updateRecommendedAttackDeckStats(Map<String, Object> param) {
 		if (param == null || param.get("deck_id") == null) return 0;
+		normalizeDeckMetaParams(param);
 		if (!validateDeckStatsRunesInParam(param)) {
 			return 0;
 		}
@@ -506,9 +593,16 @@ public class summonerswarServiceImpl implements summonerswarService {
 		String m2 = deck.get("atk_monster_2") != null ? String.valueOf(deck.get("atk_monster_2")) : null;
 		String m3 = deck.get("atk_monster_3") != null ? String.valueOf(deck.get("atk_monster_3")) : null;
 		
-		upsertDeckStatsFromPayload(param, deckId, m1, "monster_1_stats");
-		upsertDeckStatsFromPayload(param, deckId, m2, "monster_2_stats");
-		upsertDeckStatsFromPayload(param, deckId, m3, "monster_3_stats");
+		upsertDeckStatsVariants(param, deckId, m1, "monster_1_stats");
+		upsertDeckStatsVariants(param, deckId, m2, "monster_2_stats");
+		upsertDeckStatsVariants(param, deckId, m3, "monster_3_stats");
+		
+		Map<String, Object> meta = new HashMap<>();
+		meta.put("deck_id", deckId);
+		meta.put("targeting_order", param.get("targeting_order"));
+		meta.put("deck_comment", param.get("deck_comment"));
+		meta.put("sess_user_id", param.get("sess_user_id"));
+		swMapper.updateRecommendedAttackDeckMeta(meta);
 		
 		Map<String, Object> touch = new HashMap<>();
 		touch.put("deck_id", deckId);

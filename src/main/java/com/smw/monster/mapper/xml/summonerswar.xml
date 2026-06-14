@@ -434,6 +434,8 @@
 		      ,atk_monster_1
 		      ,atk_monster_2
 		      ,atk_monster_3
+		      ,targeting_order
+		      ,deck_comment
 		      ,crt_user_id
 		      ,upt_user_id
 		) values (
@@ -443,6 +445,8 @@
 		      ,#{atk_monster_1}
 		      ,#{atk_monster_2}
 		      ,#{atk_monster_3}
+		      ,#{targeting_order}
+		      ,#{deck_comment}
 		      ,#{sess_user_id}::text
 		      ,#{sess_user_id}::text
 		)
@@ -2275,6 +2279,8 @@
 			srad.atk_monster_1,
 			srad.atk_monster_2,
 			srad.atk_monster_3,
+			srad.targeting_order,
+			srad.deck_comment,
 			(
 			 (SELECT COUNT(*)::int FROM siege_deck_user_vote v WHERE v.deck_id = srad.id AND v.def_monster_1 = srad.def_monster_1 AND v.def_monster_2 = srad.def_monster_2 AND v.def_monster_3 = srad.def_monster_3 AND v.vote_type = 'UP')
 			 +
@@ -2351,6 +2357,14 @@
 			-- 몬스터1 정보
 			m1.kr_name as m1_kr_name,
 			m1.image_url as image_url1,
+			COALESCE(m1.max_lvl_hp, 0) as m1_base_hp,
+			COALESCE(m1.max_lvl_attack, 0) as m1_base_atk,
+			COALESCE(m1.max_lvl_defense, 0) as m1_base_def,
+			COALESCE(m1.speed, 0) as m1_base_spd,
+			COALESCE(m1.crit_rate, 0) as m1_base_crit_rate,
+			COALESCE(m1.crit_damage, 0) as m1_base_crit_dmg,
+			COALESCE(m1.resistance, 0) as m1_base_resistance,
+			COALESCE(m1.accuracy, 0) as m1_base_accuracy,
 			COALESCE(stats1.hp, 0) as m1_hp,
 			COALESCE(stats1.atk, 0) as m1_atk,
 			COALESCE(stats1.def, 0) as m1_def,
@@ -2359,9 +2373,20 @@
 			COALESCE(stats1.crit_dmg, 0) as m1_crit_dmg,
 			COALESCE(stats1.resistance, 0) as m1_resistance,
 			COALESCE(stats1.accuracy, 0) as m1_accuracy,
+			COALESCE(stats1_or.hp, 0) as m1_or_hp,
+			COALESCE(stats1_or.atk, 0) as m1_or_atk,
+			COALESCE(stats1_or.def, 0) as m1_or_def,
+			COALESCE(stats1_or.spd, 0) as m1_or_spd,
+			COALESCE(stats1_or.crit_rate, 0) as m1_or_crit_rate,
+			COALESCE(stats1_or.crit_dmg, 0) as m1_or_crit_dmg,
+			COALESCE(stats1_or.resistance, 0) as m1_or_resistance,
+			COALESCE(stats1_or.accuracy, 0) as m1_or_accuracy,
 			stats1.rune_id_1 as m1_rune_id_1,
 			stats1.rune_id_2 as m1_rune_id_2,
 			stats1.rune_id_3 as m1_rune_id_3,
+			stats1_or.rune_id_1 as m1_or_rune_id_1,
+			stats1_or.rune_id_2 as m1_or_rune_id_2,
+			stats1_or.rune_id_3 as m1_or_rune_id_3,
 			rm1_1.image_url as m1_rune_image_url_1,
 			rm1_1.name_ko as m1_rune_name_ko_1,
 			rm1_1.required_pieces as m1_rune_required_pieces_1,
@@ -2371,9 +2396,37 @@
 			rm1_3.image_url as m1_rune_image_url_3,
 			rm1_3.name_ko as m1_rune_name_ko_3,
 			rm1_3.required_pieces as m1_rune_required_pieces_3,
+			(
+			  SELECT COALESCE(json_agg(json_build_object(
+			    'option_no', os1.option_no,
+			    'hp', COALESCE(os1.hp, 0),
+			    'atk', COALESCE(os1.atk, 0),
+			    'def', COALESCE(os1.def, 0),
+			    'spd', COALESCE(os1.spd, 0),
+			    'crit_rate', COALESCE(os1.crit_rate, 0),
+			    'crit_dmg', COALESCE(os1.crit_dmg, 0),
+			    'resistance', COALESCE(os1.resistance, 0),
+			    'accuracy', COALESCE(os1.accuracy, 0),
+			    'rune_id_1', os1.rune_id_1,
+			    'rune_id_2', os1.rune_id_2,
+			    'rune_id_3', os1.rune_id_3
+			  ) ORDER BY os1.option_no), '[]'::json)
+			    FROM siege_recommended_attack_deck_stats os1
+			   WHERE os1.deck_id = srad.id
+			     AND os1.monster_id = srad.atk_monster_1
+			     AND os1.option_no > 1
+			) AS m1_or_options_json,
 			-- 몬스터2 정보
 			m2.kr_name as m2_kr_name,
 			m2.image_url as image_url2,
+			COALESCE(m2.max_lvl_hp, 0) as m2_base_hp,
+			COALESCE(m2.max_lvl_attack, 0) as m2_base_atk,
+			COALESCE(m2.max_lvl_defense, 0) as m2_base_def,
+			COALESCE(m2.speed, 0) as m2_base_spd,
+			COALESCE(m2.crit_rate, 0) as m2_base_crit_rate,
+			COALESCE(m2.crit_damage, 0) as m2_base_crit_dmg,
+			COALESCE(m2.resistance, 0) as m2_base_resistance,
+			COALESCE(m2.accuracy, 0) as m2_base_accuracy,
 			COALESCE(stats2.hp, 0) as m2_hp,
 			COALESCE(stats2.atk, 0) as m2_atk,
 			COALESCE(stats2.def, 0) as m2_def,
@@ -2382,9 +2435,20 @@
 			COALESCE(stats2.crit_dmg, 0) as m2_crit_dmg,
 			COALESCE(stats2.resistance, 0) as m2_resistance,
 			COALESCE(stats2.accuracy, 0) as m2_accuracy,
+			COALESCE(stats2_or.hp, 0) as m2_or_hp,
+			COALESCE(stats2_or.atk, 0) as m2_or_atk,
+			COALESCE(stats2_or.def, 0) as m2_or_def,
+			COALESCE(stats2_or.spd, 0) as m2_or_spd,
+			COALESCE(stats2_or.crit_rate, 0) as m2_or_crit_rate,
+			COALESCE(stats2_or.crit_dmg, 0) as m2_or_crit_dmg,
+			COALESCE(stats2_or.resistance, 0) as m2_or_resistance,
+			COALESCE(stats2_or.accuracy, 0) as m2_or_accuracy,
 			stats2.rune_id_1 as m2_rune_id_1,
 			stats2.rune_id_2 as m2_rune_id_2,
 			stats2.rune_id_3 as m2_rune_id_3,
+			stats2_or.rune_id_1 as m2_or_rune_id_1,
+			stats2_or.rune_id_2 as m2_or_rune_id_2,
+			stats2_or.rune_id_3 as m2_or_rune_id_3,
 			rm2_1.image_url as m2_rune_image_url_1,
 			rm2_1.name_ko as m2_rune_name_ko_1,
 			rm2_1.required_pieces as m2_rune_required_pieces_1,
@@ -2394,9 +2458,37 @@
 			rm2_3.image_url as m2_rune_image_url_3,
 			rm2_3.name_ko as m2_rune_name_ko_3,
 			rm2_3.required_pieces as m2_rune_required_pieces_3,
+			(
+			  SELECT COALESCE(json_agg(json_build_object(
+			    'option_no', os2.option_no,
+			    'hp', COALESCE(os2.hp, 0),
+			    'atk', COALESCE(os2.atk, 0),
+			    'def', COALESCE(os2.def, 0),
+			    'spd', COALESCE(os2.spd, 0),
+			    'crit_rate', COALESCE(os2.crit_rate, 0),
+			    'crit_dmg', COALESCE(os2.crit_dmg, 0),
+			    'resistance', COALESCE(os2.resistance, 0),
+			    'accuracy', COALESCE(os2.accuracy, 0),
+			    'rune_id_1', os2.rune_id_1,
+			    'rune_id_2', os2.rune_id_2,
+			    'rune_id_3', os2.rune_id_3
+			  ) ORDER BY os2.option_no), '[]'::json)
+			    FROM siege_recommended_attack_deck_stats os2
+			   WHERE os2.deck_id = srad.id
+			     AND os2.monster_id = srad.atk_monster_2
+			     AND os2.option_no > 1
+			) AS m2_or_options_json,
 			-- 몬스터3 정보
 			m3.kr_name as m3_kr_name,
 			m3.image_url as image_url3,
+			COALESCE(m3.max_lvl_hp, 0) as m3_base_hp,
+			COALESCE(m3.max_lvl_attack, 0) as m3_base_atk,
+			COALESCE(m3.max_lvl_defense, 0) as m3_base_def,
+			COALESCE(m3.speed, 0) as m3_base_spd,
+			COALESCE(m3.crit_rate, 0) as m3_base_crit_rate,
+			COALESCE(m3.crit_damage, 0) as m3_base_crit_dmg,
+			COALESCE(m3.resistance, 0) as m3_base_resistance,
+			COALESCE(m3.accuracy, 0) as m3_base_accuracy,
 			COALESCE(stats3.hp, 0) as m3_hp,
 			COALESCE(stats3.atk, 0) as m3_atk,
 			COALESCE(stats3.def, 0) as m3_def,
@@ -2405,9 +2497,20 @@
 			COALESCE(stats3.crit_dmg, 0) as m3_crit_dmg,
 			COALESCE(stats3.resistance, 0) as m3_resistance,
 			COALESCE(stats3.accuracy, 0) as m3_accuracy,
+			COALESCE(stats3_or.hp, 0) as m3_or_hp,
+			COALESCE(stats3_or.atk, 0) as m3_or_atk,
+			COALESCE(stats3_or.def, 0) as m3_or_def,
+			COALESCE(stats3_or.spd, 0) as m3_or_spd,
+			COALESCE(stats3_or.crit_rate, 0) as m3_or_crit_rate,
+			COALESCE(stats3_or.crit_dmg, 0) as m3_or_crit_dmg,
+			COALESCE(stats3_or.resistance, 0) as m3_or_resistance,
+			COALESCE(stats3_or.accuracy, 0) as m3_or_accuracy,
 			stats3.rune_id_1 as m3_rune_id_1,
 			stats3.rune_id_2 as m3_rune_id_2,
 			stats3.rune_id_3 as m3_rune_id_3,
+			stats3_or.rune_id_1 as m3_or_rune_id_1,
+			stats3_or.rune_id_2 as m3_or_rune_id_2,
+			stats3_or.rune_id_3 as m3_or_rune_id_3,
 			rm3_1.image_url as m3_rune_image_url_1,
 			rm3_1.name_ko as m3_rune_name_ko_1,
 			rm3_1.required_pieces as m3_rune_required_pieces_1,
@@ -2416,17 +2519,43 @@
 			rm3_2.required_pieces as m3_rune_required_pieces_2,
 			rm3_3.image_url as m3_rune_image_url_3,
 			rm3_3.name_ko as m3_rune_name_ko_3,
-			rm3_3.required_pieces as m3_rune_required_pieces_3
+			rm3_3.required_pieces as m3_rune_required_pieces_3,
+			(
+			  SELECT COALESCE(json_agg(json_build_object(
+			    'option_no', os3.option_no,
+			    'hp', COALESCE(os3.hp, 0),
+			    'atk', COALESCE(os3.atk, 0),
+			    'def', COALESCE(os3.def, 0),
+			    'spd', COALESCE(os3.spd, 0),
+			    'crit_rate', COALESCE(os3.crit_rate, 0),
+			    'crit_dmg', COALESCE(os3.crit_dmg, 0),
+			    'resistance', COALESCE(os3.resistance, 0),
+			    'accuracy', COALESCE(os3.accuracy, 0),
+			    'rune_id_1', os3.rune_id_1,
+			    'rune_id_2', os3.rune_id_2,
+			    'rune_id_3', os3.rune_id_3
+			  ) ORDER BY os3.option_no), '[]'::json)
+			    FROM siege_recommended_attack_deck_stats os3
+			   WHERE os3.deck_id = srad.id
+			     AND os3.monster_id = srad.atk_monster_3
+			     AND os3.option_no > 1
+			) AS m3_or_options_json
 		FROM siege_recommended_attack_deck srad
 		LEFT JOIN monster m1 ON srad.atk_monster_1 = m1.monster_id
 		LEFT JOIN monster m2 ON srad.atk_monster_2 = m2.monster_id
 		LEFT JOIN monster m3 ON srad.atk_monster_3 = m3.monster_id
-		LEFT JOIN siege_recommended_attack_deck_stats stats1 
-			ON srad.id = stats1.deck_id AND srad.atk_monster_1 = stats1.monster_id
-		LEFT JOIN siege_recommended_attack_deck_stats stats2 
-			ON srad.id = stats2.deck_id AND srad.atk_monster_2 = stats2.monster_id
-		LEFT JOIN siege_recommended_attack_deck_stats stats3 
-			ON srad.id = stats3.deck_id AND srad.atk_monster_3 = stats3.monster_id
+		LEFT JOIN siege_recommended_attack_deck_stats stats1
+			ON srad.id = stats1.deck_id AND srad.atk_monster_1 = stats1.monster_id AND stats1.option_no = 1
+		LEFT JOIN siege_recommended_attack_deck_stats stats2
+			ON srad.id = stats2.deck_id AND srad.atk_monster_2 = stats2.monster_id AND stats2.option_no = 1
+		LEFT JOIN siege_recommended_attack_deck_stats stats3
+			ON srad.id = stats3.deck_id AND srad.atk_monster_3 = stats3.monster_id AND stats3.option_no = 1
+		LEFT JOIN siege_recommended_attack_deck_stats stats1_or
+			ON srad.id = stats1_or.deck_id AND srad.atk_monster_1 = stats1_or.monster_id AND stats1_or.option_no = 2
+		LEFT JOIN siege_recommended_attack_deck_stats stats2_or
+			ON srad.id = stats2_or.deck_id AND srad.atk_monster_2 = stats2_or.monster_id AND stats2_or.option_no = 2
+		LEFT JOIN siege_recommended_attack_deck_stats stats3_or
+			ON srad.id = stats3_or.deck_id AND srad.atk_monster_3 = stats3_or.monster_id AND stats3_or.option_no = 2
 		LEFT JOIN rune_master rm1_1 ON stats1.rune_id_1 = rm1_1.rune_id
 		LEFT JOIN rune_master rm1_2 ON stats1.rune_id_2 = rm1_2.rune_id
 		LEFT JOIN rune_master rm1_3 ON stats1.rune_id_3 = rm1_3.rune_id
@@ -2519,12 +2648,23 @@
 		       upt_date = CURRENT_TIMESTAMP
 		 WHERE id = #{deck_id}::int
 	</update>
+
+	<update id="updateRecommendedAttackDeckMeta" parameterType="sqlMap">
+		/* updateRecommendedAttackDeckMeta - 공덱 메타(타겟팅/코멘트) 수정 */
+		UPDATE siege_recommended_attack_deck
+		   SET targeting_order = #{targeting_order},
+		       deck_comment = #{deck_comment},
+		       upt_user_id = #{sess_user_id}::text,
+		       upt_date = CURRENT_TIMESTAMP
+		 WHERE id = #{deck_id}::int
+	</update>
 	
 	<insert id="upsertRecommendedAttackDeckStats" parameterType="sqlMap">
 		/* upsertRecommendedAttackDeckStats - 공덱 몬스터 스탯 upsert */
 		INSERT INTO siege_recommended_attack_deck_stats (
 			deck_id,
 			monster_id,
+			option_no,
 			hp,
 			atk,
 			def,
@@ -2541,6 +2681,7 @@
 		) VALUES (
 			#{deck_id}::int,
 			#{monster_id}::text,
+			#{option_no}::int2,
 			#{hp}::int,
 			#{atk}::int,
 			#{def}::int,
@@ -2555,7 +2696,7 @@
 			#{sess_user_id}::text,
 			#{sess_user_id}::text
 		)
-		ON CONFLICT (deck_id, monster_id) DO UPDATE
+		ON CONFLICT (deck_id, monster_id, option_no) DO UPDATE
 		   SET hp = EXCLUDED.hp,
 		       atk = EXCLUDED.atk,
 		       def = EXCLUDED.def,
@@ -2570,6 +2711,14 @@
 		       upt_user_id = EXCLUDED.upt_user_id,
 		       upt_date = CURRENT_TIMESTAMP
 	</insert>
+
+	<delete id="deleteRecommendedAttackDeckStatsOrOptions" parameterType="sqlMap">
+		/* deleteRecommendedAttackDeckStatsOrOptions - deck+monster OR 옵션(option_no>1) 초기화 */
+		DELETE FROM siege_recommended_attack_deck_stats
+		 WHERE deck_id = #{deck_id}::int
+		   AND monster_id = #{monster_id}::text
+		   AND option_no > 1
+	</delete>
 
 	<select id="selectRuneMasterList" parameterType="sqlMap" resultType="sqlMap">
 		/* summonerswarMapper.selectRuneMasterList */

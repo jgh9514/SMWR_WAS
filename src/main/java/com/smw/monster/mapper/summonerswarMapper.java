@@ -28,11 +28,21 @@ public interface summonerswarMapper {
 	 * 공덱 수정일 갱신
 	 */
 	public int touchRecommendedAttackDeck(Map<String, Object> param);
+
+	/**
+	 * 공덱 메타 정보(타겟팅 순서/코멘트) 수정
+	 */
+	public int updateRecommendedAttackDeckMeta(Map<String, Object> param);
 	
 	/**
 	 * 공덱 몬스터 스탯 upsert
 	 */
 	public int upsertRecommendedAttackDeckStats(Map<String, Object> param);
+
+	/**
+	 * 공덱 몬스터 OR 옵션(option_no > 1) 초기화
+	 */
+	public int deleteRecommendedAttackDeckStatsOrOptions(Map<String, Object> param);
 
 	public List<Map<String, ?>> selectMonsterDetailList(Map<String, Object> param);
 	

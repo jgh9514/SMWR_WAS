@@ -89,6 +89,12 @@ public class LoginServiceImpl implements LoginService {
             String userId = param.get("user_id") != null ? param.get("user_id").toString().trim() : null;
             String userName = param.get("user_name") != null ? param.get("user_name").toString().trim() : null;
 
+            if (userName != null && userName.length() > 100) {
+                result.put("result", "FAIL");
+                result.put("message", "닉네임은 100자 이하로 입력해주세요.");
+                return result;
+            }
+
             String userIdError = AuthCredentialsValidator.validateUserId(userId);
             if (userIdError != null) {
                 result.put("result", "FAIL");
@@ -135,9 +141,11 @@ public class LoginServiceImpl implements LoginService {
             
             // 회원가입 데이터 준비
             param.put("user_id", userId);
-            // 닉네임 입력을 제거했으므로, 비어있으면 user_id를 기본값으로 사용
+            // 닉네임은 중복 허용. 미입력 시 user_id를 기본값으로 사용
             if (userName == null || userName.isEmpty()) {
                 param.put("user_name", userId);
+            } else {
+                param.put("user_name", userName);
             }
             if (param.get("password") != null) {
                 param.put("user_pw", SHA256.encrypt(StringUtil.nvl(param.get("password").toString())));
