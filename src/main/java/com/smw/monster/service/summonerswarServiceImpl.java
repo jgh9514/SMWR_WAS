@@ -327,17 +327,34 @@ public class summonerswarServiceImpl implements summonerswarService {
 
 	@Override
 	@Transactional
-	public void refreshSiegeDefenseDeckStatsForGuildSeason(String guildId, String seasonYyyymm) {
-		if (guildId == null || guildId.isBlank() || seasonYyyymm == null || seasonYyyymm.length() != 6) {
+	public void refreshSiegeDefenseDeckStatsForGuildSeasonNo(String guildId, int seasonNo) {
+		if (guildId == null || guildId.isBlank() || seasonNo <= 0) {
 			return;
 		}
 		Map<String, Object> param = new HashMap<>();
 		param.put("guild_id", guildId.trim());
-		param.put("season_yyyymm", seasonYyyymm.trim());
+		param.put("season_no", seasonNo);
 		swMapper.deleteSiegeDefenseDeckStatsByGuildSeason(param);
 		swMapper.insertSiegeDefenseDeckStatsFromBattleLogs(param);
 		swMapper.deleteSiegeDefenseDeckGuildAggByGuildSeason(param);
 		swMapper.insertSiegeDefenseDeckGuildAggFromStats(param);
+	}
+
+	@Override
+	@Transactional(readOnly = true)
+	public java.util.List<Integer> selectAffectedSeasonNos(String guildId, java.util.Collection<String> matchIds) {
+		if (guildId == null || guildId.isBlank() || matchIds == null || matchIds.isEmpty()) {
+			return java.util.Collections.emptyList();
+		}
+		java.util.List<String> ids = matchIds.stream()
+				.filter(m -> m != null && !m.isBlank())
+				.map(String::trim)
+				.distinct()
+				.collect(java.util.stream.Collectors.toList());
+		if (ids.isEmpty()) {
+			return java.util.Collections.emptyList();
+		}
+		return swMapper.selectAffectedSeasonNos(guildId.trim(), ids);
 	}
 	
 	@Override
@@ -687,14 +704,20 @@ public class summonerswarServiceImpl implements summonerswarService {
 			Map<String, Object> map = new HashMap<>();
 			map.put("historyList", Collections.emptyList());
 			map.put("historyHasNext", false);
+			map.put("historyTotalCount", 0);
 			return map;
 		}
 
 		PageSlice slice = fetchPageWithHasNext(
 				param, "historyLimit", swMapper::selectMonsterDetailTeamList, 10);
+		int totalCount = swMapper.selectMonsterDetailTeamListCount(param);
+		int limit = parsePositiveInt(param.get("historyLimit"), 10);
+		int currentPage = parsePositiveInt(param.get("historyOffset"), 1);
+		boolean hasNext = (long) currentPage * limit < (long) totalCount;
 		Map<String, Object> map = new HashMap<>();
 		map.put("historyList", slice.items());
-		map.put("historyHasNext", slice.hasNext());
+		map.put("historyHasNext", hasNext);
+		map.put("historyTotalCount", totalCount);
 		return map;
 	}
 	
@@ -719,13 +742,19 @@ public class summonerswarServiceImpl implements summonerswarService {
 			Map<String, Object> map = new HashMap<>();
 			map.put("recentBattleList", Collections.emptyList());
 			map.put("recentBattleHasNext", false);
+			map.put("recentBattleTotalCount", 0);
 			return map;
 		}
 		PageSlice slice = fetchPageWithHasNext(
 				param, "recentLimit", swMapper::selectMonsterDetailRecentBattles, 10);
+		int totalCount = swMapper.selectMonsterDetailRecentBattlesCount(param);
+		int limit = parsePositiveInt(param.get("recentLimit"), 10);
+		int currentPage = parsePositiveInt(param.get("recentOffset"), 1);
+		boolean hasNext = (long) currentPage * limit < (long) totalCount;
 		Map<String, Object> map = new HashMap<>();
 		map.put("recentBattleList", slice.items());
-		map.put("recentBattleHasNext", slice.hasNext());
+		map.put("recentBattleHasNext", hasNext);
+		map.put("recentBattleTotalCount", totalCount);
 		return map;
 	}
 	

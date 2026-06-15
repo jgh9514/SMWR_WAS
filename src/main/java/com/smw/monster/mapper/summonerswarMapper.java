@@ -85,6 +85,9 @@ public interface summonerswarMapper {
 	int insertSiegeDefenseDeckGuildAggFromStats(Map<String, Object> param);
 
 	int insertSiegeDefenseDeckStatsFromBattleLogs(Map<String, Object> param);
+
+	/** 업로드된 매치들이 속한 시즌 번호 집합 — 길드 전투 일자(KST)를 guild_siege_season 날짜범위에 매핑 */
+	List<Integer> selectAffectedSeasonNos(@Param("guildId") String guildId, @Param("matchIds") List<String> matchIds);
 	
 	/** RTA 시즌 구간 매핑용 전체 행 (행마다 INSERT 서브쿼리 대비) */
 	List<Map<String, ?>> selectRtaSeasonsForRtaMatchMapping();

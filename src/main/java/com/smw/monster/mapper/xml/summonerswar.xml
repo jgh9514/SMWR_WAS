@@ -19,6 +19,35 @@
 		</if>
 	</sql>
 
+	<!-- 시즌 경계 정확화: 집계 테이블(season_no) 단일 시즌 필터 (scope C). current_season_no 미주입 시 미적용 -->
+	<sql id="siegeSeasonFilterSeasonNo">
+		<if test='siege_view_scope == null or siege_view_scope != "A"'>
+			<if test="current_season_no != null">
+				AND ${col} = #{current_season_no}
+			</if>
+		</if>
+	</sql>
+
+	<!-- 시즌 경계 정확화: battle_log_list 등 epoch(log_timestamp 유닉스 초) 기준 시즌 필터.
+	     C(최근): 현재 시즌 구간. A(전체): 어느 시즌에든 속한 전투만(공백기/시즌 외 제외 — siege_defense_deck_stats 집계 기준과 동일). -->
+	<sql id="siegeSeasonFilterEpoch">
+		<choose>
+			<when test='siege_view_scope != null and siege_view_scope == "A"'>
+				AND EXISTS (
+					SELECT 1 FROM guild_siege_season gss_f
+					 WHERE (to_timestamp(${epochCol}::bigint) AT TIME ZONE 'Asia/Seoul')::date &gt;= gss_f.start_date
+					   AND ((to_timestamp(${epochCol}::bigint) AT TIME ZONE 'Asia/Seoul')::date &lt;= gss_f.end_date OR gss_f.end_date IS NULL)
+				)
+			</when>
+			<otherwise>
+				<if test="current_season_no != null and current_season_start_epoch != null and current_season_end_epoch != null">
+					AND ${epochCol}::bigint &gt;= #{current_season_start_epoch}
+					AND ${epochCol}::bigint &lt; #{current_season_end_epoch}
+				</if>
+			</otherwise>
+		</choose>
+	</sql>
+
 	<sql id="siegeGuildFilter">
 		<choose>
 			<when test='view_all_guilds != null and (view_all_guilds == true or view_all_guilds == "true" or view_all_guilds == "Y")'>
@@ -32,26 +61,16 @@
 		</choose>
 	</sql>
 
-	<!-- battle_log_list: 우리(또는 view) 길드가 참여한 점령전 매치의 전투만 (공격 주체 guild_id 와 무관) -->
+	<!-- battle_log_list: 우리(또는 view) 길드의 공격 로그만 (siege_defense_deck_stats 집계 기준과 동기화) -->
 	<sql id="siegeBattleLogMatchGuildFilter">
 		<choose>
 			<when test='view_all_guilds != null and (view_all_guilds == true or view_all_guilds == "true" or view_all_guilds == "Y")'>
 			</when>
 			<when test="view_guild_id != null and view_guild_id != ''">
-				AND EXISTS (
-				    SELECT 1
-				      FROM guild_siege_battle_log gsbl
-				     WHERE gsbl.match_id = ${matchIdCol}
-				       AND gsbl.guild_id = #{view_guild_id}::text
-				)
+				AND bll.guild_id = #{view_guild_id}::text
 			</when>
 			<otherwise>
-				AND EXISTS (
-				    SELECT 1
-				      FROM guild_siege_battle_log gsbl
-				     WHERE gsbl.match_id = ${matchIdCol}
-				       AND gsbl.guild_id = #{sess_guild_id}::text
-				)
+				AND bll.guild_id = #{sess_guild_id}::text
 			</otherwise>
 		</choose>
 	</sql>
@@ -276,7 +295,7 @@
 					  FROM siege_defense_deck_guild_agg
 					 WHERE 1=1
 					   <include refid="siegeGuildFilter"><property name="col" value="guild_id"/></include>
-					   <include refid="siegeSeasonFilterYyyymm"><property name="col" value="season_yyyymm"/></include>
+					   <include refid="siegeSeasonFilterSeasonNo"><property name="col" value="season_no"/></include>
 					   <include refid="siegeMonsterFilterM1"><property name="col1" value="monster_id_1"/><property name="col2" value="monster_id_2"/><property name="col3" value="monster_id_3"/></include>
 					 GROUP BY monster_id_1, monster_id_2, monster_id_3
 					 <if test="min_lose_count != null and min_lose_count != ''">
@@ -299,7 +318,7 @@
 				  LEFT JOIN monster_leaders ml1 ON m1.leader_id = ml1.leader_id
 				 WHERE 1=1
 				   <include refid="siegeGuildFilter"><property name="col" value="d.guild_id"/></include>
-				   <include refid="siegeSeasonFilterYyyymm"><property name="col" value="d.season_yyyymm"/></include>
+				   <include refid="siegeSeasonFilterSeasonNo"><property name="col" value="d.season_no"/></include>
 				   <include refid="siegeMonsterFilterM1"><property name="col1" value="d.monster_id_1"/><property name="col2" value="d.monster_id_2"/><property name="col3" value="d.monster_id_3"/></include>
 				   <if test="min_lose_count != null and min_lose_count != ''">
 				   AND 1=0
@@ -311,7 +330,7 @@
 				       AND s.monster_id_1 = d.monster_id_1
 				       AND s.monster_id_2 = d.monster_id_2
 				       AND s.monster_id_3 = d.monster_id_3
-				       <include refid="siegeSeasonFilterYyyymm"><property name="col" value="s.season_yyyymm"/></include>
+				       <include refid="siegeSeasonFilterSeasonNo"><property name="col" value="s.season_no"/></include>
 				   )
 				) u
 				ORDER BY u.total_count DESC
@@ -378,7 +397,7 @@
 					  FROM siege_defense_deck_guild_agg
 					 WHERE 1=1
 					   <include refid="siegeGuildFilter"><property name="col" value="guild_id"/></include>
-					   <include refid="siegeSeasonFilterYyyymm"><property name="col" value="season_yyyymm"/></include>
+					   <include refid="siegeSeasonFilterSeasonNo"><property name="col" value="season_no"/></include>
 					   <include refid="siegeMonsterFilterM1"><property name="col1" value="monster_id_1"/><property name="col2" value="monster_id_2"/><property name="col3" value="monster_id_3"/></include>
 					 GROUP BY monster_id_1, monster_id_2, monster_id_3
 					 <if test="min_lose_count != null and min_lose_count != ''">
@@ -389,7 +408,7 @@
 					  FROM siege_defense_deck_manual d
 					 WHERE 1=1
 					   <include refid="siegeGuildFilter"><property name="col" value="d.guild_id"/></include>
-					   <include refid="siegeSeasonFilterYyyymm"><property name="col" value="d.season_yyyymm"/></include>
+					   <include refid="siegeSeasonFilterSeasonNo"><property name="col" value="d.season_no"/></include>
 					   <include refid="siegeMonsterFilterM1"><property name="col1" value="d.monster_id_1"/><property name="col2" value="d.monster_id_2"/><property name="col3" value="d.monster_id_3"/></include>
 					   <if test="min_lose_count != null and min_lose_count != ''">
 					   AND 1=0
@@ -401,7 +420,7 @@
 					       AND s.monster_id_1 = d.monster_id_1
 					       AND s.monster_id_2 = d.monster_id_2
 					       AND s.monster_id_3 = d.monster_id_3
-					       <include refid="siegeSeasonFilterYyyymm"><property name="col" value="s.season_yyyymm"/></include>
+					       <include refid="siegeSeasonFilterSeasonNo"><property name="col" value="s.season_no"/></include>
 					   )
 				) u
 				) t
@@ -455,7 +474,7 @@
 	<insert id="upsertSiegeDefenseDeckManual" parameterType="sqlMap">
 		/* upsertSiegeDefenseDeckManual - 콜라보 몹은 monster_collaboration_mapping 기준 original_monster_id로 저장 */
 		INSERT INTO siege_defense_deck_manual (
-			guild_id, season_yyyymm, monster_id_1, monster_id_2, monster_id_3, deck_key, crt_user_id, upt_user_id
+			guild_id, season_yyyymm, season_no, monster_id_1, monster_id_2, monster_id_3, deck_key, crt_user_id, upt_user_id
 		)
 		SELECT
 			#{sess_guild_id}::text,
@@ -463,6 +482,10 @@
 				NULLIF(#{season_yyyymm}::text, ''),
 				NULLIF(#{current_season_yyyymm}::text, ''),
 				TO_CHAR(DATE_TRUNC('month', CURRENT_TIMESTAMP), 'YYYYMM')
+			),
+			COALESCE(
+				(SELECT gss.season_no FROM guild_siege_season gss WHERE gss.start_date &lt;= CURRENT_DATE AND (gss.end_date IS NULL OR gss.end_date &gt;= CURRENT_DATE) ORDER BY gss.season_no DESC LIMIT 1),
+				(SELECT gss.season_no FROM guild_siege_season gss ORDER BY gss.season_no DESC LIMIT 1)
 			),
 			n.m1,
 			n.m2,
@@ -487,6 +510,7 @@
 		) n
 		ON CONFLICT (guild_id, season_yyyymm, monster_id_1, monster_id_2, monster_id_3)
 		DO UPDATE SET
+			season_no = EXCLUDED.season_no,
 			upt_user_id = EXCLUDED.upt_user_id,
 			upt_date = CURRENT_TIMESTAMP
 	</insert>
@@ -520,7 +544,7 @@
 			   <if test="dm2_list != null and dm2_list != ''">AND stats.monster_id_2 IN (${dm2_list})</if>
 			   <if test="dm3_list != null and dm3_list != ''">AND stats.monster_id_3 IN (${dm3_list})</if>
 			   <include refid="siegeGuildFilter"><property name="col" value="stats.guild_id"/></include>
-			   <include refid="siegeSeasonFilterYyyymm"><property name="col" value="stats.season_yyyymm"/></include>
+			   <include refid="siegeSeasonFilterSeasonNo"><property name="col" value="stats.season_no"/></include>
 			 GROUP BY stats.monster_id_1, stats.monster_id_2, stats.monster_id_3
 			 ORDER BY total_count DESC, total_rate DESC
 			</when>
@@ -707,7 +731,7 @@
 		       <if test="dm2_list != null and dm2_list != ''">AND monster_id_2 IN (${dm2_list})</if>
 		       <if test="dm3_list != null and dm3_list != ''">AND monster_id_3 IN (${dm3_list})</if>
 		       <include refid="siegeGuildFilter"><property name="col" value="guild_id"/></include>
-		       <include refid="siegeSeasonFilterYyyymm"><property name="col" value="season_yyyymm"/></include>
+		       <include refid="siegeSeasonFilterSeasonNo"><property name="col" value="season_no"/></include>
 		     GROUP BY attack_monster_id_1, attack_monster_id_2, attack_monster_id_3
 		     ORDER BY total_count DESC, total_rate DESC
 		     <if test="historyLimit != null and historyLimit != ''">LIMIT #{historyLimit}::bigint</if>
@@ -996,7 +1020,7 @@
 		   <if test="dm2_list != null and dm2_list != ''">AND monster_id_2 IN (${dm2_list})</if>
 		   <if test="dm3_list != null and dm3_list != ''">AND monster_id_3 IN (${dm3_list})</if>
 		   <include refid="siegeGuildFilter"><property name="col" value="guild_id"/></include>
-		   <include refid="siegeSeasonFilterYyyymm"><property name="col" value="season_yyyymm"/></include>
+		   <include refid="siegeSeasonFilterSeasonNo"><property name="col" value="season_no"/></include>
 		</when>
 		<otherwise>
 		<!-- 레거시 경로: view_battle_deck_info 직접 조회 -->
@@ -1048,6 +1072,7 @@
 	</select>
 	
 	<!-- 최근 전적: bll.log_id + vbdi.log_id 조인 (log_timestamp만 쓰면 동일 초·복수 행 중복) -->
+	<!-- 콜라보 정규화+2·3슬롯 정렬은 적재 시 view_battle_deck_info.monster_id_2_ordered/3_ordered 에 사전계산 → 조회는 인덱스(idx_vbdi_def_ordered)로 단순 비교 -->
 	<sql id="siegeMonsterDetailRecentBattlesDefExists">
 		   EXISTS (
 		     SELECT 1
@@ -1056,11 +1081,18 @@
 		        AND def_d.log_id = bll.log_id
 		        AND def_d.type = 'defense'
 		        AND def_d.monster_id_1 IN (${dm1_list})
-		        <if test="dm2_list != null and dm2_list != ''">AND LEAST(def_d.monster_id_2, def_d.monster_id_3) IN (${dm2_list})</if>
-		        <if test="dm3_list != null and dm3_list != ''">AND GREATEST(def_d.monster_id_2, def_d.monster_id_3) IN (${dm3_list})</if>
+		        <if test="dm2_list != null and dm2_list != ''">AND def_d.monster_id_2_ordered IN (${dm2_list})</if>
+		        <if test="dm3_list != null and dm3_list != ''">AND def_d.monster_id_3_ordered IN (${dm3_list})</if>
 		        <if test='match_id != null and match_id != "" and match_id != "null"'>
 		        AND def_d.match_id = #{match_id}
 		        </if>
+		   )
+		   AND EXISTS (
+		     SELECT 1
+		       FROM view_battle_deck_info atk_d
+		      WHERE atk_d.match_id = bll.match_id
+		        AND atk_d.log_id = bll.log_id
+		        AND atk_d.type = 'attack'
 		   )
 	</sql>
 
@@ -1069,16 +1101,16 @@
 		WITH bll_core AS (
 		    SELECT bll.match_id
 		         , bll.log_id
-		         , bll.log_timestamp
-		         , bll.win_lose
-		         , bll.wizard_name
-		         , bll.opp_wizard_name
-		         , bll.guild_id
-		         , bll.opp_guild_id
+		         , MAX(bll.log_timestamp) AS log_timestamp
+		         , MAX(bll.win_lose) AS win_lose
+		         , MAX(bll.wizard_name) AS wizard_name
+		         , MAX(bll.opp_wizard_name) AS opp_wizard_name
+		         , MAX(bll.guild_id) AS guild_id
+		         , MAX(bll.opp_guild_id) AS opp_guild_id
 		      FROM battle_log_list bll
 		     WHERE <include refid="siegeMonsterDetailRecentBattlesDefExists"/>
 		       <include refid="siegeBattleLogMatchGuildFilter"><property name="matchIdCol" value="bll.match_id"/></include>
-		       <include refid="siegeSeasonFilterMatchIdPrefix"><property name="matchIdCol" value="bll.match_id"/></include>
+		       <include refid="siegeSeasonFilterEpoch"><property name="epochCol" value="bll.log_timestamp"/></include>
 		       <if test='match_id != null and match_id != "" and match_id != "null"'>
 		       AND bll.match_id = #{match_id}
 		       </if>
@@ -1086,7 +1118,8 @@
 		       AND bll.opp_guild_id IN
 		       <foreach collection="guild_ids" item="guild_id" open="(" separator="," close=")">#{guild_id}</foreach>
 		       </if>
-		     ORDER BY bll.log_timestamp DESC
+		     GROUP BY bll.match_id, bll.log_id
+		     ORDER BY MAX(bll.log_timestamp) DESC
 		     <if test="recentLimit != null and recentLimit != ''">LIMIT #{recentLimit}::bigint</if>
 		     <if test="recentLimit == null or recentLimit == ''">LIMIT 10</if>
 		     <if test="recentOffset != null and recentOffset != '' and recentLimit != null and recentLimit != ''">OFFSET (#{recentOffset}::bigint - 1) * #{recentLimit}::bigint</if>
@@ -1099,16 +1132,15 @@
 		         , bll.wizard_name
 		         , bll.opp_wizard_name
 		         , vbdi.type
+		         /* 통계(siege_defense_deck_stats)와 동일한 [리더, 정렬2, 정렬3] 구성: 리더만 콜라보 정규화, 2·3번은 적재 시 계산된 _ordered 사용 */
 		         , COALESCE(mcm1.original_monster_id, vbdi.monster_id_1) AS monster_id_1
-		         , COALESCE(mcm2.original_monster_id, vbdi.monster_id_2) AS monster_id_2
-		         , COALESCE(mcm3.original_monster_id, vbdi.monster_id_3) AS monster_id_3
+		         , vbdi.monster_id_2_ordered AS monster_id_2
+		         , vbdi.monster_id_3_ordered AS monster_id_3
 		      FROM bll_core bll
 		     INNER JOIN view_battle_deck_info vbdi
 		             ON vbdi.match_id = bll.match_id
 		            AND vbdi.log_id = bll.log_id
 		      LEFT JOIN monster_collaboration_mapping mcm1 ON vbdi.monster_id_1 = mcm1.collaboration_monster_id
-		      LEFT JOIN monster_collaboration_mapping mcm2 ON vbdi.monster_id_2 = mcm2.collaboration_monster_id
-		      LEFT JOIN monster_collaboration_mapping mcm3 ON vbdi.monster_id_3 = mcm3.collaboration_monster_id
 		)
 		SELECT dr.log_timestamp
 		     , dr.log_id
@@ -1138,11 +1170,11 @@
 
 	<select id="selectMonsterDetailRecentBattlesCount" parameterType="sqlMap" resultType="Int">
 		/* selectMonsterDetailRecentBattlesCount */
-		SELECT COUNT(*)::int
+		SELECT COUNT(DISTINCT (bll.match_id, bll.log_id))::int
 		  FROM battle_log_list bll
 		 WHERE <include refid="siegeMonsterDetailRecentBattlesDefExists"/>
 		   <include refid="siegeBattleLogMatchGuildFilter"><property name="matchIdCol" value="bll.match_id"/></include>
-		   <include refid="siegeSeasonFilterMatchIdPrefix"><property name="matchIdCol" value="bll.match_id"/></include>
+		   <include refid="siegeSeasonFilterEpoch"><property name="epochCol" value="bll.log_timestamp"/></include>
 		   <if test='match_id != null and match_id != "" and match_id != "null"'>
 		   AND bll.match_id = #{match_id}
 		   </if>
@@ -1240,6 +1272,8 @@
 			 , monster_id_1
 			 , monster_id_2
 			 , monster_id_3
+			 , monster_id_2_ordered
+			 , monster_id_3_ordered
 		) values (
 			   #{match_id}
 			 , #{log_id}
@@ -1248,33 +1282,42 @@
 			 , #{monster_id_1}
 			 , #{monster_id_2}
 			 , #{monster_id_3}
+			 , LEAST(
+			     COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = #{monster_id_2} LIMIT 1), #{monster_id_2}),
+			     COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = #{monster_id_3} LIMIT 1), #{monster_id_3})
+			   )
+			 , GREATEST(
+			     COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = #{monster_id_2} LIMIT 1), #{monster_id_2}),
+			     COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = #{monster_id_3} LIMIT 1), #{monster_id_3})
+			   )
 		)
 	</insert>
 
 	<delete id="deleteSiegeDefenseDeckStatsByGuildSeason" parameterType="sqlMap">
-		/* deleteSiegeDefenseDeckStatsByGuildSeason */
+		/* deleteSiegeDefenseDeckStatsByGuildSeason - (guild_id, season_no) 단위 재집계 전 삭제 */
 		DELETE FROM siege_defense_deck_stats
 		 WHERE guild_id = #{guild_id}::text
-		   AND season_yyyymm = #{season_yyyymm}::text
+		   AND season_no = #{season_no}
 	</delete>
 
 	<delete id="deleteSiegeDefenseDeckGuildAggByGuildSeason" parameterType="sqlMap">
-		/* deleteSiegeDefenseDeckGuildAggByGuildSeason */
+		/* deleteSiegeDefenseDeckGuildAggByGuildSeason - (guild_id, season_no) 단위 재집계 전 삭제 */
 		DELETE FROM siege_defense_deck_guild_agg
 		 WHERE guild_id = #{guild_id}::text
-		   AND season_yyyymm = #{season_yyyymm}::text
+		   AND season_no = #{season_no}
 	</delete>
 
 	<insert id="insertSiegeDefenseDeckGuildAggFromStats" parameterType="sqlMap">
-		/* insertSiegeDefenseDeckGuildAggFromStats */
+		/* insertSiegeDefenseDeckGuildAggFromStats - (guild_id, season_no) 단위 집계 */
 		INSERT INTO siege_defense_deck_guild_agg (
-		       season_yyyymm, guild_id, deck_key,
+		       season_no, season_yyyymm, guild_id, deck_key,
 		       monster_id_1, monster_id_2, monster_id_3,
 		       total_count, win_count, lose_count,
 		       image_url_1, image_url_2, image_url_3,
 		       leader_id, leader_type, leader_stat, leader_increase_by, leader_icon, leader_skill_desc
 		)
-		SELECT s.season_yyyymm
+		SELECT s.season_no
+		     , MAX(s.season_yyyymm)
 		     , s.guild_id
 		     , s.deck_key
 		     , s.monster_id_1
@@ -1294,22 +1337,23 @@
 		     , MAX(s.leader_skill_desc)
 		  FROM siege_defense_deck_stats s
 		 WHERE s.guild_id = #{guild_id}::text
-		   AND s.season_yyyymm = #{season_yyyymm}::text
-		 GROUP BY s.season_yyyymm, s.guild_id, s.deck_key,
+		   AND s.season_no = #{season_no}
+		 GROUP BY s.season_no, s.guild_id, s.deck_key,
 		          s.monster_id_1, s.monster_id_2, s.monster_id_3
 	</insert>
 
 	<insert id="insertSiegeDefenseDeckStatsFromBattleLogs" parameterType="sqlMap">
 		/* insertSiegeDefenseDeckStatsFromBattleLogs */
 		INSERT INTO siege_defense_deck_stats (
-		       season_yyyymm, guild_id, deck_key, monster_id_1, monster_id_2, monster_id_3,
+		       season_no, season_yyyymm, guild_id, deck_key, monster_id_1, monster_id_2, monster_id_3,
 		       attack_deck_key, attack_monster_id_1, attack_monster_id_2, attack_monster_id_3,
 		       total_count, win_count, lose_count,
 		       image_url_1, image_url_2, image_url_3,
 		       leader_id, leader_type, leader_stat, leader_increase_by, leader_icon, leader_skill_desc
 		)
 		SELECT
-		       #{season_yyyymm}::text,
+		       #{season_no},
+		       (SELECT TO_CHAR(DATE_TRUNC('month', gss.start_date), 'YYYYMM') FROM guild_siege_season gss WHERE gss.season_no = #{season_no}),
 		       #{guild_id}::text,
 		       agg.m1 || '-' || agg.m2 || '-' || agg.m3,
 		       agg.m1, agg.m2, agg.m3,
@@ -1328,52 +1372,49 @@
 		       ml.icon_path,
 		       get_leader_skill_desc(ml.type, ml.stat, ml.increase_by)
 		  FROM (
+		        /* 리더(slot1)만 콜라보 정규화, 2·3번은 적재 시 정렬해둔 _ordered 사용. def·atk 는 log_id 로 조인(동일 초 복수 전투 fan-out 방지) */
 		        SELECT
 		               COALESCE(mcm1.original_monster_id, def.monster_id_1) AS m1,
-		               LEAST(
-		                 COALESCE(mcm2.original_monster_id, def.monster_id_2),
-		                 COALESCE(mcm3.original_monster_id, def.monster_id_3)
-		               ) AS m2,
-		               GREATEST(
-		                 COALESCE(mcm2.original_monster_id, def.monster_id_2),
-		                 COALESCE(mcm3.original_monster_id, def.monster_id_3)
-		               ) AS m3,
+		               def.monster_id_2_ordered AS m2,
+		               def.monster_id_3_ordered AS m3,
 		               COALESCE(acm1.original_monster_id, atk.monster_id_1) AS a1,
-		               LEAST(
-		                 COALESCE(acm2.original_monster_id, atk.monster_id_2),
-		                 COALESCE(acm3.original_monster_id, atk.monster_id_3)
-		               ) AS a2,
-		               GREATEST(
-		                 COALESCE(acm2.original_monster_id, atk.monster_id_2),
-		                 COALESCE(acm3.original_monster_id, atk.monster_id_3)
-		               ) AS a3,
+		               atk.monster_id_2_ordered AS a2,
+		               atk.monster_id_3_ordered AS a3,
 		               COUNT(*)::int AS total_count,
 		               SUM(CASE WHEN bll.win_lose = '1' THEN 1 ELSE 0 END)::int AS win_count,
 		               SUM(CASE WHEN bll.win_lose = '2' THEN 1 ELSE 0 END)::int AS lose_count
-		          FROM battle_log_list bll
-		         INNER JOIN view_battle_deck_info def
-		            ON def.match_id = bll.match_id
-		           AND def.log_timestamp = bll.log_timestamp
-		           AND def.type = 'defense'
-		         INNER JOIN view_battle_deck_info atk
-		            ON atk.match_id = bll.match_id
-		           AND atk.log_timestamp = bll.log_timestamp
-		           AND atk.type = 'attack'
+		          /* battle_log_list 를 (match_id, log_id) 단위로 1행 정규화 — 완전중복 행 제거, 동일 초 복수 전투는 log_id 로 구분 */
+		          FROM (
+		                 SELECT match_id, log_id, guild_id,
+		                        MAX(log_timestamp) AS log_timestamp,
+		                        MAX(win_lose) AS win_lose
+		                   FROM battle_log_list
+		                  WHERE guild_id = #{guild_id}::text
+		                  GROUP BY match_id, log_id, guild_id
+		               ) bll
+		         /* 전투당 def·atk 각 1행만 — view_battle_deck_info 에 동일 (match_id, log_id) 중복/멀티행이 있어도 fan-out 방지 */
+		         INNER JOIN LATERAL (
+		                 SELECT d.monster_id_1, d.monster_id_2_ordered, d.monster_id_3_ordered
+		                   FROM view_battle_deck_info d
+		                  WHERE d.match_id = bll.match_id AND d.log_id = bll.log_id AND d.type = 'defense'
+		                  LIMIT 1
+		               ) def ON true
+		         INNER JOIN LATERAL (
+		                 SELECT a.monster_id_1, a.monster_id_2_ordered, a.monster_id_3_ordered
+		                   FROM view_battle_deck_info a
+		                  WHERE a.match_id = bll.match_id AND a.log_id = bll.log_id AND a.type = 'attack'
+		                  LIMIT 1
+		               ) atk ON true
+		         /* 전투 일자(KST)가 대상 시즌(season_no)의 [start_date, end_date] 안인 것만 — 경계월 섞임 방지, 공백기는 매핑 안 됨 */
+		         INNER JOIN guild_siege_season gss
+		            ON gss.season_no = #{season_no}
+		           AND (to_timestamp(bll.log_timestamp::bigint) AT TIME ZONE 'Asia/Seoul')::date &gt;= gss.start_date
+		           AND ((to_timestamp(bll.log_timestamp::bigint) AT TIME ZONE 'Asia/Seoul')::date &lt;= gss.end_date OR gss.end_date IS NULL)
 		          LEFT JOIN monster_collaboration_mapping mcm1
 		            ON def.monster_id_1 = mcm1.collaboration_monster_id
-		          LEFT JOIN monster_collaboration_mapping mcm2
-		            ON def.monster_id_2 = mcm2.collaboration_monster_id
-		          LEFT JOIN monster_collaboration_mapping mcm3
-		            ON def.monster_id_3 = mcm3.collaboration_monster_id
 		          LEFT JOIN monster_collaboration_mapping acm1
 		            ON atk.monster_id_1 = acm1.collaboration_monster_id
-		          LEFT JOIN monster_collaboration_mapping acm2
-		            ON atk.monster_id_2 = acm2.collaboration_monster_id
-		          LEFT JOIN monster_collaboration_mapping acm3
-		            ON atk.monster_id_3 = acm3.collaboration_monster_id
-		         WHERE bll.guild_id = #{guild_id}::text
-		           AND SUBSTRING(bll.match_id, 1, 6) = #{season_yyyymm}::text
-		           AND EXISTS (
+		         WHERE EXISTS (
 		                 SELECT 1
 		                   FROM guild_siege_battle_log gsbl
 		                  WHERE gsbl.guild_id = bll.guild_id
@@ -1386,6 +1427,18 @@
 		  LEFT JOIN monster m3 ON agg.m3 = m3.monster_id
 		  LEFT JOIN monster_leaders ml ON m1.leader_id = ml.leader_id
 	</insert>
+
+	<select id="selectAffectedSeasonNos" resultType="int">
+		/* selectAffectedSeasonNos - 업로드 매치들이 속한 시즌 번호 (전투 일자 KST → guild_siege_season 매핑) */
+		SELECT DISTINCT gss.season_no
+		  FROM battle_log_list bll
+		  JOIN guild_siege_season gss
+		    ON (to_timestamp(bll.log_timestamp::bigint) AT TIME ZONE 'Asia/Seoul')::date &gt;= gss.start_date
+		   AND ((to_timestamp(bll.log_timestamp::bigint) AT TIME ZONE 'Asia/Seoul')::date &lt;= gss.end_date OR gss.end_date IS NULL)
+		 WHERE bll.guild_id = #{guildId}::text
+		   AND bll.match_id IN
+		   <foreach collection="matchIds" item="mid" open="(" separator="," close=")">#{mid}</foreach>
+	</select>
 
 	<insert id="insertGuildSiegeBattleLogBatch">
 		/* insertGuildSiegeBattleLogBatch */
@@ -1427,6 +1480,7 @@
 
 	<insert id="insertGuildSiegeBattleDeckBatch">
 		/* insertGuildSiegeBattleDeckBatch */
+		<!-- monster_id_2_ordered/3_ordered: 콜라보→오리지널 정규화 후 LEAST/GREATEST 정렬을 적재 시 계산(조회 단순화·idx_vbdi_def_ordered) -->
 		insert into view_battle_deck_info (
 			   match_id
 			 , log_id
@@ -1435,6 +1489,8 @@
 			 , monster_id_1
 			 , monster_id_2
 			 , monster_id_3
+			 , monster_id_2_ordered
+			 , monster_id_3_ordered
 		) values
 		<foreach collection="rows" item="row" separator=",">
 		(
@@ -1445,6 +1501,14 @@
 			 , #{row.monster_id_1}
 			 , #{row.monster_id_2}
 			 , #{row.monster_id_3}
+			 , LEAST(
+			     COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = #{row.monster_id_2} LIMIT 1), #{row.monster_id_2}),
+			     COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = #{row.monster_id_3} LIMIT 1), #{row.monster_id_3})
+			   )
+			 , GREATEST(
+			     COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = #{row.monster_id_2} LIMIT 1), #{row.monster_id_2}),
+			     COALESCE((SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = #{row.monster_id_3} LIMIT 1), #{row.monster_id_3})
+			   )
 		)
 		</foreach>
 	</insert>

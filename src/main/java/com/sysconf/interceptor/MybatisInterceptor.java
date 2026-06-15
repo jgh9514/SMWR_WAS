@@ -146,6 +146,22 @@ public class MybatisInterceptor implements Interceptor {
                     parameters.put("current_season_yyyymm", currentSeasonCache.getCurrentSeasonYyyymm());
                 }
             }
+            // 시즌 경계 정확화: season_no(집계 테이블) / epoch 경계(battle_log_list 최근전적) 주입.
+            // scope != A 일 때만 현재 시즌으로 좁힌다. season_no 가 null 이면 XML <if> guard로 필터 미적용.
+            if (!skipSiegeInjection && currentSeasonCache != null && ms.getId().contains("summonerswarMapper")) {
+                Object scope = parameters.get("siege_view_scope");
+                if (scope == null || !"A".equals(scope.toString())) {
+                    if (shouldInject(parameters, "current_season_no")) {
+                        parameters.put("current_season_no", currentSeasonCache.getCurrentSeasonNo());
+                    }
+                    if (shouldInject(parameters, "current_season_start_epoch")) {
+                        parameters.put("current_season_start_epoch", currentSeasonCache.getCurrentSeasonStartEpoch());
+                    }
+                    if (shouldInject(parameters, "current_season_end_epoch")) {
+                        parameters.put("current_season_end_epoch", currentSeasonCache.getCurrentSeasonEndEpochExclusive());
+                    }
+                }
+            }
             // NumberFormatException 방지: 숫자 파라미터·몬스터ID 컬렉션 검증
             if (!skipSiegeInjection) {
                 sanitizeNumericParams(parameters);

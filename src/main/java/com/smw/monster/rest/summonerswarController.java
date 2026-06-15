@@ -510,7 +510,9 @@ public class summonerswarController {
     			swService.insertGuildSiegeBattleDeckBatch(pendingDecks);
     		}
     		if (!pendingBattles.isEmpty()) {
-    			java.util.Set<String> guildSeasonKeys = new java.util.LinkedHashSet<>();
+    			// 길드별 업로드 매치 집합 → 매치들이 속한 시즌(season_no) 단위로 재집계
+    			// (전투 일자→guild_siege_season 매핑: 경계월에 다른 시즌 경기가 섞이지 않도록)
+    			java.util.Map<String, java.util.Set<String>> guildToMatchIds = new java.util.LinkedHashMap<>();
     			for (Map<String, ?> battle : pendingBattles) {
     				Object matchIdObj = battle.get("match_id");
     				Object guildIdObj = battle.get("guild_id");
@@ -518,19 +520,20 @@ public class summonerswarController {
     					continue;
     				}
     				String matchId = matchIdObj.toString().trim();
-    				if (matchId.length() < 6) {
+    				String guildId = guildIdObj.toString().trim();
+    				if (matchId.isEmpty() || guildId.isEmpty()) {
     					continue;
     				}
-    				guildSeasonKeys.add(guildIdObj.toString().trim() + "|" + matchId.substring(0, 6));
+    				guildToMatchIds.computeIfAbsent(guildId, k -> new java.util.LinkedHashSet<>()).add(matchId);
     			}
-    			for (String guildSeasonKey : guildSeasonKeys) {
-    				int sep = guildSeasonKey.indexOf('|');
-    				if (sep <= 0 || sep >= guildSeasonKey.length() - 1) {
-    					continue;
+    			for (Map.Entry<String, java.util.Set<String>> e : guildToMatchIds.entrySet()) {
+    				String guildId = e.getKey();
+    				java.util.List<Integer> seasonNos = swService.selectAffectedSeasonNos(guildId, e.getValue());
+    				for (Integer seasonNo : seasonNos) {
+    					if (seasonNo != null) {
+    						swService.refreshSiegeDefenseDeckStatsForGuildSeasonNo(guildId, seasonNo);
+    					}
     				}
-    				swService.refreshSiegeDefenseDeckStatsForGuildSeason(
-    						guildSeasonKey.substring(0, sep),
-    						guildSeasonKey.substring(sep + 1));
     			}
     		}
     	}
