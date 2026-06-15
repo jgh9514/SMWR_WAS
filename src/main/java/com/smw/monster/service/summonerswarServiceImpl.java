@@ -362,6 +362,7 @@ public class summonerswarServiceImpl implements summonerswarService {
 		if (param == null) return 0;
 		normalizeDeckMetaParams(param);
 		if (!validateDeckStatsRunesInParam(param)) {
+			log.warn("insertFriendlyteamTeamSave rejected: invalid rune selection (deck stats validation failed)");
 			return -1;
 		}
 		int n = swMapper.insertFriendlyteamTeamSave(param);
@@ -546,8 +547,9 @@ public class summonerswarServiceImpl implements summonerswarService {
 			List<Map<String, ?>> rows = swMapper.selectRuneMasterList(new HashMap<>());
 			if (rows != null) {
 				for (Map<String, ?> row : rows) {
-					Object idObj = row.get("rune_id");
-					Object piecesObj = row.get("required_pieces");
+					// MyBatis mapUnderscoreToCamelCase → runeId / requiredPieces
+					Object idObj = firstNonNull(row.get("rune_id"), row.get("runeId"));
+					Object piecesObj = firstNonNull(row.get("required_pieces"), row.get("requiredPieces"));
 					if (idObj == null || piecesObj == null) continue;
 					map.put(((Number) idObj).intValue(), ((Number) piecesObj).intValue());
 				}
