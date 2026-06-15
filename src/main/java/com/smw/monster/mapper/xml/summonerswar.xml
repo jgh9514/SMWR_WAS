@@ -2,15 +2,6 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.smw.monster.mapper.summonerswarMapper">
 
-	<!-- siege_view_scope C: CurrentSeasonCache 주입값(current_season_yyyymm) 기준. A: 시즌 필터 없음 -->
-	<sql id="siegeSeasonFilterYyyymm">
-		<if test='siege_view_scope == null or siege_view_scope != "A"'>
-			<if test="current_season_yyyymm != null and current_season_yyyymm != '' and current_season_yyyymm != '000000'">
-				AND ${col} &gt;= #{current_season_yyyymm}
-			</if>
-		</if>
-	</sql>
-
 	<sql id="siegeSeasonFilterMatchIdPrefix">
 		<if test='siege_view_scope == null or siege_view_scope != "A"'>
 			<if test="current_season_yyyymm != null and current_season_yyyymm != '' and current_season_yyyymm != '000000'">
@@ -1310,14 +1301,13 @@
 	<insert id="insertSiegeDefenseDeckGuildAggFromStats" parameterType="sqlMap">
 		/* insertSiegeDefenseDeckGuildAggFromStats - (guild_id, season_no) 단위 집계 */
 		INSERT INTO siege_defense_deck_guild_agg (
-		       season_no, season_yyyymm, guild_id, deck_key,
+		       season_no, guild_id, deck_key,
 		       monster_id_1, monster_id_2, monster_id_3,
 		       total_count, win_count, lose_count,
 		       image_url_1, image_url_2, image_url_3,
 		       leader_id, leader_type, leader_stat, leader_increase_by, leader_icon, leader_skill_desc
 		)
 		SELECT s.season_no
-		     , MAX(s.season_yyyymm)
 		     , s.guild_id
 		     , s.deck_key
 		     , s.monster_id_1
@@ -1345,7 +1335,7 @@
 	<insert id="insertSiegeDefenseDeckStatsFromBattleLogs" parameterType="sqlMap">
 		/* insertSiegeDefenseDeckStatsFromBattleLogs */
 		INSERT INTO siege_defense_deck_stats (
-		       season_no, season_yyyymm, guild_id, deck_key, monster_id_1, monster_id_2, monster_id_3,
+		       season_no, guild_id, deck_key, monster_id_1, monster_id_2, monster_id_3,
 		       attack_deck_key, attack_monster_id_1, attack_monster_id_2, attack_monster_id_3,
 		       total_count, win_count, lose_count,
 		       image_url_1, image_url_2, image_url_3,
@@ -1353,7 +1343,6 @@
 		)
 		SELECT
 		       #{season_no},
-		       (SELECT TO_CHAR(DATE_TRUNC('month', gss.start_date), 'YYYYMM') FROM guild_siege_season gss WHERE gss.season_no = #{season_no}),
 		       #{guild_id}::text,
 		       agg.m1 || '-' || agg.m2 || '-' || agg.m3,
 		       agg.m1, agg.m2, agg.m3,
