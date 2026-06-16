@@ -1979,6 +1979,93 @@
 		     </if>
 		  ) t
 	</select>
+
+	<select id="selectRecordAttackDeckCombos" parameterType="sqlMap" resultType="sqlMap">
+		/* summonerswar.selectRecordAttackDeckCombos */
+		WITH combo AS (
+			SELECT s.attack_monster_id_1 AS atk_monster_1
+			     , s.attack_monster_id_2 AS atk_monster_2
+			     , s.attack_monster_id_3 AS atk_monster_3
+			     , SUM(s.total_count)::int AS usage_count
+			     , SUM(s.win_count)::int AS win_count
+			     , SUM(s.lose_count)::int AS lose_count
+			     , MAX(s.id) AS last_stat_id
+			  FROM siege_defense_deck_stats s
+			 <where>
+			   <include refid="siegeGuildFilter"><property name="col" value="s.guild_id"/></include>
+			   <include refid="siegeSeasonFilterSeasonNo"><property name="col" value="s.season_no"/></include>
+			   <if test="monster_id != null and monster_id != ''">
+			   AND (
+			         s.attack_monster_id_1 = #{monster_id}
+			      OR s.attack_monster_id_2 = #{monster_id}
+			      OR s.attack_monster_id_3 = #{monster_id}
+			   )
+			   </if>
+			 </where>
+			 GROUP BY s.attack_monster_id_1, s.attack_monster_id_2, s.attack_monster_id_3
+			 <if test="min_usage_count != null and min_usage_count != '' and min_usage_count &gt; 0">
+			 HAVING SUM(s.total_count) &gt;= #{min_usage_count}::int
+			 </if>
+			 <choose>
+			 	<when test="sort == 'LATEST_DESC'">
+			 	 ORDER BY MAX(s.id) DESC, usage_count DESC
+			 	</when>
+			 	<otherwise>
+			 	 ORDER BY usage_count DESC, MAX(s.id) DESC
+			 	</otherwise>
+			 </choose>
+			 LIMIT #{paging}::bigint
+			 OFFSET (#{offset}::bigint - 1) * #{paging}::bigint
+		)
+		SELECT c.atk_monster_1
+		     , c.atk_monster_2
+		     , c.atk_monster_3
+		     , c.usage_count
+		     , c.win_count
+		     , c.lose_count
+		     , m1.kr_name AS m1_kr_name
+		     , m2.kr_name AS m2_kr_name
+		     , m3.kr_name AS m3_kr_name
+		     , m1.image_url AS image_url1
+		     , m2.image_url AS image_url2
+		     , m3.image_url AS image_url3
+		  FROM combo c
+		  LEFT JOIN monster m1 ON c.atk_monster_1 = m1.monster_id
+		  LEFT JOIN monster m2 ON c.atk_monster_2 = m2.monster_id
+		  LEFT JOIN monster m3 ON c.atk_monster_3 = m3.monster_id
+		 <choose>
+		 	<when test="sort == 'LATEST_DESC'">
+		 	 ORDER BY c.last_stat_id DESC, c.usage_count DESC
+		 	</when>
+		 	<otherwise>
+		 	 ORDER BY c.usage_count DESC, c.last_stat_id DESC
+		 	</otherwise>
+		 </choose>
+	</select>
+
+	<select id="selectRecordAttackDeckComboCount" parameterType="sqlMap" resultType="Int">
+		/* summonerswar.selectRecordAttackDeckComboCount */
+		SELECT COUNT(*)::int
+		  FROM (
+		    SELECT 1
+		      FROM siege_defense_deck_stats s
+		     <where>
+		       <include refid="siegeGuildFilter"><property name="col" value="s.guild_id"/></include>
+		       <include refid="siegeSeasonFilterSeasonNo"><property name="col" value="s.season_no"/></include>
+		       <if test="monster_id != null and monster_id != ''">
+		       AND (
+		             s.attack_monster_id_1 = #{monster_id}
+		          OR s.attack_monster_id_2 = #{monster_id}
+		          OR s.attack_monster_id_3 = #{monster_id}
+		       )
+		       </if>
+		     </where>
+		     GROUP BY s.attack_monster_id_1, s.attack_monster_id_2, s.attack_monster_id_3
+		     <if test="min_usage_count != null and min_usage_count != '' and min_usage_count &gt; 0">
+		     HAVING SUM(s.total_count) &gt;= #{min_usage_count}::int
+		     </if>
+		  ) t
+	</select>
 		
 	<select id="selectRecordList" parameterType="sqlMap" resultType="sqlMap">
 		/* summonerswar.selectRecordList — 길드 인원별 승패 집계, wizard_id 기준 그룹핑 + 최신 이름 사용 */

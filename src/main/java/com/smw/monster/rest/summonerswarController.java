@@ -850,7 +850,7 @@ public class summonerswarController {
     	return new ResponseEntity<>(swService.selectRuneMasterList(), HttpStatus.OK);
     }
 
-    @Operation(summary = "인기 공덱 조합 목록", description = "자주 사용되는 공격 3몬스터 조합 목록을 조회합니다.")
+    @Operation(summary = "공덱 조합 목록", description = "source=RECOMMENDED(추천 공덱) 또는 RECORD(전적 공덱) 공격 3몬스터 조합 목록을 조회합니다.")
     @PostMapping("/popular-attack-decks")
     public ResponseEntity<?> selectPopularAttackDecks(@RequestBody(required = false) Map<String, Object> param, HttpSession session, HttpServletRequest request) {
     	Map<String, Object> p = param != null ? param : new HashMap<>();

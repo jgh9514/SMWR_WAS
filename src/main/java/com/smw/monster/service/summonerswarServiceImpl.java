@@ -795,8 +795,16 @@ public class summonerswarServiceImpl implements summonerswarService {
 		q.put("min_usage_count", minUsageCount);
 		q.put("sort", sort);
 
-		List<Map<String, ?>> comboList = swMapper.selectPopularAttackDeckCombos(q);
-		int totalCount = swMapper.selectPopularAttackDeckComboCount(q);
+		String source = q.get("source") != null ? String.valueOf(q.get("source")).trim() : "RECOMMENDED";
+		List<Map<String, ?>> comboList;
+		int totalCount;
+		if ("RECORD".equalsIgnoreCase(source)) {
+			comboList = swMapper.selectRecordAttackDeckCombos(q);
+			totalCount = swMapper.selectRecordAttackDeckComboCount(q);
+		} else {
+			comboList = swMapper.selectPopularAttackDeckCombos(q);
+			totalCount = swMapper.selectPopularAttackDeckComboCount(q);
+		}
 		boolean hasNext = (long) offset * paging < (long) totalCount;
 
 		Map<String, Object> result = new HashMap<>();

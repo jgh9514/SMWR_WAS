@@ -50,11 +50,17 @@ public interface summonerswarMapper {
 	
 	public int selectRecommendedAttackDeckListCount(Map<String, Object> param);
 
-	/** 공덱 조합(공격 3몬스터) 인기 목록 */
+	/** 추천 공덱 조합(공격 3몬스터) 목록 */
 	public List<Map<String, ?>> selectPopularAttackDeckCombos(Map<String, Object> param);
 
-	/** 공덱 조합(공격 3몬스터) 전체 개수 */
+	/** 추천 공덱 조합(공격 3몬스터) 전체 개수 */
 	public int selectPopularAttackDeckComboCount(Map<String, Object> param);
+
+	/** 전적에 쓰인 공덱 조합(공격 3몬스터) 목록 */
+	public List<Map<String, ?>> selectRecordAttackDeckCombos(Map<String, Object> param);
+
+	/** 전적에 쓰인 공덱 조합(공격 3몬스터) 전체 개수 */
+	public int selectRecordAttackDeckComboCount(Map<String, Object> param);
 
 	public List<Map<String, ?>> selectMonsterDetailTeamList(Map<String, Object> param);
 
