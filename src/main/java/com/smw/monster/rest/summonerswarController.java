@@ -850,6 +850,16 @@ public class summonerswarController {
     	return new ResponseEntity<>(swService.selectRuneMasterList(), HttpStatus.OK);
     }
 
+    @Operation(summary = "인기 공덱 조합 목록", description = "자주 사용되는 공격 3몬스터 조합 목록을 조회합니다.")
+    @PostMapping("/popular-attack-decks")
+    public ResponseEntity<?> selectPopularAttackDecks(@RequestBody(required = false) Map<String, Object> param, HttpSession session, HttpServletRequest request) {
+    	Map<String, Object> p = param != null ? param : new HashMap<>();
+    	ResponseEntity<?> guard = requireLoginAndGuild(request, p);
+    	if (guard != null) return guard;
+    	Map<String, ?> result = swService.selectPopularAttackDeckCombos(p);
+    	return new ResponseEntity<>(result, HttpStatus.OK);
+    }
+
     @Operation(summary = "공덱 상세 정보 조회", description = "공덱의 상세 정보를 조회합니다.")
     @PostMapping("/deck-detail")
     public ResponseEntity<?> selectDeckDetail(@RequestBody Map<String, Object> param, HttpSession session, HttpServletRequest request) {

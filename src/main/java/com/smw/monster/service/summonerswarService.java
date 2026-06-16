@@ -39,6 +39,11 @@ public interface summonerswarService {
 	public int selectMonsterDetailTeamListCount(Map<String, Object> param);
 	
 	public int selectRecommendedAttackDeckListCount(Map<String, Object> param);
+
+	/**
+	 * 자주 사용되는 공덱 조합 목록(공격 3몬스터 조합 기준)
+	 */
+	public Map<String, ?> selectPopularAttackDeckCombos(Map<String, Object> param);
 	
 	public Map<String, ?> selectGuildMatchCheck(Map<String, ?> param);
 	

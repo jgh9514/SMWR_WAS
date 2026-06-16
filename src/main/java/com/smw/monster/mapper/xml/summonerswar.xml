@@ -1910,6 +1910,75 @@
 		   and srad.def_monster_2 = #{dm2}
 		   and srad.def_monster_3 = #{dm3}
 	</select>
+
+	<select id="selectPopularAttackDeckCombos" parameterType="sqlMap" resultType="sqlMap">
+		/* summonerswar.selectPopularAttackDeckCombos */
+		WITH combo AS (
+			SELECT MAX(srad.id) AS deck_id
+			     , srad.atk_monster_1
+			     , srad.atk_monster_2
+			     , srad.atk_monster_3
+			     , COUNT(*)::int AS usage_count
+			  FROM siege_recommended_attack_deck srad
+			 <if test="monster_id != null and monster_id != ''">
+			 WHERE (
+			       srad.atk_monster_1 = #{monster_id}
+			    OR srad.atk_monster_2 = #{monster_id}
+			    OR srad.atk_monster_3 = #{monster_id}
+			 )
+			 </if>
+			 GROUP BY srad.atk_monster_1, srad.atk_monster_2, srad.atk_monster_3
+			 <if test="min_usage_count != null and min_usage_count != '' and min_usage_count &gt; 0">
+			 HAVING COUNT(*) &gt;= #{min_usage_count}::int
+			 </if>
+			 <choose>
+			 	<when test="sort == 'LATEST_DESC'">
+			 	 ORDER BY MAX(srad.id) DESC, usage_count DESC
+			 	</when>
+			 	<otherwise>
+			 	 ORDER BY usage_count DESC, MAX(srad.id) DESC
+			 	</otherwise>
+			 </choose>
+			 LIMIT #{paging}::bigint
+			 OFFSET (#{offset}::bigint - 1) * #{paging}::bigint
+		)
+		SELECT c.deck_id
+		     , c.atk_monster_1
+		     , c.atk_monster_2
+		     , c.atk_monster_3
+		     , c.usage_count
+		     , m1.kr_name AS m1_kr_name
+		     , m2.kr_name AS m2_kr_name
+		     , m3.kr_name AS m3_kr_name
+		     , m1.image_url AS image_url1
+		     , m2.image_url AS image_url2
+		     , m3.image_url AS image_url3
+		  FROM combo c
+		  LEFT JOIN monster m1 ON c.atk_monster_1 = m1.monster_id
+		  LEFT JOIN monster m2 ON c.atk_monster_2 = m2.monster_id
+		  LEFT JOIN monster m3 ON c.atk_monster_3 = m3.monster_id
+		 ORDER BY c.usage_count DESC, c.deck_id DESC
+	</select>
+
+	<select id="selectPopularAttackDeckComboCount" parameterType="sqlMap" resultType="Int">
+		/* summonerswar.selectPopularAttackDeckComboCount */
+		SELECT COUNT(*)::int
+		  FROM (
+		    SELECT 1
+		      FROM siege_recommended_attack_deck srad
+		     <if test="monster_id != null and monster_id != ''">
+		     WHERE (
+		           srad.atk_monster_1 = #{monster_id}
+		        OR srad.atk_monster_2 = #{monster_id}
+		        OR srad.atk_monster_3 = #{monster_id}
+		     )
+		     </if>
+		     GROUP BY srad.atk_monster_1, srad.atk_monster_2, srad.atk_monster_3
+		     <if test="min_usage_count != null and min_usage_count != '' and min_usage_count &gt; 0">
+		     HAVING COUNT(*) &gt;= #{min_usage_count}::int
+		     </if>
+		  ) t
+	</select>
 		
 	<select id="selectRecordList" parameterType="sqlMap" resultType="sqlMap">
 		/* summonerswar.selectRecordList — 길드 인원별 승패 집계, wizard_id 기준 그룹핑 + 최신 이름 사용 */

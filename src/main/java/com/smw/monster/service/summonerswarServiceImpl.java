@@ -764,6 +764,47 @@ public class summonerswarServiceImpl implements summonerswarService {
 	public int selectRecommendedAttackDeckListCount(Map<String, Object> param) {
 		return swMapper.selectRecommendedAttackDeckListCount(param);
 	}
+
+	@Override
+	@Transactional(readOnly = true)
+	public Map<String, ?> selectPopularAttackDeckCombos(Map<String, Object> param) {
+		Map<String, Object> q = new HashMap<>();
+		if (param != null) {
+			q.putAll(param);
+		}
+		int paging = parsePositiveInt(q.get("paging"), 20);
+		if (paging > 100) {
+			paging = 100;
+		}
+		int offset = parsePositiveInt(q.get("offset"), 1);
+		int minUsageCount = parsePositiveInt(q.get("min_usage_count"), 0);
+		String sort = q.get("sort") != null ? String.valueOf(q.get("sort")).trim() : "";
+		if (!"LATEST_DESC".equals(sort)) {
+			sort = "USAGE_DESC";
+		}
+		if (q.get("monster_id") != null) {
+			String monsterId = String.valueOf(q.get("monster_id")).trim();
+			if (monsterId.isEmpty()) {
+				q.remove("monster_id");
+			} else {
+				q.put("monster_id", monsterId);
+			}
+		}
+		q.put("paging", paging);
+		q.put("offset", offset);
+		q.put("min_usage_count", minUsageCount);
+		q.put("sort", sort);
+
+		List<Map<String, ?>> comboList = swMapper.selectPopularAttackDeckCombos(q);
+		int totalCount = swMapper.selectPopularAttackDeckComboCount(q);
+		boolean hasNext = (long) offset * paging < (long) totalCount;
+
+		Map<String, Object> result = new HashMap<>();
+		result.put("comboList", comboList);
+		result.put("hasNext", hasNext);
+		result.put("totalCount", totalCount);
+		return result;
+	}
 	
 	@Override
 	public Map<String, ?> selectGuildMatchCheck(Map<String, ?> param) {
