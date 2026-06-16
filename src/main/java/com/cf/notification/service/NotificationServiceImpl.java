@@ -9,6 +9,8 @@ import jakarta.servlet.http.HttpSession;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.cf.notification.mapper.NotificationMapper;
 
@@ -88,6 +90,7 @@ public class NotificationServiceImpl implements NotificationService {
 	}
 
 	@Override
+	@Transactional(propagation = Propagation.REQUIRES_NEW)
 	public void createNotification(String userId, String type, String title, String content, String relatedId, String relatedUrl, String crtUserId) {
 		Map<String, Object> param = new HashMap<>();
 		param.put("user_id", userId);

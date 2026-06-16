@@ -3,6 +3,7 @@ package com.smw.guild.service;
 import java.security.SecureRandom;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -593,13 +594,12 @@ public class GuildServiceImpl implements GuildService {
 			return 0;
 		}
 
-		String status = param.get("status").toString();
-		String currentStatus = app.get("status") != null ? app.get("status").toString() : "";
+		String status = normalizeJoinApplicationStatus(param.get("status").toString());
+		param.put("status", status);
+		String currentStatus = normalizeJoinApplicationStatus(
+			app.get("status") != null ? app.get("status").toString() : null);
 		if (!"PENDING".equals(currentStatus)) {
-			if (status.equals(currentStatus)) {
-				return 1;
-			}
-			return 0;
+			return status.equals(currentStatus) ? 1 : 0;
 		}
 
 		if ("APPROVED".equals(status)) {
@@ -630,7 +630,7 @@ public class GuildServiceImpl implements GuildService {
 
 		int updated = joinApplicationMapper.updateJoinApplicationStatus(param);
 		if (updated <= 0) {
-			return 0;
+			return resolveJoinApplicationProcessedCount(param, status);
 		}
 
 		if ("APPROVED".equals(status)) {
@@ -658,6 +658,24 @@ public class GuildServiceImpl implements GuildService {
 		}
 
 		return updated;
+	}
+
+	private static String normalizeJoinApplicationStatus(String status) {
+		if (status == null) {
+			return "";
+		}
+		return status.trim().toUpperCase(Locale.ROOT);
+	}
+
+	/** 동시 승인/반려 등으로 UPDATE 0건이어도 이미 목표 상태면 성공(멱등) */
+	private int resolveJoinApplicationProcessedCount(Map<String, Object> param, String targetStatus) {
+		Map<String, ?> again = joinApplicationMapper.selectJoinApplicationDetail(param);
+		if (again == null) {
+			return 0;
+		}
+		String againStatus = normalizeJoinApplicationStatus(
+			again.get("status") != null ? again.get("status").toString() : null);
+		return targetStatus.equals(againStatus) ? 1 : 0;
 	}
 	
 	@Override

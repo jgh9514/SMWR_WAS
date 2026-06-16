@@ -454,12 +454,19 @@ public class GuildController {
 			return ResponseEntity.status(401).body(result);
 		}
 		param.put("sess_user_id", sessUserId);
-		int count = service.insertJoinApplication(param);
-		if (count > 0) {
-			result.put("result", "SUCCESS");
-		} else {
+		try {
+			int count = service.insertJoinApplication(param);
+			if (count > 0) {
+				result.put("result", "SUCCESS");
+				result.put("message", "길드 가입 신청이 접수되었습니다.");
+			} else {
+				result.put("result", "FAIL");
+				result.put("message", "길드 가입 신청에 실패했습니다.");
+			}
+		} catch (IllegalArgumentException | IllegalStateException e) {
 			result.put("result", "FAIL");
-			result.put("message", "길드 가입 신청에 실패했습니다.");
+			result.put("message", e.getMessage());
+			return ResponseEntity.badRequest().body(result);
 		}
 		return ResponseEntity.ok(result);
 	}
@@ -514,7 +521,7 @@ public class GuildController {
 				}
 			} else {
 				result.put("result", "FAIL");
-				result.put("message", "이미 처리되었거나 처리할 수 없는 신청입니다.");
+				result.put("message", "처리할 수 없는 신청입니다.");
 			}
 		} catch (IllegalArgumentException e) {
 			result.put("result", "FAIL");
