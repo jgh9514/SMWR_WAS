@@ -580,9 +580,13 @@ public class summonerswarServiceImpl implements summonerswarService {
 		if (param.get("targeting_order") == null && param.get("targetingOrder") != null) {
 			param.put("targeting_order", param.get("targetingOrder"));
 		}
+		if (param.get("turn_order") == null && param.get("turnOrder") != null) {
+			param.put("turn_order", param.get("turnOrder"));
+		}
 		if (param.get("deck_comment") == null && param.get("deckComment") != null) {
 			param.put("deck_comment", param.get("deckComment"));
 		}
+		param.put("turn_order", normalizeNullableText(param.get("turn_order")));
 		param.put("targeting_order", normalizeNullableText(param.get("targeting_order")));
 		param.put("deck_comment", normalizeNullableText(param.get("deck_comment")));
 	}
@@ -618,6 +622,7 @@ public class summonerswarServiceImpl implements summonerswarService {
 		
 		Map<String, Object> meta = new HashMap<>();
 		meta.put("deck_id", deckId);
+		meta.put("turn_order", param.get("turn_order"));
 		meta.put("targeting_order", param.get("targeting_order"));
 		meta.put("deck_comment", param.get("deck_comment"));
 		meta.put("sess_user_id", param.get("sess_user_id"));

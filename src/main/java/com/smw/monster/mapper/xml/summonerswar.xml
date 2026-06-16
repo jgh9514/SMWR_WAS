@@ -444,6 +444,7 @@
 		      ,atk_monster_1
 		      ,atk_monster_2
 		      ,atk_monster_3
+		      ,turn_order
 		      ,targeting_order
 		      ,deck_comment
 		      ,crt_user_id
@@ -455,6 +456,7 @@
 		      ,#{atk_monster_1}
 		      ,#{atk_monster_2}
 		      ,#{atk_monster_3}
+		      ,#{turn_order}
 		      ,#{targeting_order}
 		      ,#{deck_comment}
 		      ,#{sess_user_id}::text
@@ -2488,6 +2490,7 @@
 			srad.atk_monster_1,
 			srad.atk_monster_2,
 			srad.atk_monster_3,
+			srad.turn_order,
 			srad.targeting_order,
 			srad.deck_comment,
 			(
@@ -2859,9 +2862,10 @@
 	</update>
 
 	<update id="updateRecommendedAttackDeckMeta" parameterType="sqlMap">
-		/* updateRecommendedAttackDeckMeta - 공덱 메타(타겟팅/코멘트) 수정 */
+		/* updateRecommendedAttackDeckMeta - 공덱 메타(턴/타겟팅/코멘트) 수정 */
 		UPDATE siege_recommended_attack_deck
-		   SET targeting_order = #{targeting_order},
+		   SET turn_order = #{turn_order},
+		       targeting_order = #{targeting_order},
 		       deck_comment = #{deck_comment},
 		       upt_user_id = #{sess_user_id}::text,
 		       upt_date = CURRENT_TIMESTAMP
