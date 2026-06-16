@@ -217,8 +217,10 @@ smw:
     window-seconds: 60
     auth-login-max-requests: ${SMW_RATE_LIMIT_AUTH_LOGIN_MAX:10}
     auth-login-window-seconds: ${SMW_RATE_LIMIT_AUTH_LOGIN_WINDOW:60}
-    auth-signup-max-requests: ${SMW_RATE_LIMIT_AUTH_SIGNUP_MAX:5}
+    auth-signup-max-requests: ${SMW_RATE_LIMIT_AUTH_SIGNUP_MAX:10}
     auth-signup-window-seconds: ${SMW_RATE_LIMIT_AUTH_SIGNUP_WINDOW:300}
+    auth-user-id-check-max-requests: ${SMW_RATE_LIMIT_AUTH_USER_ID_CHECK_MAX:30}
+    auth-user-id-check-window-seconds: ${SMW_RATE_LIMIT_AUTH_USER_ID_CHECK_WINDOW:300}
     auth-email-max-requests: ${SMW_RATE_LIMIT_AUTH_EMAIL_MAX:8}
     auth-email-window-seconds: ${SMW_RATE_LIMIT_AUTH_EMAIL_WINDOW:3600}
   swarfarm:

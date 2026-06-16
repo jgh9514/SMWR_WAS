@@ -41,11 +41,17 @@ public class RateLimitFilter implements Filter {
 	@Value("${smw.rate-limit.auth-login-window-seconds:60}")
 	private int authLoginWindowSeconds;
 
-	@Value("${smw.rate-limit.auth-signup-max-requests:5}")
+	@Value("${smw.rate-limit.auth-signup-max-requests:10}")
 	private int authSignupMaxRequests;
 
 	@Value("${smw.rate-limit.auth-signup-window-seconds:300}")
 	private int authSignupWindowSeconds;
+
+	@Value("${smw.rate-limit.auth-user-id-check-max-requests:30}")
+	private int authUserIdCheckMaxRequests;
+
+	@Value("${smw.rate-limit.auth-user-id-check-window-seconds:300}")
+	private int authUserIdCheckWindowSeconds;
 
 	@Value("${smw.rate-limit.auth-email-max-requests:8}")
 	private int authEmailMaxRequests;
@@ -128,9 +134,12 @@ public class RateLimitFilter implements Filter {
 		if (authKind == AuthEndpointKind.LOGIN) {
 			effectiveMaxRequests = authLoginMaxRequests;
 			effectiveWindowSeconds = authLoginWindowSeconds;
-		} else if (authKind == AuthEndpointKind.SIGNUP_OR_ENUM) {
+		} else if (authKind == AuthEndpointKind.SIGNUP) {
 			effectiveMaxRequests = authSignupMaxRequests;
 			effectiveWindowSeconds = authSignupWindowSeconds;
+		} else if (authKind == AuthEndpointKind.USER_ID_CHECK) {
+			effectiveMaxRequests = authUserIdCheckMaxRequests;
+			effectiveWindowSeconds = authUserIdCheckWindowSeconds;
 		} else if (authKind == AuthEndpointKind.EMAIL) {
 			effectiveMaxRequests = authEmailMaxRequests;
 			effectiveWindowSeconds = authEmailWindowSeconds;
@@ -168,7 +177,7 @@ public class RateLimitFilter implements Filter {
 	}
 
 	private enum AuthEndpointKind {
-		NONE, LOGIN, SIGNUP_OR_ENUM, EMAIL
+		NONE, LOGIN, SIGNUP, USER_ID_CHECK, EMAIL
 	}
 
 	private static AuthEndpointKind classifyAuthEndpoint(String uri) {
@@ -184,8 +193,11 @@ public class RateLimitFilter implements Filter {
 		if (uri.contains("/email/")) {
 			return AuthEndpointKind.EMAIL;
 		}
-		if (uri.contains("/signup") || uri.contains("/user-id/check") || uri.contains("/mobile-biometric-login")) {
-			return AuthEndpointKind.SIGNUP_OR_ENUM;
+		if (uri.contains("/user-id/check")) {
+			return AuthEndpointKind.USER_ID_CHECK;
+		}
+		if (uri.contains("/signup") || uri.contains("/mobile-biometric-login")) {
+			return AuthEndpointKind.SIGNUP;
 		}
 		if (uri.contains("/login")) {
 			return AuthEndpointKind.LOGIN;
@@ -215,6 +227,8 @@ public class RateLimitFilter implements Filter {
 		snapshot.put("auth_login_window_seconds", authLoginWindowSeconds);
 		snapshot.put("auth_signup_max_requests", authSignupMaxRequests);
 		snapshot.put("auth_signup_window_seconds", authSignupWindowSeconds);
+		snapshot.put("auth_user_id_check_max_requests", authUserIdCheckMaxRequests);
+		snapshot.put("auth_user_id_check_window_seconds", authUserIdCheckWindowSeconds);
 		snapshot.put("auth_email_max_requests", authEmailMaxRequests);
 		snapshot.put("auth_email_window_seconds", authEmailWindowSeconds);
 
@@ -252,8 +266,11 @@ public class RateLimitFilter implements Filter {
 		if (kind == AuthEndpointKind.LOGIN) {
 			return "/api/v1/auth/login";
 		}
-		if (kind == AuthEndpointKind.SIGNUP_OR_ENUM) {
-			return "/api/v1/auth/signup-or-check";
+		if (kind == AuthEndpointKind.SIGNUP) {
+			return "/api/v1/auth/signup";
+		}
+		if (kind == AuthEndpointKind.USER_ID_CHECK) {
+			return "/api/v1/auth/user-id/check";
 		}
 		if (kind == AuthEndpointKind.EMAIL) {
 			return "/api/v1/auth/email";
