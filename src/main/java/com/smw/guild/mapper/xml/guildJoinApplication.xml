@@ -34,10 +34,12 @@
 			  ,ja.guild_id
 			  ,g.guild_name
 			  ,ja.user_id
+			  ,tu.user_nm as user_name
 			  ,ja.status
 			  ,ja.crt_date
 		  from GUILD_JOIN_APPLICATION ja
 		  left outer join GUILD g on ja.guild_id = g.guild_id
+		  left outer join SYS_USER tu on ja.user_id = tu.user_id
 		 where ja.user_id = #{sess_user_id}
 		   and ja.status = 'PENDING'
 		 order by ja.crt_date desc
@@ -81,6 +83,7 @@
 			,upt_user_id = #{process_user_id}
 			,upt_date = CURRENT_TIMESTAMP
 		where application_id = CAST(#{application_id} AS BIGINT)
+		  and status = 'PENDING'
 	</update>
 
 	<!-- 가입 신청 단건 조회 -->

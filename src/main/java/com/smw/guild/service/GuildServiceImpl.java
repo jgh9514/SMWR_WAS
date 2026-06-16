@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -121,9 +122,11 @@ public class GuildServiceImpl implements GuildService {
 		
 		// 길드 인원수 증가 및 sys_user 테이블 동기화
 		if (result > 0) {
+			Object uptUserId = param.get("sess_user_id") != null ? param.get("sess_user_id") : param.get("crt_user_id");
 			Map<String, Object> countParam = new HashMap<>();
 			countParam.put("guild_id", param.get("guild_id"));
 			countParam.put("increment", 1);
+			countParam.put("sess_user_id", uptUserId);
 			mapper.updateGuildMemberCount(countParam);
 			
 			// sys_user 테이블의 current_guild_id 업데이트
@@ -133,38 +136,20 @@ public class GuildServiceImpl implements GuildService {
 			userUpdateParam.put("sess_user_id", param.get("crt_user_id")); // crt_user_id를 upt_user_id로 사용
 			mapper.updateUserCurrentGuildId(userUpdateParam);
 
-			// 길드장/매니저에게 알림 생성
-			Map<String, ?> guildInfo = mapper.selectGuildDtl(param);
-			if (guildInfo != null) {
-				String guildName = (String) guildInfo.get("guild_name");
-				String newMemberId = param.get("user_id") != null ? param.get("user_id").toString() : null;
-				String guildIdStr = param.get("guild_id") != null ? param.get("guild_id").toString() : null;
-				String crtUserIdStr = param.get("crt_user_id") != null ? param.get("crt_user_id").toString() : null;
-				
-				// 길드장에게 알림
-				String leaderId = (String) guildInfo.get("guild_leader_id");
-				if (leaderId != null && !leaderId.equals(newMemberId)) {
-					notificationService.createNotification(
-						leaderId,
-						"GUILD_MEMBER_JOINED",
-						"새로운 길드원이 가입했습니다",
-						guildName + " 길드에 새로운 멤버가 가입했습니다.",
-						guildIdStr,
-						"/guild-management",
-						crtUserIdStr
-					);
-				}
-
-				// 매니저들에게 알림
-				Map<String, Object> managerParam = new HashMap<>();
-				managerParam.put("guild_id", param.get("guild_id"));
-				managerParam.put("role", "MANAGER");
-				List<Map<String, ?>> managers = mapper.selectGuildMemberList(managerParam);
-				for (Map<String, ?> manager : managers) {
-					String managerId = (String) manager.get("user_id");
-					if (managerId != null && !managerId.equals(newMemberId)) {
+			// 길드장/매니저에게 알림 생성 (실패해도 가입 처리는 유지)
+			try {
+				Map<String, ?> guildInfo = mapper.selectGuildDtl(param);
+				if (guildInfo != null) {
+					String guildName = (String) guildInfo.get("guild_name");
+					String newMemberId = param.get("user_id") != null ? param.get("user_id").toString() : null;
+					String guildIdStr = param.get("guild_id") != null ? param.get("guild_id").toString() : null;
+					String crtUserIdStr = param.get("crt_user_id") != null ? param.get("crt_user_id").toString() : null;
+					
+					// 길드장에게 알림
+					String leaderId = (String) guildInfo.get("guild_leader_id");
+					if (leaderId != null && !leaderId.equals(newMemberId)) {
 						notificationService.createNotification(
-							managerId,
+							leaderId,
 							"GUILD_MEMBER_JOINED",
 							"새로운 길드원이 가입했습니다",
 							guildName + " 길드에 새로운 멤버가 가입했습니다.",
@@ -173,7 +158,30 @@ public class GuildServiceImpl implements GuildService {
 							crtUserIdStr
 						);
 					}
+
+					// 매니저들에게 알림
+					Map<String, Object> managerParam = new HashMap<>();
+					managerParam.put("guild_id", param.get("guild_id"));
+					managerParam.put("role", "MANAGER");
+					List<Map<String, ?>> managers = mapper.selectGuildMemberList(managerParam);
+					for (Map<String, ?> manager : managers) {
+						String managerId = (String) manager.get("user_id");
+						if (managerId != null && !managerId.equals(newMemberId)) {
+							notificationService.createNotification(
+								managerId,
+								"GUILD_MEMBER_JOINED",
+								"새로운 길드원이 가입했습니다",
+								guildName + " 길드에 새로운 멤버가 가입했습니다.",
+								guildIdStr,
+								"/guild-management",
+								crtUserIdStr
+							);
+						}
+					}
 				}
+			} catch (Exception e) {
+				log.warn("길드원 가입 알림 생성 실패 (가입 처리는 유지): user_id={}, guild_id={}",
+					param.get("user_id"), param.get("guild_id"), e);
 			}
 		}
 		
@@ -472,9 +480,14 @@ public class GuildServiceImpl implements GuildService {
 			throw new IllegalStateException("이미 다른 길드에 가입되어 있습니다.");
 		}
 
-		// 이미 PENDING 신청이 있으면 차단
+		// 이미 PENDING 신청이 있으면 동일 길드는 성공으로 간주(중복 클릭 멱등)
 		Map<String, ?> pending = joinApplicationMapper.selectMyPendingJoinApplication(param);
 		if (pending != null) {
+			String pendingGuildId = pending.get("guild_id") != null ? pending.get("guild_id").toString() : "";
+			String requestGuildId = param.get("guild_id") != null ? param.get("guild_id").toString() : "";
+			if (pendingGuildId.equals(requestGuildId)) {
+				return 1;
+			}
 			throw new IllegalStateException("이미 승인 대기 중인 길드 가입 신청이 있습니다.");
 		}
 
@@ -486,50 +499,80 @@ public class GuildServiceImpl implements GuildService {
 			throw new IllegalArgumentException("존재하지 않는 길드입니다.");
 		}
 
-		int result = joinApplicationMapper.insertJoinApplication(param);
+		int result;
+		try {
+			result = joinApplicationMapper.insertJoinApplication(param);
+		} catch (DataIntegrityViolationException e) {
+			Map<String, ?> again = joinApplicationMapper.selectMyPendingJoinApplication(param);
+			if (again != null) {
+				String pendingGuildId = again.get("guild_id") != null ? again.get("guild_id").toString() : "";
+				String requestGuildId = param.get("guild_id") != null ? param.get("guild_id").toString() : "";
+				if (pendingGuildId.equals(requestGuildId)) {
+					return 1;
+				}
+			}
+			throw e;
+		}
 
-		// 알림: 길드장/매니저 (알림 실패 시에도 가입 신청은 유지)
+		// 알림: 길드장/매니저 (신규 신청 시에만, 실패해도 가입 신청은 유지)
 		if (result > 0) {
-			try {
-				String guildName = guildInfo.get("guild_name") != null ? guildInfo.get("guild_name").toString() : "";
-				String applicantUserId = param.get("sess_user_id").toString();
-				String leaderId = guildInfo.get("guild_leader_id") != null ? guildInfo.get("guild_leader_id").toString() : null;
-				if (leaderId != null && !leaderId.equals(applicantUserId)) {
+			Map<String, ?> application = joinApplicationMapper.selectMyPendingJoinApplication(param);
+			notifyGuildJoinApplicationPending(guildInfo, application, param.get("sess_user_id").toString());
+		} else {
+			log.warn("길드 가입 신청 insert 반환값이 0입니다. guild_id={}, user_id={}", param.get("guild_id"), param.get("sess_user_id"));
+		}
+
+		return result;
+	}
+
+	private void notifyGuildJoinApplicationPending(Map<String, ?> guildInfo, Map<String, ?> application, String applicantUserId) {
+		if (guildInfo == null || application == null || applicantUserId == null || applicantUserId.isBlank()) {
+			return;
+		}
+
+		try {
+			String guildName = guildInfo.get("guild_name") != null ? guildInfo.get("guild_name").toString() : "길드";
+			String userName = application.get("user_name") != null && !application.get("user_name").toString().isBlank()
+				? application.get("user_name").toString()
+				: applicantUserId;
+			String applicationId = application.get("application_id") != null ? application.get("application_id").toString() : null;
+			String content = userName + "님이 " + guildName + " 길드 가입을 신청했습니다.";
+			String leaderId = guildInfo.get("guild_leader_id") != null ? guildInfo.get("guild_leader_id").toString() : null;
+
+			if (leaderId != null && !leaderId.equals(applicantUserId)) {
+				notificationService.createNotification(
+					leaderId,
+					"GUILD_JOIN_APPLICATION_PENDING",
+					"새로운 길드 가입 신청",
+					content,
+					applicationId,
+					"/guild-management",
+					applicantUserId
+				);
+			}
+
+			Map<String, Object> managerParam = new HashMap<>();
+			managerParam.put("guild_id", guildInfo.get("guild_id") != null ? guildInfo.get("guild_id") : application.get("guild_id"));
+			managerParam.put("role", "MANAGER");
+			List<Map<String, ?>> managers = mapper.selectGuildMemberList(managerParam);
+			for (Map<String, ?> manager : managers) {
+				String managerId = manager.get("user_id") != null ? manager.get("user_id").toString() : null;
+				if (managerId != null && !managerId.equals(applicantUserId) && !managerId.equals(leaderId)) {
 					notificationService.createNotification(
-						leaderId,
+						managerId,
 						"GUILD_JOIN_APPLICATION_PENDING",
-						"새로운 길드 가입 신청이 있습니다",
-						guildName + " 길드에 새로운 가입 신청이 접수되었습니다.",
-						null,
+						"새로운 길드 가입 신청",
+						content,
+						applicationId,
 						"/guild-management",
 						applicantUserId
 					);
 				}
-
-				Map<String, Object> managerParam = new HashMap<>();
-				managerParam.put("guild_id", param.get("guild_id"));
-				managerParam.put("role", "MANAGER");
-				List<Map<String, ?>> managers = mapper.selectGuildMemberList(managerParam);
-				for (Map<String, ?> manager : managers) {
-					String managerId = manager.get("user_id") != null ? manager.get("user_id").toString() : null;
-					if (managerId != null && !managerId.equals(applicantUserId) && !managerId.equals(leaderId)) {
-						notificationService.createNotification(
-							managerId,
-							"GUILD_JOIN_APPLICATION_PENDING",
-							"새로운 길드 가입 신청이 있습니다",
-							guildName + " 길드에 새로운 가입 신청이 접수되었습니다.",
-							null,
-							"/guild-management",
-							applicantUserId
-						);
-					}
-				}
-			} catch (Exception e) {
-				log.warn("길드 가입 신청 알림 생성 실패 (신청은 정상 처리됨): guild_id={}", param.get("guild_id"), e);
 			}
+		} catch (Exception e) {
+			log.warn("길드 가입 신청 알림 생성 실패 (신청은 정상 처리됨): guild_id={}, applicant={}",
+				guildInfo.get("guild_id"), applicantUserId, e);
 		}
-
-		return result;
 	}
 
 	@Override
@@ -550,12 +593,15 @@ public class GuildServiceImpl implements GuildService {
 			return 0;
 		}
 
-		int updated = joinApplicationMapper.updateJoinApplicationStatus(param);
-		if (updated <= 0) {
+		String status = param.get("status").toString();
+		String currentStatus = app.get("status") != null ? app.get("status").toString() : "";
+		if (!"PENDING".equals(currentStatus)) {
+			if (status.equals(currentStatus)) {
+				return 1;
+			}
 			return 0;
 		}
 
-		String status = param.get("status").toString();
 		if ("APPROVED".equals(status)) {
 			String applicantUserId = app.get("user_id") != null ? app.get("user_id").toString() : null;
 			Object gidObj = app.get("guild_id");
@@ -580,7 +626,16 @@ public class GuildServiceImpl implements GuildService {
 					insertUserGuild(userGuildParam);
 				}
 			}
+		}
 
+		int updated = joinApplicationMapper.updateJoinApplicationStatus(param);
+		if (updated <= 0) {
+			return 0;
+		}
+
+		if ("APPROVED".equals(status)) {
+			String applicantUserId = app.get("user_id") != null ? app.get("user_id").toString() : null;
+			Object gidObj = app.get("guild_id");
 			// 승인된 신청자에게 알림 (실패해도 승인 처리는 유지)
 			if (applicantUserId != null) {
 				try {

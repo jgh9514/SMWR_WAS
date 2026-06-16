@@ -502,11 +502,24 @@ public class GuildController {
 			return ResponseEntity.status(403).body(result);
 		}
 		param.put("process_user_id", sessUserId);
-		int count = service.processJoinApplication(param);
-		if (count > 0) {
-			result.put("result", "SUCCESS");
-		} else {
+		try {
+			int count = service.processJoinApplication(param);
+			if (count > 0) {
+				result.put("result", "SUCCESS");
+				String status = param.get("status") != null ? param.get("status").toString() : "";
+				if ("APPROVED".equals(status)) {
+					result.put("message", "가입 신청을 승인했습니다.");
+				} else if ("REJECTED".equals(status)) {
+					result.put("message", "가입 신청을 반려했습니다.");
+				}
+			} else {
+				result.put("result", "FAIL");
+				result.put("message", "이미 처리되었거나 처리할 수 없는 신청입니다.");
+			}
+		} catch (IllegalArgumentException e) {
 			result.put("result", "FAIL");
+			result.put("message", e.getMessage());
+			return ResponseEntity.badRequest().body(result);
 		}
 		return ResponseEntity.ok(result);
 	}
