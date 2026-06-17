@@ -12,6 +12,9 @@ import org.springframework.stereotype.Service;
 
 import com.cf.notification.mapper.NotificationMapper;
 
+import lombok.extern.slf4j.Slf4j;
+
+@Slf4j
 @Service
 @Primary
 public class NotificationServiceImpl implements NotificationService {
@@ -92,20 +95,23 @@ public class NotificationServiceImpl implements NotificationService {
 
 	@Override
 	public void createNotification(String userId, String type, String title, String content, String relatedId, String relatedUrl, String crtUserId) {
-		Map<String, Object> param = new HashMap<>();
-		param.put("user_id", userId);
-		param.put("type", type);
-		param.put("title", title);
-		param.put("content", content);
-		param.put("related_id", relatedId);
-		param.put("related_url", relatedUrl);
-		// 생성자 ID는 NOT NULL: 없으면 수신자(user_id) 또는 SYSTEM로 대체
-		String safeCrtUserId = (crtUserId != null && !crtUserId.trim().isEmpty())
-			? crtUserId
-			: (userId != null && !userId.trim().isEmpty() ? userId : "SYSTEM");
-		param.put("crt_user_id", safeCrtUserId);
+		try {
+			Map<String, Object> param = new HashMap<>();
+			param.put("user_id", userId);
+			param.put("type", type);
+			param.put("title", title);
+			param.put("content", content);
+			param.put("related_id", relatedId);
+			param.put("related_url", relatedUrl);
+			String safeCrtUserId = (crtUserId != null && !crtUserId.trim().isEmpty())
+				? crtUserId
+				: (userId != null && !userId.trim().isEmpty() ? userId : "SYSTEM");
+			param.put("crt_user_id", safeCrtUserId);
 
-		notificationTxHelper.insertNotification(param);
+			notificationTxHelper.insertNotification(param);
+		} catch (Exception e) {
+			log.warn("알림 생성 실패(본 업무는 유지): type={}, user_id={}", type, userId, e);
+		}
 	}
 }
 

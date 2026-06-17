@@ -23,10 +23,12 @@ import com.sysconf.util.S3Service;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import lombok.extern.slf4j.Slf4j;
 
 @Tag(name = "Guild Management", description = "길드 관리 API")
 @RestController
 @RequestMapping("/api/v1/smw/guild")
+@Slf4j
 public class GuildController {
 
 	@Autowired
@@ -220,8 +222,10 @@ public class GuildController {
 		int count = service.insertUserGuild(param);
 		if (count > 0) {
 			result.put("result", "SUCCESS");
+			result.put("message", "길드에 가입되었습니다.");
 		} else {
 			result.put("result", "FAIL");
+			result.put("message", "길드 가입에 실패했습니다.");
 		}
 		
 		return ResponseEntity.ok(result);
@@ -386,6 +390,7 @@ public class GuildController {
 		int count = service.insertGuildApplication(param);
 		if (count > 0) {
 			result.put("result", "SUCCESS");
+			result.put("message", "길드 생성 신청이 접수되었습니다.");
 		} else {
 			result.put("result", "FAIL");
 			result.put("message", "길드 신청 등록에 실패했습니다.");
@@ -414,8 +419,17 @@ public class GuildController {
 		int count = service.processGuildApplication(param);
 		if (count > 0) {
 			result.put("result", "SUCCESS");
+			String status = param.get("status") != null ? param.get("status").toString() : "";
+			if ("APPROVED".equals(status)) {
+				result.put("message", "길드 신청을 승인했습니다.");
+			} else if ("REJECTED".equals(status)) {
+				result.put("message", "길드 신청을 반려했습니다.");
+			} else {
+				result.put("message", "처리되었습니다.");
+			}
 		} else {
 			result.put("result", "FAIL");
+			result.put("message", "처리할 수 없는 신청입니다.");
 		}
 		
 		return ResponseEntity.ok(result);
@@ -468,7 +482,12 @@ public class GuildController {
 		} catch (IllegalArgumentException | IllegalStateException e) {
 			result.put("result", "FAIL");
 			result.put("message", e.getMessage());
-			return ResponseEntity.badRequest().body(result);
+			return ResponseEntity.ok(result);
+		} catch (Exception e) {
+			log.error("길드 가입 신청 처리 중 오류: user_id={}", sessUserId, e);
+			result.put("result", "FAIL");
+			result.put("message", "길드 가입 신청 처리 중 오류가 발생했습니다.");
+			return ResponseEntity.ok(result);
 		}
 		return ResponseEntity.ok(result);
 	}
@@ -528,11 +547,11 @@ public class GuildController {
 		} catch (IllegalArgumentException e) {
 			result.put("result", "FAIL");
 			result.put("message", e.getMessage());
-			return ResponseEntity.badRequest().body(result);
+			return ResponseEntity.ok(result);
 		} catch (IllegalStateException e) {
 			result.put("result", "FAIL");
 			result.put("message", e.getMessage());
-			return ResponseEntity.badRequest().body(result);
+			return ResponseEntity.ok(result);
 		} catch (Exception e) {
 			result.put("result", "FAIL");
 			result.put("message", "가입 신청 처리 중 오류가 발생했습니다.");
@@ -554,12 +573,18 @@ public class GuildController {
 		}
 		Map<String, Object> safeParam = param != null ? param : new HashMap<>();
 		safeParam.put("sess_user_id", sessUserId);
-		int count = service.cancelMyJoinApplication(safeParam);
-		if (count > 0) {
-			result.put("result", "SUCCESS");
-		} else {
+		try {
+			int count = service.cancelMyJoinApplication(safeParam);
+			if (count > 0) {
+				result.put("result", "SUCCESS");
+				result.put("message", "가입 신청을 취소했습니다.");
+			} else {
+				result.put("result", "FAIL");
+				result.put("message", "취소할 승인대기 신청이 없습니다.");
+			}
+		} catch (IllegalArgumentException e) {
 			result.put("result", "FAIL");
-			result.put("message", "취소할 승인대기 신청이 없습니다.");
+			result.put("message", e.getMessage());
 		}
 		return ResponseEntity.ok(result);
 	}

@@ -121,6 +121,18 @@ public class GuildServiceImpl implements GuildService {
 		historyParam.put("crt_user_id", param.get("crt_user_id"));
 		int result = mapper.insertUserGuildHistory(historyParam);
 		
+		if (result == 0) {
+			Map<String, ?> existing = mapper.selectUserGuild(param);
+			if (existing != null) {
+				Object existingGuildId = existing.get("guild_id");
+				Object requestGuildId = param.get("guild_id");
+				if (existingGuildId != null && requestGuildId != null
+					&& String.valueOf(existingGuildId).equals(String.valueOf(requestGuildId))) {
+					return 1;
+				}
+			}
+		}
+		
 		// 길드 인원수 증가 및 sys_user 테이블 동기화
 		if (result > 0) {
 			Object uptUserId = param.get("sess_user_id") != null ? param.get("sess_user_id") : param.get("crt_user_id");
@@ -371,16 +383,25 @@ public class GuildServiceImpl implements GuildService {
 			String guildName = (String) param.get("guild_name");
 			String applicationId = param.get("application_id") != null ? param.get("application_id").toString() : null;
 			
-			for (String adminId : adminPrivilegeResolver.listConfiguredAdminUserIds()) {
-				notificationService.createNotification(
-					adminId,
-					"GUILD_APPLICATION_PENDING",
-					"새로운 길드 생성 신청이 있습니다",
-					guildName + " 길드 생성 신청이 접수되었습니다.",
-					applicationId,
-					"/admin/guildapplication",
-					param.get("sess_user_id") != null ? param.get("sess_user_id").toString() : null
-				);
+			try {
+				for (String adminId : adminPrivilegeResolver.listConfiguredAdminUserIds()) {
+					notificationService.createNotification(
+						adminId,
+						"GUILD_APPLICATION_PENDING",
+						"새로운 길드 생성 신청이 있습니다",
+						guildName + " 길드 생성 신청이 접수되었습니다.",
+						applicationId,
+						"/admin/guildapplication",
+						param.get("sess_user_id") != null ? param.get("sess_user_id").toString() : null
+					);
+				}
+			} catch (Exception e) {
+				log.warn("길드 생성 신청 알림 생성 실패 (신청은 유지): application_id={}", applicationId, e);
+			}
+		} else {
+			Map<String, ?> pending = mapper.selectUserPendingApplication(param);
+			if (pending != null) {
+				return 1;
 			}
 		}
 		
@@ -400,6 +421,10 @@ public class GuildServiceImpl implements GuildService {
 		
 		// 신청 상태 업데이트
 		int result = mapper.updateGuildApplication(param);
+		if (result <= 0 && application.get("status") != null && status != null
+			&& status.equals(String.valueOf(application.get("status")))) {
+			result = 1;
+		}
 		
 		// 승인인 경우: (1) 길드 가입 신청이면 해당 길드에 멤버로 가입, (2) 길드 생성 신청이면 길드 생성
 		if ("APPROVED".equals(status) && result > 0) {
@@ -535,6 +560,17 @@ public class GuildServiceImpl implements GuildService {
 				}
 			}
 			throw e;
+		}
+
+		if (result <= 0) {
+			Map<String, ?> saved = joinApplicationMapper.selectMyPendingJoinApplication(param);
+			if (saved != null) {
+				String pendingGuildId = saved.get("guild_id") != null ? saved.get("guild_id").toString() : "";
+				String requestGuildId = param.get("guild_id") != null ? param.get("guild_id").toString() : "";
+				if (pendingGuildId.equals(requestGuildId)) {
+					result = 1;
+				}
+			}
 		}
 
 		// 알림: 길드장/매니저 (신규 신청 시에만, 실패해도 가입 신청은 유지)
@@ -710,7 +746,16 @@ public class GuildServiceImpl implements GuildService {
 		if (param.get("sess_user_id") == null || "".equals(param.get("sess_user_id").toString().trim())) {
 			throw new IllegalArgumentException("로그인이 필요합니다. (sess_user_id 없음)");
 		}
-		return joinApplicationMapper.cancelMyPendingJoinApplication(param);
+		int updated = joinApplicationMapper.cancelMyPendingJoinApplication(param);
+		if (updated > 0) {
+			return updated;
+		}
+		// 이미 취소됐거나 승인대기 건이 없으면 멱등 성공
+		Map<String, ?> pending = joinApplicationMapper.selectMyPendingJoinApplication(param);
+		if (pending == null) {
+			return 1;
+		}
+		return 0;
 	}
 
 	@Override
@@ -754,6 +799,12 @@ public class GuildServiceImpl implements GuildService {
 		checkParam.put("user_id", param.get("user_id"));
 		Map<String, ?> existingGuild = mapper.selectUserGuild(checkParam);
 		if (existingGuild != null) {
+			Object existingId = existingGuild.get("guild_id");
+			Object targetId = guild.get("guild_id");
+			if (existingId != null && targetId != null
+				&& String.valueOf(existingId).equals(String.valueOf(targetId))) {
+				return 1;
+			}
 			return -1; // 이미 다른 길드에 가입되어 있음
 		}
 		
@@ -771,6 +822,7 @@ public class GuildServiceImpl implements GuildService {
 		userGuildParam.put("role", "MEMBER");
 		userGuildParam.put("join_by_invite", "Y"); // 초대 키로 가입
 		userGuildParam.put("crt_user_id", param.get("crt_user_id"));
+		userGuildParam.put("sess_user_id", param.get("sess_user_id") != null ? param.get("sess_user_id") : param.get("crt_user_id"));
 		
 		return insertUserGuild(userGuildParam);
 	}

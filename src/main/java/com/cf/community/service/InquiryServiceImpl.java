@@ -14,6 +14,9 @@ import com.cf.notification.service.NotificationService;
 import com.sysconf.interceptor.SessionThread;
 import com.sysconf.security.AdminPrivilegeResolver;
 
+import lombok.extern.slf4j.Slf4j;
+
+@Slf4j
 @Service
 @Primary
 public class InquiryServiceImpl implements InquiryService {
@@ -72,24 +75,29 @@ public class InquiryServiceImpl implements InquiryService {
 		
 		mapper.insertInquiry(param);
 		result.put("result", "SUCCESS");
+		result.put("message", "문의가 등록되었습니다.");
 		result.put("inquiry_id", param.get("inquiry_id"));
 		
 		String inquiryId = param.get("inquiry_id") != null ? param.get("inquiry_id").toString() : null;
 		String title = (String) param.get("title");
 		
-		for (String adminId : adminPrivilegeResolver.listConfiguredAdminUserIds()) {
-			String creatorUserId = param.get("sess_user_id") != null
-				? String.valueOf(param.get("sess_user_id"))
-				: (param.get("crt_user_id") != null ? String.valueOf(param.get("crt_user_id")) : null);
-			notificationService.createNotification(
-				adminId,
-				"INQUIRY_PENDING",
-				"새로운 1대1 문의가 등록되었습니다",
-				title != null ? title : "새로운 문의가 등록되었습니다.",
-				inquiryId,
-				"/inquiry",
-				creatorUserId
-			);
+		try {
+			for (String adminId : adminPrivilegeResolver.listConfiguredAdminUserIds()) {
+				String creatorUserId = param.get("sess_user_id") != null
+					? String.valueOf(param.get("sess_user_id"))
+					: (param.get("crt_user_id") != null ? String.valueOf(param.get("crt_user_id")) : null);
+				notificationService.createNotification(
+					adminId,
+					"INQUIRY_PENDING",
+					"새로운 1대1 문의가 등록되었습니다",
+					title != null ? title : "새로운 문의가 등록되었습니다.",
+					inquiryId,
+					"/inquiry",
+					creatorUserId
+				);
+			}
+		} catch (Exception e) {
+			log.warn("문의 등록 알림 생성 실패 (문의 등록은 유지): inquiry_id={}", inquiryId, e);
 		}
 		
 		return result;
@@ -112,32 +120,41 @@ public class InquiryServiceImpl implements InquiryService {
 		int count = mapper.updateInquiryAnswer(param);
 		if (count > 0) {
 			result.put("result", "SUCCESS");
+			result.put("message", "답변이 등록되었습니다.");
 			
-			// 문의 작성자에게 알림 생성
 			if (inquiry != null) {
 				String inquiryUserId = (String) inquiry.get("user_id");
 				String inquiryId = param.get("inquiry_id") != null ? param.get("inquiry_id").toString() : null;
 				String inquiryTitle = (String) inquiry.get("title");
 				
 				if (inquiryUserId != null) {
-					// 답변 등록자는 세션 사용자로 처리 (upt_user_id가 없을 수 있음)
-					String updaterUserId = param.get("sess_user_id") != null
-						? String.valueOf(param.get("sess_user_id"))
-						: (param.get("upt_user_id") != null ? String.valueOf(param.get("upt_user_id")) : null);
-					notificationService.createNotification(
-						inquiryUserId,
-						"INQUIRY_ANSWERED",
-						"1대1 문의에 답변이 등록되었습니다",
-						inquiryTitle != null ? inquiryTitle + " 문의에 답변이 등록되었습니다." : "문의에 답변이 등록되었습니다.",
-						inquiryId,
-						"/inquiry",
-						updaterUserId
-					);
+					try {
+						String updaterUserId = param.get("sess_user_id") != null
+							? String.valueOf(param.get("sess_user_id"))
+							: (param.get("upt_user_id") != null ? String.valueOf(param.get("upt_user_id")) : null);
+						notificationService.createNotification(
+							inquiryUserId,
+							"INQUIRY_ANSWERED",
+							"1대1 문의에 답변이 등록되었습니다",
+							inquiryTitle != null ? inquiryTitle + " 문의에 답변이 등록되었습니다." : "문의에 답변이 등록되었습니다.",
+							inquiryId,
+							"/inquiry",
+							updaterUserId
+						);
+					} catch (Exception e) {
+						log.warn("문의 답변 알림 생성 실패 (답변 등록은 유지): inquiry_id={}", inquiryId, e);
+					}
 				}
 			}
 		} else {
-			result.put("result", "FAIL");
-			result.put("message", "답변 등록에 실패했습니다.");
+			Map<String, ?> again = mapper.selectInquiryDtl(param);
+			if (again != null && again.get("answer") != null && !String.valueOf(again.get("answer")).trim().isEmpty()) {
+				result.put("result", "SUCCESS");
+				result.put("message", "답변이 등록되었습니다.");
+			} else {
+				result.put("result", "FAIL");
+				result.put("message", "답변 등록에 실패했습니다.");
+			}
 		}
 		
 		return result;
@@ -153,6 +170,7 @@ public class InquiryServiceImpl implements InquiryService {
 		int count = mapper.deleteInquiry(param);
 		if (count > 0) {
 			result.put("result", "SUCCESS");
+			result.put("message", "문의가 삭제되었습니다.");
 		} else {
 			result.put("result", "FAIL");
 			result.put("message", "문의 삭제에 실패했습니다.");
