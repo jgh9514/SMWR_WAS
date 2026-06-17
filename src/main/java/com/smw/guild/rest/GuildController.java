@@ -787,9 +787,180 @@ public class GuildController {
 		int count = service.updateGuildMemberDisplayName(updateParam);
 		if (count > 0) {
 			result.put("result", "SUCCESS");
+			result.put("message", "이름이 변경되었습니다.");
 		} else {
 			result.put("result", "FAIL");
 			result.put("message", "이름 변경에 실패했습니다.");
+		}
+		return ResponseEntity.ok(result);
+	}
+
+	/**
+	 * 길드 멤버 역할 변경 (길드장)
+	 */
+	@Operation(summary = "길드 멤버 역할 변경", description = "길드장이 멤버/매니저 역할을 변경합니다. LEADER는 권한 위임과 동일합니다.")
+	@PostMapping("/member/role/update")
+	@Transactional
+	public ResponseEntity<?> updateGuildMemberRole(@RequestBody Map<String, Object> param, HttpSession session, HttpServletRequest request) {
+		Map<String, Object> result = new HashMap<>();
+
+		String sessUserId = getSessUserId(request);
+		String sessGuildId = getSessGuildId(request);
+		String sessGuildRole = getSessGuildRole(request);
+		if (sessUserId == null || sessUserId.isEmpty()) {
+			result.put("result", "FAIL");
+			result.put("message", "로그인이 필요합니다.");
+			return ResponseEntity.status(401).body(result);
+		}
+		if (sessGuildId == null || sessGuildId.isEmpty()) {
+			result.put("result", "FAIL");
+			result.put("message", "길드에 소속되어 있지 않습니다.");
+			return ResponseEntity.ok(result);
+		}
+		boolean isLeader = "LEADER".equals(sessGuildRole);
+		boolean isManager = "MANAGER".equals(sessGuildRole);
+		if (!isLeader && !isManager) {
+			result.put("result", "FAIL");
+			result.put("message", "권한이 없습니다.");
+			return ResponseEntity.status(403).body(result);
+		}
+
+		Object targetObj = param.get("user_id");
+		String targetUserId = targetObj != null ? targetObj.toString().trim() : "";
+		if (targetUserId.isEmpty()) {
+			result.put("result", "FAIL");
+			result.put("message", "user_id가 필요합니다.");
+			return ResponseEntity.ok(result);
+		}
+
+		Object roleObj = param.get("guild_role") != null ? param.get("guild_role") : param.get("role");
+		String newRole = roleObj != null ? roleObj.toString().trim().toUpperCase() : "";
+		if (newRole.isEmpty()) {
+			result.put("result", "FAIL");
+			result.put("message", "변경할 권한(guild_role)이 필요합니다.");
+			return ResponseEntity.ok(result);
+		}
+		if (isManager && !"MEMBER".equals(newRole)) {
+			result.put("result", "FAIL");
+			result.put("message", "매니저는 일반 길드원 권한만 변경할 수 있습니다.");
+			return ResponseEntity.ok(result);
+		}
+		if (isManager && "LEADER".equals(newRole)) {
+			result.put("result", "FAIL");
+			result.put("message", "길드장 권한은 위임 기능을 이용하세요.");
+			return ResponseEntity.ok(result);
+		}
+
+		Map<String, Object> targetGuildParam = new HashMap<>();
+		targetGuildParam.put("user_id", targetUserId);
+		Map<String, ?> targetGuild = service.selectUserGuild(targetGuildParam);
+		if (targetGuild == null || targetGuild.get("guild_id") == null) {
+			result.put("result", "FAIL");
+			result.put("message", "대상 유저가 길드에 소속되어 있지 않습니다.");
+			return ResponseEntity.ok(result);
+		}
+		if (!sessGuildId.equals(String.valueOf(targetGuild.get("guild_id")).trim())) {
+			result.put("result", "FAIL");
+			result.put("message", "같은 길드 멤버만 변경할 수 있습니다.");
+			return ResponseEntity.ok(result);
+		}
+
+		String targetRole = targetGuild.get("role") != null ? targetGuild.get("role").toString() : "MEMBER";
+		if (isManager && !"MEMBER".equals(targetRole)) {
+			result.put("result", "FAIL");
+			result.put("message", "매니저는 일반 길드원의 권한만 변경할 수 있습니다.");
+			return ResponseEntity.ok(result);
+		}
+		if (isLeader && "LEADER".equals(targetRole) && !sessUserId.equals(targetUserId)) {
+			result.put("result", "FAIL");
+			result.put("message", "다른 길드장의 권한은 변경할 수 없습니다.");
+			return ResponseEntity.ok(result);
+		}
+		if ("LEADER".equals(newRole) && !isLeader) {
+			result.put("result", "FAIL");
+			result.put("message", "길드장만 길드장 권한을 위임할 수 있습니다.");
+			return ResponseEntity.ok(result);
+		}
+
+		Map<String, Object> serviceParam = new HashMap<>();
+		serviceParam.put("user_id", targetUserId);
+		serviceParam.put("guild_role", newRole);
+		serviceParam.put("guild_id", sessGuildId);
+		serviceParam.put("sess_user_id", sessUserId);
+
+		try {
+			int count = service.updateGuildMemberRole(serviceParam);
+			if (count > 0) {
+				result.put("result", "SUCCESS");
+				if ("LEADER".equals(newRole)) {
+					result.put("message", "길드장 권한이 위임되었습니다.");
+				} else {
+					result.put("message", "멤버 권한이 변경되었습니다.");
+				}
+			} else {
+				result.put("result", "FAIL");
+				result.put("message", "권한 변경에 실패했습니다.");
+			}
+		} catch (IllegalArgumentException | IllegalStateException e) {
+			result.put("result", "FAIL");
+			result.put("message", e.getMessage());
+		}
+		return ResponseEntity.ok(result);
+	}
+
+	/**
+	 * 길드장 권한 위임
+	 */
+	@Operation(summary = "길드장 권한 위임", description = "길드장이 다른 멤버에게 길드장 권한을 위임합니다.")
+	@PostMapping("/transfer-leadership")
+	@Transactional
+	public ResponseEntity<?> transferGuildLeadership(@RequestBody Map<String, Object> param, HttpSession session, HttpServletRequest request) {
+		Map<String, Object> result = new HashMap<>();
+
+		String sessUserId = getSessUserId(request);
+		String sessGuildId = getSessGuildId(request);
+		String sessGuildRole = getSessGuildRole(request);
+		if (sessUserId == null || sessUserId.isEmpty()) {
+			result.put("result", "FAIL");
+			result.put("message", "로그인이 필요합니다.");
+			return ResponseEntity.status(401).body(result);
+		}
+		if (sessGuildId == null || sessGuildId.isEmpty()) {
+			result.put("result", "FAIL");
+			result.put("message", "길드에 소속되어 있지 않습니다.");
+			return ResponseEntity.ok(result);
+		}
+		if (!"LEADER".equals(sessGuildRole)) {
+			result.put("result", "FAIL");
+			result.put("message", "길드장만 권한을 위임할 수 있습니다.");
+			return ResponseEntity.status(403).body(result);
+		}
+
+		Object targetObj = param.get("new_leader_user_id");
+		String newLeaderUserId = targetObj != null ? targetObj.toString().trim() : "";
+		if (newLeaderUserId.isEmpty()) {
+			result.put("result", "FAIL");
+			result.put("message", "new_leader_user_id가 필요합니다.");
+			return ResponseEntity.ok(result);
+		}
+
+		Map<String, Object> serviceParam = new HashMap<>();
+		serviceParam.put("new_leader_user_id", newLeaderUserId);
+		serviceParam.put("guild_id", sessGuildId);
+		serviceParam.put("sess_user_id", sessUserId);
+
+		try {
+			int count = service.transferGuildLeadership(serviceParam);
+			if (count > 0) {
+				result.put("result", "SUCCESS");
+				result.put("message", "길드장 권한이 위임되었습니다.");
+			} else {
+				result.put("result", "FAIL");
+				result.put("message", "권한 위임에 실패했습니다.");
+			}
+		} catch (IllegalArgumentException | IllegalStateException e) {
+			result.put("result", "FAIL");
+			result.put("message", e.getMessage());
 		}
 		return ResponseEntity.ok(result);
 	}

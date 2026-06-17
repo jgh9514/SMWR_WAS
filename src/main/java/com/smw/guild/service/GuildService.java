@@ -136,5 +136,15 @@ public interface GuildService {
 	 * 길드 멤버 표시명 수정 (길드장/매니저)
 	 */
 	public int updateGuildMemberDisplayName(Map<String, Object> param);
+
+	/**
+	 * 길드 멤버 역할 변경 (길드장: MANAGER/MEMBER, LEADER는 위임 API)
+	 */
+	public int updateGuildMemberRole(Map<String, Object> param);
+
+	/**
+	 * 길드장 권한 위임
+	 */
+	public int transferGuildLeadership(Map<String, Object> param);
 }
 

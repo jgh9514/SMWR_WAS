@@ -474,6 +474,17 @@
 		 WHERE user_id = #{user_id}
 		   AND del_yn = 'N'
 	</update>
+
+	<update id="updateGuildMemberRole" parameterType="sqlMap">
+		/* updateGuildMemberRole */
+		UPDATE USER_GUILD_HISTORY SET
+			role = #{role}
+			,upt_user_id = #{upt_user_id}
+			,upt_date = CURRENT_TIMESTAMP
+		WHERE user_id = #{user_id}
+		  AND guild_id = CAST(#{guild_id} AS BIGINT)
+		  AND leave_date IS NULL
+	</update>
 	
 	<!-- 첨부파일 목록 조회 -->
 	<select id="selectFileAttachmentList" parameterType="sqlMap" resultType="sqlMap">

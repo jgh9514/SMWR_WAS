@@ -885,5 +885,126 @@ public class GuildServiceImpl implements GuildService {
 	public int updateGuildMemberDisplayName(Map<String, Object> param) {
 		return mapper.updateGuildMemberDisplayName(param);
 	}
+
+	@Override
+	@Transactional
+	public int updateGuildMemberRole(Map<String, Object> param) {
+		Object roleObj = param.get("role") != null ? param.get("role") : param.get("guild_role");
+		String newRole = roleObj != null ? roleObj.toString().trim().toUpperCase() : "";
+		if (!"MANAGER".equals(newRole) && !"MEMBER".equals(newRole)) {
+			if ("LEADER".equals(newRole)) {
+				return transferGuildLeadership(param);
+			}
+			throw new IllegalArgumentException("변경할 권한이 올바르지 않습니다.");
+		}
+
+		String targetUserId = param.get("user_id") != null ? param.get("user_id").toString().trim() : "";
+		String actingUserId = param.get("sess_user_id") != null ? param.get("sess_user_id").toString().trim() : "";
+		Object guildIdObj = param.get("guild_id");
+		if (targetUserId.isEmpty() || actingUserId.isEmpty() || guildIdObj == null) {
+			throw new IllegalArgumentException("필수 정보가 누락되었습니다.");
+		}
+		if (actingUserId.equals(targetUserId)) {
+			throw new IllegalStateException("본인의 길드 권한은 여기서 변경할 수 없습니다.");
+		}
+
+		Map<String, Object> targetParam = new HashMap<>();
+		targetParam.put("user_id", targetUserId);
+		Map<String, ?> targetGuild = mapper.selectUserGuild(targetParam);
+		if (targetGuild == null || targetGuild.get("guild_id") == null) {
+			return 0;
+		}
+		if (!String.valueOf(guildIdObj).equals(String.valueOf(targetGuild.get("guild_id")))) {
+			throw new IllegalStateException("같은 길드 멤버만 변경할 수 있습니다.");
+		}
+
+		String currentRole = targetGuild.get("role") != null ? targetGuild.get("role").toString() : "MEMBER";
+		if ("LEADER".equals(currentRole)) {
+			throw new IllegalStateException("길드장의 권한은 변경할 수 없습니다. 권한 위임을 이용하세요.");
+		}
+		if (newRole.equals(currentRole)) {
+			return 1;
+		}
+
+		Map<String, Object> updateParam = new HashMap<>();
+		updateParam.put("user_id", targetUserId);
+		updateParam.put("guild_id", guildIdObj);
+		updateParam.put("role", newRole);
+		updateParam.put("upt_user_id", actingUserId);
+		int updated = mapper.updateGuildMemberRole(updateParam);
+		if (updated == 0) {
+			Map<String, ?> recheck = mapper.selectUserGuild(targetParam);
+			if (recheck != null && newRole.equals(String.valueOf(recheck.get("role")))) {
+				return 1;
+			}
+		}
+		return updated;
+	}
+
+	@Override
+	@Transactional
+	public int transferGuildLeadership(Map<String, Object> param) {
+		Object newLeaderObj = param.get("new_leader_user_id") != null
+			? param.get("new_leader_user_id")
+			: param.get("user_id");
+		String newLeaderUserId = newLeaderObj != null ? newLeaderObj.toString().trim() : "";
+		String actingUserId = param.get("sess_user_id") != null ? param.get("sess_user_id").toString().trim() : "";
+		Object guildIdObj = param.get("guild_id");
+		if (newLeaderUserId.isEmpty() || actingUserId.isEmpty() || guildIdObj == null) {
+			throw new IllegalArgumentException("필수 정보가 누락되었습니다.");
+		}
+		if (actingUserId.equals(newLeaderUserId)) {
+			return 1;
+		}
+
+		Map<String, Object> guildParam = new HashMap<>();
+		guildParam.put("guild_id", guildIdObj);
+		Map<String, ?> guildInfo = mapper.selectGuildDtl(guildParam);
+		if (guildInfo == null || guildInfo.get("guild_leader_id") == null) {
+			return 0;
+		}
+		String currentLeaderId = guildInfo.get("guild_leader_id").toString();
+		if (!actingUserId.equals(currentLeaderId)) {
+			throw new IllegalStateException("길드장만 권한을 위임할 수 있습니다.");
+		}
+
+		Map<String, Object> targetParam = new HashMap<>();
+		targetParam.put("user_id", newLeaderUserId);
+		Map<String, ?> targetGuild = mapper.selectUserGuild(targetParam);
+		if (targetGuild == null || targetGuild.get("guild_id") == null) {
+			throw new IllegalStateException("대상 유저가 길드에 소속되어 있지 않습니다.");
+		}
+		if (!String.valueOf(guildIdObj).equals(String.valueOf(targetGuild.get("guild_id")))) {
+			throw new IllegalStateException("같은 길드 멤버에게만 위임할 수 있습니다.");
+		}
+		String targetRole = targetGuild.get("role") != null ? targetGuild.get("role").toString() : "MEMBER";
+		if ("LEADER".equals(targetRole)) {
+			return 1;
+		}
+
+		Map<String, Object> demoteParam = new HashMap<>();
+		demoteParam.put("user_id", currentLeaderId);
+		demoteParam.put("guild_id", guildIdObj);
+		demoteParam.put("role", "MEMBER");
+		demoteParam.put("upt_user_id", actingUserId);
+		mapper.updateGuildMemberRole(demoteParam);
+
+		Map<String, Object> promoteParam = new HashMap<>();
+		promoteParam.put("user_id", newLeaderUserId);
+		promoteParam.put("guild_id", guildIdObj);
+		promoteParam.put("role", "LEADER");
+		promoteParam.put("upt_user_id", actingUserId);
+		int promoted = mapper.updateGuildMemberRole(promoteParam);
+
+		Map<String, Object> guildUpdateParam = new HashMap<>();
+		guildUpdateParam.put("guild_id", guildIdObj);
+		guildUpdateParam.put("guild_leader_id", newLeaderUserId);
+		guildUpdateParam.put("guild_name", guildInfo.get("guild_name"));
+		guildUpdateParam.put("guild_description", guildInfo.get("guild_description"));
+		guildUpdateParam.put("sess_user_id", actingUserId);
+		mapper.updateGuild(guildUpdateParam);
+
+		return promoted > 0 ? promoted : 1;
+	}
 }
 

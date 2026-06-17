@@ -138,5 +138,10 @@ public interface GuildMapper {
 	 */
 	public int updateGuildMemberDisplayName(Map<String, Object> param);
 
+	/**
+	 * 길드 멤버 역할(user_guild_history.role) 수정
+	 */
+	public int updateGuildMemberRole(Map<String, Object> param);
+
 }
 
