@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.smw.guild.mapper.GuildMapper;
 import com.smw.guild.mapper.GuildJoinApplicationMapper;
+import com.smw.guild.mapper.GuildMemberActivityLogMapper;
 import com.cf.notification.service.NotificationService;
 import com.sysconf.security.AdminPrivilegeResolver;
 import com.sysconf.util.DateUtil;
@@ -34,6 +35,12 @@ public class GuildServiceImpl implements GuildService {
 	
 	@Autowired
 	GuildJoinApplicationMapper joinApplicationMapper;
+
+	@Autowired
+	GuildMemberActivityLogMapper guildMemberActivityLogMapper;
+
+	@Autowired
+	private GuildMemberActivityLogSupport guildMemberActivityLogSupport;
 
 	@Autowired
 	private NotificationService notificationService;
@@ -1005,6 +1012,44 @@ public class GuildServiceImpl implements GuildService {
 		mapper.updateGuild(guildUpdateParam);
 
 		return promoted > 0 ? promoted : 1;
+	}
+
+	@Override
+	@Transactional(readOnly = true)
+	public Map<String, Object> selectGuildMemberActivityPage(Map<String, Object> param) {
+		Map<String, Object> safe = param != null ? param : new HashMap<>();
+		int limit = parsePositiveInt(safe.get("limit"), 30, 100);
+		int offset = Math.max(0, parsePositiveInt(safe.get("offset"), 0, Integer.MAX_VALUE));
+		safe.put("limit", limit);
+		safe.put("offset", offset);
+
+		List<Map<String, ?>> list = guildMemberActivityLogMapper.selectGuildMemberActivityLogList(safe);
+		if (list != null && !list.isEmpty()) {
+			guildMemberActivityLogSupport.enrichActivityLogRows(list);
+		}
+		int total = guildMemberActivityLogMapper.countGuildMemberActivityLog(safe);
+
+		Map<String, Object> page = new HashMap<>();
+		page.put("list", list != null ? list : List.of());
+		page.put("total", total);
+		page.put("limit", limit);
+		page.put("offset", offset);
+		return page;
+	}
+
+	private static int parsePositiveInt(Object raw, int defaultValue, int max) {
+		if (raw == null) {
+			return defaultValue;
+		}
+		try {
+			int n = Integer.parseInt(String.valueOf(raw).trim());
+			if (n <= 0) {
+				return defaultValue;
+			}
+			return Math.min(n, max);
+		} catch (NumberFormatException e) {
+			return defaultValue;
+		}
 	}
 }
 

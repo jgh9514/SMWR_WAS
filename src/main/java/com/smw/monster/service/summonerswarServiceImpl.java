@@ -55,6 +55,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 
 import com.smw.monster.mapper.summonerswarMapper;
+import com.smw.guild.service.GuildMemberActivityLogService;
 import com.smw.monster.util.MonsterDetailContextBuilder;
 import com.smw.rta.cache.RtaCacheEvictor;
 import com.smw.rta.config.RtaOrphanCleanupProperties;
@@ -72,6 +73,9 @@ public class summonerswarServiceImpl implements summonerswarService {
 	
 	@Autowired
 	summonerswarMapper swMapper;
+
+	@Autowired
+	private GuildMemberActivityLogService guildMemberActivityLogService;
 
 	@Autowired
 	@Qualifier(MybatisBatchConfig.BATCH_SQL_SESSION_TEMPLATE)
@@ -322,7 +326,11 @@ public class summonerswarServiceImpl implements summonerswarService {
 			cacheManager = "monsterDetailCacheManager",
 			allEntries = true)
 	public int upsertSiegeDefenseDeckManual(Map<String, Object> param) {
-		return swMapper.upsertSiegeDefenseDeckManual(param);
+		int n = swMapper.upsertSiegeDefenseDeckManual(param);
+		if (n >= 0) {
+			guildMemberActivityLogService.tryLogDefenseDeckRegister(param);
+		}
+		return n;
 	}
 
 	@Override
@@ -397,7 +405,9 @@ public class summonerswarServiceImpl implements summonerswarService {
 		touch.put("deck_id", deckId);
 		touch.put("sess_user_id", param.get("sess_user_id"));
 		swMapper.touchRecommendedAttackDeck(touch);
-		
+
+		guildMemberActivityLogService.tryLogDeckRegister(param, deckId);
+
 		return n;
 	}
 
@@ -632,6 +642,7 @@ public class summonerswarServiceImpl implements summonerswarService {
 		touch.put("deck_id", deckId);
 		touch.put("sess_user_id", param.get("sess_user_id"));
 		swMapper.touchRecommendedAttackDeck(touch);
+		guildMemberActivityLogService.tryLogDeckUpdate(param, deck);
 		return 1;
 	}
 
@@ -817,6 +828,92 @@ public class summonerswarServiceImpl implements summonerswarService {
 		result.put("hasNext", hasNext);
 		result.put("totalCount", totalCount);
 		return result;
+	}
+
+	@Override
+	@Transactional(readOnly = true)
+	public Map<String, ?> selectRecordAttackDeckDefenseMatchups(Map<String, Object> param) {
+		Map<String, Object> q = new HashMap<>();
+		if (param != null) {
+			q.putAll(param);
+		}
+		String a1 = q.get("atk_monster_1") != null ? String.valueOf(q.get("atk_monster_1")).trim() : "";
+		String a2 = q.get("atk_monster_2") != null ? String.valueOf(q.get("atk_monster_2")).trim() : "";
+		String a3 = q.get("atk_monster_3") != null ? String.valueOf(q.get("atk_monster_3")).trim() : "";
+		if (a1.isEmpty() || a2.isEmpty() || a3.isEmpty()) {
+			throw new IllegalArgumentException("atk_monster_1, atk_monster_2, atk_monster_3이 필요합니다.");
+		}
+		q.put("atk_monster_1", a1);
+		q.put("atk_monster_2", a2);
+		q.put("atk_monster_3", a3);
+
+		int paging = parsePositiveInt(q.get("paging"), 30);
+		if (paging > 100) {
+			paging = 100;
+		}
+		int offset = parsePositiveInt(q.get("offset"), 1);
+		q.put("paging", paging);
+		q.put("offset", offset);
+
+		List<Map<String, ?>> matchupList = swMapper.selectRecordAttackDeckDefenseMatchups(q);
+		int totalCount = swMapper.selectRecordAttackDeckDefenseMatchupCount(q);
+		boolean hasNext = (long) offset * paging < (long) totalCount;
+
+		Map<String, Object> result = new HashMap<>();
+		result.put("matchupList", matchupList != null ? matchupList : List.of());
+		result.put("hasNext", hasNext);
+		result.put("totalCount", totalCount);
+		return result;
+	}
+
+	@Override
+	@Transactional(readOnly = true)
+	public Map<String, ?> selectImportableRecommendedDecks(Map<String, Object> param) {
+		Map<String, Object> q = new HashMap<>();
+		if (param != null) {
+			q.putAll(param);
+		}
+		int paging = parsePositiveInt(q.get("paging"), 20);
+		if (paging > 50) {
+			paging = 50;
+		}
+		int offset = parsePositiveInt(q.get("offset"), 1);
+		if (q.get("monster_id") != null) {
+			String monsterId = String.valueOf(q.get("monster_id")).trim();
+			if (monsterId.isEmpty()) {
+				q.remove("monster_id");
+			} else {
+				q.put("monster_id", monsterId);
+			}
+		}
+		normalizeExcludeDefMonsters(q);
+		q.put("paging", paging);
+		q.put("offset", offset);
+
+		List<Map<String, ?>> deckList = swMapper.selectImportableRecommendedDecks(q);
+		int totalCount = swMapper.selectImportableRecommendedDeckCount(q);
+		boolean hasNext = (long) offset * paging < (long) totalCount;
+
+		Map<String, Object> result = new HashMap<>();
+		result.put("deckList", deckList != null ? deckList : List.of());
+		result.put("hasNext", hasNext);
+		result.put("totalCount", totalCount);
+		return result;
+	}
+
+	private static void normalizeExcludeDefMonsters(Map<String, Object> q) {
+		String d1 = q.get("exclude_def_monster_1") != null ? String.valueOf(q.get("exclude_def_monster_1")).trim() : "";
+		String d2 = q.get("exclude_def_monster_2") != null ? String.valueOf(q.get("exclude_def_monster_2")).trim() : "";
+		String d3 = q.get("exclude_def_monster_3") != null ? String.valueOf(q.get("exclude_def_monster_3")).trim() : "";
+		if (d1.isEmpty() || d2.isEmpty() || d3.isEmpty()) {
+			q.remove("exclude_def_monster_1");
+			q.remove("exclude_def_monster_2");
+			q.remove("exclude_def_monster_3");
+			return;
+		}
+		q.put("exclude_def_monster_1", d1);
+		q.put("exclude_def_monster_2", d2);
+		q.put("exclude_def_monster_3", d3);
 	}
 	
 	@Override
@@ -2493,7 +2590,17 @@ public class summonerswarServiceImpl implements summonerswarService {
 			cacheManager = "monsterDetailCacheManager",
 			allEntries = true)
 	public int deleteDeckDetail(Map<String, Object> param) {
-		return swMapper.deleteDeckDetail(param);
+		Map<String, ?> deckBefore = null;
+		if (param != null && param.get("deck_id") != null) {
+			Map<String, Object> q = new HashMap<>();
+			q.put("deck_id", param.get("deck_id"));
+			deckBefore = swMapper.selectDeckDetail(q);
+		}
+		int n = swMapper.deleteDeckDetail(param);
+		if (n > 0 && deckBefore != null && !deckBefore.isEmpty()) {
+			guildMemberActivityLogService.tryLogDeckDelete(param, deckBefore);
+		}
+		return n;
 	}
 
 	@Override
@@ -2519,6 +2626,7 @@ public class summonerswarServiceImpl implements summonerswarService {
 		String vote = v != null ? String.valueOf(v).trim().toUpperCase() : "";
 		if ("CLEAR".equals(vote) || vote.isEmpty()) {
 			deleteExistingVotesForCombo(param, deckIdStr);
+			guildMemberActivityLogService.tryLogDeckVote(param, deckIdStr, "CLEAR");
 			return 1;
 		}
 		if (!"UP".equals(vote) && !"DOWN".equals(vote)) {
@@ -2529,11 +2637,15 @@ public class summonerswarServiceImpl implements summonerswarService {
 		if (!deckIdStr.isEmpty()) {
 			validateDeckVoteAgainstRow(param);
 			deleteExistingVotesForCombo(param, deckIdStr);
-			return swMapper.insertDeckVoteRegistered(param);
+			int n = swMapper.insertDeckVoteRegistered(param);
+			guildMemberActivityLogService.tryLogDeckVote(param, deckIdStr, vote);
+			return n;
 		}
 		validateFreeVoteAtk(param);
 		deleteExistingVotesForCombo(param, "");
-		return swMapper.insertDeckVoteFree(param);
+		int n = swMapper.insertDeckVoteFree(param);
+		guildMemberActivityLogService.tryLogDeckVote(param, "", vote);
+		return n;
 	}
 
 	/** 등록 행 + 동일 조합 자유 투표 행(있으면) 제거 후 재삽입용 */

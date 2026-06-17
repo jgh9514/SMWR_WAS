@@ -62,6 +62,18 @@ public interface summonerswarMapper {
 	/** 전적에 쓰인 공덱 조합(공격 3몬스터) 전체 개수 */
 	public int selectRecordAttackDeckComboCount(Map<String, Object> param);
 
+	/** 전적 공덱(공격 조합)이 사용된 방덱 목록 */
+	public List<Map<String, ?>> selectRecordAttackDeckDefenseMatchups(Map<String, Object> param);
+
+	/** 전적 공덱(공격 조합)이 사용된 방덱 개수 */
+	public int selectRecordAttackDeckDefenseMatchupCount(Map<String, Object> param);
+
+	/** 다른 방덱에 등록된 추천 공덱 목록 (불러오기용) */
+	public List<Map<String, ?>> selectImportableRecommendedDecks(Map<String, Object> param);
+
+	/** 다른 방덱에 등록된 추천 공덱 개수 (불러오기용) */
+	public int selectImportableRecommendedDeckCount(Map<String, Object> param);
+
 	public List<Map<String, ?>> selectMonsterDetailTeamList(Map<String, Object> param);
 
 	public int selectMonsterDetailTeamListCount(Map<String, Object> param);

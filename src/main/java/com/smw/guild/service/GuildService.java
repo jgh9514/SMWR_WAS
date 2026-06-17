@@ -146,5 +146,10 @@ public interface GuildService {
 	 * 길드장 권한 위임
 	 */
 	public int transferGuildLeadership(Map<String, Object> param);
+
+	/**
+	 * 길드원 활동 이력 목록 (길드장/매니저, 페이지네이션)
+	 */
+	public Map<String, Object> selectGuildMemberActivityPage(Map<String, Object> param);
 }
 

@@ -2068,6 +2068,133 @@
 		     </if>
 		  ) t
 	</select>
+
+	<select id="selectRecordAttackDeckDefenseMatchups" parameterType="sqlMap" resultType="sqlMap">
+		/* summonerswar.selectRecordAttackDeckDefenseMatchups */
+		SELECT s.monster_id_1 AS def_monster_1
+		     , s.monster_id_2 AS def_monster_2
+		     , s.monster_id_3 AS def_monster_3
+		     , SUM(s.total_count)::int AS usage_count
+		     , SUM(s.win_count)::int AS win_count
+		     , SUM(s.lose_count)::int AS lose_count
+		     , MAX(m1.kr_name) AS d1_kr_name
+		     , MAX(m2.kr_name) AS d2_kr_name
+		     , MAX(m3.kr_name) AS d3_kr_name
+		     , MAX(m1.image_url) AS image_url1
+		     , MAX(m2.image_url) AS image_url2
+		     , MAX(m3.image_url) AS image_url3
+		  FROM siege_defense_deck_stats s
+		  LEFT JOIN monster m1 ON s.monster_id_1 = m1.monster_id
+		  LEFT JOIN monster m2 ON s.monster_id_2 = m2.monster_id
+		  LEFT JOIN monster m3 ON s.monster_id_3 = m3.monster_id
+		 <where>
+		   AND s.attack_monster_id_1 = #{atk_monster_1}
+		   AND s.attack_monster_id_2 = #{atk_monster_2}
+		   AND s.attack_monster_id_3 = #{atk_monster_3}
+		   <include refid="siegeGuildFilter"><property name="col" value="s.guild_id"/></include>
+		   <include refid="siegeSeasonFilterSeasonNo"><property name="col" value="s.season_no"/></include>
+		 </where>
+		 GROUP BY s.monster_id_1, s.monster_id_2, s.monster_id_3
+		 ORDER BY usage_count DESC, win_count DESC
+		 LIMIT #{paging}::bigint
+		 OFFSET (#{offset}::bigint - 1) * #{paging}::bigint
+	</select>
+
+	<select id="selectRecordAttackDeckDefenseMatchupCount" parameterType="sqlMap" resultType="Int">
+		/* summonerswar.selectRecordAttackDeckDefenseMatchupCount */
+		SELECT COUNT(*)::int
+		  FROM (
+		    SELECT 1
+		      FROM siege_defense_deck_stats s
+		     <where>
+		       AND s.attack_monster_id_1 = #{atk_monster_1}
+		       AND s.attack_monster_id_2 = #{atk_monster_2}
+		       AND s.attack_monster_id_3 = #{atk_monster_3}
+		       <include refid="siegeGuildFilter"><property name="col" value="s.guild_id"/></include>
+		       <include refid="siegeSeasonFilterSeasonNo"><property name="col" value="s.season_no"/></include>
+		     </where>
+		     GROUP BY s.monster_id_1, s.monster_id_2, s.monster_id_3
+		  ) t
+	</select>
+
+	<select id="selectImportableRecommendedDecks" parameterType="sqlMap" resultType="sqlMap">
+		/* summonerswar.selectImportableRecommendedDecks */
+		SELECT srad.id AS deck_id
+		     , srad.def_monster_1
+		     , srad.def_monster_2
+		     , srad.def_monster_3
+		     , srad.atk_monster_1
+		     , srad.atk_monster_2
+		     , srad.atk_monster_3
+		     , LEFT(COALESCE(srad.deck_comment, ''), 120) AS deck_comment_preview
+		     , dm1.kr_name AS def_m1_kr_name
+		     , dm2.kr_name AS def_m2_kr_name
+		     , dm3.kr_name AS def_m3_kr_name
+		     , am1.kr_name AS atk_m1_kr_name
+		     , am2.kr_name AS atk_m2_kr_name
+		     , am3.kr_name AS atk_m3_kr_name
+		     , am1.image_url AS atk_image_url1
+		     , am2.image_url AS atk_image_url2
+		     , am3.image_url AS atk_image_url3
+		  FROM siege_recommended_attack_deck srad
+		  LEFT JOIN monster dm1 ON srad.def_monster_1 = dm1.monster_id
+		  LEFT JOIN monster dm2 ON srad.def_monster_2 = dm2.monster_id
+		  LEFT JOIN monster dm3 ON srad.def_monster_3 = dm3.monster_id
+		  LEFT JOIN monster am1 ON srad.atk_monster_1 = am1.monster_id
+		  LEFT JOIN monster am2 ON srad.atk_monster_2 = am2.monster_id
+		  LEFT JOIN monster am3 ON srad.atk_monster_3 = am3.monster_id
+		 <where>
+		   <if test="exclude_def_monster_1 != null and exclude_def_monster_1 != ''
+		         and exclude_def_monster_2 != null and exclude_def_monster_2 != ''
+		         and exclude_def_monster_3 != null and exclude_def_monster_3 != ''">
+		   AND NOT (
+		         srad.def_monster_1 = #{exclude_def_monster_1}
+		     AND srad.def_monster_2 = #{exclude_def_monster_2}
+		     AND srad.def_monster_3 = #{exclude_def_monster_3}
+		   )
+		   </if>
+		   <if test="monster_id != null and monster_id != ''">
+		   AND (
+		         srad.atk_monster_1 = #{monster_id}
+		      OR srad.atk_monster_2 = #{monster_id}
+		      OR srad.atk_monster_3 = #{monster_id}
+		      OR srad.def_monster_1 = #{monster_id}
+		      OR srad.def_monster_2 = #{monster_id}
+		      OR srad.def_monster_3 = #{monster_id}
+		   )
+		   </if>
+		 </where>
+		 ORDER BY srad.id DESC
+		 LIMIT #{paging}::bigint
+		 OFFSET (#{offset}::bigint - 1) * #{paging}::bigint
+	</select>
+
+	<select id="selectImportableRecommendedDeckCount" parameterType="sqlMap" resultType="Int">
+		/* summonerswar.selectImportableRecommendedDeckCount */
+		SELECT COUNT(1)::int
+		  FROM siege_recommended_attack_deck srad
+		 <where>
+		   <if test="exclude_def_monster_1 != null and exclude_def_monster_1 != ''
+		         and exclude_def_monster_2 != null and exclude_def_monster_2 != ''
+		         and exclude_def_monster_3 != null and exclude_def_monster_3 != ''">
+		   AND NOT (
+		         srad.def_monster_1 = #{exclude_def_monster_1}
+		     AND srad.def_monster_2 = #{exclude_def_monster_2}
+		     AND srad.def_monster_3 = #{exclude_def_monster_3}
+		   )
+		   </if>
+		   <if test="monster_id != null and monster_id != ''">
+		   AND (
+		         srad.atk_monster_1 = #{monster_id}
+		      OR srad.atk_monster_2 = #{monster_id}
+		      OR srad.atk_monster_3 = #{monster_id}
+		      OR srad.def_monster_1 = #{monster_id}
+		      OR srad.def_monster_2 = #{monster_id}
+		      OR srad.def_monster_3 = #{monster_id}
+		   )
+		   </if>
+		 </where>
+	</select>
 		
 	<select id="selectRecordList" parameterType="sqlMap" resultType="sqlMap">
 		/* summonerswar.selectRecordList — 길드 인원별 승패 집계, wizard_id 기준 그룹핑 + 최신 이름 사용 */

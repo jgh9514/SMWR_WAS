@@ -44,6 +44,16 @@ public interface summonerswarService {
 	 * 자주 사용되는 공덱 조합 목록(공격 3몬스터 조합 기준)
 	 */
 	public Map<String, ?> selectPopularAttackDeckCombos(Map<String, Object> param);
+
+	/**
+	 * 전적 공덱(공격 조합)이 사용된 방덱 목록
+	 */
+	public Map<String, ?> selectRecordAttackDeckDefenseMatchups(Map<String, Object> param);
+
+	/**
+	 * 다른 방덱 추천 공덱 불러오기 목록
+	 */
+	public Map<String, ?> selectImportableRecommendedDecks(Map<String, Object> param);
 	
 	public Map<String, ?> selectGuildMatchCheck(Map<String, ?> param);
 	

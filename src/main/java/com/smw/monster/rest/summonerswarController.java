@@ -860,6 +860,33 @@ public class summonerswarController {
     	return new ResponseEntity<>(result, HttpStatus.OK);
     }
 
+    @Operation(summary = "전적 공덱 사용 방덱 목록", description = "전적에 쓰인 공격 조합이 어떤 방덱에 사용되었는지 조회합니다.")
+    @PostMapping("/record-attack-deck-defenses")
+    public ResponseEntity<?> selectRecordAttackDeckDefenses(@RequestBody(required = false) Map<String, Object> param, HttpSession session, HttpServletRequest request) {
+    	Map<String, Object> p = param != null ? param : new HashMap<>();
+    	ResponseEntity<?> guard = requireLoginAndGuild(request, p);
+    	if (guard != null) return guard;
+    	try {
+    		Map<String, ?> result = swService.selectRecordAttackDeckDefenseMatchups(p);
+    		return new ResponseEntity<>(result, HttpStatus.OK);
+    	} catch (IllegalArgumentException e) {
+    		Map<String, Object> body = new HashMap<>();
+    		body.put("result", "FAIL");
+    		body.put("message", e.getMessage());
+    		return new ResponseEntity<>(body, HttpStatus.BAD_REQUEST);
+    	}
+    }
+
+    @Operation(summary = "추천 공덱 불러오기 목록", description = "다른 방덱에 등록된 추천 공덱 목록을 조회합니다.")
+    @PostMapping("/recommended-deck-import/list")
+    public ResponseEntity<?> selectImportableRecommendedDecks(@RequestBody(required = false) Map<String, Object> param, HttpSession session, HttpServletRequest request) {
+    	Map<String, Object> p = param != null ? param : new HashMap<>();
+    	ResponseEntity<?> guard = requireLoginAndGuild(request, p);
+    	if (guard != null) return guard;
+    	Map<String, ?> result = swService.selectImportableRecommendedDecks(p);
+    	return new ResponseEntity<>(result, HttpStatus.OK);
+    }
+
     @Operation(summary = "공덱 상세 정보 조회", description = "공덱의 상세 정보를 조회합니다.")
     @PostMapping("/deck-detail")
     public ResponseEntity<?> selectDeckDetail(@RequestBody Map<String, Object> param, HttpSession session, HttpServletRequest request) {

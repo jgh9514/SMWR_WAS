@@ -642,6 +642,52 @@ public class GuildController {
 		List<Map<String, ?>> list = service.selectGuildMemberList(param);
 		return ResponseEntity.ok(list);
 	}
+
+	/**
+	 * 길드원 활동 이력 조회 (길드장/매니저)
+	 */
+	@Operation(summary = "길드원 활동 이력", description = "추천 공덱 등록·수정·삭제·투표, 방덱 등록 등 길드원 활동 로그를 조회합니다.")
+	@PostMapping("/member/activity/list")
+	public ResponseEntity<?> getGuildMemberActivityList(@RequestBody(required = false) Map<String, Object> param,
+			HttpSession session, HttpServletRequest request) {
+		Map<String, Object> result = new HashMap<>();
+		String sessUserId = getSessUserId(request);
+		String sessGuildId = getSessGuildId(request);
+		String sessGuildRole = getSessGuildRole(request);
+		if (sessUserId == null || sessUserId.isEmpty()) {
+			result.put("result", "FAIL");
+			result.put("message", "로그인이 필요합니다.");
+			return ResponseEntity.status(401).body(result);
+		}
+		if (sessGuildId == null || sessGuildId.isEmpty()) {
+			result.put("result", "FAIL");
+			result.put("message", "길드에 소속되어 있지 않습니다.");
+			return ResponseEntity.ok(result);
+		}
+		boolean isLeader = "LEADER".equals(sessGuildRole);
+		boolean isManager = "MANAGER".equals(sessGuildRole);
+		if (!isLeader && !isManager) {
+			result.put("result", "FAIL");
+			result.put("message", "권한이 없습니다.");
+			return ResponseEntity.status(403).body(result);
+		}
+		Map<String, Object> safeParam = param != null ? param : new HashMap<>();
+		Object guildIdObj = safeParam.get("guild_id");
+		String guildId = guildIdObj != null ? guildIdObj.toString().trim() : "";
+		if (guildId.isEmpty()) {
+			guildId = sessGuildId;
+		}
+		if (!sessGuildId.equals(guildId)) {
+			result.put("result", "FAIL");
+			result.put("message", "소속 길드만 조회할 수 있습니다.");
+			return ResponseEntity.ok(result);
+		}
+		safeParam.put("guild_id", guildId);
+		Map<String, Object> page = service.selectGuildMemberActivityPage(safeParam);
+		result.put("result", "SUCCESS");
+		result.put("data", page);
+		return ResponseEntity.ok(result);
+	}
 	
 	/**
 	 * 길드 멤버 추방 (길드장/매니저)

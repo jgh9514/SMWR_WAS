@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smw.guild.mapper.GuildMemberActivityLogMapper">
+
+	<insert id="insertGuildMemberActivityLog" parameterType="sqlMap">
+		/* insertGuildMemberActivityLog */
+		INSERT INTO guild_member_activity_log (
+			guild_id
+			,user_id
+			,action_type
+			,reference_id
+			,summary
+			,detail_json
+		) VALUES (
+			CAST(#{guild_id} AS BIGINT)
+			,#{user_id}
+			,#{action_type}
+			,#{reference_id}
+			,#{summary}
+			,CAST(#{detail_json} AS jsonb)
+		)
+	</insert>
+
+	<select id="countGuildMemberActivityLog" parameterType="sqlMap" resultType="int">
+		/* countGuildMemberActivityLog */
+		SELECT COUNT(1)
+		  FROM guild_member_activity_log l
+		 WHERE l.guild_id = CAST(#{guild_id} AS BIGINT)
+		<if test='user_id != null and user_id != ""'>
+		   AND l.user_id = #{user_id}
+		</if>
+		<if test='action_type != null and action_type != ""'>
+		   AND l.action_type = #{action_type}
+		</if>
+	</select>
+
+	<select id="selectGuildMemberActivityLogList" parameterType="sqlMap" resultType="sqlMap">
+		/* selectGuildMemberActivityLogList */
+		SELECT l.log_id
+			  ,l.guild_id
+			  ,l.user_id
+			  ,tu.user_nm AS user_name
+			  ,l.action_type
+			  ,l.reference_id
+			  ,l.summary
+			  ,l.detail_json
+			  ,l.crt_date
+		  FROM guild_member_activity_log l
+		  LEFT JOIN sys_user tu ON tu.user_id = l.user_id
+		 WHERE l.guild_id = CAST(#{guild_id} AS BIGINT)
+		<if test='user_id != null and user_id != ""'>
+		   AND l.user_id = #{user_id}
+		</if>
+		<if test='action_type != null and action_type != ""'>
+		   AND l.action_type = #{action_type}
+		</if>
+		 ORDER BY l.crt_date DESC, l.log_id DESC
+		 LIMIT CAST(#{limit} AS INTEGER)
+		 OFFSET CAST(#{offset} AS INTEGER)
+	</select>
+
+	<select id="selectMonsterKrNamesByIds" parameterType="sqlMap" resultType="sqlMap">
+		/* selectMonsterKrNamesByIds */
+		SELECT m.monster_id
+			  ,m.kr_name
+		  FROM monster m
+		 WHERE m.monster_id IN
+		<foreach collection="monster_ids" item="id" open="(" separator="," close=")">
+			#{id}
+		</foreach>
+		 LIMIT 200
+	</select>
+
+</mapper>
