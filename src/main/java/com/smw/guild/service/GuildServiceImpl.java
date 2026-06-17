@@ -194,44 +194,66 @@ public class GuildServiceImpl implements GuildService {
 	public int deleteUserGuild(Map<String, Object> param) {
 		// 현재 길드 정보 조회 (user_guild_history에서 leave_date IS NULL인 것)
 		Map<String, ?> userGuild = mapper.selectUserGuild(param);
-		
-		if (userGuild != null) {
-			Object gidObj = userGuild.get("guild_id");
-			Long guildId = null;
-			if (gidObj instanceof Number) {
-				guildId = ((Number) gidObj).longValue();
-			} else if (gidObj != null) {
-				guildId = Long.valueOf(gidObj.toString());
-			}
-			
-			// 이력 업데이트 (탈퇴일 추가)
-			Map<String, Object> historyParam = new HashMap<>();
-			historyParam.put("user_id", param.get("user_id"));
-			historyParam.put("guild_id", guildId);
-			historyParam.put("leave_date", param.get("leave_date"));
-			historyParam.put("leave_reason", param.get("leave_reason"));
-			historyParam.put("upt_user_id", param.get("upt_user_id"));
-			int result = mapper.updateUserGuildHistory(historyParam);
-			
-			// 길드 인원수 감소 및 sys_user 테이블 동기화
-			if (result > 0) {
-				Map<String, Object> countParam = new HashMap<>();
-				countParam.put("guild_id", guildId);
-				countParam.put("increment", -1);
-				mapper.updateGuildMemberCount(countParam);
-				
-				// sys_user 테이블의 current_guild_id를 NULL로 업데이트
-				Map<String, Object> userUpdateParam = new HashMap<>();
-				userUpdateParam.put("user_id", param.get("user_id"));
-				userUpdateParam.put("current_guild_id", null);
-				userUpdateParam.put("sess_user_id", param.get("upt_user_id")); // upt_user_id 사용
-				mapper.updateUserCurrentGuildId(userUpdateParam);
-			}
-			
-			return result;
+
+		if (userGuild == null) {
+			// 이미 탈퇴/추방된 경우 멱등 성공
+			return 1;
 		}
-		
-		return 0;
+
+		Object gidObj = userGuild.get("guild_id");
+		Long guildId = null;
+		if (gidObj instanceof Number) {
+			guildId = ((Number) gidObj).longValue();
+		} else if (gidObj != null) {
+			guildId = Long.valueOf(gidObj.toString());
+		}
+
+		String actingUserId = resolveActingUserId(param);
+
+		// 이력 업데이트 (탈퇴일 추가)
+		Map<String, Object> historyParam = new HashMap<>();
+		historyParam.put("user_id", param.get("user_id"));
+		historyParam.put("guild_id", guildId);
+		historyParam.put("leave_date", param.get("leave_date"));
+		historyParam.put("leave_reason", param.get("leave_reason"));
+		historyParam.put("upt_user_id", actingUserId);
+		int result = mapper.updateUserGuildHistory(historyParam);
+
+		if (result == 0) {
+			Map<String, ?> recheck = mapper.selectUserGuild(param);
+			if (recheck == null) {
+				return 1;
+			}
+			return 0;
+		}
+
+		// 길드 인원수 감소 및 sys_user 테이블 동기화
+		Map<String, Object> countParam = new HashMap<>();
+		countParam.put("guild_id", guildId);
+		countParam.put("increment", -1);
+		countParam.put("sess_user_id", actingUserId);
+		mapper.updateGuildMemberCount(countParam);
+
+		Map<String, Object> userUpdateParam = new HashMap<>();
+		userUpdateParam.put("user_id", param.get("user_id"));
+		userUpdateParam.put("current_guild_id", null);
+		userUpdateParam.put("sess_user_id", actingUserId);
+		mapper.updateUserCurrentGuildId(userUpdateParam);
+
+		return result;
+	}
+
+	private String resolveActingUserId(Map<String, Object> param) {
+		if (param.get("upt_user_id") != null) {
+			return param.get("upt_user_id").toString();
+		}
+		if (param.get("sess_user_id") != null) {
+			return param.get("sess_user_id").toString();
+		}
+		if (param.get("crt_user_id") != null) {
+			return param.get("crt_user_id").toString();
+		}
+		return null;
 	}
 
 	@Override
@@ -612,11 +634,15 @@ public class GuildServiceImpl implements GuildService {
 				guildId = Long.valueOf(gidObj.toString());
 			}
 			if (applicantUserId != null && guildId != null) {
-				// 이미 길드가 있는지 확인
 				Map<String, Object> checkParam = new HashMap<>();
 				checkParam.put("user_id", applicantUserId);
 				Map<String, ?> existingGuild = mapper.selectUserGuild(checkParam);
-				if (existingGuild == null) {
+				if (existingGuild != null) {
+					Object existingGuildId = existingGuild.get("guild_id");
+					if (existingGuildId != null && !String.valueOf(existingGuildId).equals(String.valueOf(guildId))) {
+						throw new IllegalStateException("신청자가 이미 다른 길드에 소속되어 있어 승인할 수 없습니다.");
+					}
+				} else {
 					Map<String, Object> userGuildParam = new HashMap<>();
 					userGuildParam.put("user_id", applicantUserId);
 					userGuildParam.put("guild_id", guildId);

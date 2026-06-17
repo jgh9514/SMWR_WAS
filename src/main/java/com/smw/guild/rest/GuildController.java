@@ -250,10 +250,12 @@ public class GuildController {
 		int count = service.deleteUserGuild(param);
 		if (count > 0) {
 			result.put("result", "SUCCESS");
+			result.put("message", "길드에서 탈퇴했습니다.");
 		} else {
 			result.put("result", "FAIL");
+			result.put("message", "탈퇴에 실패했습니다.");
 		}
-		
+
 		return ResponseEntity.ok(result);
 	}
 
@@ -527,6 +529,14 @@ public class GuildController {
 			result.put("result", "FAIL");
 			result.put("message", e.getMessage());
 			return ResponseEntity.badRequest().body(result);
+		} catch (IllegalStateException e) {
+			result.put("result", "FAIL");
+			result.put("message", e.getMessage());
+			return ResponseEntity.badRequest().body(result);
+		} catch (Exception e) {
+			result.put("result", "FAIL");
+			result.put("message", "가입 신청 처리 중 오류가 발생했습니다.");
+			return ResponseEntity.ok(result);
 		}
 		return ResponseEntity.ok(result);
 	}
@@ -612,8 +622,8 @@ public class GuildController {
 		targetGuildParam.put("user_id", targetUserId);
 		Map<String, ?> targetGuild = service.selectUserGuild(targetGuildParam);
 		if (targetGuild == null || targetGuild.get("guild_id") == null) {
-			result.put("result", "FAIL");
-			result.put("message", "대상 유저가 길드에 소속되어 있지 않습니다.");
+			result.put("result", "SUCCESS");
+			result.put("message", "이미 추방되었거나 길드에 소속되어 있지 않습니다.");
 			return ResponseEntity.ok(result);
 		}
 		String targetGuildId = targetGuild.get("guild_id").toString();
@@ -622,7 +632,7 @@ public class GuildController {
 			result.put("message", "같은 길드 멤버만 추방할 수 있습니다.");
 			return ResponseEntity.ok(result);
 		}
-		
+
 		String targetRole = targetGuild.get("role") != null ? targetGuild.get("role").toString() : null;
 		// 매니저는 MEMBER만 추방 가능, 길드장은 LEADER를 제외하고 추방 가능
 		if (isManager && !"MEMBER".equals(targetRole)) {
@@ -635,11 +645,11 @@ public class GuildController {
 			result.put("message", "길드장은 추방할 수 없습니다.");
 			return ResponseEntity.ok(result);
 		}
-		
+
 		// leave_reason 기록 (옵션)
 		Object reasonObj = param.get("leave_reason");
 		String reason = reasonObj != null ? reasonObj.toString().trim() : "";
-		
+
 		Map<String, Object> kickParam = new HashMap<>();
 		kickParam.put("user_id", targetUserId);
 		kickParam.put("upt_user_id", sessUserId);
@@ -649,15 +659,22 @@ public class GuildController {
 		} else {
 			kickParam.put("leave_reason", "KICK");
 		}
-		
+
 		int count = service.deleteUserGuild(kickParam);
 		if (count > 0) {
 			result.put("result", "SUCCESS");
+			result.put("message", "추방 처리되었습니다.");
 		} else {
-			result.put("result", "FAIL");
-			result.put("message", "추방에 실패했습니다.");
+			Map<String, ?> recheck = service.selectUserGuild(targetGuildParam);
+			if (recheck == null) {
+				result.put("result", "SUCCESS");
+				result.put("message", "추방 처리되었습니다.");
+			} else {
+				result.put("result", "FAIL");
+				result.put("message", "추방에 실패했습니다.");
+			}
 		}
-		
+
 		return ResponseEntity.ok(result);
 	}
 
