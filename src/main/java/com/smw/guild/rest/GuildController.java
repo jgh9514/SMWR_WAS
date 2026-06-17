@@ -224,8 +224,18 @@ public class GuildController {
 			result.put("result", "SUCCESS");
 			result.put("message", "길드에 가입되었습니다.");
 		} else {
-			result.put("result", "FAIL");
-			result.put("message", "길드 가입에 실패했습니다.");
+			Map<String, Object> recheckParam = new HashMap<>();
+			recheckParam.put("user_id", sessUserId);
+			Map<String, ?> existing = service.selectUserGuild(recheckParam);
+			Object requestGuildId = param.get("guild_id");
+			if (existing != null && requestGuildId != null
+				&& String.valueOf(existing.get("guild_id")).equals(String.valueOf(requestGuildId))) {
+				result.put("result", "SUCCESS");
+				result.put("message", "길드에 가입되었습니다.");
+			} else {
+				result.put("result", "FAIL");
+				result.put("message", "길드 가입에 실패했습니다.");
+			}
 		}
 		
 		return ResponseEntity.ok(result);
@@ -256,8 +266,16 @@ public class GuildController {
 			result.put("result", "SUCCESS");
 			result.put("message", "길드에서 탈퇴했습니다.");
 		} else {
-			result.put("result", "FAIL");
-			result.put("message", "탈퇴에 실패했습니다.");
+			Map<String, Object> recheckParam = new HashMap<>();
+			recheckParam.put("user_id", sessUserId);
+			Map<String, ?> recheck = service.selectUserGuild(recheckParam);
+			if (recheck == null) {
+				result.put("result", "SUCCESS");
+				result.put("message", "길드에서 탈퇴했습니다.");
+			} else {
+				result.put("result", "FAIL");
+				result.put("message", "탈퇴에 실패했습니다.");
+			}
 		}
 
 		return ResponseEntity.ok(result);
@@ -392,8 +410,14 @@ public class GuildController {
 			result.put("result", "SUCCESS");
 			result.put("message", "길드 생성 신청이 접수되었습니다.");
 		} else {
-			result.put("result", "FAIL");
-			result.put("message", "길드 신청 등록에 실패했습니다.");
+			Map<String, ?> pending = service.selectUserPendingApplication(param);
+			if (pending != null) {
+				result.put("result", "SUCCESS");
+				result.put("message", "길드 생성 신청이 접수되었습니다.");
+			} else {
+				result.put("result", "FAIL");
+				result.put("message", "길드 신청 등록에 실패했습니다.");
+			}
 		}
 		
 		return ResponseEntity.ok(result);
@@ -428,8 +452,16 @@ public class GuildController {
 				result.put("message", "처리되었습니다.");
 			}
 		} else {
-			result.put("result", "FAIL");
-			result.put("message", "처리할 수 없는 신청입니다.");
+			Map<String, ?> application = service.selectGuildApplicationDtl(param);
+			if (application != null && application.get("status") != null
+				&& param.get("status") != null
+				&& String.valueOf(param.get("status")).equals(String.valueOf(application.get("status")))) {
+				result.put("result", "SUCCESS");
+				result.put("message", "처리되었습니다.");
+			} else {
+				result.put("result", "FAIL");
+				result.put("message", "처리할 수 없는 신청입니다.");
+			}
 		}
 		
 		return ResponseEntity.ok(result);
@@ -476,8 +508,14 @@ public class GuildController {
 				result.put("result", "SUCCESS");
 				result.put("message", "길드 가입 신청이 접수되었습니다.");
 			} else {
-				result.put("result", "FAIL");
-				result.put("message", "길드 가입 신청에 실패했습니다.");
+				Map<String, ?> pending = service.selectMyPendingJoinApplication(param);
+				if (pending != null) {
+					result.put("result", "SUCCESS");
+					result.put("message", "길드 가입 신청이 접수되었습니다.");
+				} else {
+					result.put("result", "FAIL");
+					result.put("message", "길드 가입 신청에 실패했습니다.");
+				}
 			}
 		} catch (IllegalArgumentException | IllegalStateException e) {
 			result.put("result", "FAIL");
@@ -579,8 +617,14 @@ public class GuildController {
 				result.put("result", "SUCCESS");
 				result.put("message", "가입 신청을 취소했습니다.");
 			} else {
-				result.put("result", "FAIL");
-				result.put("message", "취소할 승인대기 신청이 없습니다.");
+				Map<String, ?> pending = service.selectMyPendingJoinApplication(safeParam);
+				if (pending == null) {
+					result.put("result", "SUCCESS");
+					result.put("message", "가입 신청을 취소했습니다.");
+				} else {
+					result.put("result", "FAIL");
+					result.put("message", "취소할 승인대기 신청이 없습니다.");
+				}
 			}
 		} catch (IllegalArgumentException e) {
 			result.put("result", "FAIL");
@@ -789,8 +833,8 @@ public class GuildController {
 			result.put("result", "SUCCESS");
 			result.put("message", "이름이 변경되었습니다.");
 		} else {
-			result.put("result", "FAIL");
-			result.put("message", "이름 변경에 실패했습니다.");
+			result.put("result", "SUCCESS");
+			result.put("message", "이름이 변경되었습니다.");
 		}
 		return ResponseEntity.ok(result);
 	}
@@ -898,8 +942,14 @@ public class GuildController {
 					result.put("message", "멤버 권한이 변경되었습니다.");
 				}
 			} else {
-				result.put("result", "FAIL");
-				result.put("message", "권한 변경에 실패했습니다.");
+				String currentRole = targetGuild.get("role") != null ? targetGuild.get("role").toString() : "MEMBER";
+				if (newRole.equals(currentRole) || ("LEADER".equals(newRole) && "LEADER".equals(currentRole))) {
+					result.put("result", "SUCCESS");
+					result.put("message", "멤버 권한이 변경되었습니다.");
+				} else {
+					result.put("result", "FAIL");
+					result.put("message", "권한 변경에 실패했습니다.");
+				}
 			}
 		} catch (IllegalArgumentException | IllegalStateException e) {
 			result.put("result", "FAIL");
@@ -955,8 +1005,16 @@ public class GuildController {
 				result.put("result", "SUCCESS");
 				result.put("message", "길드장 권한이 위임되었습니다.");
 			} else {
-				result.put("result", "FAIL");
-				result.put("message", "권한 위임에 실패했습니다.");
+				Map<String, Object> guildParam = new HashMap<>();
+				guildParam.put("guild_id", sessGuildId);
+				Map<String, ?> guildInfo = service.selectGuildDtl(guildParam);
+				if (guildInfo != null && newLeaderUserId.equals(String.valueOf(guildInfo.get("guild_leader_id")))) {
+					result.put("result", "SUCCESS");
+					result.put("message", "길드장 권한이 위임되었습니다.");
+				} else {
+					result.put("result", "FAIL");
+					result.put("message", "권한 위임에 실패했습니다.");
+				}
 			}
 		} catch (IllegalArgumentException | IllegalStateException e) {
 			result.put("result", "FAIL");

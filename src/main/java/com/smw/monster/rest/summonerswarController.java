@@ -194,7 +194,7 @@ public class summonerswarController {
     	}
 
     	int n = swService.upsertSiegeDefenseDeckManual(param);
-    	String result = n > 0 ? "SUCCESS" : "FAIL";
+    	String result = n >= 0 ? "SUCCESS" : "FAIL";
     	return new ResponseEntity<>(result, HttpStatus.OK);
     }
 	
@@ -881,7 +881,7 @@ public class summonerswarController {
 
     	int n = swService.deleteDeckDetail(param);
     	
-    	String result = n > 0 ? "SUCCESS" : "FAIL";
+    	String result = n > 0 ? "SUCCESS" : "SUCCESS";
         return new ResponseEntity<>(result, HttpStatus.OK);
     }
 

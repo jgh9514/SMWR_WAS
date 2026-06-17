@@ -58,8 +58,9 @@ public class NotificationServiceImpl implements NotificationService {
 		if (updated > 0) {
 			result.put("result", "SUCCESS");
 		} else {
-			result.put("result", "FAIL");
-			result.put("message", "알림을 찾을 수 없습니다.");
+			// 이미 읽음 처리된 경우 멱등 성공
+			result.put("result", "SUCCESS");
+			result.put("message", "이미 읽음 처리된 알림입니다.");
 		}
 
 		return result;
@@ -86,8 +87,9 @@ public class NotificationServiceImpl implements NotificationService {
 		if (updated > 0) {
 			result.put("result", "SUCCESS");
 		} else {
-			result.put("result", "FAIL");
-			result.put("message", "알림을 찾을 수 없습니다.");
+			// 이미 숨김 처리된 경우 멱등 성공
+			result.put("result", "SUCCESS");
+			result.put("message", "이미 숨김 처리된 알림입니다.");
 		}
 
 		return result;

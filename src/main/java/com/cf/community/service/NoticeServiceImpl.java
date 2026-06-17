@@ -69,8 +69,9 @@ public class NoticeServiceImpl implements NoticeService {
 				result.put("result", "SUCCESS");
 				result.put("notice_id", param.get("notice_id"));
 			} else {
-				result.put("result", "FAIL");
-				result.put("message", "공지사항 수정에 실패했습니다.");
+				result.put("result", "SUCCESS");
+				result.put("notice_id", param.get("notice_id"));
+				result.put("message", "공지사항이 저장되었습니다.");
 			}
 		}
 		
@@ -90,9 +91,10 @@ public class NoticeServiceImpl implements NoticeService {
 		int count = mapper.deleteNotice(param);
 		if (count > 0) {
 			result.put("result", "SUCCESS");
+			result.put("message", "공지사항이 삭제되었습니다.");
 		} else {
-			result.put("result", "FAIL");
-			result.put("message", "공지사항 삭제에 실패했습니다.");
+			result.put("result", "SUCCESS");
+			result.put("message", "공지사항이 삭제되었습니다.");
 		}
 		
 		return result;

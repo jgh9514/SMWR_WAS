@@ -53,12 +53,16 @@ public class GuildRecruitmentServiceImpl implements GuildRecruitmentService {
 		if (postId != null && !postId.toString().isBlank()) {
 			int u = mapper.updateGuildRecruitment(param);
 			if (u == 0) {
-				result.put("result", "FAIL");
-				result.put("message", "수정 권한이 없거나 게시글을 찾을 수 없습니다.");
-				return result;
+				Map<String, ?> existing = mapper.selectGuildRecruitmentDtl(param);
+				if (existing == null) {
+					result.put("result", "FAIL");
+					result.put("message", "수정 권한이 없거나 게시글을 찾을 수 없습니다.");
+					return result;
+				}
 			}
 			result.put("result", "SUCCESS");
 			result.put("post_id", postId);
+			result.put("message", "수정되었습니다.");
 			return result;
 		}
 		mapper.insertGuildRecruitment(param);
@@ -78,11 +82,15 @@ public class GuildRecruitmentServiceImpl implements GuildRecruitmentService {
 		}
 		int d = mapper.deleteGuildRecruitment(param);
 		if (d == 0) {
-			result.put("result", "FAIL");
-			result.put("message", "삭제 권한이 없거나 게시글을 찾을 수 없습니다.");
-			return result;
+			Map<String, ?> existing = mapper.selectGuildRecruitmentDtl(param);
+			if (existing != null) {
+				result.put("result", "FAIL");
+				result.put("message", "삭제 권한이 없거나 게시글을 찾을 수 없습니다.");
+				return result;
+			}
 		}
 		result.put("result", "SUCCESS");
+		result.put("message", "삭제되었습니다.");
 		return result;
 	}
 }

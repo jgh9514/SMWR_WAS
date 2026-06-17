@@ -172,8 +172,14 @@ public class InquiryServiceImpl implements InquiryService {
 			result.put("result", "SUCCESS");
 			result.put("message", "문의가 삭제되었습니다.");
 		} else {
-			result.put("result", "FAIL");
-			result.put("message", "문의 삭제에 실패했습니다.");
+			Map<String, ?> again = mapper.selectInquiryDtl(param);
+			if (again == null) {
+				result.put("result", "SUCCESS");
+				result.put("message", "문의가 삭제되었습니다.");
+			} else {
+				result.put("result", "FAIL");
+				result.put("message", "문의 삭제에 실패했습니다.");
+			}
 		}
 		
 		return result;
