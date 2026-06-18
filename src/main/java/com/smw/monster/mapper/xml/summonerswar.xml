@@ -512,34 +512,88 @@
 		/* selectMonsterDetailList */
 		<choose>
 			<when test='(match_id == null or match_id == "" or match_id == "null") and (guild_ids == null or guild_ids.size() == 0)'>
-			<!-- siege_defense_deck_stats 집계 경로 (공덱 이력·헤더 동일 소스) -->
-			SELECT MAX(m1.kr_name) AS m1_kr_name
-			     , MAX(stats.image_url_1) AS image_url1
-			     , MAX(m2.kr_name) AS m2_kr_name
-			     , MAX(stats.image_url_2) AS image_url2
-			     , MAX(m3.kr_name) AS m3_kr_name
-			     , MAX(stats.image_url_3) AS image_url3
-			     , SUM(stats.total_count) AS total_count
-			     , ROUND(100.0 * SUM(stats.win_count) / NULLIF(SUM(stats.total_count), 0), 1) AS total_rate
-			     , SUM(stats.win_count) AS win_count
-			     , SUM(stats.lose_count) AS lose_count
-			     , MAX(stats.leader_id) AS leader_id
-			     , MAX(stats.leader_type) AS leader_type
-			     , MAX(stats.leader_stat) AS leader_stat
-			     , MAX(stats.leader_increase_by) AS leader_increase_by
-			     , MAX(stats.leader_icon) AS leader_icon
-			     , MAX(stats.leader_skill_desc) AS leader_skill_description
-			  FROM siege_defense_deck_stats stats
-			  LEFT JOIN monster m1 ON stats.monster_id_1 = m1.monster_id
-			  LEFT JOIN monster m2 ON stats.monster_id_2 = m2.monster_id
-			  LEFT JOIN monster m3 ON stats.monster_id_3 = m3.monster_id
-			 WHERE stats.monster_id_1 IN (${dm1_list})
-			   <if test="dm2_list != null and dm2_list != ''">AND stats.monster_id_2 IN (${dm2_list})</if>
-			   <if test="dm3_list != null and dm3_list != ''">AND stats.monster_id_3 IN (${dm3_list})</if>
-			   <include refid="siegeGuildFilter"><property name="col" value="stats.guild_id"/></include>
-			   <include refid="siegeSeasonFilterSeasonNo"><property name="col" value="stats.season_no"/></include>
-			 GROUP BY stats.monster_id_1, stats.monster_id_2, stats.monster_id_3
-			 ORDER BY total_count DESC, total_rate DESC
+			<!-- siege_defense_deck_stats 집계 + 수동 등록 방덱(전투 없음) -->
+			SELECT u.m1_kr_name
+			     , u.image_url1
+			     , u.m2_kr_name
+			     , u.image_url2
+			     , u.m3_kr_name
+			     , u.image_url3
+			     , u.total_count
+			     , u.total_rate
+			     , u.win_count
+			     , u.lose_count
+			     , u.leader_id
+			     , u.leader_type
+			     , u.leader_stat
+			     , u.leader_increase_by
+			     , u.leader_icon
+			     , u.leader_skill_description
+			  FROM (
+				SELECT MAX(m1.kr_name) AS m1_kr_name
+				     , MAX(stats.image_url_1) AS image_url1
+				     , MAX(m2.kr_name) AS m2_kr_name
+				     , MAX(stats.image_url_2) AS image_url2
+				     , MAX(m3.kr_name) AS m3_kr_name
+				     , MAX(stats.image_url_3) AS image_url3
+				     , SUM(stats.total_count) AS total_count
+				     , ROUND(100.0 * SUM(stats.win_count) / NULLIF(SUM(stats.total_count), 0), 1) AS total_rate
+				     , SUM(stats.win_count) AS win_count
+				     , SUM(stats.lose_count) AS lose_count
+				     , MAX(stats.leader_id) AS leader_id
+				     , MAX(stats.leader_type) AS leader_type
+				     , MAX(stats.leader_stat) AS leader_stat
+				     , MAX(stats.leader_increase_by) AS leader_increase_by
+				     , MAX(stats.leader_icon) AS leader_icon
+				     , MAX(stats.leader_skill_desc) AS leader_skill_description
+				  FROM siege_defense_deck_stats stats
+				  LEFT JOIN monster m1 ON stats.monster_id_1 = m1.monster_id
+				  LEFT JOIN monster m2 ON stats.monster_id_2 = m2.monster_id
+				  LEFT JOIN monster m3 ON stats.monster_id_3 = m3.monster_id
+				 WHERE stats.monster_id_1 IN (${dm1_list})
+				   <if test="dm2_list != null and dm2_list != ''">AND stats.monster_id_2 IN (${dm2_list})</if>
+				   <if test="dm3_list != null and dm3_list != ''">AND stats.monster_id_3 IN (${dm3_list})</if>
+				   <include refid="siegeGuildFilter"><property name="col" value="stats.guild_id"/></include>
+				   <include refid="siegeSeasonFilterSeasonNo"><property name="col" value="stats.season_no"/></include>
+				 GROUP BY stats.monster_id_1, stats.monster_id_2, stats.monster_id_3
+				UNION ALL
+				SELECT m1.kr_name AS m1_kr_name
+				     , m1.image_url AS image_url1
+				     , m2.kr_name AS m2_kr_name
+				     , m2.image_url AS image_url2
+				     , m3.kr_name AS m3_kr_name
+				     , m3.image_url AS image_url3
+				     , 0 AS total_count
+				     , 0 AS total_rate
+				     , 0 AS win_count
+				     , 0 AS lose_count
+				     , m1.leader_id AS leader_id
+				     , ml1.type AS leader_type
+				     , ml1.stat AS leader_stat
+				     , ml1.increase_by AS leader_increase_by
+				     , ml1.icon_path AS leader_icon
+				     , get_leader_skill_desc(ml1.type, ml1.stat, ml1.increase_by) AS leader_skill_description
+				  FROM siege_defense_deck_manual d
+				  INNER JOIN monster m1 ON d.monster_id_1 = m1.monster_id
+				  INNER JOIN monster m2 ON d.monster_id_2 = m2.monster_id
+				  INNER JOIN monster m3 ON d.monster_id_3 = m3.monster_id
+				  LEFT JOIN monster_leaders ml1 ON m1.leader_id = ml1.leader_id
+				 WHERE d.monster_id_1 IN (${dm1_list})
+				   <if test="dm2_list != null and dm2_list != ''">AND d.monster_id_2 IN (${dm2_list})</if>
+				   <if test="dm3_list != null and dm3_list != ''">AND d.monster_id_3 IN (${dm3_list})</if>
+				   <include refid="siegeGuildFilter"><property name="col" value="d.guild_id"/></include>
+				   <include refid="siegeSeasonFilterSeasonNo"><property name="col" value="d.season_no"/></include>
+				   AND NOT EXISTS (
+				    SELECT 1
+				      FROM siege_defense_deck_guild_agg s
+				     WHERE s.guild_id = d.guild_id
+				       AND s.monster_id_1 = d.monster_id_1
+				       AND s.monster_id_2 = d.monster_id_2
+				       AND s.monster_id_3 = d.monster_id_3
+				       <include refid="siegeSeasonFilterSeasonNo"><property name="col" value="s.season_no"/></include>
+				   )
+			  ) u
+			 ORDER BY u.total_count DESC, u.total_rate DESC
 			</when>
 			<otherwise>
 			<!-- 레거시 경로: view_battle_deck_info 직접 조회 (match_id 지정 또는 상대 길드 필터 시) -->
