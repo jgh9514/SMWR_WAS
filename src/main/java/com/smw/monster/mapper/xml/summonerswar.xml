@@ -676,7 +676,7 @@
 		/* selectMonsterDetailTeamList */
 		<choose>
 		<when test='(match_id == null or match_id == "" or match_id == "null") and (guild_ids == null or guild_ids.size() == 0)'>
-		<!-- siege_defense_deck_stats 집계 경로 -->
+		<!-- siege_defense_deck_stats 집계 (업로드 직후 refreshSiegeDefenseDeckStatsForGuildSeasonNo 로 갱신) -->
 		SELECT m1.image_url AS image_url1
 		     , m2.image_url AS image_url2
 		     , m3.image_url AS image_url3
@@ -1060,7 +1060,7 @@
 		/* selectMonsterDetailTeamListCount - 공덱 이력 전체 개수 조회 */
 		<choose>
 		<when test='(match_id == null or match_id == "" or match_id == "null") and (guild_ids == null or guild_ids.size() == 0)'>
-		<!-- siege_defense_deck_stats 집계 경로 -->
+		<!-- siege_defense_deck_stats 집계 -->
 		SELECT COUNT(DISTINCT (attack_monster_id_1, attack_monster_id_2, attack_monster_id_3))::int AS total_count
 		  FROM siege_defense_deck_stats
 		 WHERE monster_id_1 IN (${dm1_list})
@@ -2636,6 +2636,14 @@
 		  ) t
 	</select>
 	
+	<select id="getOriginalMonsterId" parameterType="String" resultType="String">
+		/* summonerswar.getOriginalMonsterId - 콜라보 몹 → original_monster_id, 없으면 입력값 */
+		SELECT COALESCE(
+			(SELECT mcm.original_monster_id FROM monster_collaboration_mapping mcm WHERE mcm.collaboration_monster_id = #{monster_id}::text LIMIT 1),
+			#{monster_id}::text
+		)
+	</select>
+
 	<select id="getAllRelatedMonsterIds" parameterType="String" resultType="String">
 		/* getAllRelatedMonsterIds */
 		WITH related_ids AS (

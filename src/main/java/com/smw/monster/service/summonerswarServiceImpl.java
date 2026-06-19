@@ -366,9 +366,14 @@ public class summonerswarServiceImpl implements summonerswarService {
 	}
 	
 	@Override
+	@CacheEvict(
+			cacheNames = { "enemyTeamList", "monsterDetailBasic", "monsterDetailRecommended", "monsterDetailHistory", "monsterDetailRecentBattles" },
+			cacheManager = "monsterDetailCacheManager",
+			allEntries = true)
 	public int insertFriendlyteamTeamSave(Map<String, Object> param) {
 		if (param == null) return 0;
 		normalizeDeckMetaParams(param);
+		normalizeDefenseMonsterIdsInParam(param);
 		if (!validateDeckStatsRunesInParam(param)) {
 			log.warn("insertFriendlyteamTeamSave rejected: invalid rune selection (deck stats validation failed)");
 			return -1;
@@ -383,7 +388,12 @@ public class summonerswarServiceImpl implements summonerswarService {
 		if (d1 != null && !String.valueOf(d1).isBlank()
 				&& d2 != null && !String.valueOf(d2).isBlank()
 				&& d3 != null && !String.valueOf(d3).isBlank()) {
-			swMapper.upsertSiegeDefenseDeckManual(param);
+			try {
+				swMapper.upsertSiegeDefenseDeckManual(param);
+			} catch (Exception e) {
+				log.warn("insertFriendlyteamTeamSave: siege_defense_deck_manual upsert failed (deck insert kept): def={}-{}-{}",
+						d1, d2, d3, e);
+			}
 		}
 		
 		// insertFriendlyteamTeamSave에서 selectKey로 deck_id가 채워짐
@@ -406,7 +416,11 @@ public class summonerswarServiceImpl implements summonerswarService {
 		touch.put("sess_user_id", param.get("sess_user_id"));
 		swMapper.touchRecommendedAttackDeck(touch);
 
-		guildMemberActivityLogService.tryLogDeckRegister(param, deckId);
+		try {
+			guildMemberActivityLogService.tryLogDeckRegister(param, deckId);
+		} catch (Exception e) {
+			log.warn("insertFriendlyteamTeamSave: activity log failed (deck insert kept): deck_id={}", deckId, e);
+		}
 
 		return n;
 	}
@@ -605,6 +619,35 @@ public class summonerswarServiceImpl implements summonerswarService {
 		if (raw == null) return null;
 		String s = String.valueOf(raw).trim();
 		return s.isEmpty() ? null : s;
+	}
+
+	/** 방덱 3몬: 콜라보→원본 ID, 지원2·3은 LEAST/GREATEST(문자열 정렬)로 통일 */
+	private void normalizeDefenseMonsterIdsInParam(Map<String, Object> param) {
+		if (param == null) return;
+		String d1 = canonicalMonsterId(param.get("def_monster_1"));
+		String d2 = canonicalMonsterId(param.get("def_monster_2"));
+		String d3 = canonicalMonsterId(param.get("def_monster_3"));
+		if (d1 == null || d2 == null || d3 == null) return;
+		param.put("def_monster_1", d1);
+		String[] supports = new String[] { d2, d3 };
+		java.util.Arrays.sort(supports);
+		param.put("def_monster_2", supports[0]);
+		param.put("def_monster_3", supports[1]);
+	}
+
+	private String canonicalMonsterId(Object raw) {
+		if (raw == null) return null;
+		String id = String.valueOf(raw).trim();
+		if (id.isEmpty()) return null;
+		try {
+			String original = swMapper.getOriginalMonsterId(id);
+			if (original != null && !original.isBlank()) {
+				return original.trim();
+			}
+		} catch (Exception e) {
+			log.debug("canonicalMonsterId fallback to raw id: monster_id={}", id, e);
+		}
+		return id;
 	}
 
 	@Override
@@ -975,6 +1018,49 @@ public class summonerswarServiceImpl implements summonerswarService {
 			total += swMapper.insertGuildSiegeBattleDeckBatch(rows.subList(from, to));
 		}
 		return total;
+	}
+
+	@Override
+	public int persistSiegeUploadBattlesAndRefreshStats(List<Map<String, ?>> battles, List<Map<String, String>> decks) {
+		if (battles == null || battles.isEmpty()) {
+			if (decks != null && !decks.isEmpty()) {
+				insertGuildSiegeBattleDeckBatch(decks);
+			}
+			return 0;
+		}
+		int inserted = insertGuildSiegeBattleLogBatch(battles);
+		if (decks != null && !decks.isEmpty()) {
+			insertGuildSiegeBattleDeckBatch(decks);
+		}
+		java.util.Map<String, java.util.Set<String>> guildToMatchIds = new java.util.LinkedHashMap<>();
+		for (Map<String, ?> battle : battles) {
+			if (battle == null) {
+				continue;
+			}
+			Object matchIdObj = battle.get("match_id");
+			Object guildIdObj = battle.get("guild_id");
+			if (matchIdObj == null || guildIdObj == null) {
+				continue;
+			}
+			String matchId = String.valueOf(matchIdObj).trim();
+			String guildId = String.valueOf(guildIdObj).trim();
+			if (matchId.isEmpty() || guildId.isEmpty()) {
+				continue;
+			}
+			guildToMatchIds.computeIfAbsent(guildId, k -> new java.util.LinkedHashSet<>()).add(matchId);
+		}
+		for (java.util.Map.Entry<String, java.util.Set<String>> entry : guildToMatchIds.entrySet()) {
+			java.util.List<Integer> seasonNos = selectAffectedSeasonNos(entry.getKey(), entry.getValue());
+			if (seasonNos == null) {
+				continue;
+			}
+			for (Integer seasonNo : seasonNos) {
+				if (seasonNo != null && seasonNo > 0) {
+					refreshSiegeDefenseDeckStatsForGuildSeasonNo(entry.getKey(), seasonNo);
+				}
+			}
+		}
+		return inserted;
 	}
 	
 	@Override

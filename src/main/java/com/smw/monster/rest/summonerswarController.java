@@ -163,11 +163,19 @@ public class summonerswarController {
     	ResponseEntity<?> guard = requireLoginAndGuild(request, param);
     	if (guard != null) return guard;
 
-    	int type = (int) param.get("type");
+    	int type = parseRequestInt(param.get("type"), -1);
     	int n = -1;
     	if (type == 1) {
     		n = swService.insertEnemyTeamSave(param);
     	} else if (type == 2) {
+    		Object d1 = param.get("def_monster_1");
+    		Object d2 = param.get("def_monster_2");
+    		Object d3 = param.get("def_monster_3");
+    		if (d1 == null || String.valueOf(d1).isBlank()
+    				|| d2 == null || String.valueOf(d2).isBlank()
+    				|| d3 == null || String.valueOf(d3).isBlank()) {
+    			return new ResponseEntity<>("FAIL", HttpStatus.OK);
+    		}
     		n = swService.insertFriendlyteamTeamSave(param);
     	}
     	
@@ -501,40 +509,11 @@ public class summonerswarController {
         		}
     		}
     		if (!pendingBattles.isEmpty()) {
-    			log.info("[siege-upload] insertGuildSiegeBattleLogBatch rows={} (단건 insertGuildSiegeBattleLog 아님)", pendingBattles.size());
-    			swService.insertGuildSiegeBattleLogBatch(pendingBattles);
-    			insertedBattleCount += pendingBattles.size();
-    		}
-    		if (!pendingDecks.isEmpty()) {
-    			log.info("[siege-upload] insertGuildSiegeBattleDeckBatch rows={} (단건 insertGuildSiegeBattleDeck 아님)", pendingDecks.size());
+    			log.info("[siege-upload] persistSiegeUploadBattlesAndRefreshStats rows={}", pendingBattles.size());
+    			insertedBattleCount += swService.persistSiegeUploadBattlesAndRefreshStats(pendingBattles, pendingDecks);
+    		} else if (!pendingDecks.isEmpty()) {
+    			log.info("[siege-upload] insertGuildSiegeBattleDeckBatch rows={} (battle 없음)", pendingDecks.size());
     			swService.insertGuildSiegeBattleDeckBatch(pendingDecks);
-    		}
-    		if (!pendingBattles.isEmpty()) {
-    			// 길드별 업로드 매치 집합 → 매치들이 속한 시즌(season_no) 단위로 재집계
-    			// (전투 일자→guild_siege_season 매핑: 경계월에 다른 시즌 경기가 섞이지 않도록)
-    			java.util.Map<String, java.util.Set<String>> guildToMatchIds = new java.util.LinkedHashMap<>();
-    			for (Map<String, ?> battle : pendingBattles) {
-    				Object matchIdObj = battle.get("match_id");
-    				Object guildIdObj = battle.get("guild_id");
-    				if (matchIdObj == null || guildIdObj == null) {
-    					continue;
-    				}
-    				String matchId = matchIdObj.toString().trim();
-    				String guildId = guildIdObj.toString().trim();
-    				if (matchId.isEmpty() || guildId.isEmpty()) {
-    					continue;
-    				}
-    				guildToMatchIds.computeIfAbsent(guildId, k -> new java.util.LinkedHashSet<>()).add(matchId);
-    			}
-    			for (Map.Entry<String, java.util.Set<String>> e : guildToMatchIds.entrySet()) {
-    				String guildId = e.getKey();
-    				java.util.List<Integer> seasonNos = swService.selectAffectedSeasonNos(guildId, e.getValue());
-    				for (Integer seasonNo : seasonNos) {
-    					if (seasonNo != null) {
-    						swService.refreshSiegeDefenseDeckStatsForGuildSeasonNo(guildId, seasonNo);
-    					}
-    				}
-    			}
     		}
     	}
     	
@@ -995,5 +974,19 @@ public class summonerswarController {
     	
         return new ResponseEntity<>(result, HttpStatus.OK);
     }
+
+	private static int parseRequestInt(Object raw, int defaultVal) {
+		if (raw == null) {
+			return defaultVal;
+		}
+		if (raw instanceof Number number) {
+			return number.intValue();
+		}
+		try {
+			return Integer.parseInt(String.valueOf(raw).trim());
+		} catch (Exception ignore) {
+			return defaultVal;
+		}
+	}
     
 }

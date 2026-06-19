@@ -75,8 +75,14 @@ public interface summonerswarService {
 	int insertGuildSiegeBattleDeckBatch(List<Map<String, String>> rows);
 
 	/**
+	 * 점령전 업로드: battle_log + deck 적재 후 siege_defense_deck_stats·guild_agg 즉시 재집계.
+	 * (별도 Quartz 배치 없이 업로드 API에서 호출)
+	 */
+	int persistSiegeUploadBattlesAndRefreshStats(List<Map<String, ?>> battles, List<Map<String, String>> decks);
+
+	/**
 	 * siege_defense_deck_stats 를 길드·시즌(season_no) 단위로 battle_log_list 에서 재집계합니다.
-	 * 점령전 업로드 직후 호출해 /siege 목록(집계 테이블 경로)과 라이브 로그를 맞춥니다.
+	 * 점령전 업로드 직후 persistSiegeUploadBattlesAndRefreshStats 에서 호출합니다.
 	 */
 	void refreshSiegeDefenseDeckStatsForGuildSeasonNo(String guildId, int seasonNo);
 
