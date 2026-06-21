@@ -151,6 +151,7 @@ public class GuildController {
 
 		service.updateGuild(safeParam);
 		result.put("result", "SUCCESS");
+		result.put("message", "길드 정보가 저장되었습니다.");
 		result.put("guild_id", sessGuildId);
 		return ResponseEntity.ok(result);
 	}
