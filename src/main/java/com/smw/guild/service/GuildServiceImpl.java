@@ -513,6 +513,11 @@ public class GuildServiceImpl implements GuildService {
 	}
 
 	@Override
+	public Map<String, ?> selectJoinApplicationDetail(Map<String, Object> param) {
+		return joinApplicationMapper.selectJoinApplicationDetail(param);
+	}
+
+	@Override
 	public Map<String, ?> selectMyPendingJoinApplication(Map<String, Object> param) {
 		return joinApplicationMapper.selectMyPendingJoinApplication(param);
 	}
@@ -744,7 +749,27 @@ public class GuildServiceImpl implements GuildService {
 		}
 		String againStatus = normalizeJoinApplicationStatus(
 			again.get("status") != null ? again.get("status").toString() : null);
-		return targetStatus.equals(againStatus) ? 1 : 0;
+		if (targetStatus.equals(againStatus)) {
+			return 1;
+		}
+		// 승인: 길드원 등록은 됐는데 신청 상태 UPDATE만 실패한 경우(동시 처리·부분 커밋)도 성공 처리
+		if ("APPROVED".equals(targetStatus)) {
+			String applicantUserId = again.get("user_id") != null ? again.get("user_id").toString() : null;
+			Object gidObj = again.get("guild_id");
+			if (applicantUserId != null && gidObj != null) {
+				Map<String, Object> checkParam = new HashMap<>();
+				checkParam.put("user_id", applicantUserId);
+				Map<String, ?> existingGuild = mapper.selectUserGuild(checkParam);
+				if (existingGuild != null
+					&& String.valueOf(existingGuild.get("guild_id")).equals(String.valueOf(gidObj))) {
+					log.warn(
+						"가입 신청 승인 멱등: user_id={} 는 guild_id={} 소속이나 application_id={} 상태={}",
+						applicantUserId, gidObj, param.get("application_id"), againStatus);
+					return 1;
+				}
+			}
+		}
+		return 0;
 	}
 	
 	@Override

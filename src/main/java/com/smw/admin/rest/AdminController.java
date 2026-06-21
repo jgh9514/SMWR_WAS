@@ -188,8 +188,15 @@ public class AdminController {
 			response.put("success", true);
 			response.put("message", "수정되었습니다.");
 		} else {
-			response.put("success", false);
-			response.put("message", "수정에 실패했습니다.");
+			// UPDATE 0건(변경 없음)이어도 몬스터가 존재하면 멱등 성공
+			Map<String, Object> existing = adminMonsterService.getMonsterDetail(monsterId);
+			if (existing != null && !existing.isEmpty()) {
+				response.put("success", true);
+				response.put("message", "수정되었습니다.");
+			} else {
+				response.put("success", false);
+				response.put("message", "수정에 실패했습니다.");
+			}
 		}
 		
 		return ResponseEntity.ok(response);

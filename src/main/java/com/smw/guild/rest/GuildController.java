@@ -579,8 +579,44 @@ public class GuildController {
 					result.put("message", "가입 신청을 반려했습니다.");
 				}
 			} else {
-				result.put("result", "FAIL");
-				result.put("message", "처리할 수 없는 신청입니다.");
+				Map<String, Object> detailParam = new HashMap<>();
+				detailParam.put("application_id", param.get("application_id"));
+				Map<String, ?> application = service.selectJoinApplicationDetail(detailParam);
+				String reqStatus = param.get("status") != null ? param.get("status").toString().trim().toUpperCase() : "";
+				if (application != null && application.get("status") != null
+					&& reqStatus.equals(String.valueOf(application.get("status")).trim().toUpperCase())) {
+					result.put("result", "SUCCESS");
+					if ("APPROVED".equals(reqStatus)) {
+						result.put("message", "가입 신청을 승인했습니다.");
+					} else if ("REJECTED".equals(reqStatus)) {
+						result.put("message", "가입 신청을 반려했습니다.");
+					} else {
+						result.put("message", "처리되었습니다.");
+					}
+				} else if ("APPROVED".equals(reqStatus) && application != null) {
+					String applicantUserId = application.get("user_id") != null
+						? application.get("user_id").toString() : null;
+					Object gidObj = application.get("guild_id");
+					if (applicantUserId != null && gidObj != null) {
+						Map<String, Object> guildCheck = new HashMap<>();
+						guildCheck.put("user_id", applicantUserId);
+						Map<String, ?> userGuild = service.selectUserGuild(guildCheck);
+						if (userGuild != null
+							&& String.valueOf(userGuild.get("guild_id")).equals(String.valueOf(gidObj))) {
+							result.put("result", "SUCCESS");
+							result.put("message", "가입 신청을 승인했습니다.");
+						} else {
+							result.put("result", "FAIL");
+							result.put("message", "처리할 수 없는 신청입니다.");
+						}
+					} else {
+						result.put("result", "FAIL");
+						result.put("message", "처리할 수 없는 신청입니다.");
+					}
+				} else {
+					result.put("result", "FAIL");
+					result.put("message", "처리할 수 없는 신청입니다.");
+				}
 			}
 		} catch (IllegalArgumentException e) {
 			result.put("result", "FAIL");
